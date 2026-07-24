@@ -1483,6 +1483,21 @@ esp_err_t solar_os_terminal_set_orientation(solar_os_terminal_t *terminal, uint1
     return terminal_save_u16(TERM_NVS_ORIENTATION_KEY, degrees);
 }
 
+esp_err_t solar_os_terminal_set_orientation_transient(solar_os_terminal_t *terminal,
+                                                      uint16_t degrees)
+{
+    if (terminal == NULL || !terminal_orientation_is_valid(degrees)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (terminal->orientation_degrees == degrees) {
+        return ESP_OK;
+    }
+
+    terminal->orientation_degrees = degrees;
+    terminal_apply_settings(terminal, true);
+    return ESP_OK;
+}
+
 solar_os_terminal_font_t solar_os_terminal_font(const solar_os_terminal_t *terminal)
 {
     return terminal != NULL ? terminal->font : SOLAR_OS_TERMINAL_FONT_MONO;
@@ -1501,6 +1516,22 @@ esp_err_t solar_os_terminal_set_font(solar_os_terminal_t *terminal, solar_os_ter
     terminal->font = font;
     terminal_apply_settings(terminal, true);
     return terminal_save_u16(TERM_NVS_FONT_KEY, (uint16_t)font);
+}
+
+esp_err_t solar_os_terminal_set_font_transient(solar_os_terminal_t *terminal,
+                                               solar_os_terminal_font_t font)
+{
+    if (terminal == NULL ||
+        (size_t)font >= sizeof(terminal_font_families) / sizeof(terminal_font_families[0])) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (terminal->font == font) {
+        return ESP_OK;
+    }
+
+    terminal->font = font;
+    terminal_apply_settings(terminal, true);
+    return ESP_OK;
 }
 
 const char *solar_os_terminal_font_name(solar_os_terminal_font_t font)

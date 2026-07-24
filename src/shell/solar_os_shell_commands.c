@@ -1327,7 +1327,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        const esp_err_t err = solar_os_terminal_set_orientation(display, (uint16_t)degrees);
+        const esp_err_t err =
+            solar_os_sessions_set_terminal_orientation(display, (uint16_t)degrees);
         setterm_print_save_result(term, "orientation", argv[2], err);
         return;
     }
@@ -1351,7 +1352,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        const esp_err_t err = solar_os_terminal_set_font(display, font);
+        const esp_err_t err = solar_os_sessions_set_terminal_font(display, font);
         setterm_print_save_result(term, "font", argv[2], err);
         return;
     }
@@ -1376,7 +1377,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        const esp_err_t err = solar_os_terminal_set_text_size(display, text_size);
+        const esp_err_t err = solar_os_sessions_set_terminal_text_size(display, text_size);
         setterm_print_save_result(term, "textsize", argv[2], err);
         return;
     }

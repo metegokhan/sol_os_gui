@@ -148,6 +148,10 @@ setterm otaurl [url]
 
 `setterm profile` is runtime-only and applies to the current port shell. From
 the display shell it prints guidance to set the profile from a port shell.
+Display layout settings (`orientation`, `font`, and `textsize`) apply to the
+current display and its app sessions. Settings on the primary display are
+persistent; settings on secondary or virtual displays such as `web0` are
+runtime-only.
 
 ## Apps And Jobs
 

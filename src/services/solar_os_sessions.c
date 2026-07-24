@@ -426,6 +426,26 @@ static bool session_uses_same_display(const solar_os_session_entry_t *left,
         strcmp(left->display_target, right->display_target) == 0;
 }
 
+static solar_os_session_entry_t *session_find_by_terminal(const solar_os_terminal_t *terminal)
+{
+    if (terminal == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        if (session_state.sessions[i].used &&
+            session_state.sessions[i].terminal == terminal) {
+            return &session_state.sessions[i];
+        }
+    }
+    return NULL;
+}
+
+static bool session_terminal_setting_is_persistent(const solar_os_session_entry_t *session)
+{
+    return session == NULL ||
+        session_effective_gfx(session) == session_state.default_gfx;
+}
+
 static void session_free_terminal(solar_os_session_entry_t *session)
 {
     if (session == NULL) {
@@ -1461,6 +1481,81 @@ void solar_os_sessions_set_status_bar(const solar_os_status_bar_t *status)
             solar_os_terminal_set_status_bar(terminal, status);
         }
     }
+}
+
+esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,
+                                                     uint16_t degrees)
+{
+    solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
+    const esp_err_t err = session_terminal_setting_is_persistent(owner) ?
+        solar_os_terminal_set_orientation(terminal, degrees) :
+        solar_os_terminal_set_orientation_transient(terminal, degrees);
+    if (err == ESP_ERR_INVALID_ARG) {
+        return err;
+    }
+
+    if (owner != NULL) {
+        for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+            solar_os_session_entry_t *peer = &session_state.sessions[i];
+            if (peer->used &&
+                peer->terminal != NULL &&
+                peer->terminal != terminal &&
+                session_uses_same_display(owner, peer)) {
+                (void)solar_os_terminal_set_orientation_transient(peer->terminal, degrees);
+            }
+        }
+    }
+    return err;
+}
+
+esp_err_t solar_os_sessions_set_terminal_font(solar_os_terminal_t *terminal,
+                                              solar_os_terminal_font_t font)
+{
+    solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
+    const esp_err_t err = session_terminal_setting_is_persistent(owner) ?
+        solar_os_terminal_set_font(terminal, font) :
+        solar_os_terminal_set_font_transient(terminal, font);
+    if (err == ESP_ERR_INVALID_ARG) {
+        return err;
+    }
+
+    if (owner != NULL) {
+        for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+            solar_os_session_entry_t *peer = &session_state.sessions[i];
+            if (peer->used &&
+                peer->terminal != NULL &&
+                peer->terminal != terminal &&
+                session_uses_same_display(owner, peer)) {
+                (void)solar_os_terminal_set_font_transient(peer->terminal, font);
+            }
+        }
+    }
+    return err;
+}
+
+esp_err_t solar_os_sessions_set_terminal_text_size(solar_os_terminal_t *terminal,
+                                                   solar_os_terminal_text_size_t text_size)
+{
+    solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
+    const esp_err_t err = session_terminal_setting_is_persistent(owner) ?
+        solar_os_terminal_set_text_size(terminal, text_size) :
+        solar_os_terminal_set_text_size_transient(terminal, text_size);
+    if (err == ESP_ERR_INVALID_ARG) {
+        return err;
+    }
+
+    if (owner != NULL) {
+        for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+            solar_os_session_entry_t *peer = &session_state.sessions[i];
+            if (peer->used &&
+                peer->terminal != NULL &&
+                peer->terminal != terminal &&
+                session_uses_same_display(owner, peer)) {
+                (void)solar_os_terminal_set_text_size_transient(peer->terminal, text_size);
+            }
+        }
+    }
+    return err;
 }
 
 bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *session_id)
