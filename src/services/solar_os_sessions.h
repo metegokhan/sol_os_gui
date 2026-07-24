@@ -42,6 +42,14 @@ esp_err_t solar_os_sessions_create_display_shell(const char *target_name,
                                                  uint8_t *session_id,
                                                  char *busy_owner,
                                                  size_t busy_owner_len);
+esp_err_t solar_os_sessions_create_detached_display_shell(const char *target_name,
+                                                          uint8_t *session_id,
+                                                          char *busy_owner,
+                                                          size_t busy_owner_len);
+bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *session_id);
+bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
+                                              const solar_os_event_t *event);
+esp_err_t solar_os_sessions_close_display(const char *target_name);
 esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_t *io);
 esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *io);
 size_t solar_os_sessions_active_count(void);

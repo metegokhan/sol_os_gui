@@ -61,7 +61,7 @@ digraph solar_os_architecture {
             label=<
                 <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
                     <TR><TD><B>Background jobs</B></TD></TR>
-                    <TR><TD>httpd / displayd shared HTTP server</TD></TR>
+                    <TR><TD>httpd / displayd shared HTTP server + web0</TD></TR>
                     <TR><TD>telnetd remote shell server</TD></TR>
                     <TR><TD>ntp-sync wall-clock sync</TD></TR>
                     <TR><TD>start, stop, tick lifecycle</TD></TR>

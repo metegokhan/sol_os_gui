@@ -16,9 +16,11 @@
 #include "solar_os_queue.h"
 #include "solar_os_sessions.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_virtual_display.h"
 
 #define DISPLAYD_ROUTE_OWNER "job:displayd"
 #define DISPLAYD_DEFAULT_TARGET "display0"
+#define DISPLAYD_VIRTUAL_TARGET "web0"
 #define DISPLAYD_INPUT_QUEUE_LEN 64U
 #define DISPLAYD_INPUT_BODY_MAX 32U
 #define DISPLAYD_TICK_INTERVAL_MS 25U
@@ -29,10 +31,15 @@ static const char *TAG = "solar_os_displayd";
 typedef struct {
     bool running;
     bool draining;
+    bool detached_session;
+    uint8_t session_id;
+    solar_os_virtual_display_t *virtual_display;
     char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     char frame_uri[SOLAR_OS_HTTP_ROUTE_URI_MAX];
     char raw_uri[SOLAR_OS_HTTP_ROUTE_URI_MAX];
     char input_uri[SOLAR_OS_HTTP_ROUTE_URI_MAX];
+    uint16_t width;
+    uint16_t height;
     uint16_t native_width;
     uint16_t native_height;
     uint16_t native_stride;
@@ -47,6 +54,41 @@ typedef struct {
 } displayd_state_t;
 
 static displayd_state_t displayd;
+
+static esp_err_t displayd_release_resources(void)
+{
+    esp_err_t ret = ESP_OK;
+    if (displayd.detached_session && displayd.target[0] != '\0') {
+        const esp_err_t close_err = solar_os_sessions_close_display(displayd.target);
+        if (close_err != ESP_OK && close_err != ESP_ERR_NOT_FOUND) {
+            ret = close_err;
+        } else {
+            displayd.detached_session = false;
+        }
+    }
+    if (displayd.target[0] != '\0') {
+        solar_os_display_stop_frame_export(displayd.target);
+    }
+
+    solar_os_memory_free(displayd.raw_response);
+    displayd.raw_response = NULL;
+    displayd.raw_response_size = 0;
+    solar_os_queue_delete(displayd.input);
+    displayd.input = NULL;
+
+    if (displayd.virtual_display != NULL) {
+        const esp_err_t destroy_err =
+            solar_os_virtual_display_destroy(displayd.virtual_display);
+        if (destroy_err != ESP_OK) {
+            return destroy_err;
+        }
+        displayd.virtual_display = NULL;
+    }
+    if (ret == ESP_OK) {
+        memset(&displayd, 0, sizeof(displayd));
+    }
+    return ret;
+}
 
 static const char display_page[] =
     "<!doctype html><html><head><meta charset=utf-8>"
@@ -172,8 +214,8 @@ static esp_err_t displayd_list_handler(httpd_req_t *req, void *user)
                              target.name,
                              target.source,
                              target.driver,
-                             (unsigned)target.width,
-                             (unsigned)target.height,
+                             (unsigned)state->width,
+                             (unsigned)state->height,
                              (unsigned)state->native_width,
                              (unsigned)state->native_height,
                              (unsigned)state->native_stride,
@@ -494,20 +536,35 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
         if (drain_err != ESP_OK && drain_err != ESP_ERR_NOT_FOUND) {
             return drain_err;
         }
-        solar_os_memory_free(displayd.raw_response);
-        solar_os_queue_delete(displayd.input);
-        memset(&displayd, 0, sizeof(displayd));
-    }
-    const char *target_name = argc == 2 ? argv[1] : DISPLAYD_DEFAULT_TARGET;
-    solar_os_display_target_t target;
-    if (!solar_os_display_find_target(target_name, &target)) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    if (!target.ready || target.u8g2 == NULL) {
-        return ESP_ERR_INVALID_STATE;
+        const esp_err_t cleanup_err = displayd_release_resources();
+        if (cleanup_err != ESP_OK) {
+            return cleanup_err;
+        }
     }
 
     memset(&displayd, 0, sizeof(displayd));
+    const char *target_name = argc == 2 ? argv[1] : DISPLAYD_DEFAULT_TARGET;
+    solar_os_display_target_t target;
+    if (argc == 1 && !solar_os_display_find_target(target_name, &target)) {
+        target_name = DISPLAYD_VIRTUAL_TARGET;
+    }
+    if (strcmp(target_name, DISPLAYD_VIRTUAL_TARGET) == 0 &&
+        !solar_os_display_find_target(target_name, &target)) {
+        esp_err_t create_err =
+            solar_os_virtual_display_create(target_name, &displayd.virtual_display);
+        if (create_err != ESP_OK) {
+            return create_err;
+        }
+    }
+    if (!solar_os_display_find_target(target_name, &target)) {
+        (void)displayd_release_resources();
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (!target.ready || target.u8g2 == NULL) {
+        (void)displayd_release_resources();
+        return ESP_ERR_INVALID_STATE;
+    }
+
     strlcpy(displayd.target, target.name, sizeof(displayd.target));
     if (snprintf(displayd.frame_uri,
                  sizeof(displayd.frame_uri),
@@ -521,19 +578,36 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
                  sizeof(displayd.input_uri),
                  "/api/displays/%s/input",
                  displayd.target) >= (int)sizeof(displayd.input_uri)) {
+        (void)displayd_release_resources();
         return ESP_ERR_INVALID_SIZE;
     }
 
     displayd.input = solar_os_queue_create(DISPLAYD_INPUT_QUEUE_LEN, sizeof(uint8_t));
     if (displayd.input == NULL) {
+        (void)displayd_release_resources();
         return ESP_ERR_NO_MEM;
     }
 
-    esp_err_t err = solar_os_display_start_frame_export(displayd.target);
+    esp_err_t err = ESP_OK;
+    if (strcmp(target.source, "virtual") == 0) {
+        char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+        err = solar_os_sessions_create_detached_display_shell(displayd.target,
+                                                              &displayd.session_id,
+                                                              busy_owner,
+                                                              sizeof(busy_owner));
+        if (err == ESP_OK) {
+            displayd.detached_session = true;
+        }
+    }
+    if (err == ESP_OK) {
+        err = solar_os_display_start_frame_export(displayd.target);
+    }
     solar_os_display_frame_t initial_frame;
     if (err == ESP_OK) {
         err = solar_os_display_acquire_frame(displayd.target, &initial_frame);
         if (err == ESP_OK) {
+            displayd.width = initial_frame.width;
+            displayd.height = initial_frame.height;
             displayd.native_width = initial_frame.native_width;
             displayd.native_height = initial_frame.native_height;
             displayd.native_stride = initial_frame.native_stride;
@@ -554,10 +628,12 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
         err = displayd_register_routes();
     }
     if (err != ESP_OK) {
-        solar_os_display_stop_frame_export(displayd.target);
-        solar_os_memory_free(displayd.raw_response);
-        solar_os_queue_delete(displayd.input);
-        memset(&displayd, 0, sizeof(displayd));
+        const esp_err_t cleanup_err = displayd_release_resources();
+        if (cleanup_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG,
+                          "start cleanup failed: %s",
+                          esp_err_to_name(cleanup_err));
+        }
         return err;
     }
 
@@ -565,7 +641,7 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
     (void)solar_os_jobs_note_resource(solar_os_displayd_job.name,
                                       SOLAR_OS_JOB_RESOURCE_CUSTOM,
                                       displayd.target,
-                                      "mirror");
+                                      displayd.detached_session ? "virtual" : "mirror");
     char port[16];
     snprintf(port, sizeof(port), "tcp:%u", (unsigned)solar_os_http_server_port());
     (void)solar_os_jobs_note_resource(solar_os_displayd_job.name,
@@ -581,12 +657,19 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
                                  "displayd access code: %s\n",
                                  (unsigned)solar_os_http_server_port(),
                                  token);
+        if (displayd.detached_session) {
+            solar_os_shell_io_printf(io,
+                                     "displayd: %s shell is session %u\n",
+                                     displayd.target,
+                                     (unsigned)displayd.session_id);
+        }
         solar_os_shell_io_flush(io);
         memset(token, 0, sizeof(token));
     }
 
     SOLAR_OS_LOGI(TAG,
-                  "mirroring %s on port %u",
+                  "%s %s on port %u",
+                  displayd.detached_session ? "serving" : "mirroring",
                   displayd.target,
                   (unsigned)solar_os_http_server_port());
     return ESP_OK;
@@ -601,21 +684,27 @@ static void displayd_job_stop(solar_os_context_t *ctx)
     if (unregister_err != ESP_OK && unregister_err != ESP_ERR_NOT_FOUND) {
         SOLAR_OS_LOGW(TAG, "route unregister failed: %s", esp_err_to_name(unregister_err));
     }
-    solar_os_display_stop_frame_export(displayd.target);
     if (unregister_err == ESP_ERR_TIMEOUT) {
         displayd.draining = true;
         return;
     }
-    solar_os_memory_free(displayd.raw_response);
-    displayd.raw_response = NULL;
-    solar_os_queue_delete(displayd.input);
-    displayd.input = NULL;
+    const uint32_t frame_requests =
+        __atomic_load_n(&displayd.frame_requests, __ATOMIC_RELAXED);
+    const uint32_t input_requests =
+        __atomic_load_n(&displayd.input_requests, __ATOMIC_RELAXED);
+    const uint32_t dropped_input =
+        __atomic_load_n(&displayd.dropped_input, __ATOMIC_RELAXED);
+    const esp_err_t cleanup_err = displayd_release_resources();
+    if (cleanup_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "cleanup failed: %s", esp_err_to_name(cleanup_err));
+        displayd.draining = true;
+        return;
+    }
     SOLAR_OS_LOGI(TAG,
                   "stopped: frames=%u input=%u dropped=%u",
-                  (unsigned)__atomic_load_n(&displayd.frame_requests, __ATOMIC_RELAXED),
-                  (unsigned)__atomic_load_n(&displayd.input_requests, __ATOMIC_RELAXED),
-                  (unsigned)__atomic_load_n(&displayd.dropped_input, __ATOMIC_RELAXED));
-    memset(&displayd, 0, sizeof(displayd));
+                  (unsigned)frame_requests,
+                  (unsigned)input_requests,
+                  (unsigned)dropped_input);
 }
 
 static bool displayd_job_event(solar_os_context_t *ctx, const solar_os_event_t *event)
@@ -632,24 +721,32 @@ static bool displayd_job_event(solar_os_context_t *ctx, const solar_os_event_t *
     size_t drained = 0;
     while (drained++ < DISPLAYD_INPUT_BODY_MAX &&
            xQueueReceive(displayd.input, &ch, 0) == pdTRUE) {
-        if (!solar_os_sessions_foreground_uses_display(displayd.target)) {
-            (void)__atomic_fetch_add(&displayd.dropped_input, 1U, __ATOMIC_RELAXED);
-            continue;
-        }
         const solar_os_event_t input_event = {
             .type = SOLAR_OS_EVENT_CHAR,
             .data.ch = (char)ch,
         };
         solar_os_power_note_activity(event->data.tick_ms);
-        solar_os_sessions_dispatch_foreground_event(&input_event);
-        solar_os_sessions_process_requests();
+        bool dispatched = false;
+        if (displayd.detached_session) {
+            uint8_t active_session = 0;
+            dispatched =
+                solar_os_sessions_active_for_display(displayd.target, &active_session) &&
+                solar_os_sessions_dispatch_session_event(active_session, &input_event);
+        } else if (solar_os_sessions_foreground_uses_display(displayd.target)) {
+            solar_os_sessions_dispatch_foreground_event(&input_event);
+            solar_os_sessions_process_requests();
+            dispatched = true;
+        }
+        if (!dispatched) {
+            (void)__atomic_fetch_add(&displayd.dropped_input, 1U, __ATOMIC_RELAXED);
+        }
     }
     return false;
 }
 
 const solar_os_job_t solar_os_displayd_job = {
     .name = "displayd",
-    .summary = "authenticated HTTP display mirror",
+    .summary = "authenticated HTTP display",
     .start = displayd_job_start,
     .stop = displayd_job_stop,
     .event = displayd_job_event,

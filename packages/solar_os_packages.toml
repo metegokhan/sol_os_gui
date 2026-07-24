@@ -665,7 +665,10 @@ capabilities = ["wifi"]
 [packages.job_displayd]
 label = "job.displayd"
 depends = ["service_http_server"]
-sources = ["jobs/solar_os_displayd_job.c"]
+sources = [
+  "jobs/solar_os_displayd_job.c",
+  "services/solar_os_virtual_display.c",
+]
 requires = ["heap"]
 capabilities = ["gfx", "psram", "wifi"]
 

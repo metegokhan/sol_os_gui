@@ -309,8 +309,18 @@ Notes:
 
 ## displayd
 
-Authenticated HTTP mirror and remote control for an active display target.
-`display0` is used when no target is specified.
+Authenticated HTTP display and remote control. It has two modes:
+
+- With a physical target such as `display0`, it mirrors and controls the
+  foreground session using that display without allocating another display
+  framebuffer.
+- With `web0`, it creates an independent 400x300 monochrome virtual display
+  and a detached display shell. Apps launched from that shell stay on `web0`
+  and do not replace the foreground app on a physical display.
+
+With no target argument, `displayd` mirrors `display0` when it exists and
+otherwise creates `web0`. The latter makes the same command useful on headless
+PSRAM-equipped boards.
 
 Usage:
 
@@ -325,6 +335,7 @@ Example:
 ```text
 wifi on
 job start displayd
+job start displayd web0
 ```
 
 Starting the job prints a random six-digit access code. Open
@@ -338,9 +349,9 @@ API:
 
 ```text
 GET  /api/displays
-GET  /api/displays/display0/frame.pbm
-GET  /api/displays/display0/frame.raw
-POST /api/displays/display0/input
+GET  /api/displays/<target>/frame.pbm
+GET  /api/displays/<target>/frame.raw
+POST /api/displays/<target>/input
 ```
 
 All API requests require `Authorization: Bearer <code>`. The access code is
@@ -349,11 +360,21 @@ can prompt for the code, but keeps the supplied code only in page memory.
 
 Notes:
 
-- The mirror reuses the active U8g2 display and does not create another
-  display session.
+- `web0` is registered as `source=virtual`, `driver=framebuffer` while the job
+  is running. Its framebuffer and session exist independently of whether a
+  browser is connected.
+- `displayd` creates and owns the `web0` shell session itself and prints its
+  session ID. Do not run `session create shell web0` afterward; the target is
+  already attached to the browser-controlled shell.
+- `Ctrl+]` exits a foreground app on `web0` and returns to its detached shell.
+  The physical foreground session is unaffected.
+- The physical mirror reuses the active U8g2 display and does not create
+  another display session.
 - A consistent 1-bit frame snapshot and same-sized raw transmit buffer are held
   in PSRAM while the job runs. For the Waveshare display they consume 30,400
-  bytes in total. HTTP transmission never holds a display or registry lock.
+  bytes in total. `web0` additionally owns its 15,200-byte U8g2 framebuffer,
+  for 45,600 bytes of fixed frame storage in total. HTTP transmission never
+  holds a display or registry lock.
 - The snapshot is copied into the transmit buffer and released before network
   I/O, so a slow browser cannot prevent newer display frames from being
   published.
@@ -362,7 +383,8 @@ Notes:
 - If a browser is still reading a frame when the display presents again, that
   publication is skipped rather than blocking the display.
 - Input is queued by the HTTP task and dispatched only by the normal SolarOS
-  scheduler, and only while the configured target is the foreground display.
+  scheduler. Physical targets accept it only while they are foreground;
+  `web0` receives it through its target-addressed detached session.
 - The server is plain HTTP. The six-digit code provides convenient access
   control on a trusted Wi-Fi network but does not encrypt frames or input and
   is not intended for exposure to an untrusted network.

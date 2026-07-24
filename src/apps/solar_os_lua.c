@@ -168,6 +168,9 @@ typedef struct {
 
 typedef struct {
     solar_os_context_t *ctx;
+    solar_os_terminal_t *session_terminal;
+    solar_os_shell_io_t *session_io;
+    solar_os_gfx_t *session_gfx;
     solar_os_shell_io_t fallback_io;
     QueueHandle_t events;
     QueueHandle_t input;
@@ -3294,7 +3297,7 @@ static int solua_apps_find(lua_State *L)
 
 static solar_os_shell_io_t *solua_current_io(void)
 {
-    return solua.ctx != NULL ? solua_io(solua.ctx) : NULL;
+    return solua.session_io;
 }
 
 static solar_os_gfx_t *solua_current_gfx(void)
@@ -3302,7 +3305,7 @@ static solar_os_gfx_t *solua_current_gfx(void)
     if (solua.claimed_gfx != NULL) {
         return solua.claimed_gfx;
     }
-    return solua.ctx != NULL ? solar_os_context_gfx(solua.ctx) : NULL;
+    return solua.session_gfx;
 }
 
 static const char *solua_gfx_owner(void)
@@ -4441,8 +4444,11 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
 {
     memset(&solua, 0, sizeof(solua));
     solua.ctx = ctx;
+    solua.session_terminal = solar_os_context_terminal(ctx);
+    solua.session_gfx = solar_os_context_gfx(ctx);
 
     solar_os_shell_io_t *io = solua_io(ctx);
+    solua.session_io = io;
     const int argc = solar_os_context_argc(ctx);
     if (argc > SOLAR_OS_APP_ARG_MAX) {
         solar_os_shell_io_writeln(io, "lua: too many arguments");
@@ -4797,8 +4803,8 @@ static void solua_apply_gfx_event(solar_os_context_t *ctx, const solua_event_t *
     case SOLUA_EVENT_GFX_END:
         solar_os_context_set_graphics_active(ctx, false);
         solua_gfx_release_target_name(event->data_len > 0 ? event->data : NULL);
-        if (solar_os_context_terminal(ctx) != NULL) {
-            solar_os_terminal_draw(solar_os_context_terminal(ctx));
+        if (solua.session_terminal != NULL) {
+            solar_os_terminal_draw(solua.session_terminal);
         }
         return;
     default:

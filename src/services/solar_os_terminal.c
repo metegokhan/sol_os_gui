@@ -843,6 +843,29 @@ void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2)
     terminal->dirty = true;
 }
 
+void solar_os_terminal_deinit(solar_os_terminal_t *terminal)
+{
+    if (terminal == NULL) {
+        return;
+    }
+
+    solar_os_memory_free(terminal->scrollback);
+    solar_os_memory_free(terminal->scrollback_bold);
+    solar_os_memory_free(terminal->scrollback_italic);
+    solar_os_memory_free(terminal->scrollback_underline);
+    solar_os_memory_free(terminal->scrollback_inverse);
+    terminal->scrollback = NULL;
+    terminal->scrollback_bold = NULL;
+    terminal->scrollback_italic = NULL;
+    terminal->scrollback_underline = NULL;
+    terminal->scrollback_inverse = NULL;
+    terminal->scrollback_capacity = 0;
+    terminal->scrollback_start = 0;
+    terminal->scrollback_count = 0;
+    terminal->scrollback_offset = 0;
+    terminal->u8g2 = NULL;
+}
+
 void solar_os_terminal_inherit_text_profile(solar_os_terminal_t *terminal,
                                             const solar_os_terminal_t *source)
 {
