@@ -822,6 +822,9 @@ static const char * const path_job_start_log_file[] = {"job", "start", "log", "f
 static const char * const path_job_start_bridge[] = {"job", "start", "bridge"};
 static const char * const path_job_start_bridge_port[] = {"job", "start", "bridge", SHELL_COMPLETION_ANY};
 static const char * const path_job_start_httpd[] = {"job", "start", "httpd"};
+#if SOLAR_OS_PACKAGE_JOB_DISPLAYD
+static const char * const path_job_start_displayd[] = {"job", "start", "displayd"};
+#endif
 static const char * const path_job_start_ntp_sync[] = {"job", "start", "ntp-sync"};
 #if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
 static const char * const path_job_start_email_sync[] = {"job", "start", "email-sync"};
@@ -1388,6 +1391,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PORTS(path_job_start_bridge),
     SHELL_COMPLETION_PORTS(path_job_start_bridge_port),
     SHELL_COMPLETION_PATH(path_job_start_httpd, true),
+#if SOLAR_OS_PACKAGE_JOB_DISPLAYD
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_job_start_displayd),
+#endif
     SHELL_COMPLETION_STATIC(path_job_start_ntp_sync, ntp_sync_values),
 #if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
     SHELL_COMPLETION_STATIC(path_job_start_email_sync, email_sync_values),

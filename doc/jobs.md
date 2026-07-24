@@ -307,6 +307,67 @@ Notes:
 - CSV rows include a timestamp column and one value column per stream.
 - Available streams depend on board capabilities.
 
+## displayd
+
+Authenticated HTTP mirror and remote control for an active display target.
+`display0` is used when no target is specified.
+
+Usage:
+
+```text
+job start displayd [target]
+job stop displayd
+job status displayd
+```
+
+Example:
+
+```text
+wifi on
+job start displayd
+```
+
+Starting the job prints a random six-digit access code. Open
+`http://<device>/display`, enter that code, and click the displayed image
+before typing. The browser frontend polls the native 1-bit U8g2 frame up to
+twenty times per second and performs pixel rotation in the browser instead of
+the HTTP server task. It sends bounded key input through the scheduler.
+`Ctrl+]` remains the application-exit key.
+
+API:
+
+```text
+GET  /api/displays
+GET  /api/displays/display0/frame.pbm
+GET  /api/displays/display0/frame.raw
+POST /api/displays/display0/input
+```
+
+All API requests require `Authorization: Bearer <code>`. The access code is
+never accepted in the URL. The built-in frontend itself is public so that it
+can prompt for the code, but keeps the supplied code only in page memory.
+
+Notes:
+
+- The mirror reuses the active U8g2 display and does not create another
+  display session.
+- A consistent 1-bit frame snapshot and same-sized raw transmit buffer are held
+  in PSRAM while the job runs. For the Waveshare display they consume 30,400
+  bytes in total. HTTP transmission never holds a display or registry lock.
+- The snapshot is copied into the transmit buffer and released before network
+  I/O, so a slow browser cannot prevent newer display frames from being
+  published.
+- The browser uses `frame.raw` to avoid per-pixel PBM conversion on the ESP32.
+  The PBM endpoint remains available for simple external clients.
+- If a browser is still reading a frame when the display presents again, that
+  publication is skipped rather than blocking the display.
+- Input is queued by the HTTP task and dispatched only by the normal SolarOS
+  scheduler, and only while the configured target is the foreground display.
+- The server is plain HTTP. The six-digit code provides convenient access
+  control on a trusted Wi-Fi network but does not encrypt frames or input and
+  is not intended for exposure to an untrusted network.
+- `displayd` and `httpd` share one HTTP server and may run simultaneously.
+
 ## httpd
 
 Static HTTP file server for a folder on mounted storage.
@@ -329,6 +390,7 @@ Notes:
 
 - Relative paths resolve under the default storage mount.
 - The server uses the ESP-IDF default HTTP port.
+- It shares the service-owned HTTP server with `displayd`.
 - It serves files and simple directory listings.
 - MIME types are provided for common text, image, audio, JSON, JavaScript, and
   CSS files.

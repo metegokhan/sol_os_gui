@@ -1039,6 +1039,22 @@ bool solar_os_sessions_has_display_shell(void)
     return false;
 }
 
+bool solar_os_sessions_foreground_uses_display(const char *target_name)
+{
+    if (target_name == NULL || target_name[0] == '\0') {
+        return false;
+    }
+    if (session_state.foreground_session != NULL &&
+        session_state.foreground_session->display_target[0] != '\0') {
+        return strcmp(session_state.foreground_session->display_target, target_name) == 0;
+    }
+
+    solar_os_display_target_t target;
+    return solar_os_display_find_target(target_name, &target) &&
+        target.u8g2 != NULL &&
+        target.u8g2 == session_state.display_u8g2;
+}
+
 bool solar_os_sessions_switch_to_app(const solar_os_app_t *app)
 {
     return switch_to_app(app);

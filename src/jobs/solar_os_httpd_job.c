@@ -9,23 +9,22 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "esp_http_server.h"
 #include "solar_os_jobs.h"
+#include "solar_os_http_server.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
-#include "solar_os_task.h"
 
 #define HTTPD_JOB_ROOT_MAX SOLAR_OS_STORAGE_PATH_MAX
 #define HTTPD_JOB_PATH_MAX 256
 #define HTTPD_JOB_CHUNK_SIZE 1024
-#define HTTPD_JOB_STACK_SIZE 6144
+#define HTTPD_JOB_ROUTE_OWNER "job:httpd"
 
 static const char *TAG = "solar_os_httpd";
 
 typedef struct {
     bool running;
-    httpd_handle_t server;
+    bool draining;
     char root[HTTPD_JOB_ROOT_MAX];
     uint32_t request_count;
     uint32_t file_count;
@@ -383,8 +382,9 @@ static esp_err_t send_directory_listing(httpd_req_t *req, const char *relative, 
     return ret;
 }
 
-static esp_err_t httpd_get_handler(httpd_req_t *req)
+static esp_err_t httpd_get_handler(httpd_req_t *req, void *user)
 {
+    (void)user;
     httpd_job.request_count++;
 
     char relative[CONFIG_HTTPD_MAX_URI_LEN + 1];
@@ -436,6 +436,15 @@ static esp_err_t httpd_job_start(solar_os_context_t *ctx, int argc, char **argv)
     if (argc != 2 || argv == NULL || argv[1] == NULL || argv[1][0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
+    if (httpd_job.draining) {
+        const esp_err_t drain_err =
+            solar_os_http_server_unregister_owner(HTTPD_JOB_ROUTE_OWNER);
+        if (drain_err != ESP_OK && drain_err != ESP_ERR_NOT_FOUND) {
+            httpd_job.last_error = drain_err;
+            return drain_err;
+        }
+        memset(&httpd_job, 0, sizeof(httpd_job));
+    }
 
     const char *root_arg = argv[1];
     char root[HTTPD_JOB_ROOT_MAX];
@@ -455,48 +464,22 @@ static esp_err_t httpd_job_start(solar_os_context_t *ctx, int argc, char **argv)
         return ESP_ERR_NOT_FOUND;
     }
 
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.stack_size = HTTPD_JOB_STACK_SIZE;
-    config.max_open_sockets = 4;
-    config.lru_purge_enable = true;
-    config.uri_match_fn = httpd_uri_match_wildcard;
-
-    httpd_handle_t server = NULL;
-    solar_os_task_managed_admission_t admission;
-    if (!solar_os_task_admit_managed("httpd",
-                                     HTTPD_JOB_STACK_SIZE,
-                                     SOLAR_OS_TASK_ROLE_BACKGROUND,
-                                     false,
-                                     &admission)) {
-        httpd_job.last_error = ESP_ERR_NO_MEM;
-        return ESP_ERR_NO_MEM;
-    }
-    esp_err_t ret = httpd_start(&server, &config);
-    solar_os_task_note_managed_result("httpd",
-                                      HTTPD_JOB_STACK_SIZE,
-                                      SOLAR_OS_TASK_ROLE_BACKGROUND,
-                                      &admission,
-                                      ret == ESP_OK);
-    if (ret != ESP_OK) {
-        httpd_job.last_error = ret;
-        return ret;
-    }
-
-    httpd_uri_t get_uri = {
-        .uri = "/*",
-        .method = HTTP_GET,
-        .handler = httpd_get_handler,
-        .user_ctx = NULL,
-    };
-    ret = httpd_register_uri_handler(server, &get_uri);
-    if (ret != ESP_OK) {
-        (void)httpd_stop(server);
-        httpd_job.last_error = ret;
-        return ret;
-    }
-
     strlcpy(httpd_job.root, root, sizeof(httpd_job.root));
-    httpd_job.server = server;
+    const solar_os_http_route_t get_uri = {
+        .owner = HTTPD_JOB_ROUTE_OWNER,
+        .uri = "/",
+        .method = HTTP_GET,
+        .prefix = true,
+        .auth = SOLAR_OS_HTTP_AUTH_PUBLIC,
+        .handler = httpd_get_handler,
+    };
+    esp_err_t ret = solar_os_http_server_register_route(&get_uri);
+    if (ret != ESP_OK) {
+        httpd_job.root[0] = '\0';
+        httpd_job.last_error = ret;
+        return ret;
+    }
+
     httpd_job.running = true;
     httpd_job.request_count = 0;
     httpd_job.file_count = 0;
@@ -507,13 +490,16 @@ static esp_err_t httpd_job_start(solar_os_context_t *ctx, int argc, char **argv)
                                       httpd_job.root,
                                       "serve");
     char port[16];
-    snprintf(port, sizeof(port), "tcp:%u", (unsigned)config.server_port);
+    snprintf(port, sizeof(port), "tcp:%u", (unsigned)solar_os_http_server_port());
     (void)solar_os_jobs_note_resource(solar_os_httpd_job.name,
                                       SOLAR_OS_JOB_RESOURCE_NET,
                                       port,
                                       "listen");
 
-    SOLAR_OS_LOGI(TAG, "started on port %u root=%s", (unsigned)config.server_port, httpd_job.root);
+    SOLAR_OS_LOGI(TAG,
+                  "started on port %u root=%s",
+                  (unsigned)solar_os_http_server_port(),
+                  httpd_job.root);
     return ESP_OK;
 }
 
@@ -521,8 +507,15 @@ static void httpd_job_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
 
-    if (httpd_job.server != NULL) {
-        (void)httpd_stop(httpd_job.server);
+    httpd_job.running = false;
+    const esp_err_t unregister_err =
+        solar_os_http_server_unregister_owner(HTTPD_JOB_ROUTE_OWNER);
+    if (unregister_err != ESP_OK && unregister_err != ESP_ERR_NOT_FOUND) {
+        SOLAR_OS_LOGW(TAG, "route unregister failed: %s", esp_err_to_name(unregister_err));
+    }
+    if (unregister_err == ESP_ERR_TIMEOUT) {
+        httpd_job.draining = true;
+        return;
     }
 
     SOLAR_OS_LOGI(TAG,
@@ -532,9 +525,7 @@ static void httpd_job_stop(solar_os_context_t *ctx)
              (unsigned)httpd_job.listing_count,
              httpd_job.root[0] != '\0' ? httpd_job.root : "?");
 
-    httpd_job.server = NULL;
-    httpd_job.running = false;
-    httpd_job.last_error = ESP_OK;
+    memset(&httpd_job, 0, sizeof(httpd_job));
 }
 
 const solar_os_job_t solar_os_httpd_job = {
@@ -543,5 +534,5 @@ const solar_os_job_t solar_os_httpd_job = {
     .start = httpd_job_start,
     .stop = httpd_job_stop,
     .event = NULL,
-    .worker_stack_bytes = HTTPD_JOB_STACK_SIZE,
+    .worker_stack_bytes = 0,
 };

@@ -595,7 +595,6 @@ void solar_os_gfx_present(solar_os_gfx_t *gfx)
         return;
     }
 
-    (void)solar_os_display_request_present_mode(gfx->u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
-    u8g2_SendBuffer(gfx->u8g2);
+    solar_os_display_present(gfx->u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
     gfx->dirty = false;
 }

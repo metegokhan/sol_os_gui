@@ -289,8 +289,7 @@ static void display_draw_test_pattern(u8g2_t *u8g2, const char *name)
     u8g2_DrawStr(u8g2, 6, 24, "SolarOS");
     u8g2_DrawStr(u8g2, 6, 32, name != NULL ? name : "display");
     u8g2_SetDrawColor(u8g2, 1);
-    (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
-    u8g2_SendBuffer(u8g2);
+    solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
 }
 
 static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)

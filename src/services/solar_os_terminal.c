@@ -2443,6 +2443,6 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
         terminal_set_draw_color(terminal, u8g2, 0);
     }
 
-    u8g2_SendBuffer(u8g2);
+    solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
     terminal->dirty = false;
 }

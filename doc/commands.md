@@ -211,6 +211,7 @@ job start log cdc0
 job start log file /.shell/log info
 job start bridge cdc0 uart0
 job start httpd /www
+job start displayd [display-target]
 job start ntp-sync once
 job start batmon 60
 job start slip uart0 115200
