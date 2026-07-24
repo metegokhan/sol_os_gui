@@ -25,6 +25,7 @@ solar_os_terminal_t *solar_os_sessions_foreground_terminal(void);
 bool solar_os_sessions_foreground_is_shell(void);
 bool solar_os_sessions_has_display_shell(void);
 bool solar_os_sessions_foreground_uses_display(const char *target_name);
+void solar_os_sessions_set_status_bar(const solar_os_status_bar_t *status);
 
 bool solar_os_sessions_switch_to_app(const solar_os_app_t *app);
 bool solar_os_sessions_switch_to_app_with_policy(const solar_os_app_t *app,

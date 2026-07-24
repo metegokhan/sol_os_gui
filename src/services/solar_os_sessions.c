@@ -90,6 +90,18 @@ static const solar_os_terminal_t *session_text_profile_source(void)
         session_state.shell_terminal;
 }
 
+static void session_inherit_status_bar(solar_os_terminal_t *terminal)
+{
+    const solar_os_terminal_t *source = session_text_profile_source();
+    if (terminal == NULL || source == NULL || terminal == source) {
+        return;
+    }
+
+    solar_os_status_bar_t status;
+    solar_os_terminal_get_status_bar(source, &status);
+    solar_os_terminal_set_status_bar(terminal, &status);
+}
+
 static void set_current_terminal(solar_os_terminal_t *terminal)
 {
     session_state.current_terminal = terminal;
@@ -495,6 +507,7 @@ static esp_err_t session_ensure_terminal(solar_os_session_entry_t *session)
     }
     solar_os_terminal_init(session_terminal, u8g2);
     solar_os_terminal_inherit_text_profile(session_terminal, session_text_profile_source());
+    session_inherit_status_bar(session_terminal);
     solar_os_terminal_set_black_is_one(session_terminal, black_is_one);
 
     solar_os_shell_io_t *session_io =
@@ -1429,6 +1442,27 @@ bool solar_os_sessions_foreground_uses_display(const char *target_name)
         target.u8g2 == session_state.display_u8g2;
 }
 
+void solar_os_sessions_set_status_bar(const solar_os_status_bar_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    solar_os_terminal_set_status_bar(session_state.shell_terminal, status);
+    if (session_state.current_terminal != session_state.shell_terminal) {
+        solar_os_terminal_set_status_bar(session_state.current_terminal, status);
+    }
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        solar_os_terminal_t *terminal = session_state.sessions[i].used ?
+            session_state.sessions[i].terminal :
+            NULL;
+        if (terminal != session_state.shell_terminal &&
+            terminal != session_state.current_terminal) {
+            solar_os_terminal_set_status_bar(terminal, status);
+        }
+    }
+}
+
 bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *session_id)
 {
     if (target_name == NULL || target_name[0] == '\0' || session_id == NULL) {
@@ -1671,6 +1705,7 @@ static esp_err_t create_display_shell(const char *target_name,
     }
     solar_os_terminal_init(terminal, target.u8g2);
     solar_os_terminal_inherit_text_profile(terminal, session_text_profile_source());
+    session_inherit_status_bar(terminal);
     solar_os_terminal_set_black_is_one(terminal, target.black_is_one);
 
     session->terminal = terminal;

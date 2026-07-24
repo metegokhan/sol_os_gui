@@ -883,7 +883,7 @@ static void dispatch_app_tick(void)
 
 static void update_status(void)
 {
-    if (terminal == NULL) {
+    if (!solar_os_sessions_has_display_shell()) {
         return;
     }
 
@@ -955,7 +955,7 @@ static void update_status(void)
         status.minute = datetime.minute;
     }
 
-    solar_os_terminal_set_status_bar(terminal, &status);
+    solar_os_sessions_set_status_bar(&status);
 }
 
 static void init_peripherals(void)
