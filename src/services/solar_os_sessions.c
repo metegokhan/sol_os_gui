@@ -21,6 +21,7 @@ static const char *TAG = "solar_os_sessions";
 
 typedef struct {
     bool used;
+    bool reserved;
     bool started;
     bool suspended;
     bool claimed;
@@ -375,12 +376,12 @@ static solar_os_session_entry_t *session_alloc_from(const solar_os_app_t *app, s
     }
 
     for (size_t i = start_index; i < SOLAR_OS_SESSION_MAX; i++) {
-        if (session_state.sessions[i].used) {
+        if (session_state.sessions[i].used || session_state.sessions[i].reserved) {
             continue;
         }
         solar_os_session_entry_t *session = &session_state.sessions[i];
         memset(session, 0, sizeof(*session));
-        session->used = true;
+        session->reserved = true;
         session->id = (uint8_t)i;
         session->app = app;
         strlcpy(session->title, app_display_name(app), sizeof(session->title));
@@ -392,6 +393,20 @@ static solar_os_session_entry_t *session_alloc_from(const solar_os_app_t *app, s
 static solar_os_session_entry_t *session_alloc(const solar_os_app_t *app)
 {
     return session_alloc_from(app, 0);
+}
+
+static bool session_is_allocated(const solar_os_session_entry_t *session)
+{
+    return session != NULL && (session->used || session->reserved);
+}
+
+static void session_publish(solar_os_session_entry_t *session)
+{
+    if (session == NULL || !session->reserved) {
+        return;
+    }
+    session->used = true;
+    session->reserved = false;
 }
 
 static solar_os_gfx_t *session_effective_gfx(const solar_os_session_entry_t *session)
@@ -444,6 +459,22 @@ static bool session_terminal_setting_is_persistent(const solar_os_session_entry_
 {
     return session == NULL ||
         session_effective_gfx(session) == session_state.default_gfx;
+}
+
+static uint16_t session_terminal_orientation_for_u8g2(const u8g2_t *u8g2)
+{
+    if (u8g2 != NULL) {
+        if (u8g2->cb == U8G2_R1) {
+            return 0;
+        }
+        if (u8g2->cb == U8G2_R2) {
+            return 90;
+        }
+        if (u8g2->cb == U8G2_R3) {
+            return 180;
+        }
+    }
+    return 270;
 }
 
 static void session_free_terminal(solar_os_session_entry_t *session)
@@ -525,8 +556,10 @@ static esp_err_t session_ensure_terminal(solar_os_session_entry_t *session)
     if (session_terminal == NULL) {
         return ESP_ERR_NO_MEM;
     }
+    const uint16_t orientation = session_terminal_orientation_for_u8g2(u8g2);
     solar_os_terminal_init(session_terminal, u8g2);
     solar_os_terminal_inherit_text_profile(session_terminal, session_text_profile_source());
+    (void)solar_os_terminal_set_orientation_transient(session_terminal, orientation);
     session_inherit_status_bar(session_terminal);
     solar_os_terminal_set_black_is_one(session_terminal, black_is_one);
 
@@ -739,6 +772,9 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
         return false;
     }
     if (session_ensure_terminal(session) != ESP_OK || !session_claim_display(session)) {
+        if (session->reserved) {
+            session_dispose_unstarted(session);
+        }
         return false;
     }
 
@@ -779,6 +815,7 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
     session_update_title(session);
     session_mark_dirty(session);
     session_request_text_present_mode(session);
+    session_publish(session);
     return true;
 }
 
@@ -792,6 +829,9 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
     session_context_capture(&previous);
     solar_os_shell_io_t *launch_io = solar_os_context_shell_io(session_state.ctx);
     if (session_ensure_terminal(session) != ESP_OK || !session_claim_display(session)) {
+        if (session->reserved) {
+            session_dispose_unstarted(session);
+        }
         session_context_restore(&previous);
         return false;
     }
@@ -829,8 +869,8 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
     session_update_title(session);
     session_mark_dirty(session);
     session_request_text_present_mode(session);
-    session_draw_terminal_if_needed(session);
     session_context_restore(&previous);
+    session_publish(session);
     return true;
 }
 
@@ -1131,7 +1171,7 @@ static bool launch_detached_child(solar_os_session_entry_t *parent,
         return true;
     }
 
-    if (child->used) {
+    if (session_is_allocated(child)) {
         session_dispose_unstarted(child);
     }
     (void)start_or_resume_detached_session(parent);
@@ -1798,8 +1838,10 @@ static esp_err_t create_display_shell(const char *target_name,
         session_dispose_unstarted(session);
         return ESP_ERR_NO_MEM;
     }
+    const uint16_t orientation = session_terminal_orientation_for_u8g2(target.u8g2);
     solar_os_terminal_init(terminal, target.u8g2);
     solar_os_terminal_inherit_text_profile(terminal, session_text_profile_source());
+    (void)solar_os_terminal_set_orientation_transient(terminal, orientation);
     session_inherit_status_bar(terminal);
     solar_os_terminal_set_black_is_one(terminal, target.black_is_one);
 
@@ -1815,7 +1857,7 @@ static esp_err_t create_display_shell(const char *target_name,
         switch_to_session(session, true) :
         start_or_resume_detached_session(session);
     if (!started) {
-        if (session->used) {
+        if (session_is_allocated(session)) {
             session_dispose_unstarted(session);
         }
         return ESP_FAIL;

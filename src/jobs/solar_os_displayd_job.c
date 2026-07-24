@@ -155,7 +155,7 @@ static const char display_page[] =
     "const keymap={ArrowUp:128,ArrowDown:129,ArrowLeft:130,ArrowRight:131,"
     "PageUp:132,PageDown:133,Home:148,End:149,Delete:150,Escape:27,"
     "Backspace:8,Enter:13,Tab:9};"
-    "canvas.addEventListener('keydown',async e=>{let k=keymap[e.key];"
+    "async function sendKey(e){let k=keymap[e.key];"
     "if(e.ctrlKey&&e.key===']')k=146;"
     "else if(k===undefined&&e.key.length===1&&!e.metaKey&&!e.altKey){"
     "const c=e.key.charCodeAt(0);if(c<128)k=e.ctrlKey?(c&31):c}"
@@ -163,7 +163,11 @@ static const char display_page[] =
     "try{const r=await fetch(inputUrl,"
     "{method:'POST',headers:{...headers(),'Content-Type':'application/octet-stream'},"
     "body:new Uint8Array([k])});if(!r.ok)throw Error('input HTTP '+r.status)}"
-    "catch(x){status(x.message)}});"
+    "catch(x){status(x.message)}}"
+    "canvas.addEventListener('pointerdown',()=>canvas.focus());"
+    "document.addEventListener('keydown',e=>{"
+    "if(!token||document.activeElement===tokenEl||document.activeElement===button)return;"
+    "sendKey(e)});"
     "</script></body></html>";
 
 static esp_err_t displayd_send_503(httpd_req_t *req, const char *message)
@@ -589,7 +593,10 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
     }
 
     esp_err_t err = ESP_OK;
-    if (strcmp(target.source, "virtual") == 0) {
+    uint8_t active_session = 0;
+    const bool target_has_session =
+        solar_os_sessions_active_for_display(displayd.target, &active_session);
+    if (!target_has_session && target.owner[0] == '\0') {
         char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
         err = solar_os_sessions_create_detached_display_shell(displayd.target,
                                                               &displayd.session_id,
@@ -726,13 +733,12 @@ static bool displayd_job_event(solar_os_context_t *ctx, const solar_os_event_t *
             .data.ch = (char)ch,
         };
         solar_os_power_note_activity(event->data.tick_ms);
-        bool dispatched = false;
-        if (displayd.detached_session) {
-            uint8_t active_session = 0;
-            dispatched =
-                solar_os_sessions_active_for_display(displayd.target, &active_session) &&
-                solar_os_sessions_dispatch_session_event(active_session, &input_event);
-        } else if (solar_os_sessions_foreground_uses_display(displayd.target)) {
+        uint8_t active_session = 0;
+        bool dispatched =
+            solar_os_sessions_active_for_display(displayd.target, &active_session) &&
+            solar_os_sessions_dispatch_session_event(active_session, &input_event);
+        if (!dispatched &&
+            solar_os_sessions_foreground_uses_display(displayd.target)) {
             solar_os_sessions_dispatch_foreground_event(&input_event);
             solar_os_sessions_process_requests();
             dispatched = true;
