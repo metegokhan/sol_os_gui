@@ -25,6 +25,8 @@ typedef struct {
     uint32_t generation;
     solar_os_tick_stats_t tick_stats;
     size_t callback_refs;
+    TaskHandle_t callback_task;
+    bool stop_after_callback;
     bool lifecycle_busy;
     solar_os_job_pending_start_t *pending_start;
     char owner[SOLAR_OS_JOB_OWNER_MAX];
@@ -136,6 +138,23 @@ static void job_pending_start_free(solar_os_job_pending_start_t *pending,
     }
     solar_os_memory_free(pending);
     solar_os_task_note_wait_finished(launched);
+}
+
+static void job_complete_stop(solar_os_job_runtime_t *runtime,
+                              uint32_t generation,
+                              void (*stop)(solar_os_context_t *ctx),
+                              solar_os_context_t *ctx)
+{
+    if (stop != NULL) {
+        stop(ctx);
+    }
+
+    portENTER_CRITICAL(&jobs_lock);
+    if (runtime->generation == generation && runtime->lifecycle_busy) {
+        runtime->last_error = ESP_OK;
+        runtime->lifecycle_busy = false;
+    }
+    portEXIT_CRITICAL(&jobs_lock);
 }
 
 static esp_err_t job_call_start(const solar_os_job_t *job,
@@ -307,6 +326,12 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
         solar_os_memory_free(new_pending);
         return ESP_ERR_INVALID_STATE;
     }
+    if (runtime->callback_refs != 0 &&
+        runtime->callback_task == xTaskGetCurrentTaskHandle()) {
+        portEXIT_CRITICAL(&jobs_lock);
+        solar_os_memory_free(new_pending);
+        return ESP_ERR_INVALID_STATE;
+    }
     runtime->lifecycle_busy = true;
     stop = runtime->state == SOLAR_OS_JOB_RUNNING ? runtime->entry->job->stop : NULL;
     start = runtime->entry->job->start;
@@ -416,6 +441,7 @@ esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name)
 
     void (*stop)(solar_os_context_t *ctx) = NULL;
     uint32_t generation = 0;
+    bool stop_after_callback = false;
     portENTER_CRITICAL(&jobs_lock);
     const int index = job_index_by_name(name);
     if (index < 0) {
@@ -439,10 +465,23 @@ esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name)
     runtime->lifecycle_busy = true;
     stop = runtime->entry != NULL && runtime->entry->job != NULL ?
         runtime->entry->job->stop : NULL;
+    stop_after_callback =
+        runtime->callback_refs != 0 &&
+        runtime->callback_task == xTaskGetCurrentTaskHandle();
+    /*
+     * A job callback can dispatch a shell command (displayd does this for
+     * browser input). It cannot wait for its own callback reference; finish
+     * teardown immediately after that callback returns instead.
+     */
+    runtime->stop_after_callback = stop_after_callback;
     generation = job_next_generation(runtime);
     runtime->state = SOLAR_OS_JOB_STOPPED;
     job_clear_resources_by_index((size_t)index);
     portEXIT_CRITICAL(&jobs_lock);
+
+    if (stop_after_callback) {
+        return ESP_OK;
+    }
 
     for (;;) {
         portENTER_CRITICAL(&jobs_lock);
@@ -453,16 +492,7 @@ esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name)
         }
         vTaskDelay(1);
     }
-    if (stop != NULL) {
-        stop(ctx);
-    }
-
-    portENTER_CRITICAL(&jobs_lock);
-    if (runtime->generation == generation && runtime->lifecycle_busy) {
-        runtime->last_error = ESP_OK;
-        runtime->lifecycle_busy = false;
-    }
-    portEXIT_CRITICAL(&jobs_lock);
+    job_complete_stop(runtime, generation, stop, ctx);
     return ESP_OK;
 }
 
@@ -623,6 +653,7 @@ void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms)
             callback = runtime->entry->job->event;
             generation = runtime->generation;
             runtime->callback_refs++;
+            runtime->callback_task = xTaskGetCurrentTaskHandle();
         }
         portEXIT_CRITICAL(&jobs_lock);
         if (callback == NULL) {
@@ -632,10 +663,26 @@ void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms)
         started_us = solar_os_tick_begin();
         (void)callback(ctx, &event);
         bool deadline_missed = false;
+        bool complete_deferred_stop = false;
+        void (*deferred_stop)(solar_os_context_t *ctx) = NULL;
+        uint32_t deferred_generation = 0;
         solar_os_tick_stats_t tick_stats = {0};
         portENTER_CRITICAL(&jobs_lock);
         if (runtime->callback_refs > 0) {
             runtime->callback_refs--;
+        }
+        if (runtime->callback_refs == 0) {
+            runtime->callback_task = NULL;
+            if (runtime->stop_after_callback &&
+                runtime->lifecycle_busy &&
+                runtime->state == SOLAR_OS_JOB_STOPPED) {
+                runtime->stop_after_callback = false;
+                deferred_stop =
+                    runtime->entry != NULL && runtime->entry->job != NULL ?
+                        runtime->entry->job->stop : NULL;
+                deferred_generation = runtime->generation;
+                complete_deferred_stop = true;
+            }
         }
         if (runtime->generation == generation &&
             runtime->state == SOLAR_OS_JOB_RUNNING) {
@@ -645,6 +692,9 @@ void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms)
             tick_stats = runtime->tick_stats;
         }
         portEXIT_CRITICAL(&jobs_lock);
+        if (complete_deferred_stop) {
+            job_complete_stop(runtime, deferred_generation, deferred_stop, ctx);
+        }
         if (deadline_missed && solar_os_tick_should_log_miss(&tick_stats)) {
             SOLAR_OS_LOGW("solar_os_jobs",
                           "tick miss: %s %" PRIu32 "us>%" PRIu32 "ms n=%" PRIu32,
