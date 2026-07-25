@@ -61,19 +61,12 @@ and apps, jobs, and shell commands use services.
 
 ## Hardware Targets
 
-The status badges below track builds of the full firmware flavor at the current
-`main`. A badge is green only when both the board metadata/documentation check
-and the firmware build pass.
+Current built-in targets include:
 
-| Target | Hardware | `main` status | Automated checks |
-| --- | --- | --- | --- |
-| `waveshare_esp32_s3_rlcd_4_2` | Primary reflective-display pocket terminal | [![Waveshare build](https://github.com/nilseuropa/solar_os/actions/workflows/build-waveshare.yml/badge.svg?branch=main&event=push)](https://github.com/nilseuropa/solar_os/actions/workflows/build-waveshare.yml?query=branch%3Amain+event%3Apush) | Board metadata and docs; full-flavor build |
-| `elecrow_crowpanel_esp32_s3_4_2_epaper` | 400x300 SSD1683 e-paper HMI with rotary controls and microSD | [![Elecrow build](https://github.com/nilseuropa/solar_os/actions/workflows/build-elecrow.yml/badge.svg?branch=main&event=push)](https://github.com/nilseuropa/solar_os/actions/workflows/build-elecrow.yml?query=branch%3Amain+event%3Apush) | Board metadata and docs; full-flavor build |
-| `odroid_go` | Classic ESP32 handheld target | [![ODROID-GO build](https://github.com/nilseuropa/solar_os/actions/workflows/build-odroid-go.yml/badge.svg?branch=main&event=push)](https://github.com/nilseuropa/solar_os/actions/workflows/build-odroid-go.yml?query=branch%3Amain+event%3Apush) | Board metadata and docs; full-flavor build |
-| `esp32_s3_devkitc1_n16r8` | Minimal headless ESP32-S3 target | [![DevKitC-1 build](https://github.com/nilseuropa/solar_os/actions/workflows/build-devkitc1.yml/badge.svg?branch=main&event=push)](https://github.com/nilseuropa/solar_os/actions/workflows/build-devkitc1.yml?query=branch%3Amain+event%3Apush) | Board metadata and docs; full-flavor build |
-
-These are compile-time checks on GitHub-hosted runners. Connected-device
-regression results are not included in these badges.
+- `waveshare_esp32_s3_rlcd_4_2`: primary reflective-display pocket terminal.
+- `elecrow_crowpanel_esp32_s3_4_2_epaper`: 400x300 SSD1683 e-paper HMI with rotary controls and microSD.
+- `odroid_go`: classic ESP32 handheld target.
+- `esp32_s3_devkitc1_n16r8`: minimal headless ESP32-S3 target.
 
 Board details, capability flags, pin metadata, and the board bring-up checklist
 are documented in [Defining SolarOS Boards](doc/solar_os_boards.md).
