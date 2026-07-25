@@ -205,6 +205,39 @@ static void session_prepare_context(solar_os_session_entry_t *session)
     }
 }
 
+static solar_os_shell_io_t *session_shell_io(const solar_os_session_entry_t *session)
+{
+    if (session == NULL) {
+        return NULL;
+    }
+    if (session->app == solar_os_shell_app() && session->shell_session != NULL) {
+        return solar_os_shell_session_io(session->shell_session);
+    }
+    return session->io;
+}
+
+static bool session_owns_current_context(const solar_os_session_entry_t *session)
+{
+    if (session == NULL || session_state.ctx == NULL) {
+        return false;
+    }
+    if (session->app == solar_os_shell_app() && session->shell_session != NULL) {
+        return solar_os_context_shell_session(session_state.ctx) == session->shell_session;
+    }
+    if (session->io != NULL) {
+        return solar_os_context_shell_io(session_state.ctx) == session->io;
+    }
+    return session->terminal != NULL && session_state.current_terminal == session->terminal;
+}
+
+static void session_restore_base_context(void)
+{
+    set_current_terminal(NULL);
+    solar_os_context_set_gfx(session_state.ctx, session_state.default_gfx);
+    solar_os_context_set_shell_io(session_state.ctx, NULL);
+    solar_os_context_set_shell_session(session_state.ctx, NULL);
+}
+
 static void restore_foreground_context(void)
 {
     if (session_state.foreground_session != NULL) {
@@ -1063,8 +1096,10 @@ static bool close_session(solar_os_session_entry_t *session, bool preserve_conte
         session_return_target(session->return_session_id, session) :
         NULL;
     solar_os_session_context_snapshot_t previous = {0};
+    const bool preserve_caller_context =
+        preserve_context && !session_owns_current_context(session);
 
-    if (preserve_context && !was_foreground) {
+    if (preserve_caller_context) {
         session_context_capture(&previous);
     }
 
@@ -1100,19 +1135,20 @@ static bool close_session(solar_os_session_entry_t *session, bool preserve_conte
     }
 
     if (was_foreground) {
+        if (preserve_caller_context) {
+            session_context_restore(&previous);
+            return true;
+        }
         if (return_session != NULL) {
             return switch_to_session_or_shell(return_session);
         }
         if (session_state.shell_terminal != NULL) {
             return switch_to_session(ensure_shell_session(), false);
         }
-        set_current_terminal(NULL);
-        solar_os_context_set_gfx(session_state.ctx, session_state.default_gfx);
-        solar_os_context_set_shell_io(session_state.ctx, NULL);
-        solar_os_context_set_shell_session(session_state.ctx, NULL);
+        session_restore_base_context();
         return true;
     }
-    if (preserve_context) {
+    if (preserve_caller_context) {
         session_context_restore(&previous);
         return true;
     }
@@ -1674,11 +1710,19 @@ bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
     }
 
     solar_os_session_context_snapshot_t previous = {0};
+    solar_os_session_entry_t *previous_foreground = session_state.foreground_session;
     session_context_capture(&previous);
     dispatch_session_event(session, event);
     (void)process_addressed_session_requests(session);
     session_draw_terminal_if_needed(session);
-    session_context_restore(&previous);
+    if (session_state.foreground_session == previous_foreground &&
+        (previous_foreground == NULL || previous_foreground->used)) {
+        session_context_restore(&previous);
+    } else if (session_state.foreground_session != NULL) {
+        restore_foreground_context();
+    } else {
+        session_restore_base_context();
+    }
     return true;
 }
 
@@ -1931,10 +1975,9 @@ esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_
         }
         return ESP_ERR_NOT_FOUND;
     }
-    if (session == session_state.foreground_session &&
-        session->app == solar_os_shell_app() &&
+    if (session->app == solar_os_shell_app() &&
         io != NULL &&
-        io == solar_os_context_shell_io(session_state.ctx)) {
+        io == session_shell_io(session)) {
         solar_os_shell_io_writeln(io, "close: cannot close the current shell from itself");
         solar_os_shell_io_flush(io);
         return ESP_ERR_INVALID_STATE;
