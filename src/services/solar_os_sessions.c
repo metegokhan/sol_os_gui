@@ -266,7 +266,9 @@ static void session_update_title(solar_os_session_entry_t *session)
         return;
     }
 
-    if (session->app == solar_os_shell_app() && session->display_target[0] != '\0') {
+    if (session->app == solar_os_shell_app() &&
+        session->owns_display_target &&
+        session->display_target[0] != '\0') {
         snprintf(session->title,
                  sizeof(session->title),
                  "shell on %s",
@@ -314,6 +316,21 @@ static bool session_is_closable(const solar_os_session_entry_t *session)
     return session->app != solar_os_shell_app() || session->owns_display_target;
 }
 
+static void session_bind_builtin_display(solar_os_session_entry_t *session)
+{
+    if (session == NULL) {
+        return;
+    }
+
+    session->display_target[0] = '\0';
+    if (session_state.display_u8g2 != NULL) {
+        (void)solar_os_display_target_name_for_u8g2(
+            session_state.display_u8g2,
+            session->display_target,
+            sizeof(session->display_target));
+    }
+}
+
 static solar_os_session_entry_t *ensure_shell_session(void)
 {
     solar_os_session_entry_t *session = &session_state.sessions[0];
@@ -324,10 +341,12 @@ static solar_os_session_entry_t *ensure_shell_session(void)
         session->app = solar_os_shell_app();
         session->terminal = session_state.shell_terminal;
         session->gfx = session_state.default_gfx;
+        session_bind_builtin_display(session);
         strlcpy(session->title, "shell", sizeof(session->title));
     } else if (session->app == solar_os_shell_app()) {
         session->terminal = session_state.shell_terminal;
         session->gfx = session_state.default_gfx;
+        session_bind_builtin_display(session);
     }
     return session;
 }
@@ -1485,6 +1504,8 @@ void solar_os_sessions_set_display(solar_os_terminal_t *shell_terminal, u8g2_t *
     if (session_state.sessions[0].used &&
         session_state.sessions[0].app == solar_os_shell_app()) {
         session_state.sessions[0].terminal = shell_terminal;
+        session_state.sessions[0].gfx = session_state.default_gfx;
+        session_bind_builtin_display(&session_state.sessions[0]);
     }
     if (session_state.current_terminal == NULL) {
         set_current_terminal(shell_terminal);
@@ -1520,22 +1541,6 @@ bool solar_os_sessions_has_display_shell(void)
         }
     }
     return false;
-}
-
-bool solar_os_sessions_foreground_uses_display(const char *target_name)
-{
-    if (target_name == NULL || target_name[0] == '\0') {
-        return false;
-    }
-    if (session_state.foreground_session != NULL &&
-        session_state.foreground_session->display_target[0] != '\0') {
-        return strcmp(session_state.foreground_session->display_target, target_name) == 0;
-    }
-
-    solar_os_display_target_t target;
-    return solar_os_display_find_target(target_name, &target) &&
-        target.u8g2 != NULL &&
-        target.u8g2 == session_state.display_u8g2;
 }
 
 void solar_os_sessions_set_status_bar(const solar_os_status_bar_t *status)
@@ -1707,6 +1712,11 @@ bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
     solar_os_session_entry_t *session = session_by_id(session_id);
     if (session == NULL || session->suspended || event == NULL) {
         return false;
+    }
+    if (session == session_state.foreground_session) {
+        solar_os_sessions_dispatch_foreground_event(event);
+        solar_os_sessions_process_requests();
+        return true;
     }
 
     solar_os_session_context_snapshot_t previous = {0};

@@ -161,7 +161,7 @@ static int display_find_slot_locked(const char *name)
     return -1;
 }
 
-static int display_find_slot_by_u8g2_locked(u8g2_t *u8g2)
+static int display_find_slot_by_u8g2_locked(const u8g2_t *u8g2)
 {
     if (u8g2 == NULL) {
         return -1;
@@ -445,6 +445,24 @@ bool solar_os_display_find_target(const char *name, solar_os_display_target_t *t
         return false;
     }
     return display_snapshot_slot((size_t)slot_index, target);
+}
+
+bool solar_os_display_target_name_for_u8g2(const u8g2_t *u8g2,
+                                           char *name,
+                                           size_t name_len)
+{
+    if (u8g2 == NULL || name == NULL || name_len == 0) {
+        return false;
+    }
+
+    name[0] = '\0';
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_by_u8g2_locked(u8g2);
+    if (slot_index >= 0) {
+        strlcpy(name, display_targets[slot_index].target.name, name_len);
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+    return slot_index >= 0;
 }
 
 esp_err_t solar_os_display_claim(const char *name,

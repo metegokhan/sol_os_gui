@@ -312,7 +312,7 @@ Notes:
 Authenticated HTTP display and remote control. It has two modes:
 
 - With a physical target such as `display0`, it mirrors and controls the
-  foreground session using that display without allocating another display
+  active session attached to that display without allocating another display
   framebuffer.
 - With `web0`, it creates an independent 400x300 monochrome virtual display
   and a detached display shell. Apps launched from that shell stay on `web0`
@@ -369,7 +369,8 @@ Notes:
 - `Ctrl+]` exits a foreground app on `web0` and returns to its detached shell.
   The physical foreground session is unaffected.
 - The physical mirror reuses the active U8g2 display and does not create
-  another display session.
+  another display session. The built-in display shell is registered as the
+  session attached to `display0`.
 - A consistent 1-bit frame snapshot and same-sized raw transmit buffer are held
   in PSRAM while the job runs. For the Waveshare display they consume 30,400
   bytes in total. `web0` additionally owns its 15,200-byte U8g2 framebuffer,
@@ -383,8 +384,9 @@ Notes:
 - If a browser is still reading a frame when the display presents again, that
   publication is skipped rather than blocking the display.
 - Input is queued by the HTTP task and dispatched only by the normal SolarOS
-  scheduler. Physical targets accept it only while they are foreground;
-  `web0` receives it through its target-addressed detached session.
+  scheduler. Both physical and virtual targets receive it through their active
+  target-addressed session; browser control does not depend on the device's
+  globally foreground session.
 - The server is plain HTTP. The six-digit code provides convenient access
   control on a trusted Wi-Fi network but does not encrypt frames or input and
   is not intended for exposure to an untrusted network.
