@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_gfx_internal.h"
+#include "solar_os_memory.h"
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 #include "nvs.h"
@@ -26,6 +27,16 @@ typedef struct {
     size_t claim_refs;
     solar_os_display_target_t target;
     solar_os_gfx_t gfx;
+    uint8_t *export_buffer;
+    size_t export_buffer_size;
+    size_t export_readers;
+    uint32_t export_frame_id;
+    uint16_t export_native_width;
+    uint16_t export_native_height;
+    uint16_t export_native_stride;
+    solar_os_display_rotation_t export_rotation;
+    bool export_enabled;
+    bool export_publishing;
 #if SOLAR_OS_BOARD_HAS_DISPLAY
     solar_os_board_display_t *board_display;
 #endif
@@ -35,6 +46,58 @@ static display_target_slot_t display_targets[SOLAR_OS_DISPLAY_TARGET_MAX];
 static portMUX_TYPE display_targets_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static bool display_snapshot_slot(size_t slot_index, solar_os_display_target_t *target);
+
+static solar_os_display_rotation_t display_rotation(const u8g2_t *u8g2)
+{
+    if (u8g2 != NULL) {
+        if (u8g2->cb == U8G2_R1) {
+            return SOLAR_OS_DISPLAY_ROTATION_90;
+        }
+        if (u8g2->cb == U8G2_R2) {
+            return SOLAR_OS_DISPLAY_ROTATION_180;
+        }
+        if (u8g2->cb == U8G2_R3) {
+            return SOLAR_OS_DISPLAY_ROTATION_270;
+        }
+    }
+    return SOLAR_OS_DISPLAY_ROTATION_0;
+}
+
+static void display_frame_dimensions(solar_os_display_rotation_t rotation,
+                                     uint16_t native_width,
+                                     uint16_t native_height,
+                                     uint16_t *width,
+                                     uint16_t *height)
+{
+    const bool swap_axes =
+        rotation == SOLAR_OS_DISPLAY_ROTATION_90 ||
+        rotation == SOLAR_OS_DISPLAY_ROTATION_270;
+    if (width != NULL) {
+        *width = swap_axes ? native_height : native_width;
+    }
+    if (height != NULL) {
+        *height = swap_axes ? native_width : native_height;
+    }
+}
+
+static uint8_t *display_detach_export_buffer_locked(display_target_slot_t *slot)
+{
+    if (slot == NULL ||
+        slot->export_enabled ||
+        slot->export_publishing ||
+        slot->export_readers != 0) {
+        return NULL;
+    }
+
+    uint8_t *buffer = slot->export_buffer;
+    slot->export_buffer = NULL;
+    slot->export_buffer_size = 0;
+    slot->export_native_width = 0;
+    slot->export_native_height = 0;
+    slot->export_native_stride = 0;
+    slot->export_rotation = SOLAR_OS_DISPLAY_ROTATION_0;
+    return buffer;
+}
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 static solar_os_board_display_t *display_handle;
@@ -105,6 +168,21 @@ static int display_find_slot_by_u8g2_locked(u8g2_t *u8g2)
     }
     for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
         if (display_targets[i].active && display_targets[i].target.u8g2 == u8g2) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static int display_find_slot_by_buffer_locked(const uint8_t *buffer)
+{
+    if (buffer == NULL) {
+        return -1;
+    }
+    for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
+        if (display_targets[i].active &&
+            display_targets[i].target.u8g2 != NULL &&
+            u8g2_GetBufferPtr(display_targets[i].target.u8g2) == buffer) {
             return (int)i;
         }
     }
@@ -255,11 +333,15 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
         !display_target_name_valid(target->source, sizeof(target->source)) ||
         !display_target_name_valid(target->driver, sizeof(target->driver)) ||
         target->width == 0 ||
-        target->height == 0) {
+        target->height == 0 ||
+        target->u8g2 == NULL ||
+        u8g2_GetBufferPtr(target->u8g2) == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     portENTER_CRITICAL(&display_targets_lock);
-    if (display_find_slot_locked(target->name) >= 0) {
+    if (display_find_slot_locked(target->name) >= 0 ||
+        display_find_slot_by_u8g2_locked(target->u8g2) >= 0 ||
+        display_find_slot_by_buffer_locked(u8g2_GetBufferPtr(target->u8g2)) >= 0) {
         portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_INVALID_STATE;
     }
@@ -300,7 +382,10 @@ esp_err_t solar_os_display_unregister_target(const char *name)
         return ESP_ERR_NOT_FOUND;
     }
     display_target_slot_t *slot = &display_targets[slot_index];
-    if (slot->claim_refs != 0 || slot->refs != 0 || slot->target.owner[0] != '\0') {
+    if (slot->claim_refs != 0 ||
+        slot->refs != 0 ||
+        slot->target.owner[0] != '\0' ||
+        slot->export_buffer != NULL) {
         portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_INVALID_STATE;
     }
@@ -646,4 +731,246 @@ esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
     default:
         return ESP_ERR_INVALID_ARG;
     }
+}
+
+static void display_publish_frame(u8g2_t *u8g2)
+{
+    if (u8g2 == NULL || u8g2_GetBufferPtr(u8g2) == NULL) {
+        return;
+    }
+
+    size_t slot_index = 0;
+    uint32_t generation = 0;
+    uint8_t *export_buffer = NULL;
+    size_t export_buffer_size = 0;
+
+    portENTER_CRITICAL(&display_targets_lock);
+    const int found_index = display_find_slot_by_u8g2_locked(u8g2);
+    if (found_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return;
+    }
+    slot_index = (size_t)found_index;
+    display_target_slot_t *slot = &display_targets[slot_index];
+    if (!slot->export_enabled ||
+        slot->export_buffer == NULL ||
+        slot->export_publishing ||
+        slot->export_readers != 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return;
+    }
+
+    slot->export_publishing = true;
+    slot->refs++;
+    generation = slot->generation;
+    export_buffer = slot->export_buffer;
+    export_buffer_size = slot->export_buffer_size;
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    memcpy(export_buffer, u8g2_GetBufferPtr(u8g2), export_buffer_size);
+
+    uint8_t *free_buffer = NULL;
+    portENTER_CRITICAL(&display_targets_lock);
+    slot = &display_targets[slot_index];
+    if (slot->generation == generation &&
+        slot->export_buffer == export_buffer &&
+        slot->export_publishing) {
+        slot->export_publishing = false;
+        if (slot->export_enabled) {
+            slot->export_frame_id++;
+            if (slot->export_frame_id == 0) {
+                slot->export_frame_id = 1;
+            }
+        }
+        free_buffer = display_detach_export_buffer_locked(slot);
+    }
+    if (slot->generation == generation && slot->refs > 0) {
+        slot->refs--;
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    solar_os_memory_free(free_buffer);
+}
+
+void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode)
+{
+    if (u8g2 == NULL) {
+        return;
+    }
+    (void)solar_os_display_request_present_mode(u8g2, mode);
+    display_publish_frame(u8g2);
+    u8g2_SendBuffer(u8g2);
+}
+
+esp_err_t solar_os_display_start_frame_export(const char *name)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    size_t slot_index = 0;
+    uint32_t generation = 0;
+    u8g2_t *u8g2 = NULL;
+    bool black_is_one = false;
+
+    portENTER_CRITICAL(&display_targets_lock);
+    const int found_index = display_find_slot_locked(name);
+    if (found_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    slot_index = (size_t)found_index;
+    display_target_slot_t *slot = &display_targets[slot_index];
+    if (!slot->target.ready || slot->target.u8g2 == NULL) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (slot->export_buffer != NULL) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    slot->refs++;
+    generation = slot->generation;
+    u8g2 = slot->target.u8g2;
+    black_is_one = slot->target.black_is_one;
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    const uint16_t tile_width = u8g2_GetBufferTileWidth(u8g2);
+    const uint16_t tile_height = u8g2_GetBufferTileHeight(u8g2);
+    const size_t buffer_size = (size_t)tile_width * (size_t)tile_height * 8U;
+    const uint8_t *source_buffer = u8g2_GetBufferPtr(u8g2);
+    const u8x8_display_info_t *display_info = u8g2_GetU8x8(u8g2)->display_info;
+    uint8_t *buffer = buffer_size > 0 && source_buffer != NULL && display_info != NULL ?
+        solar_os_memory_alloc(buffer_size,
+                              SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                              "display.export") :
+        NULL;
+    if (buffer != NULL) {
+        memcpy(buffer, source_buffer, buffer_size);
+    }
+
+    esp_err_t ret = buffer != NULL ?
+        ESP_OK :
+        (buffer_size == 0 || source_buffer == NULL || display_info == NULL ?
+            ESP_ERR_INVALID_STATE :
+            ESP_ERR_NO_MEM);
+    portENTER_CRITICAL(&display_targets_lock);
+    slot = &display_targets[slot_index];
+    if (ret == ESP_OK &&
+        slot->active &&
+        slot->generation == generation &&
+        slot->target.u8g2 == u8g2 &&
+        slot->export_buffer == NULL) {
+        slot->export_buffer = buffer;
+        slot->export_buffer_size = buffer_size;
+        slot->export_frame_id++;
+        if (slot->export_frame_id == 0) {
+            slot->export_frame_id = 1;
+        }
+        slot->export_native_width = display_info->pixel_width;
+        slot->export_native_height = display_info->pixel_height;
+        slot->export_native_stride = tile_width * 8U;
+        slot->export_rotation = display_rotation(u8g2);
+        slot->export_enabled = true;
+        slot->target.black_is_one = black_is_one;
+        buffer = NULL;
+    } else if (ret == ESP_OK) {
+        ret = ESP_ERR_INVALID_STATE;
+    }
+    if (slot->generation == generation && slot->refs > 0) {
+        slot->refs--;
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    solar_os_memory_free(buffer);
+    return ret;
+}
+
+void solar_os_display_stop_frame_export(const char *name)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX)) {
+        return;
+    }
+
+    uint8_t *free_buffer = NULL;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index >= 0) {
+        display_target_slot_t *slot = &display_targets[slot_index];
+        slot->export_enabled = false;
+        free_buffer = display_detach_export_buffer_locked(slot);
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+    solar_os_memory_free(free_buffer);
+}
+
+esp_err_t solar_os_display_acquire_frame(const char *name, solar_os_display_frame_t *frame)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) || frame == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(frame, 0, sizeof(*frame));
+
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    display_target_slot_t *slot = &display_targets[slot_index];
+    if (!slot->export_enabled || slot->export_buffer == NULL) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (slot->export_publishing) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    slot->export_readers++;
+    uint16_t width = 0;
+    uint16_t height = 0;
+    display_frame_dimensions(slot->export_rotation,
+                             slot->export_native_width,
+                             slot->export_native_height,
+                             &width,
+                             &height);
+    *frame = (solar_os_display_frame_t){
+        .data = slot->export_buffer,
+        .data_size = slot->export_buffer_size,
+        .frame_id = slot->export_frame_id,
+        .target_generation = slot->generation,
+        .width = width,
+        .height = height,
+        .native_width = slot->export_native_width,
+        .native_height = slot->export_native_height,
+        .native_stride = slot->export_native_stride,
+        .target_slot = (uint8_t)slot_index,
+        .rotation = slot->export_rotation,
+        .black_is_one = slot->target.black_is_one,
+    };
+    portEXIT_CRITICAL(&display_targets_lock);
+    return ESP_OK;
+}
+
+void solar_os_display_release_frame(solar_os_display_frame_t *frame)
+{
+    if (frame == NULL || frame->data == NULL || frame->target_slot >= SOLAR_OS_DISPLAY_TARGET_MAX) {
+        return;
+    }
+
+    uint8_t *free_buffer = NULL;
+    portENTER_CRITICAL(&display_targets_lock);
+    display_target_slot_t *slot = &display_targets[frame->target_slot];
+    if (slot->generation == frame->target_generation &&
+        slot->export_buffer == frame->data &&
+        slot->export_readers > 0) {
+        slot->export_readers--;
+        free_buffer = display_detach_export_buffer_locked(slot);
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    memset(frame, 0, sizeof(*frame));
+    solar_os_memory_free(free_buffer);
 }

@@ -148,6 +148,10 @@ setterm otaurl [url]
 
 `setterm profile` is runtime-only and applies to the current port shell. From
 the display shell it prints guidance to set the profile from a port shell.
+Display layout settings (`orientation`, `font`, and `textsize`) apply to the
+current display and its app sessions. Settings on the primary display are
+persistent; settings on secondary or virtual displays such as `web0` are
+runtime-only.
 
 ## Apps And Jobs
 
@@ -211,6 +215,7 @@ job start log cdc0
 job start log file /.shell/log info
 job start bridge cdc0 uart0
 job start httpd /www
+job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once
 job start batmon 60
 job start slip uart0 115200

@@ -92,8 +92,12 @@ void solar_os_terminal_scroll_to_live(solar_os_terminal_t *terminal);
 bool solar_os_terminal_is_scrolled_back(const solar_os_terminal_t *terminal);
 uint16_t solar_os_terminal_orientation(const solar_os_terminal_t *terminal);
 esp_err_t solar_os_terminal_set_orientation(solar_os_terminal_t *terminal, uint16_t degrees);
+esp_err_t solar_os_terminal_set_orientation_transient(solar_os_terminal_t *terminal,
+                                                      uint16_t degrees);
 solar_os_terminal_font_t solar_os_terminal_font(const solar_os_terminal_t *terminal);
 esp_err_t solar_os_terminal_set_font(solar_os_terminal_t *terminal, solar_os_terminal_font_t font);
+esp_err_t solar_os_terminal_set_font_transient(solar_os_terminal_t *terminal,
+                                               solar_os_terminal_font_t font);
 const char *solar_os_terminal_font_name(solar_os_terminal_font_t font);
 bool solar_os_terminal_parse_font(const char *name, solar_os_terminal_font_t *font);
 solar_os_terminal_text_size_t solar_os_terminal_text_size(const solar_os_terminal_t *terminal);

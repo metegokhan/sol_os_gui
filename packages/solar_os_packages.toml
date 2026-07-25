@@ -84,6 +84,7 @@ members = [
   "app_chat",
   "app_email",
   "job_httpd",
+  "job_displayd",
   "job_chat_sync",
   "job_chatd",
   "job_telnetd",
@@ -100,6 +101,7 @@ triggers = [
   "app_chat",
   "app_email",
   "job_httpd",
+  "job_displayd",
   "job_chat_sync",
   "job_chatd",
   "job_telnetd",
@@ -304,7 +306,8 @@ capabilities = ["wifi"]
 [packages.service_http_server]
 label = "network.http-server"
 depends = ["service_wifi"]
-requires = ["esp_http_server"]
+sources = ["services/solar_os_http_server.c"]
+requires = ["esp_http_server", "esp_hw_support"]
 capabilities = ["wifi"]
 
 [packages.service_image]
@@ -658,6 +661,16 @@ label = "job.httpd"
 depends = ["service_http_server"]
 sources = ["jobs/solar_os_httpd_job.c"]
 capabilities = ["wifi"]
+
+[packages.job_displayd]
+label = "job.displayd"
+depends = ["service_http_server"]
+sources = [
+  "jobs/solar_os_displayd_job.c",
+  "services/solar_os_virtual_display.c",
+]
+requires = ["heap"]
+capabilities = ["gfx", "psram", "wifi"]
 
 [packages.job_chatd]
 label = "job.chatd"

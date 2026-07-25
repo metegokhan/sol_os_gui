@@ -16,6 +16,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
 #include "solar_os_ota.h"
 #endif
+#include "solar_os_sessions.h"
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
 #include "solar_os_tui.h"
@@ -406,17 +407,17 @@ static bool setterm_tui_apply_selected(void)
             !(degrees == 0 || degrees == 90 || degrees == 180 || degrees == 270)) {
             return false;
         }
-        return solar_os_terminal_set_orientation(term, (uint16_t)degrees) == ESP_OK;
+        return solar_os_sessions_set_terminal_orientation(term, (uint16_t)degrees) == ESP_OK;
     }
     case SETTERM_TUI_FONT: {
         solar_os_terminal_font_t font;
         return solar_os_terminal_parse_font(setterm_tui.edit_text, &font) &&
-            solar_os_terminal_set_font(term, font) == ESP_OK;
+            solar_os_sessions_set_terminal_font(term, font) == ESP_OK;
     }
     case SETTERM_TUI_TEXTSIZE: {
         solar_os_terminal_text_size_t text_size;
         return solar_os_terminal_parse_text_size(setterm_tui.edit_text, &text_size) &&
-            solar_os_terminal_set_text_size(term, text_size) == ESP_OK;
+            solar_os_sessions_set_terminal_text_size(term, text_size) == ESP_OK;
     }
     case SETTERM_TUI_BRIGHTNESS: {
         size_t percent = 0;

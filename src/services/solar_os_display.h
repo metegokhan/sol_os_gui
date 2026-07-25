@@ -38,6 +38,28 @@ typedef enum {
     SOLAR_OS_DISPLAY_PRESENT_GRAPHICS,
 } solar_os_display_present_mode_t;
 
+typedef enum {
+    SOLAR_OS_DISPLAY_ROTATION_0,
+    SOLAR_OS_DISPLAY_ROTATION_90,
+    SOLAR_OS_DISPLAY_ROTATION_180,
+    SOLAR_OS_DISPLAY_ROTATION_270,
+} solar_os_display_rotation_t;
+
+typedef struct {
+    const uint8_t *data;
+    size_t data_size;
+    uint32_t frame_id;
+    uint32_t target_generation;
+    uint16_t width;
+    uint16_t height;
+    uint16_t native_width;
+    uint16_t native_height;
+    uint16_t native_stride;
+    uint8_t target_slot;
+    solar_os_display_rotation_t rotation;
+    bool black_is_one;
+} solar_os_display_frame_t;
+
 esp_err_t solar_os_display_init(solar_os_board_display_t *display);
 esp_err_t solar_os_display_register_target(const solar_os_display_target_t *target);
 esp_err_t solar_os_display_unregister_target(const char *name);
@@ -64,3 +86,14 @@ esp_err_t solar_os_display_get_controller_mode(const char *name,
 esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mode);
 esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
                                                 solar_os_display_present_mode_t mode);
+void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode);
+
+/*
+ * Frame export keeps one PSRAM snapshot per exported target. Readers hold an
+ * immutable reference while transmitting; presentation skips publication
+ * rather than waiting for network I/O.
+ */
+esp_err_t solar_os_display_start_frame_export(const char *name);
+void solar_os_display_stop_frame_export(const char *name);
+esp_err_t solar_os_display_acquire_frame(const char *name, solar_os_display_frame_t *frame);
+void solar_os_display_release_frame(solar_os_display_frame_t *frame);

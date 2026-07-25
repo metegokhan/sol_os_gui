@@ -185,6 +185,9 @@ typedef struct {
     QueueHandle_t key_input;
     TaskHandle_t task;
     solar_os_context_t *ctx;
+    solar_os_terminal_t *session_terminal;
+    solar_os_shell_io_t *session_io;
+    solar_os_gfx_t *session_gfx;
     volatile bool stop_requested;
     volatile bool task_done;
     volatile bool vm_active;
@@ -225,12 +228,7 @@ static solar_os_shell_io_t *python_io(solar_os_context_t *ctx)
 
 static solar_os_shell_io_t *python_current_io(void)
 {
-    return python_app.ctx != NULL ? python_io(python_app.ctx) : NULL;
-}
-
-static solar_os_terminal_t *python_display_terminal(solar_os_context_t *ctx)
-{
-    return solar_os_context_terminal(ctx);
+    return python_app.session_io;
 }
 
 static bool python_send_event(const python_event_t *event)
@@ -3485,10 +3483,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_apps_find_obj, solaros_apps_find);
 
 static solar_os_terminal_t *python_current_terminal(void)
 {
-    if (python_app.ctx == NULL) {
-        return NULL;
-    }
-    return python_display_terminal(python_app.ctx);
+    return python_app.session_terminal;
 }
 
 static solar_os_gfx_t *python_current_gfx(void)
@@ -3496,10 +3491,7 @@ static solar_os_gfx_t *python_current_gfx(void)
     if (python_app.claimed_gfx != NULL) {
         return python_app.claimed_gfx;
     }
-    if (python_app.ctx == NULL) {
-        return NULL;
-    }
-    return solar_os_context_gfx(python_app.ctx);
+    return python_app.session_gfx;
 }
 
 static const char *python_gfx_owner(void)
@@ -4808,8 +4800,11 @@ static esp_err_t python_start(solar_os_context_t *ctx)
 {
     memset(&python_app, 0, sizeof(python_app));
     python_app.ctx = ctx;
+    python_app.session_terminal = solar_os_context_terminal(ctx);
+    python_app.session_gfx = solar_os_context_gfx(ctx);
 
     solar_os_shell_io_t *io = python_io(ctx);
+    python_app.session_io = io;
     const int argc = solar_os_context_argc(ctx);
     if (argc > SOLAR_OS_APP_ARG_MAX) {
         solar_os_shell_io_writeln(io, "python: too many arguments");
@@ -5077,8 +5072,8 @@ static void python_apply_gfx_event(solar_os_context_t *ctx, const python_event_t
     case PYTHON_EVENT_GFX_END:
         solar_os_context_set_graphics_active(ctx, false);
         python_gfx_release_target_name(event->data_len > 0 ? event->data : NULL);
-        if (python_display_terminal(ctx) != NULL) {
-            solar_os_terminal_draw(python_display_terminal(ctx));
+        if (python_current_terminal() != NULL) {
+            solar_os_terminal_draw(python_current_terminal());
         }
         return;
     default:

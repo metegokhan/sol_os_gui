@@ -24,6 +24,14 @@ const solar_os_app_t *solar_os_sessions_foreground_app(void);
 solar_os_terminal_t *solar_os_sessions_foreground_terminal(void);
 bool solar_os_sessions_foreground_is_shell(void);
 bool solar_os_sessions_has_display_shell(void);
+bool solar_os_sessions_foreground_uses_display(const char *target_name);
+void solar_os_sessions_set_status_bar(const solar_os_status_bar_t *status);
+esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,
+                                                     uint16_t degrees);
+esp_err_t solar_os_sessions_set_terminal_font(solar_os_terminal_t *terminal,
+                                              solar_os_terminal_font_t font);
+esp_err_t solar_os_sessions_set_terminal_text_size(solar_os_terminal_t *terminal,
+                                                   solar_os_terminal_text_size_t text_size);
 
 bool solar_os_sessions_switch_to_app(const solar_os_app_t *app);
 bool solar_os_sessions_switch_to_app_with_policy(const solar_os_app_t *app,
@@ -41,6 +49,14 @@ esp_err_t solar_os_sessions_create_display_shell(const char *target_name,
                                                  uint8_t *session_id,
                                                  char *busy_owner,
                                                  size_t busy_owner_len);
+esp_err_t solar_os_sessions_create_detached_display_shell(const char *target_name,
+                                                          uint8_t *session_id,
+                                                          char *busy_owner,
+                                                          size_t busy_owner_len);
+bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *session_id);
+bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
+                                              const solar_os_event_t *event);
+esp_err_t solar_os_sessions_close_display(const char *target_name);
 esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_t *io);
 esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *io);
 size_t solar_os_sessions_active_count(void);

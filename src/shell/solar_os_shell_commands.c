@@ -289,8 +289,7 @@ static void display_draw_test_pattern(u8g2_t *u8g2, const char *name)
     u8g2_DrawStr(u8g2, 6, 24, "SolarOS");
     u8g2_DrawStr(u8g2, 6, 32, name != NULL ? name : "display");
     u8g2_SetDrawColor(u8g2, 1);
-    (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
-    u8g2_SendBuffer(u8g2);
+    solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
 }
 
 static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)
@@ -1328,7 +1327,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        const esp_err_t err = solar_os_terminal_set_orientation(display, (uint16_t)degrees);
+        const esp_err_t err =
+            solar_os_sessions_set_terminal_orientation(display, (uint16_t)degrees);
         setterm_print_save_result(term, "orientation", argv[2], err);
         return;
     }
@@ -1352,7 +1352,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        const esp_err_t err = solar_os_terminal_set_font(display, font);
+        const esp_err_t err = solar_os_sessions_set_terminal_font(display, font);
         setterm_print_save_result(term, "font", argv[2], err);
         return;
     }
@@ -1377,7 +1377,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        const esp_err_t err = solar_os_terminal_set_text_size(display, text_size);
+        const esp_err_t err = solar_os_sessions_set_terminal_text_size(display, text_size);
         setterm_print_save_result(term, "textsize", argv[2], err);
         return;
     }
