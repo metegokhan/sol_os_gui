@@ -737,12 +737,6 @@ static bool displayd_job_event(solar_os_context_t *ctx, const solar_os_event_t *
         bool dispatched =
             solar_os_sessions_active_for_display(displayd.target, &active_session) &&
             solar_os_sessions_dispatch_session_event(active_session, &input_event);
-        if (!dispatched &&
-            solar_os_sessions_foreground_uses_display(displayd.target)) {
-            solar_os_sessions_dispatch_foreground_event(&input_event);
-            solar_os_sessions_process_requests();
-            dispatched = true;
-        }
         if (!dispatched) {
             (void)__atomic_fetch_add(&displayd.dropped_input, 1U, __ATOMIC_RELAXED);
         }
