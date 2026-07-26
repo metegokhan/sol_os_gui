@@ -882,6 +882,61 @@ void solar_os_shell_cmd_apps(solar_os_context_t *ctx, int argc, char **argv)
     }
 }
 
+void solar_os_shell_cmd_identity(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
+        char user[SOLAR_OS_IDENTITY_USER_MAX];
+        char hostname[SOLAR_OS_IDENTITY_HOSTNAME_MAX];
+        solar_os_identity_get_user(user, sizeof(user));
+        solar_os_identity_get_hostname(hostname, sizeof(hostname));
+        solar_os_shell_io_printf(term, "User: %s\n", user);
+        solar_os_shell_io_printf(term, "Hostname: %s\n", hostname);
+        return;
+    }
+
+    if (argc == 3 && strcmp(argv[1], "user") == 0) {
+        const esp_err_t err = solar_os_identity_set_user(argv[2]);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(term, "identity user set: %s\n", argv[2]);
+        } else if (err == ESP_ERR_INVALID_ARG) {
+            solar_os_shell_io_writeln(
+                term,
+                "identity: use 1-31 letters, numbers, '.', '-' or '_'");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "identity user failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    if (argc == 3 && strcmp(argv[1], "hostname") == 0) {
+        const esp_err_t err = solar_os_identity_set_hostname(argv[2]);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(
+                term,
+                "identity hostname set: %s; reboot to update Wi-Fi\n",
+                argv[2]);
+        } else if (err == ESP_ERR_INVALID_ARG) {
+            solar_os_shell_io_writeln(
+                term,
+                "identity: use 1-31 letters, numbers, '.', '-' or '_'");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "identity hostname failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  identity [status]");
+    solar_os_shell_io_writeln(term, "  identity user <name>");
+    solar_os_shell_io_writeln(term, "  identity hostname <name>");
+}
+
 static void job_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
@@ -914,14 +969,37 @@ static void job_print_status(solar_os_shell_io_t *term,
         return;
     }
 
-    solar_os_shell_io_printf(term,
-                             "%-12s %-8s %-11s %4s %5u %3u\n",
-                             status->name != NULL ? status->name : "?",
-                             solar_os_job_state_name(status->state),
-                             solar_os_job_kind_name(status->kind),
-                             status->has_event ? "tick" : "-",
-                             (unsigned)status->tick_count,
-                             (unsigned)status->resource_count);
+    char stack_bytes[12];
+    if (status->worker_stack_bytes > 0) {
+        snprintf(stack_bytes,
+                 sizeof(stack_bytes),
+                 "%u",
+                 (unsigned)status->worker_stack_bytes);
+    } else {
+        strlcpy(stack_bytes, "-", sizeof(stack_bytes));
+    }
+    const char *format = "%-12s %-8s %5s %-11s %4s %5u %3u\n";
+    if (status->state == SOLAR_OS_JOB_RUNNING) {
+        solar_os_shell_io_printf_bold(term,
+                                      format,
+                                      status->name != NULL ? status->name : "?",
+                                      solar_os_job_state_name(status->state),
+                                      stack_bytes,
+                                      solar_os_job_kind_name(status->kind),
+                                      status->has_event ? "tick" : "-",
+                                      (unsigned)status->tick_count,
+                                      (unsigned)status->resource_count);
+    } else {
+        solar_os_shell_io_printf(term,
+                                 format,
+                                 status->name != NULL ? status->name : "?",
+                                 solar_os_job_state_name(status->state),
+                                 stack_bytes,
+                                 solar_os_job_kind_name(status->kind),
+                                 status->has_event ? "tick" : "-",
+                                 (unsigned)status->tick_count,
+                                 (unsigned)status->resource_count);
+    }
     if (status->state == SOLAR_OS_JOB_FAILED && status->last_error != ESP_OK) {
         solar_os_shell_io_printf(term,
                                  "  last error: %s\n",
@@ -937,6 +1015,19 @@ static void job_print_status(solar_os_shell_io_t *term,
     solar_os_shell_io_printf(term,
                              "  owner: %s\n",
                              status->owner[0] != '\0' ? status->owner : "-");
+    if (status->worker_stack_bytes > 0) {
+        solar_os_shell_io_printf(term,
+                                 "  worker stack: %u bytes (%s)\n",
+                                 (unsigned)status->worker_stack_bytes,
+                                 status->worker_stack_external ? "external" : "internal");
+    } else {
+        solar_os_shell_io_writeln(term, "  worker stack: none declared");
+    }
+    if (status->state == SOLAR_OS_JOB_WAITING) {
+        solar_os_shell_io_writeln(
+            term,
+            "  waiting for worker stack memory; launch retries automatically");
+    }
     if (status->has_event) {
         solar_os_shell_io_printf(term,
                                  "  tick: %" PRIu32 "/%" PRIu32 "ms n=%" PRIu32
@@ -1080,7 +1171,7 @@ void solar_os_shell_cmd_jobs(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    solar_os_shell_io_writeln(term, "NAME         STATE    KIND        EVT  TICKS RES");
+    solar_os_shell_io_writeln(term, "NAME         STATE    STACK KIND        EVT  TICKS RES");
     for (size_t i = 0; i < count; i++) {
         solar_os_job_status_t status;
         if (solar_os_jobs_get(i, &status)) {
@@ -1113,7 +1204,7 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_printf(term, "job: not found: %s\n", argv[2]);
             return;
         }
-        solar_os_shell_io_writeln(term, "NAME         STATE    KIND        EVT  TICKS RES");
+        solar_os_shell_io_writeln(term, "NAME         STATE    STACK KIND        EVT  TICKS RES");
         job_print_status(term, &status, true);
         return;
     }
@@ -1178,7 +1269,17 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
 
         const esp_err_t err = solar_os_jobs_start(ctx, argv[2], argc - 2, &argv[2]);
         if (err == ESP_OK) {
-            solar_os_shell_io_printf(term, "job started: %s\n", argv[2]);
+            solar_os_job_status_t status;
+            if (solar_os_jobs_get_by_name(argv[2], &status) &&
+                status.state == SOLAR_OS_JOB_WAITING) {
+                solar_os_shell_io_printf(
+                    term,
+                    "job waiting: %s (needs %u-byte worker stack; retries automatically)\n",
+                    argv[2],
+                    (unsigned)status.worker_stack_bytes);
+            } else {
+                solar_os_shell_io_printf(term, "job started: %s\n", argv[2]);
+            }
         } else if (job_print_start_port_error(term, argc, argv, err)) {
             return;
         } else if (err == ESP_ERR_NOT_FOUND) {

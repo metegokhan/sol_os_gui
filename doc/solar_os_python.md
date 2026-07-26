@@ -662,9 +662,15 @@ print(solaros.clipboard.get())
 
 Identity functions read the SolarOS user and hostname service.
 
-- `user()`: return the configured username.
+- `user()`: return the configured username used by default for SSH and SCP.
 - `hostname()`: return the configured hostname.
+- `set_user(name)`: validate and save the username in NVS.
+- `set_hostname(name)`: validate and save the hostname in NVS. Reboot before
+  expecting an already initialized Wi-Fi interface to advertise the new name.
 - `format()`: return `user@hostname`.
+
+Existing `/.solar/user` and `/.solar/hostname` files are imported once when
+their corresponding NVS keys are absent.
 
 Example:
 
@@ -719,8 +725,10 @@ Job functions control SolarOS background jobs.
 
 Status dictionaries include `tick_interval_ms`, `tick_deadline_ms`,
 `tick_last_us`, `tick_max_us`, and `tick_deadline_misses` in addition to the
-job state and tick count. These fields expose the effective cooperative
-scheduling policy and measured handler execution time.
+job state and tick count. `worker_stack_bytes` is the declared launch-admission
+requirement and `worker_stack_external` identifies its memory region. These
+fields expose the effective cooperative scheduling policy, memory admission,
+and measured handler execution time.
 
 Example:
 

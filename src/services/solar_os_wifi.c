@@ -6,15 +6,16 @@
 #include <string.h>
 
 #include "esp_event.h"
-#include "solar_os_log.h"
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
 #include "esp_wifi_default.h"
-#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "nvs.h"
+#include "solar_os_identity.h"
+#include "solar_os_log.h"
 
 static const char *TAG = "solar_os_wifi";
 
@@ -1178,6 +1179,17 @@ esp_err_t solar_os_wifi_init(void)
         return ESP_FAIL;
     }
 
+    char hostname[SOLAR_OS_IDENTITY_HOSTNAME_MAX];
+    solar_os_identity_get_hostname(hostname, sizeof(hostname));
+    ret = esp_netif_set_hostname(wifi_sta_netif, hostname);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = esp_netif_set_hostname(wifi_ap_netif, hostname);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
     ret = esp_wifi_init(&config);
     if (ret != ESP_OK) {
@@ -1248,7 +1260,7 @@ esp_err_t solar_os_wifi_init(void)
         SOLAR_OS_LOGW(TAG, "NAT config load failed: %s", esp_err_to_name(ret));
     }
     wifi_update_saved_config();
-    SOLAR_OS_LOGI(TAG, "Wi-Fi service ready");
+    SOLAR_OS_LOGI(TAG, "Wi-Fi service ready as %s", hostname);
     return ESP_OK;
 }
 

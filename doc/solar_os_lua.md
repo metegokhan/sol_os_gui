@@ -51,7 +51,7 @@ service packages are not available on that board.
 - `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled
 - `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read` when BLE support is compiled
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
-- `solaros.identity`: `user`, `hostname`, `format`
+- `solaros.identity`: `user`, `hostname`, `set_user`, `set_hostname`, `format`
 - `solaros.net`: `ping` when `network.base` is compiled
 - `solaros.ssh_keys`: `default_paths`, `default_exists`, `status`, `generate`, `remove` when `network.ssh` is compiled
 - `solaros.jobs`: `list`, `count`, `status`, `start`, `stop`
@@ -218,6 +218,19 @@ When another owner is
 actively using the UART, `rx_buffered_valid` is `false` because the live RX
 count is not sampled.
 
+## Identity
+
+`solaros.identity.user()` and `hostname()` return the NVS-backed device
+identity. `set_user(name)` and `set_hostname(name)` validate and persist new
+values. Reboot before expecting an already initialized Wi-Fi interface to
+advertise a changed hostname.
+
+SSH and SCP use the identity user as their default remote username when
+`user@host` is not supplied.
+
+Existing `/.solar/user` and `/.solar/hostname` files are imported once when
+their corresponding NVS keys are absent.
+
 ## TUI
 
 `solaros.tui` draws through the foreground UI queue. It exposes constants `NORMAL`, `BOLD`, `INVERSE`, plus common key constants such as `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
@@ -257,8 +270,10 @@ end
 
 `solaros.jobs.list()` and `solaros.jobs.status(name)` return the effective
 `tick_interval_ms` and `tick_deadline_ms` plus `tick_last_us`, `tick_max_us`,
-and `tick_deadline_misses` runtime telemetry. Job control is available through
-`start(name[, args])` and `stop(name)`.
+and `tick_deadline_misses` runtime telemetry. `worker_stack_bytes` is the
+declared launch-admission requirement and `worker_stack_external` identifies
+its memory region. Job control is available through `start(name[, args])` and
+`stop(name)`.
 
 ## Sessions
 

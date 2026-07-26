@@ -47,6 +47,8 @@ typedef struct {
     uint32_t last_tick_ms;
     uint32_t generation;
     bool has_event;
+    uint32_t worker_stack_bytes;
+    bool worker_stack_external;
     solar_os_tick_stats_t tick_stats;
     char owner[SOLAR_OS_JOB_OWNER_MAX];
     size_t resource_count;

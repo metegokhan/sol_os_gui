@@ -829,6 +829,8 @@ static void solua_push_job_status(lua_State *L, const solar_os_job_status_t *sta
     solua_set_str(L, -1, "state", solar_os_job_state_name(status->state));
     solua_set_int(L, -1, "last_error", status->last_error);
     solua_set_str(L, -1, "last_error_name", esp_err_to_name(status->last_error));
+    solua_set_int(L, -1, "worker_stack_bytes", status->worker_stack_bytes);
+    solua_set_bool(L, -1, "worker_stack_external", status->worker_stack_external);
     solua_set_int(L, -1, "tick_count", status->tick_count);
     solua_set_int(L, -1, "last_tick_ms", status->last_tick_ms);
     solua_set_int(L, -1, "tick_interval_ms", status->tick_stats.interval_ms);
@@ -3010,6 +3012,20 @@ static int solua_identity_hostname(lua_State *L)
     return 1;
 }
 
+static int solua_identity_set_user(lua_State *L)
+{
+    return solua_check_esp(
+        L,
+        solar_os_identity_set_user(luaL_checkstring(L, 1)));
+}
+
+static int solua_identity_set_hostname(lua_State *L)
+{
+    return solua_check_esp(
+        L,
+        solar_os_identity_set_hostname(luaL_checkstring(L, 1)));
+}
+
 static int solua_identity_format(lua_State *L)
 {
     char buffer[SOLAR_OS_IDENTITY_USER_MAX + SOLAR_OS_IDENTITY_HOSTNAME_MAX + 2];
@@ -4071,6 +4087,8 @@ static void solua_open_solaros(lua_State *L)
     mod = lua_gettop(L);
     solua_set_func(L, mod, "user", solua_identity_user);
     solua_set_func(L, mod, "hostname", solua_identity_hostname);
+    solua_set_func(L, mod, "set_user", solua_identity_set_user);
+    solua_set_func(L, mod, "set_hostname", solua_identity_set_hostname);
     solua_set_func(L, mod, "format", solua_identity_format);
     lua_pop(L, 1);
 

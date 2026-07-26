@@ -24,12 +24,17 @@ available. Optional startup and alias files:
 ```text
 /.shell/startup
 /.shell/alias
-/.shell/user
-/.shell/hostname
 ```
 
 `/.shell/startup` runs once per boot on the first startup-enabled shell. Shell
 sessions created by that script do not run it again.
+
+The device user and hostname are stored in NVS and configured with `identity`.
+The user is also the default remote username used by `ssh` and `scp` when
+`user@host` is not supplied.
+On the first boot after upgrading, existing `/.solar/user` and
+`/.solar/hostname` values are imported when the corresponding NVS value is not
+already set.
 
 The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 
@@ -101,6 +106,9 @@ job for periodic polling.
 | `version` | `version` | Print the SolarOS version and firmware flavor. |
 | `pkg` | `pkg` | Print compiled package groups and build units. |
 | `board` | `board` | Print board ID, name, and capabilities. |
+| `identity` | `identity [status]` | Show the configured user and hostname. |
+| `identity` | `identity user <name>` | Save the SolarOS user and default SSH/SCP username in NVS. |
+| `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display test <target>`; `display mode <target> [mode]` | List drawable display targets, draw a test pattern, or change driver-specific display settings. |
 | `status` | `status` | Print a compact system status summary. |
@@ -179,9 +187,9 @@ without probing.
 `jobs` prints a compact table that fits the built-in display terminal:
 
 ```text
-NAME         STATE    KIND        EVT  TICKS RES
-batmon       running  background  tick    17   1
-log          stopped  background  tick     0   0
+NAME         STATE    STACK KIND        EVT  TICKS RES
+batmon       running      - background  tick    17   1
+log          stopped   6144 background  tick     0   0
 ```
 
 Columns:
@@ -189,15 +197,19 @@ Columns:
 | Column | Meaning |
 | --- | --- |
 | `NAME` | Job registry name. |
-| `STATE` | `stopped`, `running`, or `failed`. |
+| `STATE` | `stopped`, `waiting`, `running`, or `failed`. A waiting launch retries automatically. |
+| `STACK` | Declared worker-stack admission requirement in bytes; `-` means no dedicated stack is declared. Dynamic allocations are not included. |
 | `KIND` | Job kind. Current registry jobs are background workers. |
 | `EVT` | `tick` if the job receives periodic tick events, otherwise `-`. |
 | `TICKS` | Number of dispatched tick events while running. |
 | `RES` | Number of resources currently recorded for the job. |
 
 Use `job status <name>` for the job summary, owner string, last error, effective
-tick interval/deadline, last and maximum handler time, deadline-miss count, and
-resource details. `sessions` prints the same timing telemetry for display and
+worker-stack placement, tick interval/deadline, last and maximum handler time,
+deadline-miss count, and resource details. Running rows are bold. A `waiting`
+job has retained its launch request until the stack can be admitted while
+preserving the internal-memory reserve; a `failed` job completed a start attempt
+with an error. `sessions` prints the same timing telemetry for display and
 port sessions as one row per session in `ID TITLE APP STATE TIME` order. In the
 `TIME` column, the first pair is `interval/deadline` in milliseconds, the second
 is `last/max` in microseconds, `n` is the dispatch count, and `!` is the deadline

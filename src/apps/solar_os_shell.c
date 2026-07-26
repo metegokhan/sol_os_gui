@@ -169,6 +169,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"version", "show SolarOS version", solar_os_shell_cmd_version},
     {"pkg", "show compiled packages", solar_os_shell_cmd_pkg},
     {"board", "show board capabilities", solar_os_shell_cmd_board},
+    {"identity", "show or configure device identity", solar_os_shell_cmd_identity},
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
     {"engine", "show engine utilization", solar_os_shell_cmd_engine},
 #endif
@@ -342,6 +343,7 @@ static const char * const display_subcommands[] = {
 static const char * const engine_subcommands[] = {"status", "list", "reset"};
 #endif
 static const char * const mem_subcommands[] = {"policy"};
+static const char * const identity_subcommands[] = {"status", "user", "hostname"};
 
 static const char * const ble_subcommands[] = {
     "status",
@@ -811,6 +813,7 @@ static const char * const path_email[] = {"email"};
 static const char * const path_engine[] = {"engine"};
 #endif
 static const char * const path_mem[] = {"mem"};
+static const char * const path_identity[] = {"identity"};
 static const char * const path_fg[] = {"fg"};
 static const char * const path_close[] = {"close"};
 static const char * const path_job[] = {"job"};
@@ -1379,6 +1382,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_engine, engine_subcommands),
 #endif
     SHELL_COMPLETION_STATIC(path_mem, mem_subcommands),
+    SHELL_COMPLETION_STATIC(path_identity, identity_subcommands),
     SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_fg),
     SHELL_COMPLETION_SESSION_IDS(path_close),
     SHELL_COMPLETION_STATIC(path_job, job_subcommands),
