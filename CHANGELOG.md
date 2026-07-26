@@ -7,7 +7,9 @@
   `agent` app, and read-only `system_status` tool. Shell-only subcommands run
   inline so their output remains visible when the prompt returns. Official
   OpenAI Chat Completions requests disable reasoning effort when function tools
-  are present, as required by that endpoint.
+  are present, as required by that endpoint. Added an endpoint-selected
+  Responses API path with configurable reasoning effort, typed streaming
+  events, and reasoning-preserving tool continuations.
 
 ## 4.x
 

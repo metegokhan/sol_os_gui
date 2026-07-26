@@ -11,17 +11,28 @@
 #define SOLAR_OS_AGENT_TOOL_CALL_ID_MAX 96
 #define SOLAR_OS_AGENT_TOOL_ARGUMENTS_MAX 512
 #define SOLAR_OS_AGENT_TOOL_RESULT_MAX 768
+#define SOLAR_OS_AGENT_RESPONSE_ID_MAX 96
 
 typedef struct {
     char endpoint[SOLAR_OS_AGENT_ENDPOINT_MAX];
     char model[SOLAR_OS_AGENT_MODEL_MAX];
     char api_key[SOLAR_OS_AGENT_API_KEY_MAX];
+    char reasoning_effort[SOLAR_OS_AGENT_REASONING_EFFORT_MAX];
 } solar_os_agent_provider_config_t;
 
 typedef struct {
+    const char *name;
+    const char *description;
+    const char *parameters_json;
+    bool strict;
+} solar_os_agent_tool_descriptor_t;
+
+typedef struct {
     const char *prompt;
-    const char *tools_json;
+    const solar_os_agent_tool_descriptor_t *tools;
+    size_t tool_count;
     bool continuation;
+    const char *previous_response_id;
     const char *tool_call_id;
     const char *tool_name;
     const char *tool_arguments;
@@ -33,6 +44,7 @@ typedef struct {
     char tool_call_id[SOLAR_OS_AGENT_TOOL_CALL_ID_MAX];
     char tool_name[SOLAR_OS_AGENT_TOOL_NAME_MAX];
     char tool_arguments[SOLAR_OS_AGENT_TOOL_ARGUMENTS_MAX];
+    char response_id[SOLAR_OS_AGENT_RESPONSE_ID_MAX];
     int http_status;
     uint32_t duration_ms;
     uint32_t bytes_received;
@@ -58,4 +70,3 @@ bool solar_os_agent_provider_cancel_requested(void);
 void solar_os_agent_provider_note_memory(void);
 
 extern const solar_os_agent_provider_t solar_os_agent_openai_provider;
-

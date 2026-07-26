@@ -9,6 +9,7 @@
 #define SOLAR_OS_AGENT_ENDPOINT_MAX 256
 #define SOLAR_OS_AGENT_MODEL_MAX 96
 #define SOLAR_OS_AGENT_API_KEY_MAX 192
+#define SOLAR_OS_AGENT_REASONING_EFFORT_MAX 12
 #define SOLAR_OS_AGENT_PROMPT_MAX 1024
 #define SOLAR_OS_AGENT_EVENT_TEXT_MAX 192
 #define SOLAR_OS_AGENT_TOOL_NAME_MAX 48
@@ -50,6 +51,7 @@ typedef struct {
     char provider[24];
     char endpoint[SOLAR_OS_AGENT_ENDPOINT_MAX];
     char model[SOLAR_OS_AGENT_MODEL_MAX];
+    char reasoning_effort[SOLAR_OS_AGENT_REASONING_EFFORT_MAX];
     uint32_t request_count;
     uint32_t failure_count;
     int last_http_status;
@@ -69,6 +71,7 @@ esp_err_t solar_os_agent_init(void);
 esp_err_t solar_os_agent_set_endpoint(const char *endpoint);
 esp_err_t solar_os_agent_set_model(const char *model);
 esp_err_t solar_os_agent_set_api_key(const char *api_key);
+esp_err_t solar_os_agent_set_reasoning_effort(const char *effort);
 esp_err_t solar_os_agent_forget(void);
 esp_err_t solar_os_agent_get_status(solar_os_agent_status_t *status);
 

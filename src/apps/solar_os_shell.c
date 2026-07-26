@@ -616,8 +616,22 @@ static const char * const email_subcommands[] = {"status", "configure", "sync", 
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
 static const char * const agent_subcommands[] = {"status", "config", "forget", "ask"};
-static const char * const agent_config_fields[] = {"endpoint", "model", "key"};
+static const char * const agent_config_fields[] = {
+    "endpoint",
+    "model",
+    "key",
+    "reasoning",
+};
 static const char * const agent_key_values[] = {"clear"};
+static const char * const agent_reasoning_values[] = {
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+};
 #endif
 
 static const char * const gpio_subcommands[] = {
@@ -821,6 +835,11 @@ static const char * const path_email[] = {"email"};
 static const char * const path_agent[] = {"agent"};
 static const char * const path_agent_config[] = {"agent", "config"};
 static const char * const path_agent_config_key[] = {"agent", "config", "key"};
+static const char * const path_agent_config_reasoning[] = {
+    "agent",
+    "config",
+    "reasoning",
+};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const path_engine[] = {"engine"};
@@ -1544,6 +1563,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_agent, agent_subcommands),
     SHELL_COMPLETION_STATIC(path_agent_config, agent_config_fields),
     SHELL_COMPLETION_STATIC(path_agent_config_key, agent_key_values),
+    SHELL_COMPLETION_STATIC(path_agent_config_reasoning, agent_reasoning_values),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
     SHELL_COMPLETION_STATIC(path_led, led_subcommands),

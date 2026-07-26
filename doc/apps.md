@@ -12,23 +12,25 @@ Exit behavior:
 
 ## agent
 
-Native OpenAI-compatible LLM client and first SolarOS agent-control-plane
-slice. It streams model text directly to the active shell and exposes the
-read-only `system_status` tool to the model.
+Native Responses/Chat-Completions LLM client and first SolarOS
+agent-control-plane slice. It streams model text directly to the active shell
+and exposes the read-only `system_status` tool to the model.
 
-Configure the full chat-completions endpoint and model, then ask a question:
+Configure the full endpoint and model, then ask a question:
 
 ```text
-agent config endpoint https://provider.example/v1/chat/completions
-agent config model model-name
+agent config endpoint https://api.openai.com/v1/responses
+agent config model gpt-model
 agent config key api-key
+agent config reasoning medium
 agent ask How much memory is free on this device?
 ```
 
 Use `agent config key clear` for an endpoint that does not require bearer
 authentication. `agent status` shows configuration, request counters, HTTP
-status, duration, traffic, and internal-RAM/PSRAM measurements from the last
-request. The API key itself is never printed.
+status, reasoning effort, duration, traffic, and internal-RAM/PSRAM measurements
+from the last request. The API key itself is never printed. A
+Chat-Completions-compatible endpoint can still be configured explicitly.
 
 The first implementation deliberately permits one tool call followed by one
 final provider turn. Output is bounded to 16 KiB, protocol buffers and queues

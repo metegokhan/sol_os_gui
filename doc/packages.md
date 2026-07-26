@@ -35,7 +35,8 @@ Callers continue to own their worker task and response consumer; see
 
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider
-configuration, bounded tool-loop policy, and the OpenAI-compatible adapter.
+configuration, bounded tool-loop policy, and the OpenAI
+Responses/Chat-Completions adapter.
 It depends on the shared HTTP and JSON services and is pruned from targets
 without both Wi-Fi and PSRAM. Python and Lua are not dependencies. See
 [Native Agent Service](agent.md).

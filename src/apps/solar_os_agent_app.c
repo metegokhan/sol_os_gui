@@ -73,6 +73,7 @@ static void agent_app_print_status(solar_os_context_t *ctx)
                              "Endpoint: %s\n"
                              "Model: %s\n"
                              "API key: %s\n"
+                             "Reasoning (Responses): %s\n"
                              "State: %s\n",
                              status.provider,
                              status.endpoint[0] != '\0' ?
@@ -80,6 +81,7 @@ static void agent_app_print_status(solar_os_context_t *ctx)
                              status.model[0] != '\0' ?
                                  status.model : "not configured",
                              status.api_key_set ? "set" : "not set",
+                             status.reasoning_effort,
                              status.running ? "running" : "idle");
     solar_os_shell_io_printf(io,
                              "Requests: %" PRIu32 ", failures: %" PRIu32 "\n",

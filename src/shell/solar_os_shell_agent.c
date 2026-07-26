@@ -17,6 +17,9 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  agent config endpoint URL");
     solar_os_shell_io_writeln(io, "  agent config model MODEL");
     solar_os_shell_io_writeln(io, "  agent config key KEY|clear");
+    solar_os_shell_io_writeln(
+        io,
+        "  agent config reasoning none|minimal|low|medium|high|xhigh|max");
     solar_os_shell_io_writeln(io, "  agent forget");
     solar_os_shell_io_writeln(io, "  agent ask PROMPT...");
 }
@@ -34,6 +37,7 @@ static void agent_status(solar_os_shell_io_t *io)
                              "Endpoint: %s\n"
                              "Model: %s\n"
                              "API key: %s\n"
+                             "Reasoning (Responses): %s\n"
                              "State: %s\n",
                              status.provider,
                              status.endpoint[0] != '\0' ?
@@ -41,6 +45,7 @@ static void agent_status(solar_os_shell_io_t *io)
                              status.model[0] != '\0' ?
                                  status.model : "not configured",
                              status.api_key_set ? "set" : "not set",
+                             status.reasoning_effort,
                              status.running ? "running" : "idle");
     solar_os_shell_io_printf(io,
                              "Requests: %" PRIu32 ", failures: %" PRIu32 "\n",
@@ -93,6 +98,8 @@ static void agent_configure(solar_os_shell_io_t *io, int argc, char **argv)
         err = solar_os_agent_set_model(value);
     } else if (strcmp(field, "key") == 0) {
         err = solar_os_agent_set_api_key(strcmp(value, "clear") == 0 ? "" : value);
+    } else if (strcmp(field, "reasoning") == 0) {
+        err = solar_os_agent_set_reasoning_effort(value);
     } else {
         agent_usage(io);
         return;

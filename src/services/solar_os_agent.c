@@ -21,6 +21,8 @@
 #define AGENT_NVS_ENDPOINT_KEY "endpoint"
 #define AGENT_NVS_MODEL_KEY "model"
 #define AGENT_NVS_API_KEY_KEY "api_key"
+#define AGENT_NVS_REASONING_KEY "reasoning"
+#define AGENT_DEFAULT_REASONING_EFFORT "medium"
 #define AGENT_MAX_TOOL_ROUNDS 2U
 
 #ifndef SOLAR_OS_VERSION
@@ -58,13 +60,18 @@ static const char *TAG = "agent";
 static portMUX_TYPE agent_lock = portMUX_INITIALIZER_UNLOCKED;
 static agent_state_t agent;
 
-static const char AGENT_TOOLS_JSON[] =
-    "[{\"type\":\"function\",\"function\":{"
-    "\"name\":\"system_status\","
-    "\"description\":\"Read the SolarOS board identity, uptime, firmware version, "
-    "and current internal RAM and PSRAM availability.\","
-    "\"parameters\":{\"type\":\"object\",\"properties\":{},"
-    "\"additionalProperties\":false}}}]";
+static const solar_os_agent_tool_descriptor_t AGENT_TOOLS[] = {
+    {
+        .name = "system_status",
+        .description =
+            "Read the SolarOS board identity, uptime, firmware version, "
+            "and current internal RAM and PSRAM availability.",
+        .parameters_json =
+            "{\"type\":\"object\",\"properties\":{},\"required\":[],"
+            "\"additionalProperties\":false}",
+        .strict = true,
+    },
+};
 
 static uint32_t agent_internal_free(void)
 {
@@ -106,6 +113,30 @@ static bool agent_endpoint_valid(const char *endpoint)
          strncmp(endpoint, "https://", 8) == 0);
 }
 
+static bool agent_reasoning_effort_valid(const char *effort)
+{
+    static const char * const values[] = {
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    };
+    if (!agent_string_valid(effort,
+                            SOLAR_OS_AGENT_REASONING_EFFORT_MAX,
+                            false)) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
+        if (strcmp(effort, values[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void agent_load_config(void)
 {
     nvs_handle_t nvs;
@@ -141,6 +172,16 @@ static void agent_load_config(void)
                             true)) {
         agent.config.api_key[0] = '\0';
     }
+    len = sizeof(agent.config.reasoning_effort);
+    if (nvs_get_str(nvs,
+                    AGENT_NVS_REASONING_KEY,
+                    agent.config.reasoning_effort,
+                    &len) != ESP_OK ||
+        !agent_reasoning_effort_valid(agent.config.reasoning_effort)) {
+        strlcpy(agent.config.reasoning_effort,
+                AGENT_DEFAULT_REASONING_EFFORT,
+                sizeof(agent.config.reasoning_effort));
+    }
     nvs_close(nvs);
 }
 
@@ -154,6 +195,9 @@ esp_err_t solar_os_agent_init(void)
     }
 
     solar_os_agent_provider_config_t config = {0};
+    strlcpy(config.reasoning_effort,
+            AGENT_DEFAULT_REASONING_EFFORT,
+            sizeof(config.reasoning_effort));
     portENTER_CRITICAL(&agent_lock);
     agent.config = config;
     portEXIT_CRITICAL(&agent_lock);
@@ -230,6 +274,19 @@ esp_err_t solar_os_agent_set_api_key(const char *api_key)
                           sizeof(agent.config.api_key)) : err;
 }
 
+esp_err_t solar_os_agent_set_reasoning_effort(const char *effort)
+{
+    if (!agent_reasoning_effort_valid(effort)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_agent_init();
+    return err == ESP_OK ?
+        agent_save_string(AGENT_NVS_REASONING_KEY,
+                          effort,
+                          agent.config.reasoning_effort,
+                          sizeof(agent.config.reasoning_effort)) : err;
+}
+
 esp_err_t solar_os_agent_forget(void)
 {
     esp_err_t err = solar_os_agent_init();
@@ -260,6 +317,9 @@ esp_err_t solar_os_agent_forget(void)
 
     portENTER_CRITICAL(&agent_lock);
     memset(&agent.config, 0, sizeof(agent.config));
+    strlcpy(agent.config.reasoning_effort,
+            AGENT_DEFAULT_REASONING_EFFORT,
+            sizeof(agent.config.reasoning_effort));
     portEXIT_CRITICAL(&agent_lock);
     return ESP_OK;
 }
@@ -283,6 +343,9 @@ esp_err_t solar_os_agent_get_status(solar_os_agent_status_t *status)
             sizeof(status->provider));
     strlcpy(status->endpoint, agent.config.endpoint, sizeof(status->endpoint));
     strlcpy(status->model, agent.config.model, sizeof(status->model));
+    strlcpy(status->reasoning_effort,
+            agent.config.reasoning_effort,
+            sizeof(status->reasoning_effort));
     status->request_count = agent.request_count;
     status->failure_count = agent.failure_count;
     status->last_http_status = agent.last_http_status;
@@ -521,13 +584,16 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
 
     solar_os_agent_provider_turn_t turn = {
         .prompt = request->prompt,
-        .tools_json = AGENT_TOOLS_JSON,
+        .tools = AGENT_TOOLS,
+        .tool_count = sizeof(AGENT_TOOLS) / sizeof(AGENT_TOOLS[0]),
     };
     solar_os_agent_provider_result_t provider_result;
     char tool_result[SOLAR_OS_AGENT_TOOL_RESULT_MAX];
     char tool_call_id[SOLAR_OS_AGENT_TOOL_CALL_ID_MAX];
     char tool_name[SOLAR_OS_AGENT_TOOL_NAME_MAX];
     char tool_arguments[SOLAR_OS_AGENT_TOOL_ARGUMENTS_MAX];
+    char previous_response_id[SOLAR_OS_AGENT_RESPONSE_ID_MAX];
+    previous_response_id[0] = '\0';
 
     for (uint32_t round = 0; round < AGENT_MAX_TOOL_ROUNDS; round++) {
         memset(&provider_result, 0, sizeof(provider_result));
@@ -591,7 +657,11 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         strlcpy(tool_arguments,
                 provider_result.tool_arguments,
                 sizeof(tool_arguments));
+        strlcpy(previous_response_id,
+                provider_result.response_id,
+                sizeof(previous_response_id));
         turn.continuation = true;
+        turn.previous_response_id = previous_response_id;
         turn.tool_call_id = tool_call_id;
         turn.tool_name = tool_name;
         turn.tool_arguments = tool_arguments;
@@ -614,6 +684,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     memset(tool_call_id, 0, sizeof(tool_call_id));
     memset(tool_name, 0, sizeof(tool_name));
     memset(tool_arguments, 0, sizeof(tool_arguments));
+    memset(previous_response_id, 0, sizeof(previous_response_id));
     SOLAR_OS_LOGI(TAG,
                   "request done: err=%s http=%d duration=%" PRIu32
                   " internal=%" PRIu32 " low=%" PRIu32 " after=%" PRIu32,
