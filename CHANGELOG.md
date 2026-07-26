@@ -2,6 +2,8 @@
 
 ## 4.x
 
+- **4.3.9** — 2026-07-26 — Moved device identity to NVS, added identity controls, and advertised the configured hostname over Wi-Fi. (`1acfe134`)
+- **4.3.8** — 2026-07-26 — Improved job diagnostics with bold running rows, worker-stack requirements, and clearer waiting-versus-failed reporting; restored ODROID-GO IRAM headroom. (`0c73f0cd`, `f239ca6b`)
 - **4.3.7** — 2026-07-25 — Added target-addressed routing to `displayd`. (`b9514e17`)
 - **4.3.6** — 2026-07-24 — Bound display sessions to their parent framebuffers. (`9af40321`)
 - **4.3.5** — 2026-07-24 — Added the `telnetd` background service. (`cc5f91ae`)
