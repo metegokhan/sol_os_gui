@@ -11,6 +11,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "solar_os_agent_reference.h"
 #include "solar_os_board.h"
 #include "solar_os_config.h"
 #include "solar_os_jobs.h"
@@ -45,6 +46,10 @@
 #define AGENT_TOOL_SCHEMA_SCRIPT_RUN \
     "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"," \
     "\"minLength\":1,\"maxLength\":640}},\"required\":[\"source\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_REFERENCE \
+    "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":64}},\"required\":[\"query\"]," \
     "\"additionalProperties\":false}"
 
 #define AGENT_TOOL_OUTPUT_SYSTEM_STATUS \
@@ -82,6 +87,13 @@
     "\"required\":[\"ok\",\"status\",\"output\",\"output_truncated\"," \
     "\"cancelled\",\"timed_out\",\"error\"]," \
     "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_REFERENCE \
+    "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
+    "\"matches\":{\"type\":\"array\",\"items\":{\"type\":\"object\"," \
+    "\"properties\":{\"topic\":{\"type\":\"string\"},\"reference\":" \
+    "{\"type\":\"string\"}},\"required\":[\"topic\",\"reference\"]," \
+    "\"additionalProperties\":false}}},\"required\":[\"count\",\"matches\"]," \
+    "\"additionalProperties\":false}"
 
 typedef esp_err_t (*agent_tool_execute_fn)(const char *arguments,
                                            const solar_os_agent_request_t *request,
@@ -110,6 +122,11 @@ static esp_err_t agent_tool_system_status(const char *arguments,
                                            const solar_os_agent_request_t *request,
                                            char *result,
                                            size_t result_len);
+static esp_err_t agent_tool_solaros_reference(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
 static esp_err_t agent_tool_storage_list(const char *arguments,
                                          const solar_os_agent_request_t *request,
                                          char *result,
@@ -174,6 +191,22 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .output_schema_json = AGENT_TOOL_OUTPUT_SYSTEM_STATUS,
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
         .execute = agent_tool_system_status,
+    },
+    {
+        .provider = {
+            .name = "solaros_reference",
+            .description =
+                "Search the authoritative installed SolarOS Python and Lua API "
+                "contracts. Call this before writing or running code that uses "
+                "SolarOS APIs, and follow returned target and capability "
+                "constraints exactly.",
+            .parameters_json = AGENT_TOOL_SCHEMA_REFERENCE,
+            .strict = true,
+        },
+        .domain = "reference",
+        .output_schema_json = AGENT_TOOL_OUTPUT_REFERENCE,
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .execute = agent_tool_solaros_reference,
     },
     {
         .provider = {
@@ -486,6 +519,30 @@ static esp_err_t agent_tool_system_status(const char *arguments,
         psram_free);
     return written >= 0 && (size_t)written < result_len ?
         ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static esp_err_t agent_tool_solaros_reference(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char query[65];
+    err = solar_os_json_get_string(
+        solar_os_json_object_get(root, "query"), query, sizeof(query));
+    solar_os_json_free(doc);
+    if (err != ESP_OK || query[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return solar_os_agent_reference_search(query, result, result_len);
 }
 
 static esp_err_t agent_tool_storage_list(const char *arguments,

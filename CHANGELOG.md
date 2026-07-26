@@ -24,7 +24,9 @@
   explicit exit instead of immediately returning to the display shell. Expanded
   the bounded tool chain to five executions plus a final response and added
   confirmed, size-limited storage reads and writes while excluding SSH identity
-  paths.
+  paths. Added an on-device `solaros_reference` tool and provider grounding
+  rules so generated Python and Lua consult the real SolarOS API contracts and
+  do not invent display targets, bus names, GPIOs, or service calls.
 
 ## 4.x
 

@@ -20,6 +20,13 @@
 #define AGENT_OPENAI_RX_BUFFER 1024U
 #define AGENT_OPENAI_TX_BUFFER 1024U
 #define AGENT_OPENAI_OUTPUT_MAX (16U * 1024U)
+#define AGENT_OPENAI_INSTRUCTIONS                                           \
+    "You are the native SolarOS agent. Use tools for device state. Before " \
+    "writing or running Python or Lua that uses SolarOS APIs, call "         \
+    "solaros_reference for the relevant modules and follow its contracts "  \
+    "exactly. Never invent API names, device names, display targets, bus "   \
+    "names, or GPIOs. Use only values supplied by the user or verified "     \
+    "through SolarOS APIs. Keep answers concise."
 
 typedef enum {
     AGENT_OPENAI_API_CHAT_COMPLETIONS = 0,
@@ -724,8 +731,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             body,
             AGENT_OPENAI_BODY_MAX,
             "{\"model\":\"%s\",\"stream\":true,\"store\":true,"
-            "\"instructions\":\"You are the native SolarOS agent. "
-            "Use tools when device state is needed. Keep answers concise.\","
+            "\"instructions\":\"" AGENT_OPENAI_INSTRUCTIONS "\","
             "\"reasoning\":{\"effort\":\"%s\"},"
             "\"input\":[{\"role\":\"user\",\"content\":\"%s\"}],"
             "\"tools\":%s,\"tool_choice\":\"auto\","
@@ -740,8 +746,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             body,
             AGENT_OPENAI_BODY_MAX,
             "{\"model\":\"%s\",\"stream\":true,\"store\":true,"
-            "\"instructions\":\"You are the native SolarOS agent. "
-            "Use tools when device state is needed. Keep answers concise.\","
+            "\"instructions\":\"" AGENT_OPENAI_INSTRUCTIONS "\","
             "\"reasoning\":{\"effort\":\"%s\"},"
             "\"previous_response_id\":\"%s\","
             "\"input\":[{\"role\":\"user\",\"content\":\"%s\"}],"
@@ -757,8 +762,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             body,
             AGENT_OPENAI_BODY_MAX,
             "{\"model\":\"%s\",\"stream\":true,\"store\":true,"
-            "\"instructions\":\"You are the native SolarOS agent. "
-            "Use tools when device state is needed. Keep answers concise.\","
+            "\"instructions\":\"" AGENT_OPENAI_INSTRUCTIONS "\","
             "\"reasoning\":{\"effort\":\"%s\"},"
             "\"previous_response_id\":\"%s\","
             "\"input\":[{\"type\":\"function_call_output\","
@@ -778,8 +782,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             "{\"model\":\"%s\",\"stream\":true,%s"
             "\"stream_options\":{\"include_usage\":true},"
             "\"messages\":["
-            "{\"role\":\"system\",\"content\":\"You are the native SolarOS agent. "
-            "Use tools when device state is needed. Keep answers concise.\"},"
+            "{\"role\":\"system\",\"content\":\"" AGENT_OPENAI_INSTRUCTIONS "\"},"
             "{\"role\":\"user\",\"content\":\"%s\"}],"
             "\"tools\":%s,\"tool_choice\":\"auto\"}",
             model,
@@ -793,8 +796,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             "{\"model\":\"%s\",\"stream\":true,%s"
             "\"stream_options\":{\"include_usage\":true},"
             "\"messages\":["
-            "{\"role\":\"system\",\"content\":\"You are the native SolarOS agent. "
-            "Use tools when device state is needed. Keep answers concise.\"},"
+            "{\"role\":\"system\",\"content\":\"" AGENT_OPENAI_INSTRUCTIONS "\"},"
             "{\"role\":\"user\",\"content\":\"%s\"},"
             "{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"%s\","
             "\"type\":\"function\",\"function\":{\"name\":\"%s\","

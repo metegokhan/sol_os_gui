@@ -320,6 +320,7 @@ label = "service.agent"
 depends = ["service_http_client", "service_json"]
 sources = [
   "services/solar_os_agent.c",
+  "services/solar_os_agent_reference.c",
   "services/solar_os_agent_openai.c",
   "services/solar_os_agent_tools.c",
 ]

@@ -89,6 +89,12 @@ registry currently contains:
 
 - `system_status`: board ID, SolarOS version, uptime, free and largest internal
   RAM blocks, and free PSRAM.
+- `solaros_reference`: search compact, authoritative Python and Lua API
+  contracts by module or task. The provider instructions require this lookup
+  before generated code uses SolarOS APIs. Results include operational
+  constraints such as using `gfx.begin()` for the current foreground display
+  and accepting a named display target only when it was supplied or verified
+  through `solaros.expansion.devices()`.
 - `storage_list`: up to 16 file or directory entries for one absolute path,
   including type and size. Results report when the output was truncated.
 - `storage_read`: read up to 3072 bytes from an absolute text-file path. This
@@ -139,6 +145,7 @@ before it is returned to the model.
 - Tool descriptor buffer: 4 KiB, allocated in PSRAM.
 - Tool arguments: 4095 bytes, held in PSRAM for a request.
 - Tool result: 4095 bytes, allocated in PSRAM.
+- API-reference matches: at most three compact contracts per lookup.
 - Storage read/write content: 3072 bytes.
 - Generated script source: 640 bytes.
 - Generated script captured output: 383 bytes.
