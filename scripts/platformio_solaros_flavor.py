@@ -56,6 +56,7 @@ tracked_files = (
     flavor_file,
     project_dir / "packages" / "solar_os_packages.toml",
     project_dir / "scripts" / "generate_flavor_config.py",
+    project_dir / "scripts" / "platformio_solaros_flavor.py",
     project_dir / "scripts" / "validate_board_metadata.py",
     project_dir / "src" / "CMakeLists.txt",
     project_dir / "src" / "services" / "solar_os_board_caps.h",
@@ -80,6 +81,10 @@ if previous != stamp and (previous or (build_dir / "CMakeCache.txt").exists()):
         build_dir / "CMakeCache.txt",
         build_dir / "build.ninja",
         build_dir / "cmake_install.cmake",
+        build_dir / "memory.ld",
+        build_dir / "sections.ld",
+        build_dir / "esp-idf" / "esp_system" / "ld" / "memory.ld.in",
+        build_dir / "esp-idf" / "esp_system" / "ld" / "sections.ld.in",
         build_dir / "CMakeFiles",
         build_dir / ".cmake",
     ):

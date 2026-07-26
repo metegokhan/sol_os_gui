@@ -35,6 +35,9 @@ CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
 # CONFIG_SPI_MASTER_ISR_IN_IRAM is not set
 # RMT hardware owns 1-Wire timing; keep optional encoder helpers in flash.
 # CONFIG_RMT_ENCODER_FUNC_IN_IRAM is not set
+# Use ESP32 SRAM1 as IRAM. Images built with this option require an ESP-IDF
+# bootloader that understands the expanded IRAM application segment.
+CONFIG_ESP_SYSTEM_ESP32_SRAM1_REGION_AS_IRAM=y
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_VOLUME_COUNT=4
 CONFIG_LWIP_IP_FORWARD=y
