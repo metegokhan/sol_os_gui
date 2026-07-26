@@ -1,5 +1,14 @@
 # SolarOS Changelog
 
+## Unreleased
+
+- Added the first native agent slice: a provider-neutral service, bounded
+  OpenAI-compatible streaming adapter, NVS-backed configuration, cancellable
+  `agent` app, and read-only `system_status` tool. Shell-only subcommands run
+  inline so their output remains visible when the prompt returns. Official
+  OpenAI Chat Completions requests disable reasoning effort when function tools
+  are present, as required by that endpoint.
+
 ## 4.x
 
 - **4.3.9** — 2026-07-26 — Moved device identity to NVS, added identity controls, and advertised the configured hostname over Wi-Fi. (`1acfe134`)

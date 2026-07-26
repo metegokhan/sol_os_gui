@@ -18,8 +18,8 @@ package dependencies and then removes packages unsupported by the target board.
   unavailable, its dependants are removed as well.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
-`maintenance_jobs`, `audio`, `net`, `media`, `games`, `python`, `lua`, and
-`utils`. Maintenance apps and jobs can therefore be selected independently.
+`maintenance_jobs`, `audio`, `net`, `agent`, `media`, `games`, `python`, `lua`,
+and `utils`. Maintenance apps and jobs can therefore be selected independently.
 
 Network ownership is intentionally split. `network.base`, `network.mqtt`,
 `network.ssh`, `network.mail`, `network.chat`, `network.http-client`, and
@@ -32,6 +32,13 @@ and `web`. It exposes request headers and bodies, redirects, streaming response
 events, cross-task cancellation, per-I/O timeouts, and an end-to-end deadline.
 Callers continue to own their worker task and response consumer; see
 [HTTP Client Service](http_client.md) for the native API and lifecycle.
+
+The `agent` group selects `app.agent` and its `service.agent` dependency.
+`service.agent` owns provider-neutral events, NVS-backed provider
+configuration, bounded tool-loop policy, and the OpenAI-compatible adapter.
+It depends on the shared HTTP and JSON services and is pruned from targets
+without both Wi-Fi and PSRAM. Python and Lua are not dependencies. See
+[Native Agent Service](agent.md).
 
 Chat is split further: `network.chat` owns the transport-neutral message store
 and outbox, `chat.transport.gateway` owns the gateway wire protocol, and

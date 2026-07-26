@@ -110,6 +110,11 @@ triggers = [
   "job_ntp_sync",
 ]
 
+[groups.agent]
+members = ["app_agent"]
+triggers = ["app_agent"]
+capabilities = ["psram", "wifi"]
+
 [groups.media]
 members = ["app_view"]
 triggers = ["app_view"]
@@ -309,6 +314,16 @@ depends = ["service_wifi"]
 sources = ["services/solar_os_http_server.c"]
 requires = ["esp_http_server", "esp_hw_support"]
 capabilities = ["wifi"]
+
+[packages.service_agent]
+label = "service.agent"
+depends = ["service_http_client", "service_json"]
+sources = [
+  "services/solar_os_agent.c",
+  "services/solar_os_agent_openai.c",
+]
+requires = ["heap", "nvs_flash"]
+capabilities = ["psram", "wifi"]
 
 [packages.service_image]
 label = "media.image"
@@ -553,6 +568,15 @@ capabilities = ["psram", "wifi", "gfx"]
 label = "app.chat"
 depends = ["job_chat_sync"]
 sources = ["apps/solar_os_chat.c"]
+capabilities = ["psram", "wifi"]
+
+[packages.app_agent]
+label = "app.agent"
+depends = ["service_agent"]
+sources = [
+  "apps/solar_os_agent_app.c",
+  "shell/solar_os_shell_agent.c",
+]
 capabilities = ["psram", "wifi"]
 
 [packages.app_email]

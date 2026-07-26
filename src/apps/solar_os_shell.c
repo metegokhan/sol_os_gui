@@ -188,6 +188,9 @@ static const shell_command_t shell_builtin_commands[] = {
     {"daq", "capture data streams", solar_os_shell_cmd_daq},
 #endif
     {"log", "show SolarOS logs", solar_os_shell_cmd_log},
+#if SOLAR_OS_PACKAGE_APP_AGENT
+    {"agent", "native LLM agent", solar_os_shell_cmd_agent},
+#endif
 #if SOLAR_OS_PACKAGE_APP_INBOX
     {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
 #endif
@@ -611,6 +614,11 @@ static const char * const inbox_list_values[] = {"all", "unread"};
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const email_subcommands[] = {"status", "configure", "sync", "forget"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_AGENT
+static const char * const agent_subcommands[] = {"status", "config", "forget", "ask"};
+static const char * const agent_config_fields[] = {"endpoint", "model", "key"};
+static const char * const agent_key_values[] = {"clear"};
+#endif
 
 static const char * const gpio_subcommands[] = {
     "status",
@@ -808,6 +816,11 @@ static const char * const path_inbox_list[] = {"inbox", "list"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const path_email[] = {"email"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_AGENT
+static const char * const path_agent[] = {"agent"};
+static const char * const path_agent_config[] = {"agent", "config"};
+static const char * const path_agent_config_key[] = {"agent", "config", "key"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const path_engine[] = {"engine"};
@@ -1526,6 +1539,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     SHELL_COMPLETION_STATIC(path_email, email_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_APP_AGENT
+    SHELL_COMPLETION_STATIC(path_agent, agent_subcommands),
+    SHELL_COMPLETION_STATIC(path_agent_config, agent_config_fields),
+    SHELL_COMPLETION_STATIC(path_agent_config_key, agent_key_values),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
     SHELL_COMPLETION_STATIC(path_led, led_subcommands),

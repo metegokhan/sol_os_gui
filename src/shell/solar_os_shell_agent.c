@@ -1,0 +1,159 @@
+#include "solar_os_shell_commands.h"
+
+#include <inttypes.h>
+#include <string.h>
+
+#include "solar_os_agent.h"
+#include "solar_os_agent_app.h"
+#include "solar_os_shell.h"
+#include "solar_os_shell_io.h"
+
+static void agent_usage(solar_os_shell_io_t *io)
+{
+    solar_os_shell_io_write_bold(io, "agent");
+    solar_os_shell_io_newline(io);
+    solar_os_shell_io_writeln(io, "usage:");
+    solar_os_shell_io_writeln(io, "  agent status");
+    solar_os_shell_io_writeln(io, "  agent config endpoint URL");
+    solar_os_shell_io_writeln(io, "  agent config model MODEL");
+    solar_os_shell_io_writeln(io, "  agent config key KEY|clear");
+    solar_os_shell_io_writeln(io, "  agent forget");
+    solar_os_shell_io_writeln(io, "  agent ask PROMPT...");
+}
+
+static void agent_status(solar_os_shell_io_t *io)
+{
+    solar_os_agent_status_t status;
+    if (solar_os_agent_get_status(&status) != ESP_OK) {
+        solar_os_shell_io_writeln(io, "agent: status unavailable");
+        return;
+    }
+
+    solar_os_shell_io_printf(io,
+                             "Provider: %s\n"
+                             "Endpoint: %s\n"
+                             "Model: %s\n"
+                             "API key: %s\n"
+                             "State: %s\n",
+                             status.provider,
+                             status.endpoint[0] != '\0' ?
+                                 status.endpoint : "not configured",
+                             status.model[0] != '\0' ?
+                                 status.model : "not configured",
+                             status.api_key_set ? "set" : "not set",
+                             status.running ? "running" : "idle");
+    solar_os_shell_io_printf(io,
+                             "Requests: %" PRIu32 ", failures: %" PRIu32 "\n",
+                             status.request_count,
+                             status.failure_count);
+    if (status.request_count == 0) {
+        return;
+    }
+
+    solar_os_shell_io_printf(
+        io,
+        "Last: %s, HTTP %d, %" PRIu32 " ms, %" PRIu32 " bytes\n",
+        esp_err_to_name(status.last_error),
+        status.last_http_status,
+        status.last_duration_ms,
+        status.last_bytes_received);
+    solar_os_shell_io_printf(
+        io,
+        "Internal: before %" PRIu32 ", low %" PRIu32
+        ", request-end %" PRIu32 " bytes\n",
+        status.last_internal_before,
+        status.last_internal_low,
+        status.last_internal_after);
+    solar_os_shell_io_printf(
+        io,
+        "Largest internal: before %" PRIu32
+        ", request-end %" PRIu32 " bytes\n",
+        status.last_internal_largest_before,
+        status.last_internal_largest_after);
+    solar_os_shell_io_printf(
+        io,
+        "PSRAM: before %" PRIu32 ", request-end %" PRIu32 " bytes\n",
+        status.last_psram_before,
+        status.last_psram_after);
+}
+
+static void agent_configure(solar_os_shell_io_t *io, int argc, char **argv)
+{
+    if (argc != 4) {
+        agent_usage(io);
+        return;
+    }
+
+    const char *field = argv[2];
+    const char *value = argv[3];
+    esp_err_t err;
+    if (strcmp(field, "endpoint") == 0) {
+        err = solar_os_agent_set_endpoint(value);
+    } else if (strcmp(field, "model") == 0) {
+        err = solar_os_agent_set_model(value);
+    } else if (strcmp(field, "key") == 0) {
+        err = solar_os_agent_set_api_key(strcmp(value, "clear") == 0 ? "" : value);
+    } else {
+        agent_usage(io);
+        return;
+    }
+
+    if (err == ESP_OK) {
+        solar_os_shell_io_printf(io,
+                                 "agent: %s %s\n",
+                                 field,
+                                 strcmp(field, "key") == 0 ?
+                                     (strcmp(value, "clear") == 0 ? "cleared" : "set") :
+                                     "updated");
+    } else {
+        solar_os_shell_io_printf(io,
+                                 "agent: invalid %s: %s\n",
+                                 field,
+                                 esp_err_to_name(err));
+    }
+}
+
+void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
+    if (io == NULL) {
+        return;
+    }
+
+    if (argc == 1) {
+        agent_usage(io);
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "status") == 0) {
+        agent_status(io);
+        return;
+    }
+    if (strcmp(argv[1], "config") == 0) {
+        agent_configure(io, argc, argv);
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "forget") == 0) {
+        const esp_err_t err = solar_os_agent_forget();
+        if (err == ESP_OK) {
+            solar_os_shell_io_writeln(io, "agent: configuration erased");
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "agent: erase failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+    if (strcmp(argv[1], "ask") == 0 && argc >= 3) {
+        const esp_err_t err =
+            solar_os_context_request_launch(ctx, &solar_os_agent_app, argc, argv);
+        if (err == ESP_OK) {
+            solar_os_shell_session_prepare_foreground_launch(ctx, false);
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "agent: launch failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+    agent_usage(io);
+}

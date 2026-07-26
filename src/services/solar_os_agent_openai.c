@@ -1,0 +1,595 @@
+#include "solar_os_agent_provider.h"
+
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "solar_os_json.h"
+#include "solar_os_memory.h"
+
+#define AGENT_OPENAI_BODY_MAX 8192U
+#define AGENT_OPENAI_SSE_LINE_MAX 4096U
+#define AGENT_OPENAI_ERROR_MAX 512U
+#define AGENT_OPENAI_HTTP_TIMEOUT_MS 15000U
+#define AGENT_OPENAI_DEADLINE_MS 90000U
+#define AGENT_OPENAI_RX_BUFFER 1024U
+#define AGENT_OPENAI_TX_BUFFER 1024U
+#define AGENT_OPENAI_OUTPUT_MAX (16U * 1024U)
+
+typedef struct {
+    solar_os_agent_event_fn event_handler;
+    void *user_data;
+    char *line;
+    size_t line_len;
+    char error_body[AGENT_OPENAI_ERROR_MAX];
+    size_t error_len;
+    solar_os_agent_provider_result_t *result;
+    size_t output_bytes;
+    bool saw_done;
+    bool saw_finish;
+    bool saw_payload;
+    bool parse_error;
+    bool too_many_tools;
+} agent_openai_stream_t;
+
+static esp_err_t agent_openai_emit(agent_openai_stream_t *stream,
+                                   solar_os_agent_event_type_t type,
+                                   const char *text)
+{
+    if (stream == NULL || stream->event_handler == NULL) {
+        return ESP_OK;
+    }
+
+    if (type == SOLAR_OS_AGENT_EVENT_TEXT_DELTA && text != NULL) {
+        const size_t len = strlen(text);
+        if (stream->output_bytes + len > AGENT_OPENAI_OUTPUT_MAX) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        stream->output_bytes += len;
+    }
+
+    const char *remaining = text != NULL ? text : "";
+    do {
+        solar_os_agent_event_t event = {
+            .type = type,
+        };
+        const size_t len = strlen(remaining);
+        const size_t copy = len >= sizeof(event.text) ? sizeof(event.text) - 1U : len;
+        memcpy(event.text, remaining, copy);
+        event.text[copy] = '\0';
+        const esp_err_t err = stream->event_handler(&event, stream->user_data);
+        if (err != ESP_OK) {
+            return err;
+        }
+        remaining += copy;
+        if (copy == 0) {
+            break;
+        }
+    } while (*remaining != '\0');
+    return ESP_OK;
+}
+
+static esp_err_t agent_openai_append(char *buffer,
+                                     size_t capacity,
+                                     const char *fragment)
+{
+    if (buffer == NULL || capacity == 0 || fragment == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t used = strlen(buffer);
+    const size_t len = strlen(fragment);
+    if (used + len >= capacity) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    memcpy(buffer + used, fragment, len + 1U);
+    return ESP_OK;
+}
+
+static esp_err_t agent_openai_parse_usage(agent_openai_stream_t *stream,
+                                          const solar_os_json_value_t *root)
+{
+    uint32_t prompt = 0;
+    uint32_t completion = 0;
+    uint32_t total = 0;
+    if (solar_os_json_get_path_uint32(root, "usage.prompt_tokens", &prompt) != ESP_OK &&
+        solar_os_json_get_path_uint32(root, "usage.input_tokens", &prompt) != ESP_OK) {
+        return ESP_OK;
+    }
+    (void)solar_os_json_get_path_uint32(root, "usage.completion_tokens", &completion);
+    if (completion == 0) {
+        (void)solar_os_json_get_path_uint32(root, "usage.output_tokens", &completion);
+    }
+    (void)solar_os_json_get_path_uint32(root, "usage.total_tokens", &total);
+
+    solar_os_agent_event_t event = {
+        .type = SOLAR_OS_AGENT_EVENT_USAGE,
+        .prompt_tokens = prompt,
+        .completion_tokens = completion,
+        .total_tokens = total != 0 ? total : prompt + completion,
+    };
+    return stream->event_handler(&event, stream->user_data);
+}
+
+static esp_err_t agent_openai_parse_tool_delta(agent_openai_stream_t *stream,
+                                                const solar_os_json_value_t *delta)
+{
+    const solar_os_json_value_t *calls =
+        solar_os_json_object_get(delta, "tool_calls");
+    if (calls == NULL) {
+        return ESP_OK;
+    }
+    if (!solar_os_json_is_array(calls) || solar_os_json_array_size(calls) != 1U) {
+        stream->too_many_tools = true;
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    const solar_os_json_value_t *call = solar_os_json_array_get(calls, 0);
+    if (!solar_os_json_is_object(call)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    char fragment[256];
+    if (solar_os_json_get_path_string(call, "id", fragment, sizeof(fragment)) == ESP_OK) {
+        const esp_err_t err = agent_openai_append(stream->result->tool_call_id,
+                                                  sizeof(stream->result->tool_call_id),
+                                                  fragment);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    if (solar_os_json_get_path_string(call,
+                                      "function.name",
+                                      fragment,
+                                      sizeof(fragment)) == ESP_OK) {
+        const esp_err_t err = agent_openai_append(stream->result->tool_name,
+                                                  sizeof(stream->result->tool_name),
+                                                  fragment);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    if (solar_os_json_get_path_string(call,
+                                      "function.arguments",
+                                      fragment,
+                                      sizeof(fragment)) == ESP_OK) {
+        const esp_err_t err = agent_openai_append(stream->result->tool_arguments,
+                                                  sizeof(stream->result->tool_arguments),
+                                                  fragment);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    stream->result->tool_call = true;
+    return ESP_OK;
+}
+
+static esp_err_t agent_openai_parse_data(agent_openai_stream_t *stream,
+                                         const char *data)
+{
+    if (strcmp(data, "[DONE]") == 0) {
+        stream->saw_done = true;
+        return ESP_OK;
+    }
+
+    solar_os_json_doc_t *doc = NULL;
+    esp_err_t err = solar_os_json_parse_cstr(data, &doc);
+    if (err != ESP_OK) {
+        stream->parse_error = true;
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    const solar_os_json_value_t *root = solar_os_json_root(doc);
+    stream->saw_payload = true;
+    const solar_os_json_value_t *delta =
+        solar_os_json_path_get(root, "choices[0].delta");
+    if (solar_os_json_is_object(delta)) {
+        char content[256];
+        if (solar_os_json_get_path_string(delta,
+                                          "content",
+                                          content,
+                                          sizeof(content)) == ESP_OK) {
+            err = agent_openai_emit(stream,
+                                    SOLAR_OS_AGENT_EVENT_TEXT_DELTA,
+                                    content);
+        }
+        if (err == ESP_OK) {
+            err = agent_openai_parse_tool_delta(stream, delta);
+        }
+    }
+    if (err == ESP_OK) {
+        char finish_reason[32];
+        if (solar_os_json_get_path_string(root,
+                                          "choices[0].finish_reason",
+                                          finish_reason,
+                                          sizeof(finish_reason)) == ESP_OK &&
+            finish_reason[0] != '\0') {
+            stream->saw_finish = true;
+        }
+        err = agent_openai_parse_usage(stream, root);
+    }
+    solar_os_json_free(doc);
+    return err;
+}
+
+static esp_err_t agent_openai_process_line(agent_openai_stream_t *stream)
+{
+    while (stream->line_len > 0 &&
+           (stream->line[stream->line_len - 1U] == '\r' ||
+            stream->line[stream->line_len - 1U] == '\n')) {
+        stream->line[--stream->line_len] = '\0';
+    }
+    if (stream->line_len == 0 || stream->line[0] == ':') {
+        return ESP_OK;
+    }
+    if (strncmp(stream->line, "data:", 5) != 0) {
+        return ESP_OK;
+    }
+
+    const char *data = stream->line + 5;
+    while (*data == ' ') {
+        data++;
+    }
+    return agent_openai_parse_data(stream, data);
+}
+
+static esp_err_t agent_openai_feed(agent_openai_stream_t *stream,
+                                   const uint8_t *data,
+                                   size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        const char ch = (char)data[i];
+        if (ch == '\n') {
+            stream->line[stream->line_len] = '\0';
+            const esp_err_t err = agent_openai_process_line(stream);
+            stream->line_len = 0;
+            stream->line[0] = '\0';
+            if (err != ESP_OK) {
+                return err;
+            }
+            continue;
+        }
+        if (stream->line_len + 1U >= AGENT_OPENAI_SSE_LINE_MAX) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        stream->line[stream->line_len++] = ch;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t agent_openai_http_event(const solar_os_http_event_t *event,
+                                         void *user_data)
+{
+    agent_openai_stream_t *stream = user_data;
+    if (event == NULL || stream == NULL) {
+        return ESP_OK;
+    }
+    solar_os_agent_provider_note_memory();
+    if (solar_os_agent_provider_cancel_requested()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (event->type != SOLAR_OS_HTTP_EVENT_DATA ||
+        event->data == NULL ||
+        event->data_len == 0) {
+        return ESP_OK;
+    }
+    if (event->status_code < 200 || event->status_code >= 300) {
+        const size_t remaining = sizeof(stream->error_body) - 1U - stream->error_len;
+        const size_t copy = event->data_len < remaining ? event->data_len : remaining;
+        memcpy(stream->error_body + stream->error_len, event->data, copy);
+        stream->error_len += copy;
+        stream->error_body[stream->error_len] = '\0';
+        return ESP_OK;
+    }
+    return agent_openai_feed(stream, event->data, event->data_len);
+}
+
+static esp_err_t agent_openai_escape(const char *source,
+                                     char **out,
+                                     const char *tag)
+{
+    if (source == NULL || out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out = NULL;
+    const size_t capacity = strlen(source) * 6U + 1U;
+    char *escaped = solar_os_memory_alloc(capacity,
+                                          SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                          tag);
+    if (escaped == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    const esp_err_t err = solar_os_json_escape_string(source, escaped, capacity);
+    if (err != ESP_OK) {
+        solar_os_memory_free(escaped);
+        return err;
+    }
+    *out = escaped;
+    return ESP_OK;
+}
+
+static bool agent_openai_is_official_chat_endpoint(const char *endpoint)
+{
+    static const char official_endpoint[] =
+        "https://api.openai.com/v1/chat/completions";
+    if (endpoint == NULL) {
+        return false;
+    }
+
+    const size_t official_len = sizeof(official_endpoint) - 1U;
+    if (strncmp(endpoint, official_endpoint, official_len) != 0) {
+        return false;
+    }
+    return endpoint[official_len] == '\0' ||
+        (endpoint[official_len] == '/' && endpoint[official_len + 1U] == '\0') ||
+        endpoint[official_len] == '?';
+}
+
+static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t *config,
+                                         const solar_os_agent_provider_turn_t *turn,
+                                         char **out_body,
+                                         size_t *out_len)
+{
+    if (config == NULL || turn == NULL || out_body == NULL || out_len == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_body = NULL;
+    *out_len = 0;
+
+    char *prompt = NULL;
+    char *model = NULL;
+    char *call_id = NULL;
+    char *tool_name = NULL;
+    char *arguments = NULL;
+    char *tool_result = NULL;
+    esp_err_t err = agent_openai_escape(turn->prompt, &prompt, "agent.prompt");
+    if (err == ESP_OK) {
+        err = agent_openai_escape(config->model, &model, "agent.model");
+    }
+    if (err == ESP_OK && turn->continuation) {
+        err = agent_openai_escape(turn->tool_call_id, &call_id, "agent.call-id");
+    }
+    if (err == ESP_OK && turn->continuation) {
+        err = agent_openai_escape(turn->tool_name, &tool_name, "agent.tool-name");
+    }
+    if (err == ESP_OK && turn->continuation) {
+        err = agent_openai_escape(turn->tool_arguments, &arguments, "agent.arguments");
+    }
+    if (err == ESP_OK && turn->continuation) {
+        err = agent_openai_escape(turn->tool_result, &tool_result, "agent.tool-result");
+    }
+    if (err != ESP_OK) {
+        goto cleanup;
+    }
+
+    char *body = solar_os_memory_alloc(AGENT_OPENAI_BODY_MAX,
+                                        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                        "agent.http-body");
+    if (body == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto cleanup;
+    }
+
+    const char *reasoning_compat =
+        agent_openai_is_official_chat_endpoint(config->endpoint) ?
+            "\"reasoning_effort\":\"none\"," : "";
+    int written;
+    if (!turn->continuation) {
+        written = snprintf(
+            body,
+            AGENT_OPENAI_BODY_MAX,
+            "{\"model\":\"%s\",\"stream\":true,%s"
+            "\"stream_options\":{\"include_usage\":true},"
+            "\"messages\":["
+            "{\"role\":\"system\",\"content\":\"You are the native SolarOS agent. "
+            "Use tools when device state is needed. Keep answers concise.\"},"
+            "{\"role\":\"user\",\"content\":\"%s\"}],"
+            "\"tools\":%s,\"tool_choice\":\"auto\"}",
+            model,
+            reasoning_compat,
+            prompt,
+            turn->tools_json);
+    } else {
+        written = snprintf(
+            body,
+            AGENT_OPENAI_BODY_MAX,
+            "{\"model\":\"%s\",\"stream\":true,%s"
+            "\"stream_options\":{\"include_usage\":true},"
+            "\"messages\":["
+            "{\"role\":\"system\",\"content\":\"You are the native SolarOS agent. "
+            "Use tools when device state is needed. Keep answers concise.\"},"
+            "{\"role\":\"user\",\"content\":\"%s\"},"
+            "{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"%s\","
+            "\"type\":\"function\",\"function\":{\"name\":\"%s\","
+            "\"arguments\":\"%s\"}}]},"
+            "{\"role\":\"tool\",\"tool_call_id\":\"%s\",\"content\":\"%s\"}],"
+            "\"tools\":%s,\"tool_choice\":\"auto\"}",
+            model,
+            reasoning_compat,
+            prompt,
+            call_id,
+            tool_name,
+            arguments,
+            call_id,
+            tool_result,
+            turn->tools_json);
+    }
+    if (written < 0 || (size_t)written >= AGENT_OPENAI_BODY_MAX) {
+        solar_os_memory_free(body);
+        err = ESP_ERR_INVALID_SIZE;
+        goto cleanup;
+    }
+    *out_body = body;
+    *out_len = (size_t)written;
+
+cleanup:
+    solar_os_memory_free(prompt);
+    solar_os_memory_free(model);
+    solar_os_memory_free(call_id);
+    solar_os_memory_free(tool_name);
+    solar_os_memory_free(arguments);
+    solar_os_memory_free(tool_result);
+    return err;
+}
+
+static esp_err_t agent_openai_error_message(agent_openai_stream_t *stream,
+                                            int status,
+                                            esp_err_t request_error)
+{
+    char message[SOLAR_OS_AGENT_EVENT_TEXT_MAX];
+    if (stream->error_body[0] != '\0') {
+        solar_os_json_doc_t *doc = NULL;
+        if (solar_os_json_parse_cstr(stream->error_body, &doc) == ESP_OK) {
+            if (solar_os_json_get_path_string(solar_os_json_root(doc),
+                                              "error.message",
+                                              message,
+                                              sizeof(message)) != ESP_OK) {
+                snprintf(message, sizeof(message), "HTTP %d", status);
+            }
+            solar_os_json_free(doc);
+        } else {
+            snprintf(message, sizeof(message), "HTTP %d", status);
+        }
+    } else if (request_error != ESP_OK) {
+        snprintf(message,
+                 sizeof(message),
+                 "request failed: %s",
+                 esp_err_to_name(request_error));
+    } else {
+        snprintf(message, sizeof(message), "HTTP %d", status);
+    }
+    return agent_openai_emit(stream, SOLAR_OS_AGENT_EVENT_ERROR, message);
+}
+
+static esp_err_t agent_openai_run_turn(const solar_os_agent_provider_config_t *config,
+                                       const solar_os_agent_provider_turn_t *turn,
+                                       solar_os_agent_event_fn event_handler,
+                                       void *user_data,
+                                       solar_os_agent_provider_result_t *result)
+{
+    if (config == NULL || turn == NULL || event_handler == NULL || result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(result, 0, sizeof(*result));
+    result->http_status = -1;
+
+    char *body = NULL;
+    size_t body_len = 0;
+    esp_err_t err = agent_openai_build_body(config, turn, &body, &body_len);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    agent_openai_stream_t *stream = solar_os_memory_calloc(
+        1,
+        sizeof(*stream),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "agent.stream");
+    if (stream == NULL) {
+        solar_os_memory_free(body);
+        return ESP_ERR_NO_MEM;
+    }
+    stream->line = solar_os_memory_alloc(AGENT_OPENAI_SSE_LINE_MAX,
+                                         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                         "agent.sse-line");
+    if (stream->line == NULL) {
+        solar_os_memory_free(stream);
+        solar_os_memory_free(body);
+        return ESP_ERR_NO_MEM;
+    }
+    stream->event_handler = event_handler;
+    stream->user_data = user_data;
+    stream->result = result;
+
+    char authorization[SOLAR_OS_AGENT_API_KEY_MAX + 8U];
+    solar_os_http_header_t headers[3];
+    size_t header_count = 0;
+    headers[header_count++] = (solar_os_http_header_t){
+        .name = "Content-Type",
+        .value = "application/json",
+    };
+    headers[header_count++] = (solar_os_http_header_t){
+        .name = "Accept",
+        .value = "text/event-stream",
+    };
+    if (config->api_key[0] != '\0') {
+        snprintf(authorization, sizeof(authorization), "Bearer %s", config->api_key);
+        headers[header_count++] = (solar_os_http_header_t){
+            .name = "Authorization",
+            .value = authorization,
+        };
+    }
+
+    const solar_os_http_request_options_t options = {
+        .url = config->endpoint,
+        .method = SOLAR_OS_HTTP_METHOD_POST,
+        .headers = headers,
+        .header_count = header_count,
+        .body = body,
+        .body_len = body_len,
+        .user_agent = "SolarOS-agent/0.1",
+        .timeout_ms = AGENT_OPENAI_HTTP_TIMEOUT_MS,
+        .deadline_ms = AGENT_OPENAI_DEADLINE_MS,
+        .receive_buffer_size = AGENT_OPENAI_RX_BUFFER,
+        .transmit_buffer_size = AGENT_OPENAI_TX_BUFFER,
+        .event_handler = agent_openai_http_event,
+        .user_data = stream,
+    };
+
+    solar_os_http_request_t *request = NULL;
+    err = solar_os_http_request_create(&options, &request);
+    if (err == ESP_OK) {
+        solar_os_agent_provider_bind_request(request);
+        solar_os_http_response_t response;
+        err = solar_os_http_request_perform(request, &response);
+        result->http_status = response.status_code;
+        result->duration_ms = response.duration_ms;
+        result->bytes_received =
+            response.bytes_received > UINT32_MAX ? UINT32_MAX : (uint32_t)response.bytes_received;
+        solar_os_agent_provider_unbind_request(request);
+        (void)solar_os_http_request_destroy(request);
+    }
+
+    if (err == ESP_OK && stream->line_len > 0) {
+        stream->line[stream->line_len] = '\0';
+        err = agent_openai_process_line(stream);
+    }
+    if (err == ESP_OK &&
+        (result->http_status < 200 || result->http_status >= 300)) {
+        err = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (err == ESP_OK && stream->parse_error) {
+        err = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (err == ESP_OK &&
+        (!stream->saw_payload || (!stream->saw_done && !stream->saw_finish))) {
+        err = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (err == ESP_OK && stream->too_many_tools) {
+        err = ESP_ERR_NOT_SUPPORTED;
+    }
+    if (err == ESP_OK && result->tool_call &&
+        (result->tool_call_id[0] == '\0' ||
+         result->tool_name[0] == '\0' ||
+         result->tool_arguments[0] == '\0')) {
+        err = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (err != ESP_OK && !solar_os_agent_provider_cancel_requested()) {
+        (void)agent_openai_error_message(stream, result->http_status, err);
+    }
+
+    memset(authorization, 0, sizeof(authorization));
+    solar_os_memory_free(stream->line);
+    solar_os_memory_free(stream);
+    solar_os_memory_free(body);
+    return err;
+}
+
+const solar_os_agent_provider_t solar_os_agent_openai_provider = {
+    .name = "openai-compatible",
+    .capabilities = SOLAR_OS_AGENT_PROVIDER_CAP_STREAMING |
+                    SOLAR_OS_AGENT_PROVIDER_CAP_TOOLS |
+                    SOLAR_OS_AGENT_PROVIDER_CAP_USAGE,
+    .run_turn = agent_openai_run_turn,
+};
