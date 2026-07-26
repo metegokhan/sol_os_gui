@@ -23,9 +23,9 @@
 #define AGENT_NVS_API_KEY_KEY "api_key"
 #define AGENT_NVS_REASONING_KEY "reasoning"
 #define AGENT_NVS_TOOL_POLICY_KEY "tool_policy"
+#define AGENT_NVS_MAX_TOOLS_KEY "max_tools"
 #define AGENT_DEFAULT_REASONING_EFFORT "medium"
 #define AGENT_DEFAULT_TOOL_POLICY SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM
-#define AGENT_MAX_TOOL_ROUNDS 6U
 
 typedef struct {
     solar_os_http_request_t *request;
@@ -47,6 +47,7 @@ typedef struct {
     bool cancel_requested;
     solar_os_agent_provider_config_t config;
     solar_os_agent_tool_policy_t tool_policy;
+    uint8_t max_tools;
     agent_request_handle_t *active_request;
     uint32_t request_count;
     uint32_t failure_count;
@@ -231,6 +232,11 @@ static void agent_load_config(void)
                                          &agent.tool_policy) != ESP_OK) {
         agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
     }
+    if (nvs_get_u8(nvs, AGENT_NVS_MAX_TOOLS_KEY, &agent.max_tools) != ESP_OK ||
+        agent.max_tools < SOLAR_OS_AGENT_MAX_TOOLS_MIN ||
+        agent.max_tools > SOLAR_OS_AGENT_MAX_TOOLS_MAX) {
+        agent.max_tools = SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS;
+    }
     nvs_close(nvs);
 }
 
@@ -250,6 +256,7 @@ esp_err_t solar_os_agent_init(void)
     portENTER_CRITICAL(&agent_lock);
     agent.config = config;
     agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
+    agent.max_tools = SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS;
     portEXIT_CRITICAL(&agent_lock);
     agent_load_config();
 
@@ -366,6 +373,35 @@ esp_err_t solar_os_agent_set_tool_policy(solar_os_agent_tool_policy_t policy)
     return err;
 }
 
+esp_err_t solar_os_agent_set_max_tools(uint8_t max_tools)
+{
+    if (max_tools < SOLAR_OS_AGENT_MAX_TOOLS_MIN ||
+        max_tools > SOLAR_OS_AGENT_MAX_TOOLS_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_agent_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    nvs_handle_t nvs;
+    err = nvs_open(AGENT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u8(nvs, AGENT_NVS_MAX_TOOLS_KEY, max_tools);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&agent_lock);
+        agent.max_tools = max_tools;
+        portEXIT_CRITICAL(&agent_lock);
+    }
+    return err;
+}
+
 esp_err_t solar_os_agent_forget(void)
 {
     esp_err_t err = solar_os_agent_init();
@@ -400,6 +436,7 @@ esp_err_t solar_os_agent_forget(void)
             AGENT_DEFAULT_REASONING_EFFORT,
             sizeof(agent.config.reasoning_effort));
     agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
+    agent.max_tools = SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS;
     portEXIT_CRITICAL(&agent_lock);
     return ESP_OK;
 }
@@ -427,6 +464,7 @@ esp_err_t solar_os_agent_get_status(solar_os_agent_status_t *status)
             agent.config.reasoning_effort,
             sizeof(status->reasoning_effort));
     status->tool_policy = agent.tool_policy;
+    status->max_tools = agent.max_tools;
     status->request_count = agent.request_count;
     status->failure_count = agent.failure_count;
     status->tool_executed_count = agent.tool_executed_count;
@@ -668,6 +706,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     const uint32_t psram_before = agent_psram_free();
     solar_os_agent_provider_config_t config;
     solar_os_agent_tool_policy_t tool_policy;
+    uint8_t max_tools;
     portENTER_CRITICAL(&agent_lock);
     if (agent.running) {
         portEXIT_CRITICAL(&agent_lock);
@@ -679,6 +718,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     }
     config = agent.config;
     tool_policy = agent.tool_policy;
+    max_tools = agent.max_tools;
     agent.running = true;
     agent.cancel_requested = false;
     agent.request_count++;
@@ -735,7 +775,9 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         return err;
     }
 
-    for (uint32_t round = 0; round < AGENT_MAX_TOOL_ROUNDS; round++) {
+    for (uint32_t turn_index = 0;
+         turn_index <= (uint32_t)max_tools;
+         turn_index++) {
         memset(&run->provider_result, 0, sizeof(run->provider_result));
         run->provider_result.http_status = -1;
         err = solar_os_agent_openai_provider.run_turn(&config,
@@ -755,11 +797,16 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
             err = ESP_OK;
             break;
         }
-        if (round + 1U >= AGENT_MAX_TOOL_ROUNDS) {
+        if (turn_index >= (uint32_t)max_tools) {
+            char limit_message[64];
+            snprintf(limit_message,
+                     sizeof(limit_message),
+                     "tool call limit reached (max %u)",
+                     (unsigned int)max_tools);
             err = ESP_ERR_INVALID_STATE;
             (void)agent_emit(request,
                              SOLAR_OS_AGENT_EVENT_ERROR,
-                             "tool round limit reached",
+                             limit_message,
                              run->provider_result.tool_name,
                              false);
             break;

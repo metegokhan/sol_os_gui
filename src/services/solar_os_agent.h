@@ -15,6 +15,9 @@
 #define SOLAR_OS_AGENT_CONVERSATION_ID_MAX 96
 #define SOLAR_OS_AGENT_EVENT_TEXT_MAX 192
 #define SOLAR_OS_AGENT_TOOL_NAME_MAX 48
+#define SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS 8U
+#define SOLAR_OS_AGENT_MAX_TOOLS_MIN 1U
+#define SOLAR_OS_AGENT_MAX_TOOLS_MAX 12U
 
 typedef enum {
     SOLAR_OS_AGENT_TOOL_POLICY_OFF = 0,
@@ -89,6 +92,7 @@ typedef struct {
     char model[SOLAR_OS_AGENT_MODEL_MAX];
     char reasoning_effort[SOLAR_OS_AGENT_REASONING_EFFORT_MAX];
     solar_os_agent_tool_policy_t tool_policy;
+    uint8_t max_tools;
     uint32_t request_count;
     uint32_t failure_count;
     uint32_t tool_executed_count;
@@ -113,6 +117,7 @@ esp_err_t solar_os_agent_set_model(const char *model);
 esp_err_t solar_os_agent_set_api_key(const char *api_key);
 esp_err_t solar_os_agent_set_reasoning_effort(const char *effort);
 esp_err_t solar_os_agent_set_tool_policy(solar_os_agent_tool_policy_t policy);
+esp_err_t solar_os_agent_set_max_tools(uint8_t max_tools);
 esp_err_t solar_os_agent_parse_tool_policy(
     const char *name,
     solar_os_agent_tool_policy_t *policy);

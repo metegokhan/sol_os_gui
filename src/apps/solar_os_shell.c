@@ -630,8 +630,10 @@ static const char * const agent_config_fields[] = {
     "key",
     "reasoning",
     "tools",
+    "max-tools",
 };
 static const char * const agent_key_values[] = {"clear"};
+static const char * const agent_max_tools_values[] = {"1", "4", "8", "12"};
 static const char * const agent_tool_policy_values[] = {
     "off",
     "readonly",
@@ -870,6 +872,11 @@ static const char * const path_agent_config_tools[] = {
     "agent",
     "config",
     "tools",
+};
+static const char * const path_agent_config_max_tools[] = {
+    "agent",
+    "config",
+    "max-tools",
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
@@ -1599,6 +1606,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_agent_config_key, agent_key_values),
     SHELL_COMPLETION_STATIC(path_agent_config_reasoning, agent_reasoning_values),
     SHELL_COMPLETION_STATIC(path_agent_config_tools, agent_tool_policy_values),
+    SHELL_COMPLETION_STATIC(path_agent_config_max_tools, agent_max_tools_values),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
     SHELL_COMPLETION_STATIC(path_led, led_subcommands),

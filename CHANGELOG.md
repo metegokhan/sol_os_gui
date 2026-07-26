@@ -22,7 +22,8 @@
   Bare `agent` now opens a resumable foreground conversation, Responses sessions
   retain context while the app remains open, and one-shot responses wait for
   explicit exit instead of immediately returning to the display shell. Expanded
-  the bounded tool chain to five executions plus a final response and added
+  the bounded tool chain, added an NVS-backed 1-to-12 tool-call limit with an
+  eight-call default and a separately reserved final response, and added
   confirmed, size-limited storage reads and writes while excluding SSH identity
   paths. Added an on-device `solaros_reference` tool and provider grounding
   rules so generated Python and Lua consult the real SolarOS API contracts and

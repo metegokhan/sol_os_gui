@@ -25,6 +25,7 @@ agent config model gpt-model
 agent config key api-key
 agent config reasoning medium
 agent config tools confirm
+agent config max-tools 8
 agent
 agent ask How much memory is free on this device?
 agent script python -c "print(6 * 7)"
@@ -43,9 +44,11 @@ status, reasoning effort, duration, traffic, and internal-RAM/PSRAM measurements
 from the last request. The API key itself is never printed. A
 Chat-Completions-compatible endpoint can still be configured explicitly.
 
-The agent permits five sequential tool calls followed by one final provider
-turn. Output is bounded to 16 KiB, protocol buffers and queues prefer PSRAM,
-and the foreground worker uses a declared 16 KiB internal stack.
+The agent permits eight sequential tool calls by default, followed by a
+separately reserved final provider turn. `agent config max-tools COUNT` stores
+a per-request limit from 1 through 12 in NVS. Output is bounded to 16 KiB,
+protocol buffers and queues prefer PSRAM, and the foreground worker uses a
+declared 16 KiB internal stack.
 Full builds can reuse that worker for bounded Python or Lua source/file
 execution. The manual script path captures at most 4095 output bytes, has a
 30-second deadline, and supports app-exit cancellation. Model-generated source

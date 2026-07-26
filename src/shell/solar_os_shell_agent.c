@@ -7,6 +7,7 @@
 #include "solar_os_agent_app.h"
 #include "solar_os_agent_tools.h"
 #include "solar_os_shell.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
 static void agent_usage(solar_os_shell_io_t *io)
@@ -27,6 +28,7 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(
         io,
         "  agent config tools off|readonly|confirm|all");
+    solar_os_shell_io_writeln(io, "  agent config max-tools 1..12");
     solar_os_shell_io_writeln(io, "  agent forget");
     solar_os_shell_io_writeln(io, "  agent ask PROMPT...");
     solar_os_shell_io_writeln(
@@ -85,6 +87,7 @@ static void agent_status(solar_os_shell_io_t *io)
                              "API key: %s\n"
                              "Reasoning (Responses): %s\n"
                              "Tool policy: %s\n"
+                             "Max tools/request: %u\n"
                              "State: %s\n",
                              status.provider,
                              status.endpoint[0] != '\0' ?
@@ -94,6 +97,7 @@ static void agent_status(solar_os_shell_io_t *io)
                              status.api_key_set ? "set" : "not set",
                              status.reasoning_effort,
                              solar_os_agent_tool_policy_name(status.tool_policy),
+                             (unsigned int)status.max_tools,
                              status.running ? "running" : "idle");
     solar_os_shell_io_printf(io,
                              "Requests: %" PRIu32 ", failures: %" PRIu32 "\n"
@@ -158,6 +162,13 @@ static void agent_configure(solar_os_shell_io_t *io, int argc, char **argv)
         err = solar_os_agent_parse_tool_policy(value, &policy);
         if (err == ESP_OK) {
             err = solar_os_agent_set_tool_policy(policy);
+        }
+    } else if (strcmp(field, "max-tools") == 0) {
+        uint8_t max_tools = 0;
+        if (!solar_os_shell_parse_u8(value, &max_tools)) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            err = solar_os_agent_set_max_tools(max_tools);
         }
     } else {
         agent_usage(io);

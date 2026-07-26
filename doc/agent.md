@@ -14,6 +14,7 @@ agent config model gpt-model
 agent config key api-key
 agent config reasoning medium
 agent config tools confirm
+agent config max-tools 8
 agent status
 ```
 
@@ -35,7 +36,7 @@ Other Chat-compatible endpoints do not receive this provider-specific field.
 Configuration is stored in the `agent` NVS namespace. The API key is used as a
 Bearer token and is never returned by status. Use `agent config key clear` for
 a local or self-hosted endpoint without authentication, or `agent forget` to
-erase the endpoint, model, and key together.
+erase all agent configuration.
 
 Start the foreground chat with:
 
@@ -126,10 +127,13 @@ request. A denial is returned to the model as a structured result so it can
 explain or choose another approach rather than losing the conversation turn.
 `agent status` includes executed, denied, and failed tool counters.
 
-The service permits up to five sequential tool executions followed by a final
-provider turn. This supports bounded inspect/read/change workflows without
-allowing an unbounded autonomous loop. Unsupported tools, multiple simultaneous
-tool calls, malformed arguments, or a sixth tool request fail the request.
+The service permits up to eight sequential tool calls by default and always
+reserves a separate provider turn for the final response. Set the per-request
+limit with `agent config max-tools COUNT`; accepted values are 1 through 12 and
+the selection is stored in NVS. This supports bounded inspect/read/change
+workflows without allowing an unbounded autonomous loop. Unsupported tools,
+multiple simultaneous tool calls, malformed arguments, or a tool request after
+the configured limit fail the request.
 Definitions, input/output schemas, availability checks, risk metadata, and
 executors live in one declarative registry. Only available tools are sent to
 the provider, and every successful executor result is parsed as a JSON object

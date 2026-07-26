@@ -108,6 +108,7 @@ static void agent_app_print_status(solar_os_context_t *ctx)
                              "API key: %s\n"
                              "Reasoning (Responses): %s\n"
                              "Tool policy: %s\n"
+                             "Max tools/request: %u\n"
                              "State: %s\n",
                              status.provider,
                              status.endpoint[0] != '\0' ?
@@ -117,6 +118,7 @@ static void agent_app_print_status(solar_os_context_t *ctx)
                              status.api_key_set ? "set" : "not set",
                              status.reasoning_effort,
                              solar_os_agent_tool_policy_name(status.tool_policy),
+                             (unsigned int)status.max_tools,
                              status.running ? "running" : "idle");
     solar_os_shell_io_printf(io,
                              "Requests: %" PRIu32 ", failures: %" PRIu32 "\n"
