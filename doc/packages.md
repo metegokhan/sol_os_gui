@@ -35,11 +35,20 @@ Callers continue to own their worker task and response consumer; see
 
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider
-configuration, bounded tool-loop policy, and the OpenAI
-Responses/Chat-Completions adapter.
+configuration, bounded tool-loop policy, a declarative typed-tool registry,
+and the OpenAI Responses/Chat-Completions adapter. The registry owns provider
+schemas, output schemas, risk and availability metadata, and shared execution
+for the system, storage, and jobs tools.
 It depends on the shared HTTP and JSON services and is pruned from targets
 without both Wi-Fi and PSRAM. Python and Lua are not dependencies. See
 [Native Agent Service](agent.md).
+
+`app.python` and `app.lua` each depend on `service.script_runner`. That service
+defines the common source/file request, bounded output, cancellation, deadline,
+and completion-status contract. Each interpreter owns its language adapter and
+single-owner guard. `app.agent` can use an installed adapter for the manual
+`agent script` command without making either interpreter a dependency of the
+agent package.
 
 Chat is split further: `network.chat` owns the transport-neutral message store
 and outbox, `chat.transport.gateway` owns the gateway wire protocol, and

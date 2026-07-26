@@ -615,7 +615,14 @@ static const char * const inbox_list_values[] = {"all", "unread"};
 static const char * const email_subcommands[] = {"status", "configure", "sync", "forget"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
-static const char * const agent_subcommands[] = {"status", "config", "forget", "ask"};
+static const char * const agent_subcommands[] = {
+    "status",
+    "tools",
+    "config",
+    "forget",
+    "ask",
+    "script",
+};
 static const char * const agent_config_fields[] = {
     "endpoint",
     "model",
@@ -623,6 +630,16 @@ static const char * const agent_config_fields[] = {
     "reasoning",
 };
 static const char * const agent_key_values[] = {"clear"};
+#if SOLAR_OS_PACKAGE_APP_PYTHON || SOLAR_OS_PACKAGE_APP_LUA
+static const char * const agent_script_languages[] = {
+#if SOLAR_OS_PACKAGE_APP_PYTHON
+    "python",
+#endif
+#if SOLAR_OS_PACKAGE_APP_LUA
+    "lua",
+#endif
+};
+#endif
 static const char * const agent_reasoning_values[] = {
     "none",
     "minimal",
@@ -834,6 +851,7 @@ static const char * const path_email[] = {"email"};
 #if SOLAR_OS_PACKAGE_APP_AGENT
 static const char * const path_agent[] = {"agent"};
 static const char * const path_agent_config[] = {"agent", "config"};
+static const char * const path_agent_script[] = {"agent", "script"};
 static const char * const path_agent_config_key[] = {"agent", "config", "key"};
 static const char * const path_agent_config_reasoning[] = {
     "agent",
@@ -1562,6 +1580,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_AGENT
     SHELL_COMPLETION_STATIC(path_agent, agent_subcommands),
     SHELL_COMPLETION_STATIC(path_agent_config, agent_config_fields),
+#if SOLAR_OS_PACKAGE_APP_PYTHON || SOLAR_OS_PACKAGE_APP_LUA
+    SHELL_COMPLETION_STATIC(path_agent_script, agent_script_languages),
+#endif
     SHELL_COMPLETION_STATIC(path_agent_config_key, agent_key_values),
     SHELL_COMPLETION_STATIC(path_agent_config_reasoning, agent_reasoning_values),
 #endif

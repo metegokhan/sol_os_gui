@@ -201,6 +201,46 @@ typedef struct {
 
 static const char *TAG = "solar_os_lua";
 static EXT_RAM_BSS_ATTR solua_state_t solua;
+static EXT_RAM_BSS_ATTR solar_os_script_run_control_t *solua_runner_control;
+
+typedef enum {
+    SOLUA_RUNTIME_OWNER_NONE,
+    SOLUA_RUNTIME_OWNER_APP,
+    SOLUA_RUNTIME_OWNER_RUNNER,
+} solua_runtime_owner_t;
+
+static portMUX_TYPE solua_runtime_lock = portMUX_INITIALIZER_UNLOCKED;
+static EXT_RAM_BSS_ATTR solua_runtime_owner_t solua_runtime_owner;
+
+static bool solua_runtime_claim(solua_runtime_owner_t owner)
+{
+    bool claimed = false;
+    portENTER_CRITICAL(&solua_runtime_lock);
+    if (solua_runtime_owner == SOLUA_RUNTIME_OWNER_NONE) {
+        solua_runtime_owner = owner;
+        claimed = true;
+    }
+    portEXIT_CRITICAL(&solua_runtime_lock);
+    return claimed;
+}
+
+static void solua_runtime_release(solua_runtime_owner_t owner)
+{
+    portENTER_CRITICAL(&solua_runtime_lock);
+    if (solua_runtime_owner == owner) {
+        solua_runtime_owner = SOLUA_RUNTIME_OWNER_NONE;
+    }
+    portEXIT_CRITICAL(&solua_runtime_lock);
+}
+
+static bool solua_runtime_is_owned_by(solua_runtime_owner_t owner)
+{
+    bool matches;
+    portENTER_CRITICAL(&solua_runtime_lock);
+    matches = solua_runtime_owner == owner;
+    portEXIT_CRITICAL(&solua_runtime_lock);
+    return matches;
+}
 
 static solar_os_shell_io_t *solua_io(solar_os_context_t *ctx)
 {
@@ -235,6 +275,21 @@ static bool solua_send_event(const solua_event_t *event)
 
 static void solua_send_message(solua_event_type_t type, const char *message)
 {
+    if (solua_runner_control != NULL) {
+        if (type == SOLUA_EVENT_ERROR) {
+            solar_os_script_run_error(solua_runner_control,
+                                      ESP_FAIL,
+                                      message != NULL ? message : "Lua error");
+            if (message != NULL) {
+                solar_os_script_run_output(solua_runner_control,
+                                           message,
+                                           strlen(message));
+                solar_os_script_run_output(solua_runner_control, "\n", 1);
+            }
+        }
+        return;
+    }
+
     solua_event_t event = {
         .type = type,
     };
@@ -247,6 +302,11 @@ static void solua_send_message(solua_event_type_t type, const char *message)
 
 static void solua_send_output(const char *data, size_t len)
 {
+    if (solua_runner_control != NULL) {
+        solar_os_script_run_output(solua_runner_control, data, len);
+        return;
+    }
+
     while (data != NULL && len > 0) {
         solua_event_t event = {
             .type = SOLUA_EVENT_OUTPUT,
@@ -293,6 +353,11 @@ static void *solua_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 static void solua_hook(lua_State *L, lua_Debug *ar)
 {
     (void)ar;
+    if (solua_runner_control != NULL &&
+        solar_os_script_run_should_cancel(solua_runner_control)) {
+        solua.interrupt_requested = true;
+        solua.interrupted = true;
+    }
     if (solua.stop_requested || solua.interrupt_requested) {
         luaL_error(L, "interrupted");
     }
@@ -4340,6 +4405,120 @@ static bool solua_run_script(lua_State *L)
     return solua_call_loaded(L, false);
 }
 
+esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
+                           solar_os_script_run_result_t *result)
+{
+    solar_os_script_run_control_t control;
+    esp_err_t err = solar_os_script_run_begin(request, result, &control);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (!solua_runtime_claim(SOLUA_RUNTIME_OWNER_RUNNER)) {
+        solar_os_script_run_error(&control,
+                                  ESP_ERR_INVALID_STATE,
+                                  "Lua runtime is already in use");
+        return result->status;
+    }
+
+    memset(&solua, 0, sizeof(solua));
+    solua.ctx = request->context;
+    solua.argc = request->argc;
+    for (int i = 0; i < request->argc; i++) {
+        if (request->argv[i] == NULL ||
+            strlcpy(solua.argv[i],
+                    request->argv[i],
+                    sizeof(solua.argv[i])) >= sizeof(solua.argv[i])) {
+            solar_os_script_run_error(&control,
+                                      ESP_ERR_INVALID_ARG,
+                                      "Lua argument is too long");
+            goto cleanup;
+        }
+    }
+
+    size_t source_len = request->input_len;
+    if (request->input_type == SOLAR_OS_SCRIPT_INPUT_SOURCE) {
+        if (source_len == 0) {
+            source_len = strlen(request->input);
+        }
+        if (source_len > SOLAR_OS_SCRIPT_SOURCE_MAX_BYTES) {
+            solar_os_script_run_error(&control,
+                                      ESP_ERR_INVALID_SIZE,
+                                      "Lua source is too large");
+            goto cleanup;
+        }
+    } else if (request->input_type == SOLAR_OS_SCRIPT_INPUT_FILE) {
+        struct stat st;
+        if (stat(request->input, &st) != 0 || !S_ISREG(st.st_mode)) {
+            solar_os_script_run_error(&control, ESP_ERR_NOT_FOUND, "Lua file not found");
+            goto cleanup;
+        }
+        if (st.st_size < 0 ||
+            (uint64_t)st.st_size > SOLAR_OS_SCRIPT_SOURCE_MAX_BYTES) {
+            solar_os_script_run_error(&control,
+                                      ESP_ERR_INVALID_SIZE,
+                                      "Lua source is too large");
+            goto cleanup;
+        }
+    } else {
+        solar_os_script_run_error(&control, ESP_ERR_INVALID_ARG, "invalid Lua input type");
+        goto cleanup;
+    }
+
+    solua_runner_control = &control;
+    lua_State *L = lua_newstate(solua_alloc, NULL);
+    if (L == NULL) {
+        solar_os_script_run_error(&control, ESP_ERR_NO_MEM, "Lua heap allocation failed");
+        goto cleanup;
+    }
+
+    lua_atpanic(L, solua_panic);
+    solua_open_libs(L);
+    solua_open_solaros(L);
+    lua_sethook(L, solua_hook, LUA_MASKCOUNT, SOLUA_HOOK_INSTRUCTION_COUNT);
+    solua_set_args(L);
+
+    int status = LUA_ERRRUN;
+    if (solar_os_script_run_should_cancel(&control)) {
+        status = LUA_ERRRUN;
+    } else if (request->input_type == SOLAR_OS_SCRIPT_INPUT_FILE) {
+        status = luaL_loadfilex(L, request->input, "t");
+    } else {
+        status = luaL_loadbufferx(L,
+                                  request->input,
+                                  source_len,
+                                  request->source_name != NULL
+                                      ? request->source_name
+                                      : "=script",
+                                  "t");
+    }
+
+    bool success = false;
+    if (status == LUA_OK) {
+        success = solua_call_loaded(L, false);
+    } else if (!result->cancelled && !result->timed_out) {
+        solua_report_error(lua_tostring(L, -1));
+        lua_pop(L, 1);
+    }
+
+    if (result->timed_out) {
+        solar_os_script_run_error(&control, ESP_ERR_TIMEOUT, "Lua deadline exceeded");
+    } else if (result->cancelled) {
+        solar_os_script_run_error(&control, ESP_ERR_INVALID_STATE, "Lua run cancelled");
+    } else if (success) {
+        result->success = true;
+        result->status = ESP_OK;
+    } else if (result->status == ESP_OK) {
+        solar_os_script_run_error(&control, ESP_FAIL, "Lua execution failed");
+    }
+
+    lua_close(L);
+
+cleanup:
+    solua_runner_control = NULL;
+    solua_runtime_release(SOLUA_RUNTIME_OWNER_RUNNER);
+    return result->status;
+}
+
 static void solua_run_repl(lua_State *L)
 {
     solua_send_message(SOLUA_EVENT_PROMPT, "> ");
@@ -4460,18 +4639,27 @@ static void solua_finish_terminal_line(solar_os_context_t *ctx, solar_os_shell_i
 
 static esp_err_t solua_start(solar_os_context_t *ctx)
 {
+    solar_os_shell_io_t *io = solua_io(ctx);
+    if (!solua_runtime_claim(SOLUA_RUNTIME_OWNER_APP)) {
+        solar_os_shell_io_writeln(io, "lua: runtime is already in use");
+        solar_os_shell_io_flush(io);
+        solua_return_to_shell(ctx);
+        return ESP_OK;
+    }
+
     memset(&solua, 0, sizeof(solua));
     solua.ctx = ctx;
     solua.session_terminal = solar_os_context_terminal(ctx);
     solua.session_gfx = solar_os_context_gfx(ctx);
 
-    solar_os_shell_io_t *io = solua_io(ctx);
+    io = solua_io(ctx);
     solua.session_io = io;
     const int argc = solar_os_context_argc(ctx);
     if (argc > SOLAR_OS_APP_ARG_MAX) {
         solar_os_shell_io_writeln(io, "lua: too many arguments");
         solar_os_shell_io_flush(io);
         solua_return_to_shell(ctx);
+        solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
 
@@ -4492,6 +4680,7 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         if (script_arg == NULL || script_arg[0] == '\0') {
             solua_render_usage(io);
             solua_return_to_shell(ctx);
+            solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
             return ESP_OK;
         }
 
@@ -4502,12 +4691,14 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
             solar_os_shell_io_printf(io, "lua: invalid path: %s\n", esp_err_to_name(path_err));
             solar_os_shell_io_flush(io);
             solua_return_to_shell(ctx);
+            solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
             return ESP_OK;
         }
         if (!solua_path_has_suffix(solua.path, ".lua")) {
             solar_os_shell_io_writeln(io, "lua: expected .lua file");
             solar_os_shell_io_flush(io);
             solua_return_to_shell(ctx);
+            solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
             return ESP_OK;
         }
 
@@ -4516,6 +4707,7 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
             solar_os_shell_io_printf(io, "lua: not found: %s\n", solua.path);
             solar_os_shell_io_flush(io);
             solua_return_to_shell(ctx);
+            solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
             return ESP_OK;
         }
 
@@ -4535,6 +4727,7 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         if (!repl_mode) {
             solua_return_to_shell(ctx);
         }
+        solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
 
@@ -4547,6 +4740,7 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         if (!repl_mode) {
             solua_return_to_shell(ctx);
         }
+        solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
 
@@ -4560,6 +4754,7 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
             solua.events = NULL;
             solar_os_shell_io_writeln(io, "lua: out of memory");
             solar_os_shell_io_flush(io);
+            solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
             return ESP_OK;
         }
     }
@@ -4591,6 +4786,7 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         if (!repl_mode) {
             solua_return_to_shell(ctx);
         }
+        solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
     }
 
     return ESP_OK;
@@ -4605,6 +4801,9 @@ static void solua_interrupt_current(void)
 static void solua_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
+    if (!solua_runtime_is_owned_by(SOLUA_RUNTIME_OWNER_APP)) {
+        return;
+    }
 
     solua.stop_requested = true;
     if (solua.input != NULL) {
@@ -4643,6 +4842,7 @@ static void solua_stop(solar_os_context_t *ctx)
         solua.key_input = NULL;
     }
     solua_gfx_release_target();
+    solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
 }
 
 static bool solua_is_printable_char(char ch)

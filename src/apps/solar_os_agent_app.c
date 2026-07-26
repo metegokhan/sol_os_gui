@@ -7,37 +7,62 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "solar_os_agent.h"
+#include "solar_os_config.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_queue.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_script_runner.h"
+#include "solar_os_storage.h"
 #include "solar_os_task.h"
 #include "solar_os_terminal.h"
 #include "solar_os_wifi.h"
+#if SOLAR_OS_PACKAGE_APP_LUA
+#include "solar_os_lua.h"
+#endif
+#if SOLAR_OS_PACKAGE_APP_PYTHON
+#include "solar_os_python.h"
+#endif
 
 #define AGENT_APP_TASK_STACK 16384U
 #define AGENT_APP_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define AGENT_APP_EVENT_QUEUE_LEN 16U
+#define AGENT_APP_SCRIPT_OUTPUT_MAX 4096U
+#define AGENT_APP_SCRIPT_TIMEOUT_MS 30000U
 
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(AGENT_APP_TASK_STACK);
+
+typedef enum {
+    AGENT_APP_MODE_ASK,
+    AGENT_APP_MODE_SCRIPT_PYTHON,
+    AGENT_APP_MODE_SCRIPT_LUA,
+} agent_app_mode_t;
 
 typedef struct {
     QueueHandle_t events;
     TaskHandle_t task;
+    solar_os_context_t *ctx;
     char *prompt;
+    char *script_output;
+    agent_app_mode_t mode;
+    solar_os_script_input_t script_input;
+    int script_arg_start;
     volatile bool task_done;
     volatile bool stopping;
     bool running;
     bool text_started;
+    bool script_reported;
 } agent_app_state_t;
 
 static const char *TAG = "agent_app";
-static agent_app_state_t agent_app;
+static EXT_RAM_BSS_ATTR agent_app_state_t agent_app;
+static EXT_RAM_BSS_ATTR solar_os_script_run_result_t agent_script_result;
 static solar_os_shell_io_t agent_fallback_io;
 
 static solar_os_shell_io_t *agent_app_io(solar_os_context_t *ctx)
@@ -151,6 +176,80 @@ static esp_err_t agent_app_build_prompt(solar_os_context_t *ctx)
     return used > 0 ? ESP_OK : ESP_ERR_INVALID_ARG;
 }
 
+static esp_err_t agent_app_build_script(solar_os_context_t *ctx)
+{
+    if (solar_os_context_argc(ctx) < 4) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const char *language = solar_os_context_argv(ctx, 2);
+    if (strcmp(language, "python") == 0) {
+#if SOLAR_OS_PACKAGE_APP_PYTHON
+        agent_app.mode = AGENT_APP_MODE_SCRIPT_PYTHON;
+#else
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
+    } else if (strcmp(language, "lua") == 0) {
+#if SOLAR_OS_PACKAGE_APP_LUA
+        agent_app.mode = AGENT_APP_MODE_SCRIPT_LUA;
+#else
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const char *input = solar_os_context_argv(ctx, 3);
+    esp_err_t err = ESP_OK;
+    if (strcmp(input, "-c") == 0) {
+        if (solar_os_context_argc(ctx) < 5) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        input = solar_os_context_argv(ctx, 4);
+        const size_t input_size = strlen(input) + 1U;
+        agent_app.prompt = solar_os_memory_alloc(
+            input_size,
+            SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+            "agent.script.source");
+        if (agent_app.prompt != NULL) {
+            memcpy(agent_app.prompt, input, input_size);
+        }
+        agent_app.script_input = SOLAR_OS_SCRIPT_INPUT_SOURCE;
+        agent_app.script_arg_start = 5;
+    } else {
+        agent_app.prompt = solar_os_memory_calloc(1,
+                                                  SOLAR_OS_STORAGE_PATH_MAX,
+                                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                  "agent.script.path");
+        if (agent_app.prompt != NULL) {
+            err = solar_os_storage_resolve_path(input,
+                                                agent_app.prompt,
+                                                SOLAR_OS_STORAGE_PATH_MAX);
+        }
+        agent_app.script_input = SOLAR_OS_SCRIPT_INPUT_FILE;
+        agent_app.script_arg_start = 4;
+    }
+    if (agent_app.prompt == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    agent_app.script_output = solar_os_memory_calloc(
+        1,
+        AGENT_APP_SCRIPT_OUTPUT_MAX,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.script.output");
+    return agent_app.script_output != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+static bool agent_app_script_cancel_requested(void *user)
+{
+    const agent_app_state_t *state = (const agent_app_state_t *)user;
+    return state != NULL && state->stopping;
+}
+
 static bool agent_app_send_event(const solar_os_agent_event_t *event)
 {
     if (event == NULL || agent_app.events == NULL) {
@@ -174,12 +273,52 @@ static esp_err_t agent_app_service_event(const solar_os_agent_event_t *event,
 static void agent_app_task(void *arg)
 {
     (void)arg;
-    const solar_os_agent_request_t request = {
-        .prompt = agent_app.prompt,
-        .event_handler = agent_app_service_event,
-        .user_data = &agent_app,
-    };
-    (void)solar_os_agent_run(&request);
+    if (agent_app.mode == AGENT_APP_MODE_ASK) {
+        const solar_os_agent_request_t request = {
+            .prompt = agent_app.prompt,
+            .event_handler = agent_app_service_event,
+            .user_data = &agent_app,
+        };
+        (void)solar_os_agent_run(&request);
+    } else {
+        const char *argv[SOLAR_OS_APP_ARG_MAX] = {
+            agent_app.script_input == SOLAR_OS_SCRIPT_INPUT_SOURCE
+                ? "<agent>"
+                : agent_app.prompt,
+        };
+        int script_argc = 1;
+        const int argc = solar_os_context_argc(agent_app.ctx);
+        for (int i = agent_app.script_arg_start;
+             i < argc && script_argc < SOLAR_OS_APP_ARG_MAX;
+             i++) {
+            argv[script_argc++] = solar_os_context_argv(agent_app.ctx, i);
+        }
+        const solar_os_script_run_request_t request = {
+            .context = agent_app.ctx,
+            .input_type = agent_app.script_input,
+            .input = agent_app.prompt,
+            .source_name = agent_app.script_input == SOLAR_OS_SCRIPT_INPUT_SOURCE
+                ? "<agent>"
+                : agent_app.prompt,
+            .argc = script_argc,
+            .argv = argv,
+            .timeout_ms = AGENT_APP_SCRIPT_TIMEOUT_MS,
+            .cancel_requested = agent_app_script_cancel_requested,
+            .cancel_user = &agent_app,
+            .output = agent_app.script_output,
+            .output_size = AGENT_APP_SCRIPT_OUTPUT_MAX,
+        };
+#if SOLAR_OS_PACKAGE_APP_PYTHON
+        if (agent_app.mode == AGENT_APP_MODE_SCRIPT_PYTHON) {
+            (void)solar_os_python_run(&request, &agent_script_result);
+        }
+#endif
+#if SOLAR_OS_PACKAGE_APP_LUA
+        if (agent_app.mode == AGENT_APP_MODE_SCRIPT_LUA) {
+            (void)solar_os_lua_run(&request, &agent_script_result);
+        }
+#endif
+    }
     agent_app.task_done = true;
     solar_os_task_delete_internal(NULL);
 }
@@ -194,6 +333,10 @@ static void agent_app_cleanup(void)
         solar_os_memory_free(agent_app.prompt);
         agent_app.prompt = NULL;
     }
+    if (agent_app.script_output != NULL) {
+        solar_os_memory_free(agent_app.script_output);
+        agent_app.script_output = NULL;
+    }
     agent_app.task = NULL;
     agent_app.running = false;
 }
@@ -207,6 +350,39 @@ static void agent_app_print_delta(solar_os_shell_io_t *io,
     for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; p++) {
         solar_os_shell_io_put_utf8_byte(io, *p);
     }
+}
+
+static void agent_app_report_script(solar_os_context_t *ctx)
+{
+    if (agent_app.mode == AGENT_APP_MODE_ASK || !agent_app.task_done ||
+        agent_app.script_reported) {
+        return;
+    }
+
+    solar_os_shell_io_t *io = agent_app_io(ctx);
+    if (agent_script_result.output_len > 0) {
+        agent_app_print_delta(io, agent_app.script_output);
+        if (agent_app.script_output[agent_script_result.output_len - 1] != '\n') {
+            solar_os_shell_io_newline(io);
+        }
+    }
+    if (agent_script_result.output_truncated) {
+        solar_os_shell_io_writeln(io, "agent: script output truncated");
+    }
+    if (agent_script_result.success) {
+        solar_os_shell_io_writeln(io, "agent: script complete");
+    } else {
+        solar_os_shell_io_printf(
+            io,
+            "agent: script failed: %s%s%s\n",
+            esp_err_to_name(agent_script_result.status),
+            agent_script_result.error[0] != '\0' ? ", " : "",
+            agent_script_result.error);
+    }
+    solar_os_shell_io_flush(io);
+    agent_app.script_reported = true;
+    agent_app.running = false;
+    agent_app_return_to_shell(ctx);
 }
 
 static void agent_app_drain_events(solar_os_context_t *ctx)
@@ -275,59 +451,79 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
     }
     agent_app_cleanup();
     memset(&agent_app, 0, sizeof(agent_app));
+    memset(&agent_script_result, 0, sizeof(agent_script_result));
+    agent_app.ctx = ctx;
     (void)solar_os_agent_init();
 
     const int argc = solar_os_context_argc(ctx);
-    if (argc < 3 || strcmp(solar_os_context_argv(ctx, 1), "ask") != 0) {
+    const bool ask_mode = argc >= 3 &&
+        strcmp(solar_os_context_argv(ctx, 1), "ask") == 0;
+    const bool script_mode = argc >= 4 &&
+        strcmp(solar_os_context_argv(ctx, 1), "script") == 0;
+    if (!ask_mode && !script_mode) {
         solar_os_shell_io_writeln(agent_app_io(ctx),
-                                  "agent: launch with agent ask PROMPT...");
+                                  "agent: launch with agent ask or script");
         solar_os_shell_io_flush(agent_app_io(ctx));
         agent_app_return_to_shell(ctx);
         return ESP_OK;
     }
 
-    solar_os_wifi_status_t wifi;
-    solar_os_wifi_get_status(&wifi);
-    if (!wifi.started || !wifi.connected || !wifi.has_ip) {
-        solar_os_shell_io_writeln(agent_app_io(ctx),
-                                  "agent: Wi-Fi is not connected");
-        solar_os_shell_io_flush(agent_app_io(ctx));
-        agent_app_return_to_shell(ctx);
-        return ESP_OK;
+    solar_os_agent_status_t status = {0};
+    esp_err_t err;
+    if (ask_mode) {
+        agent_app.mode = AGENT_APP_MODE_ASK;
+        solar_os_wifi_status_t wifi;
+        solar_os_wifi_get_status(&wifi);
+        if (!wifi.started || !wifi.connected || !wifi.has_ip) {
+            solar_os_shell_io_writeln(agent_app_io(ctx),
+                                      "agent: Wi-Fi is not connected");
+            solar_os_shell_io_flush(agent_app_io(ctx));
+            agent_app_return_to_shell(ctx);
+            return ESP_OK;
+        }
+        (void)solar_os_agent_get_status(&status);
+        if (!status.configured) {
+            solar_os_shell_io_writeln(agent_app_io(ctx),
+                                      "agent: configure endpoint and model first");
+            solar_os_shell_io_flush(agent_app_io(ctx));
+            agent_app_return_to_shell(ctx);
+            return ESP_OK;
+        }
+        err = agent_app_build_prompt(ctx);
+    } else {
+        err = agent_app_build_script(ctx);
     }
-
-    solar_os_agent_status_t status;
-    (void)solar_os_agent_get_status(&status);
-    if (!status.configured) {
-        solar_os_shell_io_writeln(agent_app_io(ctx),
-                                  "agent: configure endpoint and model first");
-        solar_os_shell_io_flush(agent_app_io(ctx));
-        agent_app_return_to_shell(ctx);
-        return ESP_OK;
-    }
-
-    esp_err_t err = agent_app_build_prompt(ctx);
     if (err != ESP_OK) {
         solar_os_shell_io_printf(agent_app_io(ctx),
-                                 "agent: invalid prompt: %s\n",
+                                 "agent: invalid request: %s\n",
                                  esp_err_to_name(err));
-        solar_os_shell_io_flush(agent_app_io(ctx));
-        agent_app_return_to_shell(ctx);
-        return ESP_OK;
-    }
-    agent_app.events = solar_os_queue_create(AGENT_APP_EVENT_QUEUE_LEN,
-                                              sizeof(solar_os_agent_event_t));
-    if (agent_app.events == NULL) {
-        solar_os_shell_io_writeln(agent_app_io(ctx), "agent: out of memory");
         solar_os_shell_io_flush(agent_app_io(ctx));
         agent_app_cleanup();
         agent_app_return_to_shell(ctx);
         return ESP_OK;
     }
+    if (ask_mode) {
+        agent_app.events = solar_os_queue_create(AGENT_APP_EVENT_QUEUE_LEN,
+                                                  sizeof(solar_os_agent_event_t));
+        if (agent_app.events == NULL) {
+            solar_os_shell_io_writeln(agent_app_io(ctx), "agent: out of memory");
+            solar_os_shell_io_flush(agent_app_io(ctx));
+            agent_app_cleanup();
+            agent_app_return_to_shell(ctx);
+            return ESP_OK;
+        }
+    }
 
-    solar_os_shell_io_printf_bold(agent_app_io(ctx),
-                                  "agent (%s)\n",
-                                  status.model);
+    if (ask_mode) {
+        solar_os_shell_io_printf_bold(agent_app_io(ctx),
+                                      "agent (%s)\n",
+                                      status.model);
+    } else {
+        solar_os_shell_io_printf_bold(
+            agent_app_io(ctx),
+            "agent script (%s)\n",
+            agent_app.mode == AGENT_APP_MODE_SCRIPT_PYTHON ? "python" : "lua");
+    }
     solar_os_shell_io_flush(agent_app_io(ctx));
     agent_app.running = true;
     const BaseType_t created = solar_os_task_create_pinned_internal(
@@ -354,7 +550,9 @@ static void agent_app_stop(solar_os_context_t *ctx)
     (void)ctx;
     if (agent_app.running && !agent_app.task_done) {
         agent_app.stopping = true;
-        (void)solar_os_agent_cancel();
+        if (agent_app.mode == AGENT_APP_MODE_ASK) {
+            (void)solar_os_agent_cancel();
+        }
     }
     if (!solar_os_task_wait_done(agent_app.task,
                                  &agent_app.task_done,
@@ -373,7 +571,11 @@ static bool agent_app_event(solar_os_context_t *ctx,
         return false;
     }
     if (event->type == SOLAR_OS_EVENT_TICK) {
-        agent_app_drain_events(ctx);
+        if (agent_app.mode == AGENT_APP_MODE_ASK) {
+            agent_app_drain_events(ctx);
+        } else {
+            agent_app_report_script(ctx);
+        }
         return true;
     }
     if (event->type != SOLAR_OS_EVENT_CHAR) {
@@ -387,7 +589,9 @@ static bool agent_app_event(solar_os_context_t *ctx,
                                       "\nagent: cancelling");
             solar_os_shell_io_flush(agent_app_io(ctx));
             agent_app.stopping = true;
-            (void)solar_os_agent_cancel();
+            if (agent_app.mode == AGENT_APP_MODE_ASK) {
+                (void)solar_os_agent_cancel();
+            }
         }
         agent_app_return_to_shell(ctx);
         return true;

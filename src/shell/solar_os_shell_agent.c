@@ -5,6 +5,7 @@
 
 #include "solar_os_agent.h"
 #include "solar_os_agent_app.h"
+#include "solar_os_agent_tools.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 
@@ -14,6 +15,7 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_newline(io);
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  agent status");
+    solar_os_shell_io_writeln(io, "  agent tools");
     solar_os_shell_io_writeln(io, "  agent config endpoint URL");
     solar_os_shell_io_writeln(io, "  agent config model MODEL");
     solar_os_shell_io_writeln(io, "  agent config key KEY|clear");
@@ -22,6 +24,32 @@ static void agent_usage(solar_os_shell_io_t *io)
         "  agent config reasoning none|minimal|low|medium|high|xhigh|max");
     solar_os_shell_io_writeln(io, "  agent forget");
     solar_os_shell_io_writeln(io, "  agent ask PROMPT...");
+    solar_os_shell_io_writeln(
+        io,
+        "  agent script python|lua (-c SOURCE | FILE) [ARGS...]");
+}
+
+static void agent_tools(solar_os_shell_io_t *io)
+{
+    solar_os_shell_io_writeln(
+        io,
+        "Name             Domain    Risk            Available  Requirement");
+    const size_t count = solar_os_agent_tools_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_agent_tool_info_t tool;
+        if (!solar_os_agent_tools_get(i, &tool)) {
+            continue;
+        }
+        solar_os_shell_io_printf(
+            io,
+            "%-16s %-9s %-15s %-10s %s\n",
+            tool.provider.name,
+            tool.domain,
+            solar_os_agent_tool_risk_name(tool.risk),
+            tool.available ? "yes" : "no",
+            tool.required_capability != NULL ?
+                tool.required_capability : "-");
+    }
 }
 
 static void agent_status(solar_os_shell_io_t *io)
@@ -135,6 +163,10 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
         agent_status(io);
         return;
     }
+    if (argc == 2 && strcmp(argv[1], "tools") == 0) {
+        agent_tools(io);
+        return;
+    }
     if (strcmp(argv[1], "config") == 0) {
         agent_configure(io, argc, argv);
         return;
@@ -151,6 +183,18 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (strcmp(argv[1], "ask") == 0 && argc >= 3) {
+        const esp_err_t err =
+            solar_os_context_request_launch(ctx, &solar_os_agent_app, argc, argv);
+        if (err == ESP_OK) {
+            solar_os_shell_session_prepare_foreground_launch(ctx, false);
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "agent: launch failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+    if (strcmp(argv[1], "script") == 0 && argc >= 4) {
         const esp_err_t err =
             solar_os_context_request_launch(ctx, &solar_os_agent_app, argc, argv);
         if (err == ESP_OK) {

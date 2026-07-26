@@ -8,14 +8,13 @@
 #include <string.h>
 
 #include "esp_heap_caps.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
 #include "solar_os_agent_provider.h"
-#include "solar_os_board.h"
-#include "solar_os_json.h"
+#include "solar_os_agent_tools.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 
 #define AGENT_NVS_NAMESPACE "agent"
 #define AGENT_NVS_ENDPOINT_KEY "endpoint"
@@ -24,10 +23,6 @@
 #define AGENT_NVS_REASONING_KEY "reasoning"
 #define AGENT_DEFAULT_REASONING_EFFORT "medium"
 #define AGENT_MAX_TOOL_ROUNDS 2U
-
-#ifndef SOLAR_OS_VERSION
-#define SOLAR_OS_VERSION "0.0.0"
-#endif
 
 typedef struct {
     solar_os_http_request_t *request;
@@ -59,19 +54,6 @@ typedef struct {
 static const char *TAG = "agent";
 static portMUX_TYPE agent_lock = portMUX_INITIALIZER_UNLOCKED;
 static agent_state_t agent;
-
-static const solar_os_agent_tool_descriptor_t AGENT_TOOLS[] = {
-    {
-        .name = "system_status",
-        .description =
-            "Read the SolarOS board identity, uptime, firmware version, "
-            "and current internal RAM and PSRAM availability.",
-        .parameters_json =
-            "{\"type\":\"object\",\"properties\":{},\"required\":[],"
-            "\"additionalProperties\":false}",
-        .strict = true,
-    },
-};
 
 static uint32_t agent_internal_free(void)
 {
@@ -464,54 +446,6 @@ static esp_err_t agent_emit(const solar_os_agent_request_t *request,
     return request->event_handler(&event, request->user_data);
 }
 
-static esp_err_t agent_validate_object(const char *arguments)
-{
-    if (arguments == NULL || arguments[0] == '\0') {
-        return ESP_OK;
-    }
-    solar_os_json_doc_t *doc = NULL;
-    esp_err_t err = solar_os_json_parse_cstr(arguments, &doc);
-    if (err == ESP_OK && !solar_os_json_is_object(solar_os_json_root(doc))) {
-        err = ESP_ERR_INVALID_ARG;
-    }
-    solar_os_json_free(doc);
-    return err;
-}
-
-static esp_err_t agent_execute_tool(const char *name,
-                                    const char *arguments,
-                                    char *result,
-                                    size_t result_len)
-{
-    if (name == NULL || result == NULL || result_len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (strcmp(name, "system_status") != 0) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    esp_err_t err = agent_validate_object(arguments);
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    const uint64_t uptime_ms = (uint64_t)(esp_timer_get_time() / 1000);
-    const int written = snprintf(
-        result,
-        result_len,
-        "{\"board\":\"%s\",\"version\":\"%s\",\"uptime_ms\":%" PRIu64 ","
-        "\"internal_free_bytes\":%" PRIu32 ","
-        "\"internal_largest_block_bytes\":%" PRIu32 ","
-        "\"psram_free_bytes\":%" PRIu32 "}",
-        SOLAR_OS_BOARD_ID,
-        SOLAR_OS_VERSION,
-        uptime_ms,
-        agent_internal_free(),
-        agent_internal_largest(),
-        agent_psram_free());
-    return written >= 0 && (size_t)written < result_len ?
-        ESP_OK : ESP_ERR_INVALID_SIZE;
-}
-
 static void agent_finish_request(esp_err_t error,
                                  const solar_os_agent_provider_result_t *provider_result)
 {
@@ -582,13 +516,33 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                      NULL,
                      false);
 
+    solar_os_agent_tool_descriptor_t
+        tool_descriptors[SOLAR_OS_AGENT_TOOL_REGISTRY_MAX];
+    const size_t tool_count =
+        solar_os_agent_tools_collect(tool_descriptors,
+                                     SOLAR_OS_AGENT_TOOL_REGISTRY_MAX);
     solar_os_agent_provider_turn_t turn = {
         .prompt = request->prompt,
-        .tools = AGENT_TOOLS,
-        .tool_count = sizeof(AGENT_TOOLS) / sizeof(AGENT_TOOLS[0]),
+        .tools = tool_descriptors,
+        .tool_count = tool_count,
     };
     solar_os_agent_provider_result_t provider_result;
-    char tool_result[SOLAR_OS_AGENT_TOOL_RESULT_MAX];
+    char *tool_result =
+        solar_os_memory_calloc(1,
+                               SOLAR_OS_AGENT_TOOL_RESULT_MAX,
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "agent.tool-result");
+    if (tool_result == NULL) {
+        err = ESP_ERR_NO_MEM;
+        agent_finish_request(err, NULL);
+        (void)agent_emit(request,
+                         SOLAR_OS_AGENT_EVENT_DONE,
+                         esp_err_to_name(err),
+                         NULL,
+                         false);
+        memset(config.api_key, 0, sizeof(config.api_key));
+        return err;
+    }
     char tool_call_id[SOLAR_OS_AGENT_TOOL_CALL_ID_MAX];
     char tool_name[SOLAR_OS_AGENT_TOOL_NAME_MAX];
     char tool_arguments[SOLAR_OS_AGENT_TOOL_ARGUMENTS_MAX];
@@ -630,10 +584,10 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          provider_result.tool_arguments,
                          provider_result.tool_name,
                          false);
-        err = agent_execute_tool(provider_result.tool_name,
-                                 provider_result.tool_arguments,
-                                 tool_result,
-                                 sizeof(tool_result));
+        err = solar_os_agent_tools_execute(provider_result.tool_name,
+                                           provider_result.tool_arguments,
+                                           tool_result,
+                                           SOLAR_OS_AGENT_TOOL_RESULT_MAX);
         if (err != ESP_OK) {
             (void)agent_emit(request,
                              SOLAR_OS_AGENT_EVENT_ERROR,
@@ -672,6 +626,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     if (cancelled) {
         err = ESP_ERR_INVALID_STATE;
     }
+    memset(tool_result, 0, SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+    solar_os_memory_free(tool_result);
     agent_finish_request(err, NULL);
     (void)agent_emit(request,
                      SOLAR_OS_AGENT_EVENT_DONE,
@@ -680,7 +636,6 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                      NULL,
                      err == ESP_OK);
     memset(config.api_key, 0, sizeof(config.api_key));
-    memset(tool_result, 0, sizeof(tool_result));
     memset(tool_call_id, 0, sizeof(tool_call_id));
     memset(tool_name, 0, sizeof(tool_name));
     memset(tool_arguments, 0, sizeof(tool_arguments));

@@ -321,9 +321,14 @@ depends = ["service_http_client", "service_json"]
 sources = [
   "services/solar_os_agent.c",
   "services/solar_os_agent_openai.c",
+  "services/solar_os_agent_tools.c",
 ]
 requires = ["heap", "nvs_flash"]
 capabilities = ["psram", "wifi"]
+
+[packages.service_script_runner]
+label = "service.script_runner"
+sources = ["services/solar_os_script_runner.c"]
 
 [packages.service_image]
 label = "media.image"
@@ -609,12 +614,14 @@ capabilities = ["gfx"]
 
 [packages.app_python]
 label = "app.python"
+depends = ["service_script_runner"]
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
 capabilities = ["psram"]
 
 [packages.app_lua]
 label = "app.lua"
+depends = ["service_script_runner"]
 sources = ["apps/solar_os_lua.c"]
 requires = ["lua"]
 capabilities = ["psram"]

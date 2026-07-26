@@ -9,7 +9,13 @@
   OpenAI Chat Completions requests disable reasoning effort when function tools
   are present, as required by that endpoint. Added an endpoint-selected
   Responses API path with configurable reasoning effort, typed streaming
-  events, and reasoning-preserving tool continuations.
+  events, and reasoning-preserving tool continuations. Added a declarative
+  typed-tool registry with schemas, risk and availability metadata, validated
+  JSON results, and read-only system status, storage listing, and job listing
+  tools. Added a reusable Python/Lua source-and-file runner with bounded
+  captured output, structured completion, VM-level cancellation and deadlines,
+  interpreter ownership guards, and a manual `agent script` validation path;
+  script execution is not yet exposed to the model.
 
 ## 4.x
 

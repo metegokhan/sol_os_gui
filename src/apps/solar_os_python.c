@@ -214,6 +214,46 @@ typedef struct {
 static const char *TAG = "solar_os_python";
 static EXT_RAM_BSS_ATTR python_app_state_t python_app;
 static solar_os_shell_io_t python_fallback_io;
+static EXT_RAM_BSS_ATTR solar_os_script_run_control_t *python_runner_control;
+
+typedef enum {
+    PYTHON_RUNTIME_OWNER_NONE,
+    PYTHON_RUNTIME_OWNER_APP,
+    PYTHON_RUNTIME_OWNER_RUNNER,
+} python_runtime_owner_t;
+
+static portMUX_TYPE python_runtime_lock = portMUX_INITIALIZER_UNLOCKED;
+static EXT_RAM_BSS_ATTR python_runtime_owner_t python_runtime_owner;
+
+static bool python_runtime_claim(python_runtime_owner_t owner)
+{
+    bool claimed = false;
+    portENTER_CRITICAL(&python_runtime_lock);
+    if (python_runtime_owner == PYTHON_RUNTIME_OWNER_NONE) {
+        python_runtime_owner = owner;
+        claimed = true;
+    }
+    portEXIT_CRITICAL(&python_runtime_lock);
+    return claimed;
+}
+
+static void python_runtime_release(python_runtime_owner_t owner)
+{
+    portENTER_CRITICAL(&python_runtime_lock);
+    if (python_runtime_owner == owner) {
+        python_runtime_owner = PYTHON_RUNTIME_OWNER_NONE;
+    }
+    portEXIT_CRITICAL(&python_runtime_lock);
+}
+
+static bool python_runtime_is_owned_by(python_runtime_owner_t owner)
+{
+    bool matches;
+    portENTER_CRITICAL(&python_runtime_lock);
+    matches = python_runtime_owner == owner;
+    portEXIT_CRITICAL(&python_runtime_lock);
+    return matches;
+}
 
 static solar_os_shell_io_t *python_io(solar_os_context_t *ctx)
 {
@@ -288,6 +328,11 @@ void solar_os_micropython_stdout(const char *str, size_t len)
         return;
     }
 
+    if (python_runner_control != NULL) {
+        solar_os_script_run_output(python_runner_control, str, len);
+        return;
+    }
+
     if (!python_send_output(str, len)) {
         fwrite(str, 1, len, stdout);
     }
@@ -295,6 +340,10 @@ void solar_os_micropython_stdout(const char *str, size_t len)
 
 bool solar_os_micropython_stop_requested(void)
 {
+    if (python_runner_control != NULL &&
+        solar_os_script_run_should_cancel(python_runner_control)) {
+        return true;
+    }
     return python_app.stop_requested;
 }
 
@@ -4494,6 +4543,145 @@ static bool python_exec_repl_source(const char *source)
     return true;
 }
 
+static bool python_exec_runner_source(const char *source,
+                                      size_t source_len,
+                                      const char *source_name,
+                                      solar_os_script_run_control_t *control)
+{
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        const qstr name = qstr_from_str(source_name != NULL
+                                           ? source_name
+                                           : "<script>");
+        mp_lexer_t *lex = mp_lexer_new_from_str_len(name,
+                                                    source,
+                                                    source_len,
+                                                    0);
+        mp_parse_tree_t parse_tree = mp_parse(lex, MP_PARSE_FILE_INPUT);
+        mp_obj_t module_fun = mp_compile(&parse_tree, name, true);
+        mp_call_function_0(module_fun);
+        nlr_pop();
+        return true;
+    }
+
+    const mp_obj_t exception = (mp_obj_t)nlr.ret_val;
+    if (mp_obj_exception_match(exception, MP_OBJ_FROM_PTR(&mp_type_SystemExit))) {
+        return true;
+    }
+
+    mp_obj_print_exception(&mp_plat_print, exception);
+    if (control->result->timed_out) {
+        solar_os_script_run_error(control, ESP_ERR_TIMEOUT, "Python deadline exceeded");
+    } else if (control->result->cancelled) {
+        solar_os_script_run_error(control, ESP_ERR_INVALID_STATE, "Python run cancelled");
+    } else {
+        solar_os_script_run_error(control, ESP_FAIL, "uncaught Python exception");
+    }
+    return false;
+}
+
+esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
+                              solar_os_script_run_result_t *result)
+{
+    solar_os_script_run_control_t control;
+    esp_err_t err = solar_os_script_run_begin(request, result, &control);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (!python_runtime_claim(PYTHON_RUNTIME_OWNER_RUNNER)) {
+        solar_os_script_run_error(&control,
+                                  ESP_ERR_INVALID_STATE,
+                                  "Python runtime is already in use");
+        return result->status;
+    }
+
+    uint8_t *loaded_source = NULL;
+    memset(&python_app, 0, sizeof(python_app));
+    python_app.ctx = request->context;
+    python_app.argc = request->argc;
+    for (int i = 0; i < request->argc; i++) {
+        if (request->argv[i] == NULL ||
+            strlcpy(python_app.argv[i],
+                    request->argv[i],
+                    sizeof(python_app.argv[i])) >= sizeof(python_app.argv[i])) {
+            solar_os_script_run_error(&control,
+                                      ESP_ERR_INVALID_ARG,
+                                      "Python argument is too long");
+            goto cleanup;
+        }
+    }
+
+    const char *source = request->input;
+    size_t source_len = request->input_len;
+    if (request->input_type == SOLAR_OS_SCRIPT_INPUT_FILE) {
+        err = python_load_file(request->input,
+                               &loaded_source,
+                               &source_len,
+                               true);
+        if (err != ESP_OK) {
+            solar_os_script_run_error(&control, err, "Python file load failed");
+            goto cleanup;
+        }
+        source = (const char *)loaded_source;
+    } else if (request->input_type == SOLAR_OS_SCRIPT_INPUT_SOURCE) {
+        if (source_len == 0) {
+            source_len = strlen(source);
+        }
+        if (source_len > SOLAR_OS_SCRIPT_SOURCE_MAX_BYTES) {
+            solar_os_script_run_error(&control,
+                                      ESP_ERR_INVALID_SIZE,
+                                      "Python source is too large");
+            goto cleanup;
+        }
+    } else {
+        solar_os_script_run_error(&control,
+                                  ESP_ERR_INVALID_ARG,
+                                  "invalid Python input type");
+        goto cleanup;
+    }
+
+    uint8_t *heap = python_alloc_psram_first(PYTHON_HEAP_SIZE);
+    if (heap == NULL) {
+        solar_os_script_run_error(&control, ESP_ERR_NO_MEM, "Python heap allocation failed");
+        goto cleanup;
+    }
+
+    int stack_top = 0;
+    python_runner_control = &control;
+    python_app.vm_active = true;
+    mp_embed_init(heap, PYTHON_HEAP_SIZE, &stack_top);
+    python_register_solaros_module();
+    python_setup_argv();
+    python_setup_interactive_helpers();
+
+    if (solar_os_script_run_should_cancel(&control)) {
+        if (result->timed_out) {
+            solar_os_script_run_error(&control, ESP_ERR_TIMEOUT, "Python deadline exceeded");
+        } else {
+            solar_os_script_run_error(&control, ESP_ERR_INVALID_STATE, "Python run cancelled");
+        }
+    } else if (python_exec_runner_source(source,
+                                         source_len,
+                                         request->source_name != NULL
+                                             ? request->source_name
+                                             : request->input,
+                                         &control)) {
+        result->success = true;
+        result->status = ESP_OK;
+    }
+
+    mp_embed_deinit();
+    python_app.vm_active = false;
+    python_runner_control = NULL;
+    solar_os_memory_free(heap);
+
+cleanup:
+    python_runner_control = NULL;
+    solar_os_memory_free(loaded_source);
+    python_runtime_release(PYTHON_RUNTIME_OWNER_RUNNER);
+    return result->status;
+}
+
 static bool python_repl_append_line(char *source,
                                     size_t source_size,
                                     size_t *source_len,
@@ -4824,18 +5012,27 @@ static void python_repl_submit(solar_os_context_t *ctx)
 
 static esp_err_t python_start(solar_os_context_t *ctx)
 {
+    solar_os_shell_io_t *io = python_io(ctx);
+    if (!python_runtime_claim(PYTHON_RUNTIME_OWNER_APP)) {
+        solar_os_shell_io_writeln(io, "python: runtime is already in use");
+        solar_os_shell_io_flush(io);
+        python_return_to_shell(ctx);
+        return ESP_OK;
+    }
+
     memset(&python_app, 0, sizeof(python_app));
     python_app.ctx = ctx;
     python_app.session_terminal = solar_os_context_terminal(ctx);
     python_app.session_gfx = solar_os_context_gfx(ctx);
 
-    solar_os_shell_io_t *io = python_io(ctx);
+    io = python_io(ctx);
     python_app.session_io = io;
     const int argc = solar_os_context_argc(ctx);
     if (argc > SOLAR_OS_APP_ARG_MAX) {
         solar_os_shell_io_writeln(io, "python: too many arguments");
         solar_os_shell_io_flush(io);
         python_return_to_shell(ctx);
+        python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
 
@@ -4865,6 +5062,7 @@ static esp_err_t python_start(solar_os_context_t *ctx)
     if (script_arg == NULL || script_arg[0] == '\0') {
         python_render_usage(io);
         python_return_to_shell(ctx);
+        python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
 
@@ -4875,6 +5073,7 @@ static esp_err_t python_start(solar_os_context_t *ctx)
         solar_os_shell_io_printf(io, "python: invalid path: %s\n", esp_err_to_name(path_err));
         solar_os_shell_io_flush(io);
         python_return_to_shell(ctx);
+        python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
     if (!python_path_has_suffix(python_app.path, ".py") &&
@@ -4882,6 +5081,7 @@ static esp_err_t python_start(solar_os_context_t *ctx)
         solar_os_shell_io_writeln(io, "python: expected .py or .mpy file");
         solar_os_shell_io_flush(io);
         python_return_to_shell(ctx);
+        python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
 
@@ -4890,6 +5090,7 @@ static esp_err_t python_start(solar_os_context_t *ctx)
         solar_os_shell_io_printf(io, "python: not found: %s\n", python_app.path);
         solar_os_shell_io_flush(io);
         python_return_to_shell(ctx);
+        python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
 
@@ -4909,6 +5110,7 @@ start_task:
         if (!repl_mode) {
             python_return_to_shell(ctx);
         }
+        python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
     if (repl_mode) {
@@ -4919,6 +5121,7 @@ start_task:
             python_app.events = NULL;
             solar_os_shell_io_writeln(io, "python: out of memory");
             solar_os_shell_io_flush(io);
+            python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
             return ESP_OK;
         }
     } else {
@@ -4930,6 +5133,7 @@ start_task:
             solar_os_shell_io_writeln(io, "python: out of memory");
             solar_os_shell_io_flush(io);
             python_return_to_shell(ctx);
+            python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
             return ESP_OK;
         }
     }
@@ -4964,6 +5168,7 @@ start_task:
             solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
             solar_os_shell_io_flush(io);
         }
+        python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
     }
 
     return ESP_OK;
@@ -4989,6 +5194,9 @@ static void python_interrupt(void)
 static void python_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
+    if (!python_runtime_is_owned_by(PYTHON_RUNTIME_OWNER_APP)) {
+        return;
+    }
 
     SOLAR_OS_LOGI(TAG,
              "stop begin: mode=%s task=%p task_done=%d vm_active=%d stop_requested=%d",
@@ -5034,6 +5242,7 @@ static void python_stop(solar_os_context_t *ctx)
         python_app.key_input = NULL;
     }
     python_gfx_release_target();
+    python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
 }
 
 static void python_apply_tui_event(solar_os_context_t *ctx, const python_event_t *event)
