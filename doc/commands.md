@@ -24,12 +24,17 @@ available. Optional startup and alias files:
 ```text
 /.shell/startup
 /.shell/alias
-/.shell/user
-/.shell/hostname
 ```
 
 `/.shell/startup` runs once per boot on the first startup-enabled shell. Shell
 sessions created by that script do not run it again.
+
+The device user and hostname are stored in NVS and configured with `identity`.
+The user is also the default remote username used by `ssh` and `scp` when
+`user@host` is not supplied.
+On the first boot after upgrading, existing `/.solar/user` and
+`/.solar/hostname` values are imported when the corresponding NVS value is not
+already set.
 
 The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 
@@ -101,6 +106,9 @@ job for periodic polling.
 | `version` | `version` | Print the SolarOS version and firmware flavor. |
 | `pkg` | `pkg` | Print compiled package groups and build units. |
 | `board` | `board` | Print board ID, name, and capabilities. |
+| `identity` | `identity [status]` | Show the configured user and hostname. |
+| `identity` | `identity user <name>` | Save the SolarOS user and default SSH/SCP username in NVS. |
+| `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display test <target>`; `display mode <target> [mode]` | List drawable display targets, draw a test pattern, or change driver-specific display settings. |
 | `status` | `status` | Print a compact system status summary. |

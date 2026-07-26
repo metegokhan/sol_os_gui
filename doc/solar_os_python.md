@@ -662,9 +662,15 @@ print(solaros.clipboard.get())
 
 Identity functions read the SolarOS user and hostname service.
 
-- `user()`: return the configured username.
+- `user()`: return the configured username used by default for SSH and SCP.
 - `hostname()`: return the configured hostname.
+- `set_user(name)`: validate and save the username in NVS.
+- `set_hostname(name)`: validate and save the hostname in NVS. Reboot before
+  expecting an already initialized Wi-Fi interface to advertise the new name.
 - `format()`: return `user@hostname`.
+
+Existing `/.solar/user` and `/.solar/hostname` files are imported once when
+their corresponding NVS keys are absent.
 
 Example:
 

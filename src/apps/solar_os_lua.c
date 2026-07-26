@@ -3012,6 +3012,20 @@ static int solua_identity_hostname(lua_State *L)
     return 1;
 }
 
+static int solua_identity_set_user(lua_State *L)
+{
+    return solua_check_esp(
+        L,
+        solar_os_identity_set_user(luaL_checkstring(L, 1)));
+}
+
+static int solua_identity_set_hostname(lua_State *L)
+{
+    return solua_check_esp(
+        L,
+        solar_os_identity_set_hostname(luaL_checkstring(L, 1)));
+}
+
 static int solua_identity_format(lua_State *L)
 {
     char buffer[SOLAR_OS_IDENTITY_USER_MAX + SOLAR_OS_IDENTITY_HOSTNAME_MAX + 2];
@@ -4073,6 +4087,8 @@ static void solua_open_solaros(lua_State *L)
     mod = lua_gettop(L);
     solua_set_func(L, mod, "user", solua_identity_user);
     solua_set_func(L, mod, "hostname", solua_identity_hostname);
+    solua_set_func(L, mod, "set_user", solua_identity_set_user);
+    solua_set_func(L, mod, "set_hostname", solua_identity_set_hostname);
     solua_set_func(L, mod, "format", solua_identity_format);
     lua_pop(L, 1);
 

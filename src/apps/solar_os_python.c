@@ -3142,6 +3142,24 @@ static mp_obj_t solaros_identity_hostname(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_identity_hostname_obj, solaros_identity_hostname);
 
+static mp_obj_t solaros_identity_set_user(mp_obj_t user_obj)
+{
+    python_check_esp(
+        solar_os_identity_set_user(mp_obj_str_get_str(user_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_identity_set_user_obj,
+                          solaros_identity_set_user);
+
+static mp_obj_t solaros_identity_set_hostname(mp_obj_t hostname_obj)
+{
+    python_check_esp(
+        solar_os_identity_set_hostname(mp_obj_str_get_str(hostname_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_identity_set_hostname_obj,
+                          solaros_identity_set_hostname);
+
 static mp_obj_t solaros_identity_format(void)
 {
     char buffer[SOLAR_OS_IDENTITY_USER_MAX + SOLAR_OS_IDENTITY_HOSTNAME_MAX + 2];
@@ -4288,6 +4306,12 @@ static void python_register_solaros_module(void)
     mp_obj_t identity = python_new_submodule(module, "identity");
     python_module_store(identity, "user", MP_OBJ_FROM_PTR(&solaros_identity_user_obj));
     python_module_store(identity, "hostname", MP_OBJ_FROM_PTR(&solaros_identity_hostname_obj));
+    python_module_store(identity,
+                        "set_user",
+                        MP_OBJ_FROM_PTR(&solaros_identity_set_user_obj));
+    python_module_store(identity,
+                        "set_hostname",
+                        MP_OBJ_FROM_PTR(&solaros_identity_set_hostname_obj));
     python_module_store(identity, "format", MP_OBJ_FROM_PTR(&solaros_identity_format_obj));
 
 #if SOLAR_OS_PACKAGE_SERVICE_NET

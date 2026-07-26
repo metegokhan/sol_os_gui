@@ -882,6 +882,61 @@ void solar_os_shell_cmd_apps(solar_os_context_t *ctx, int argc, char **argv)
     }
 }
 
+void solar_os_shell_cmd_identity(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
+        char user[SOLAR_OS_IDENTITY_USER_MAX];
+        char hostname[SOLAR_OS_IDENTITY_HOSTNAME_MAX];
+        solar_os_identity_get_user(user, sizeof(user));
+        solar_os_identity_get_hostname(hostname, sizeof(hostname));
+        solar_os_shell_io_printf(term, "User: %s\n", user);
+        solar_os_shell_io_printf(term, "Hostname: %s\n", hostname);
+        return;
+    }
+
+    if (argc == 3 && strcmp(argv[1], "user") == 0) {
+        const esp_err_t err = solar_os_identity_set_user(argv[2]);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(term, "identity user set: %s\n", argv[2]);
+        } else if (err == ESP_ERR_INVALID_ARG) {
+            solar_os_shell_io_writeln(
+                term,
+                "identity: use 1-31 letters, numbers, '.', '-' or '_'");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "identity user failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    if (argc == 3 && strcmp(argv[1], "hostname") == 0) {
+        const esp_err_t err = solar_os_identity_set_hostname(argv[2]);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(
+                term,
+                "identity hostname set: %s; reboot to update Wi-Fi\n",
+                argv[2]);
+        } else if (err == ESP_ERR_INVALID_ARG) {
+            solar_os_shell_io_writeln(
+                term,
+                "identity: use 1-31 letters, numbers, '.', '-' or '_'");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "identity hostname failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  identity [status]");
+    solar_os_shell_io_writeln(term, "  identity user <name>");
+    solar_os_shell_io_writeln(term, "  identity hostname <name>");
+}
+
 static void job_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");

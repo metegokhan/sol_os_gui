@@ -39,6 +39,7 @@
 #include "solar_os_gfx_internal.h"
 #include "solar_os_fonts.h"
 #include "solar_os_i2c.h"
+#include "solar_os_identity.h"
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
 #include "solar_os_inbox.h"
 #endif
@@ -981,6 +982,10 @@ static void init_peripherals(void)
     const esp_err_t storage_err = solar_os_storage_init();
     if (storage_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Default storage unavailable: %s", esp_err_to_name(storage_err));
+    }
+    const esp_err_t identity_err = solar_os_identity_init();
+    if (identity_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Identity unavailable: %s", esp_err_to_name(identity_err));
     }
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
     const esp_err_t inbox_err = solar_os_inbox_init();
