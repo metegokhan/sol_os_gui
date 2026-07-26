@@ -3249,12 +3249,14 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_ssh_keys_remove_obj, solaros_ssh_keys_remove);
 
 static mp_obj_t python_job_status_to_dict(const solar_os_job_status_t *status)
 {
-    mp_obj_t dict = mp_obj_new_dict(13);
+    mp_obj_t dict = mp_obj_new_dict(15);
     python_dict_store_cstr(dict, "name", status->name);
     python_dict_store_cstr(dict, "summary", status->summary);
     python_dict_store_cstr(dict, "state", solar_os_job_state_name(status->state));
     python_dict_store_int(dict, "last_error", status->last_error);
     python_dict_store_cstr(dict, "last_error_name", esp_err_to_name(status->last_error));
+    python_dict_store_uint(dict, "worker_stack_bytes", status->worker_stack_bytes);
+    python_dict_store_bool(dict, "worker_stack_external", status->worker_stack_external);
     python_dict_store_uint(dict, "tick_count", status->tick_count);
     python_dict_store_uint(dict, "last_tick_ms", status->last_tick_ms);
     python_dict_store_uint(dict, "tick_interval_ms", status->tick_stats.interval_ms);

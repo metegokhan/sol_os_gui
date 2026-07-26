@@ -17,10 +17,11 @@ job status [name]
 ```
 
 `jobs` is intentionally compact so it fits on the built-in 65-column display
-terminal. It shows job name, state, kind, event source, tick count, and resource
-count. Use `job status <name>` for the summary, owner string, last error,
-effective tick interval/deadline, runtime duration statistics, deadline misses,
-and claimed resources. Compact timing lines use `interval/deadline` in
+terminal. It shows job name, state, declared worker-stack requirement, kind,
+event source, tick count, and resource count. Running rows are bold. Use
+`job status <name>` for the summary, owner string, worker-stack placement, last
+error, effective tick interval/deadline, runtime duration statistics, deadline
+misses, and claimed resources. Compact timing lines use `interval/deadline` in
 milliseconds, `n` for dispatches, `us=last/max`, and `miss` for deadline misses.
 
 ## Job Control
@@ -40,6 +41,29 @@ files, streams, or network listeners publish those resources through the job
 status model. This keeps port/resource conflict messages readable and avoids
 job-specific inspection code in the shell.
 
+Job states distinguish a deferred launch from a completed launch attempt:
+
+- `waiting` means SolarOS retained the start request because admitting the
+  declared worker stack would consume the internal-memory reserve. The job is
+  not running yet; the scheduler retries it automatically as memory becomes
+  available.
+- `failed` means SolarOS attempted the job's start callback and it returned a
+  terminal error. `job status <name>` prints that error. A `no memory` failure
+  can still occur when a job or library needs dynamic memory beyond its
+  declared worker stack; that memory is not predictable from the descriptor.
+- `running` means start completed successfully. `stopped` means there is no
+  active or retained launch request.
+
+The `STACK` column is the declared worker-stack admission requirement in bytes,
+not a worst-case total-memory estimate. `-` means that the job declares no
+dedicated worker stack; it may still allocate dynamic buffers or use a shared
+service. Compare this column with the internal figures from `mem policy`.
+For an internal-stack background job, admission currently requires internal
+free memory of at least `STACK + 1 KiB overhead + 32 KiB reserve`, and an
+internal largest block of at least `STACK + 1 KiB overhead`. Treat a manual
+check as a snapshot: other work can allocate memory before `job start`, which
+is why SolarOS retains and retries a launch that loses that race.
+
 Jobs that use byte-stream ports claim those ports while running. If a port is
 already owned, SolarOS reports the owner, for example `job log owns cdc0`.
 Radio listeners expose their radio as a custom job resource.
@@ -54,19 +78,20 @@ isolated worker tasks instead of the display scheduler.
 Compact list example:
 
 ```text
-NAME         STATE    KIND        EVT  TICKS RES
-batmon       running  background  tick    17   1
-log          stopped  background  tick     0   0
+NAME         STATE    STACK KIND        EVT  TICKS RES
+batmon       running      - background  tick    17   1
+log          stopped   6144 background  tick     0   0
 ```
 
 Detailed status example:
 
 ```text
 job status log
-NAME         STATE    KIND        EVT  TICKS RES
-log          running  background  tick     8   1
+NAME         STATE    STACK KIND        EVT  TICKS RES
+log          running   6144 background  tick     8   1
   summary: stream SolarOS logs to a port or file
   owner: job:log
+  worker stack: 6144 bytes (internal)
   tick: 250/2ms n=8 us=18/31 miss=0
   resources:
   - port   cdc0 rw

@@ -829,6 +829,8 @@ static void solua_push_job_status(lua_State *L, const solar_os_job_status_t *sta
     solua_set_str(L, -1, "state", solar_os_job_state_name(status->state));
     solua_set_int(L, -1, "last_error", status->last_error);
     solua_set_str(L, -1, "last_error_name", esp_err_to_name(status->last_error));
+    solua_set_int(L, -1, "worker_stack_bytes", status->worker_stack_bytes);
+    solua_set_bool(L, -1, "worker_stack_external", status->worker_stack_external);
     solua_set_int(L, -1, "tick_count", status->tick_count);
     solua_set_int(L, -1, "last_tick_ms", status->last_tick_ms);
     solua_set_int(L, -1, "tick_interval_ms", status->tick_stats.interval_ms);

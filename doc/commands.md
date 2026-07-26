@@ -179,9 +179,9 @@ without probing.
 `jobs` prints a compact table that fits the built-in display terminal:
 
 ```text
-NAME         STATE    KIND        EVT  TICKS RES
-batmon       running  background  tick    17   1
-log          stopped  background  tick     0   0
+NAME         STATE    STACK KIND        EVT  TICKS RES
+batmon       running      - background  tick    17   1
+log          stopped   6144 background  tick     0   0
 ```
 
 Columns:
@@ -189,15 +189,19 @@ Columns:
 | Column | Meaning |
 | --- | --- |
 | `NAME` | Job registry name. |
-| `STATE` | `stopped`, `running`, or `failed`. |
+| `STATE` | `stopped`, `waiting`, `running`, or `failed`. A waiting launch retries automatically. |
+| `STACK` | Declared worker-stack admission requirement in bytes; `-` means no dedicated stack is declared. Dynamic allocations are not included. |
 | `KIND` | Job kind. Current registry jobs are background workers. |
 | `EVT` | `tick` if the job receives periodic tick events, otherwise `-`. |
 | `TICKS` | Number of dispatched tick events while running. |
 | `RES` | Number of resources currently recorded for the job. |
 
 Use `job status <name>` for the job summary, owner string, last error, effective
-tick interval/deadline, last and maximum handler time, deadline-miss count, and
-resource details. `sessions` prints the same timing telemetry for display and
+worker-stack placement, tick interval/deadline, last and maximum handler time,
+deadline-miss count, and resource details. Running rows are bold. A `waiting`
+job has retained its launch request until the stack can be admitted while
+preserving the internal-memory reserve; a `failed` job completed a start attempt
+with an error. `sessions` prints the same timing telemetry for display and
 port sessions as one row per session in `ID TITLE APP STATE TIME` order. In the
 `TIME` column, the first pair is `interval/deadline` in milliseconds, the second
 is `last/max` in microseconds, `n` is the dispatch count, and `!` is the deadline

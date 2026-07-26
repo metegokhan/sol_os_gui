@@ -257,8 +257,10 @@ end
 
 `solaros.jobs.list()` and `solaros.jobs.status(name)` return the effective
 `tick_interval_ms` and `tick_deadline_ms` plus `tick_last_us`, `tick_max_us`,
-and `tick_deadline_misses` runtime telemetry. Job control is available through
-`start(name[, args])` and `stop(name)`.
+and `tick_deadline_misses` runtime telemetry. `worker_stack_bytes` is the
+declared launch-admission requirement and `worker_stack_external` identifies
+its memory region. Job control is available through `start(name[, args])` and
+`stop(name)`.
 
 ## Sessions
 
