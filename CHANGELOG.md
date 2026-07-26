@@ -14,8 +14,11 @@
   JSON results, and read-only system status, storage listing, and job listing
   tools. Added a reusable Python/Lua source-and-file runner with bounded
   captured output, structured completion, VM-level cancellation and deadlines,
-  interpreter ownership guards, and a manual `agent script` validation path;
-  script execution is not yet exposed to the model.
+  interpreter ownership guards, and a manual `agent script` validation path.
+  Added NVS-backed `off`, `readonly`, `confirm`, and `all` tool policy with
+  defense-in-depth executor checks, bounded local confirmation, denial
+  continuations and tool counters; policy-gated Python and Lua source execution
+  is now available to the model when the corresponding runtime is installed.
 
 ## 4.x
 

@@ -13,9 +13,9 @@ Exit behavior:
 ## agent
 
 Native Responses/Chat-Completions LLM client and SolarOS agent control plane.
-It streams model text directly to the active shell and exposes read-only
-system-status, storage-listing, and job-listing tools to the model. `agent
-tools` shows their risk metadata and current runtime availability.
+It streams model text directly to the active shell and exposes typed
+system-status, storage-listing, job-listing, and optional Python/Lua execution
+tools. `agent tools` shows risk, policy, and runtime availability.
 
 Configure the full endpoint and model, then ask a question:
 
@@ -24,6 +24,7 @@ agent config endpoint https://api.openai.com/v1/responses
 agent config model gpt-model
 agent config key api-key
 agent config reasoning medium
+agent config tools confirm
 agent ask How much memory is free on this device?
 agent script python -c "print(6 * 7)"
 agent script lua /script.lua argument
@@ -40,8 +41,14 @@ final provider turn. Output is bounded to 16 KiB, protocol buffers and queues
 prefer PSRAM, and the foreground worker uses a declared 16 KiB internal stack.
 Full builds can reuse that worker for bounded Python or Lua source/file
 execution. The manual script path captures at most 4095 output bytes, has a
-30-second deadline, and supports app-exit cancellation. It is not yet available
-as a model tool.
+30-second deadline, and supports app-exit cancellation. Model-generated source
+is capped at 640 bytes and captures 383 output bytes.
+
+The default `confirm` policy runs read-only tools automatically and shows the
+exact arguments of sensitive, mutating, disruptive, and script calls before
+waiting for a local `y/N` decision. `off` disables tools, `readonly` excludes
+all protected risk classes, and explicit `all` allows every available tool
+without prompting.
 See [Native Agent Service](agent.md) for the provider contract and current
 limits.
 

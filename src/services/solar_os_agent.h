@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_script_runner.h"
 
 #define SOLAR_OS_AGENT_ENDPOINT_MAX 256
 #define SOLAR_OS_AGENT_MODEL_MAX 96
@@ -15,10 +16,23 @@
 #define SOLAR_OS_AGENT_TOOL_NAME_MAX 48
 
 typedef enum {
+    SOLAR_OS_AGENT_TOOL_POLICY_OFF = 0,
+    SOLAR_OS_AGENT_TOOL_POLICY_READONLY,
+    SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM,
+    SOLAR_OS_AGENT_TOOL_POLICY_ALL,
+} solar_os_agent_tool_policy_t;
+
+typedef enum {
+    SOLAR_OS_AGENT_SCRIPT_PYTHON = 1U << 0,
+    SOLAR_OS_AGENT_SCRIPT_LUA = 1U << 1,
+} solar_os_agent_script_language_t;
+
+typedef enum {
     SOLAR_OS_AGENT_EVENT_STATUS = 0,
     SOLAR_OS_AGENT_EVENT_TEXT_DELTA,
     SOLAR_OS_AGENT_EVENT_TOOL_CALL,
     SOLAR_OS_AGENT_EVENT_TOOL_RESULT,
+    SOLAR_OS_AGENT_EVENT_TOOL_CONFIRMATION,
     SOLAR_OS_AGENT_EVENT_USAGE,
     SOLAR_OS_AGENT_EVENT_ERROR,
     SOLAR_OS_AGENT_EVENT_DONE,
@@ -37,9 +51,27 @@ typedef struct {
 typedef esp_err_t (*solar_os_agent_event_fn)(const solar_os_agent_event_t *event,
                                              void *user_data);
 
+typedef esp_err_t (*solar_os_agent_tool_confirmation_fn)(
+    const char *tool_name,
+    const char *risk,
+    const char *arguments,
+    bool *allowed,
+    void *user_data);
+
+typedef esp_err_t (*solar_os_agent_script_run_fn)(
+    solar_os_agent_script_language_t language,
+    const char *source,
+    char *output,
+    size_t output_size,
+    solar_os_script_run_result_t *result,
+    void *user_data);
+
 typedef struct {
     const char *prompt;
     solar_os_agent_event_fn event_handler;
+    solar_os_agent_tool_confirmation_fn confirm_tool;
+    solar_os_agent_script_run_fn run_script;
+    uint32_t script_languages;
     void *user_data;
 } solar_os_agent_request_t;
 
@@ -52,8 +84,12 @@ typedef struct {
     char endpoint[SOLAR_OS_AGENT_ENDPOINT_MAX];
     char model[SOLAR_OS_AGENT_MODEL_MAX];
     char reasoning_effort[SOLAR_OS_AGENT_REASONING_EFFORT_MAX];
+    solar_os_agent_tool_policy_t tool_policy;
     uint32_t request_count;
     uint32_t failure_count;
+    uint32_t tool_executed_count;
+    uint32_t tool_denied_count;
+    uint32_t tool_failed_count;
     int last_http_status;
     esp_err_t last_error;
     uint32_t last_duration_ms;
@@ -72,6 +108,12 @@ esp_err_t solar_os_agent_set_endpoint(const char *endpoint);
 esp_err_t solar_os_agent_set_model(const char *model);
 esp_err_t solar_os_agent_set_api_key(const char *api_key);
 esp_err_t solar_os_agent_set_reasoning_effort(const char *effort);
+esp_err_t solar_os_agent_set_tool_policy(solar_os_agent_tool_policy_t policy);
+esp_err_t solar_os_agent_parse_tool_policy(
+    const char *name,
+    solar_os_agent_tool_policy_t *policy);
+const char *solar_os_agent_tool_policy_name(
+    solar_os_agent_tool_policy_t policy);
 esp_err_t solar_os_agent_forget(void);
 esp_err_t solar_os_agent_get_status(solar_os_agent_status_t *status);
 

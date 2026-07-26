@@ -24,13 +24,27 @@ typedef struct {
     bool available;
 } solar_os_agent_tool_info_t;
 
+typedef enum {
+    SOLAR_OS_AGENT_TOOL_POLICY_DENY = 0,
+    SOLAR_OS_AGENT_TOOL_POLICY_ALLOW,
+    SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM_ONCE,
+} solar_os_agent_tool_policy_decision_t;
+
 size_t solar_os_agent_tools_collect(
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
     solar_os_agent_tool_descriptor_t *descriptors,
     size_t capacity);
 size_t solar_os_agent_tools_count(void);
 bool solar_os_agent_tools_get(size_t index, solar_os_agent_tool_info_t *info);
 esp_err_t solar_os_agent_tools_execute(const char *name,
                                        const char *arguments,
+                                       const solar_os_agent_request_t *request,
+                                       solar_os_agent_tool_policy_t policy,
+                                       bool confirmed,
                                        char *result,
                                        size_t result_len);
+solar_os_agent_tool_policy_decision_t solar_os_agent_tools_policy_decision(
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_risk_t risk);
 const char *solar_os_agent_tool_risk_name(solar_os_agent_tool_risk_t risk);

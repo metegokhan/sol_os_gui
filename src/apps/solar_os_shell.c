@@ -628,8 +628,15 @@ static const char * const agent_config_fields[] = {
     "model",
     "key",
     "reasoning",
+    "tools",
 };
 static const char * const agent_key_values[] = {"clear"};
+static const char * const agent_tool_policy_values[] = {
+    "off",
+    "readonly",
+    "confirm",
+    "all",
+};
 #if SOLAR_OS_PACKAGE_APP_PYTHON || SOLAR_OS_PACKAGE_APP_LUA
 static const char * const agent_script_languages[] = {
 #if SOLAR_OS_PACKAGE_APP_PYTHON
@@ -857,6 +864,11 @@ static const char * const path_agent_config_reasoning[] = {
     "agent",
     "config",
     "reasoning",
+};
+static const char * const path_agent_config_tools[] = {
+    "agent",
+    "config",
+    "tools",
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
@@ -1585,6 +1597,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
     SHELL_COMPLETION_STATIC(path_agent_config_key, agent_key_values),
     SHELL_COMPLETION_STATIC(path_agent_config_reasoning, agent_reasoning_values),
+    SHELL_COMPLETION_STATIC(path_agent_config_tools, agent_tool_policy_values),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
     SHELL_COMPLETION_STATIC(path_led, led_subcommands),

@@ -35,6 +35,7 @@
 #define AGENT_APP_EVENT_QUEUE_LEN 16U
 #define AGENT_APP_SCRIPT_OUTPUT_MAX 4096U
 #define AGENT_APP_SCRIPT_TIMEOUT_MS 30000U
+#define AGENT_APP_CONFIRM_TIMEOUT_MS 30000U
 
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(AGENT_APP_TASK_STACK);
 
@@ -55,6 +56,8 @@ typedef struct {
     int script_arg_start;
     volatile bool task_done;
     volatile bool stopping;
+    volatile int confirm_decision;
+    volatile bool confirmation_pending;
     bool running;
     bool text_started;
     bool script_reported;
@@ -99,6 +102,7 @@ static void agent_app_print_status(solar_os_context_t *ctx)
                              "Model: %s\n"
                              "API key: %s\n"
                              "Reasoning (Responses): %s\n"
+                             "Tool policy: %s\n"
                              "State: %s\n",
                              status.provider,
                              status.endpoint[0] != '\0' ?
@@ -107,11 +111,17 @@ static void agent_app_print_status(solar_os_context_t *ctx)
                                  status.model : "not configured",
                              status.api_key_set ? "set" : "not set",
                              status.reasoning_effort,
+                             solar_os_agent_tool_policy_name(status.tool_policy),
                              status.running ? "running" : "idle");
     solar_os_shell_io_printf(io,
-                             "Requests: %" PRIu32 ", failures: %" PRIu32 "\n",
+                             "Requests: %" PRIu32 ", failures: %" PRIu32 "\n"
+                             "Tools: %" PRIu32 " executed, %" PRIu32
+                             " denied, %" PRIu32 " failed\n",
                              status.request_count,
-                             status.failure_count);
+                             status.failure_count,
+                             status.tool_executed_count,
+                             status.tool_denied_count,
+                             status.tool_failed_count);
     if (status.request_count > 0) {
         solar_os_shell_io_printf(
             io,
@@ -263,6 +273,111 @@ static bool agent_app_send_event(const solar_os_agent_event_t *event)
     return false;
 }
 
+static esp_err_t agent_app_confirm_tool(const char *tool_name,
+                                        const char *risk,
+                                        const char *arguments,
+                                        bool *allowed,
+                                        void *user_data)
+{
+    agent_app_state_t *state = (agent_app_state_t *)user_data;
+    if (state == NULL || tool_name == NULL || risk == NULL ||
+        arguments == NULL || allowed == NULL || state->task == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    state->confirm_decision = -1;
+    state->confirmation_pending = true;
+    solar_os_agent_event_t event = {
+        .type = SOLAR_OS_AGENT_EVENT_TOOL_CONFIRMATION,
+    };
+    snprintf(event.text,
+             sizeof(event.text),
+             "\nagent: confirmation required for %s (%s)\nArguments:\n",
+             tool_name,
+             risk);
+    strlcpy(event.tool_name, tool_name, sizeof(event.tool_name));
+    if (!agent_app_send_event(&event)) {
+        state->confirmation_pending = false;
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const char *remaining = arguments;
+    do {
+        memset(&event, 0, sizeof(event));
+        event.type = SOLAR_OS_AGENT_EVENT_TOOL_CONFIRMATION;
+        const size_t length = strlen(remaining);
+        const size_t copy = length >= sizeof(event.text) ?
+            sizeof(event.text) - 1U : length;
+        memcpy(event.text, remaining, copy);
+        event.text[copy] = '\0';
+        remaining += copy;
+        event.success = *remaining == '\0';
+        if (!agent_app_send_event(&event)) {
+            state->confirmation_pending = false;
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (copy == 0) {
+            break;
+        }
+    } while (*remaining != '\0');
+
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t timeout = pdMS_TO_TICKS(AGENT_APP_CONFIRM_TIMEOUT_MS);
+    while (!state->stopping && state->confirm_decision < 0 &&
+           xTaskGetTickCount() - started < timeout) {
+        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+    }
+    if (state->stopping) {
+        state->confirmation_pending = false;
+        return ESP_ERR_INVALID_STATE;
+    }
+    *allowed = state->confirm_decision > 0;
+    state->confirmation_pending = false;
+    return ESP_OK;
+}
+
+static esp_err_t agent_app_run_script(
+    solar_os_agent_script_language_t language,
+    const char *source,
+    char *output,
+    size_t output_size,
+    solar_os_script_run_result_t *result,
+    void *user_data)
+{
+    agent_app_state_t *state = (agent_app_state_t *)user_data;
+    if (state == NULL || source == NULL || output == NULL ||
+        output_size == 0 || result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const char *argv[] = {"<agent-tool>"};
+    const solar_os_script_run_request_t request = {
+        .context = state->ctx,
+        .input_type = SOLAR_OS_SCRIPT_INPUT_SOURCE,
+        .input = source,
+        .source_name = "<agent-tool>",
+        .argc = 1,
+        .argv = argv,
+        .timeout_ms = AGENT_APP_SCRIPT_TIMEOUT_MS,
+        .cancel_requested = agent_app_script_cancel_requested,
+        .cancel_user = state,
+        .output = output,
+        .output_size = output_size,
+    };
+#if SOLAR_OS_PACKAGE_APP_PYTHON
+    if (language == SOLAR_OS_AGENT_SCRIPT_PYTHON) {
+        (void)solar_os_python_run(&request, result);
+        return ESP_OK;
+    }
+#endif
+#if SOLAR_OS_PACKAGE_APP_LUA
+    if (language == SOLAR_OS_AGENT_SCRIPT_LUA) {
+        (void)solar_os_lua_run(&request, result);
+        return ESP_OK;
+    }
+#endif
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 static esp_err_t agent_app_service_event(const solar_os_agent_event_t *event,
                                          void *user_data)
 {
@@ -277,6 +392,16 @@ static void agent_app_task(void *arg)
         const solar_os_agent_request_t request = {
             .prompt = agent_app.prompt,
             .event_handler = agent_app_service_event,
+            .confirm_tool = agent_app_confirm_tool,
+            .run_script = agent_app_run_script,
+            .script_languages =
+#if SOLAR_OS_PACKAGE_APP_PYTHON
+                SOLAR_OS_AGENT_SCRIPT_PYTHON |
+#endif
+#if SOLAR_OS_PACKAGE_APP_LUA
+                SOLAR_OS_AGENT_SCRIPT_LUA |
+#endif
+                0U,
             .user_data = &agent_app,
         };
         (void)solar_os_agent_run(&request);
@@ -408,8 +533,15 @@ static void agent_app_drain_events(solar_os_context_t *ctx)
             break;
         case SOLAR_OS_AGENT_EVENT_TOOL_RESULT:
             solar_os_shell_io_printf(io,
-                                     "agent: tool %s complete\n",
-                                     event.tool_name);
+                                     "agent: tool %s %s\n",
+                                     event.tool_name,
+                                     event.success ? "complete" : "denied");
+            break;
+        case SOLAR_OS_AGENT_EVENT_TOOL_CONFIRMATION:
+            agent_app_print_delta(io, event.text);
+            if (event.success) {
+                solar_os_shell_io_write(io, "\nAllow once? [y/N] ");
+            }
             break;
         case SOLAR_OS_AGENT_EVENT_USAGE:
             solar_os_shell_io_printf(
@@ -583,6 +715,26 @@ static bool agent_app_event(solar_os_context_t *ctx,
     }
 
     const uint8_t ch = (uint8_t)event->data.ch;
+    if (agent_app.confirmation_pending && ch != SOLAR_OS_KEY_APP_EXIT) {
+        if (ch == 'y' || ch == 'Y') {
+            agent_app.confirm_decision = 1;
+            agent_app.confirmation_pending = false;
+            solar_os_shell_io_writeln(agent_app_io(ctx), "yes");
+            solar_os_shell_io_flush(agent_app_io(ctx));
+            if (agent_app.task != NULL) {
+                xTaskNotifyGive(agent_app.task);
+            }
+        } else if (ch == 'n' || ch == 'N' || ch == '\r' || ch == '\n') {
+            agent_app.confirm_decision = 0;
+            agent_app.confirmation_pending = false;
+            solar_os_shell_io_writeln(agent_app_io(ctx), "no");
+            solar_os_shell_io_flush(agent_app_io(ctx));
+            if (agent_app.task != NULL) {
+                xTaskNotifyGive(agent_app.task);
+            }
+        }
+        return true;
+    }
     if (ch == SOLAR_OS_KEY_APP_EXIT) {
         if (agent_app.running) {
             solar_os_shell_io_writeln(agent_app_io(ctx),
@@ -591,6 +743,9 @@ static bool agent_app_event(solar_os_context_t *ctx,
             agent_app.stopping = true;
             if (agent_app.mode == AGENT_APP_MODE_ASK) {
                 (void)solar_os_agent_cancel();
+            }
+            if (agent_app.task != NULL) {
+                xTaskNotifyGive(agent_app.task);
             }
         }
         agent_app_return_to_shell(ctx);

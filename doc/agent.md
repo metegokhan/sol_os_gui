@@ -13,6 +13,7 @@ agent config endpoint https://api.openai.com/v1/responses
 agent config model gpt-model
 agent config key api-key
 agent config reasoning medium
+agent config tools confirm
 agent status
 ```
 
@@ -67,8 +68,8 @@ validation uses the firmware certificate bundle.
 ## Typed tools
 
 `agent tools` shows the canonical registry, domain and risk metadata, runtime
-availability, and any required capability. The first registry slice contains
-three read-only tools:
+availability, current policy disposition, and any required capability. The
+registry currently contains three read-only tools:
 
 - `system_status`: board ID, SolarOS version, uptime, free and largest internal
   RAM blocks, and free PSRAM.
@@ -76,6 +77,26 @@ three read-only tools:
   including type and size. Results report when the output was truncated.
 - `jobs_list`: every compiled background job with its current state, last
   error, worker-stack size, and whether that stack uses internal RAM or PSRAM.
+
+- `script_run_python` and `script_run_lua`: execute a source string through the
+  installed interpreter adapter. Generated scripts have access to the same
+  SolarOS APIs as local scripts, so both tools are classified as disruptive.
+
+Tool policy is NVS-backed and enforced again inside the canonical executor:
+
+| Policy | Behavior |
+| --- | --- |
+| `off` | Advertise and execute no tools. |
+| `readonly` | Advertise and execute only read-only tools. Sensitive reads are excluded. |
+| `confirm` | Run read-only tools automatically and require one local confirmation for every sensitive, mutating, or disruptive call. This is the default. |
+| `all` | Run every available tool without confirmation. This must be selected explicitly. |
+
+Under `confirm`, the foreground app prints the exact bounded JSON arguments and
+waits up to 30 seconds at `Allow once? [y/N]`. Only `y` allows that call;
+`n`, Enter, or the timeout denies it. The app-exit key cancels the whole
+request. A denial is returned to the model as a structured result so it can
+explain or choose another approach rather than losing the conversation turn.
+`agent status` includes executed, denied, and failed tool counters.
 
 The service permits one tool execution and one continuation turn. Unsupported
 tools, multiple simultaneous tool calls, malformed arguments, or another tool
@@ -92,8 +113,12 @@ object before it is returned to the model.
   contain the assembled output as one event.
 - Request body: 8 KiB, PSRAM preferred.
 - Prompt: 1023 bytes.
-- Tool arguments: 511 bytes.
-- Tool result: 2047 bytes, allocated in PSRAM.
+- Tool descriptor buffer: 4 KiB, allocated in PSRAM.
+- Tool arguments: 1023 bytes.
+- Tool result: 4095 bytes, allocated in PSRAM.
+- Generated script source: 640 bytes.
+- Generated script captured output: 383 bytes.
+- Tool confirmation deadline: 30 seconds.
 - Manual script output: 4095 bytes, allocated in PSRAM.
 - Manual script deadline: 30 seconds.
 - Model output: 16 KiB per provider turn.
@@ -107,7 +132,8 @@ run `mem policy` after the app returns to confirm that the task stack was
 reclaimed.
 
 The agent package requires Wi-Fi and PSRAM but does not require Python or Lua.
-The manual script command appears only when the corresponding runtime is in
-the firmware. Script execution is not yet exposed to the model: mutating
-storage/job operations, script tools, persistent conversations, more tools,
-additional providers, and a resumable conversation UI are later phases.
+The manual command and model tool are advertised only when the corresponding
+runtime is in the firmware; the agent app supplies the optional adapter callback
+without making either interpreter a package dependency. Mutating storage/job
+operations, network and hardware tools, persistent conversations, additional
+providers, and a resumable conversation UI are later phases.

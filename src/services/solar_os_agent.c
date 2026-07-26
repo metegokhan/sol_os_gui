@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,7 +22,9 @@
 #define AGENT_NVS_MODEL_KEY "model"
 #define AGENT_NVS_API_KEY_KEY "api_key"
 #define AGENT_NVS_REASONING_KEY "reasoning"
+#define AGENT_NVS_TOOL_POLICY_KEY "tool_policy"
 #define AGENT_DEFAULT_REASONING_EFFORT "medium"
+#define AGENT_DEFAULT_TOOL_POLICY SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM
 #define AGENT_MAX_TOOL_ROUNDS 2U
 
 typedef struct {
@@ -35,9 +38,13 @@ typedef struct {
     bool running;
     bool cancel_requested;
     solar_os_agent_provider_config_t config;
+    solar_os_agent_tool_policy_t tool_policy;
     agent_request_handle_t *active_request;
     uint32_t request_count;
     uint32_t failure_count;
+    uint32_t tool_executed_count;
+    uint32_t tool_denied_count;
+    uint32_t tool_failed_count;
     int last_http_status;
     esp_err_t last_error;
     uint32_t last_duration_ms;
@@ -53,7 +60,7 @@ typedef struct {
 
 static const char *TAG = "agent";
 static portMUX_TYPE agent_lock = portMUX_INITIALIZER_UNLOCKED;
-static agent_state_t agent;
+static EXT_RAM_BSS_ATTR agent_state_t agent;
 
 static uint32_t agent_internal_free(void)
 {
@@ -119,6 +126,48 @@ static bool agent_reasoning_effort_valid(const char *effort)
     return false;
 }
 
+const char *solar_os_agent_tool_policy_name(
+    solar_os_agent_tool_policy_t policy)
+{
+    switch (policy) {
+    case SOLAR_OS_AGENT_TOOL_POLICY_OFF:
+        return "off";
+    case SOLAR_OS_AGENT_TOOL_POLICY_READONLY:
+        return "readonly";
+    case SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM:
+        return "confirm";
+    case SOLAR_OS_AGENT_TOOL_POLICY_ALL:
+        return "all";
+    default:
+        return "unknown";
+    }
+}
+
+esp_err_t solar_os_agent_parse_tool_policy(
+    const char *name,
+    solar_os_agent_tool_policy_t *policy)
+{
+    if (name == NULL || policy == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    static const struct {
+        const char *name;
+        solar_os_agent_tool_policy_t policy;
+    } values[] = {
+        {"off", SOLAR_OS_AGENT_TOOL_POLICY_OFF},
+        {"readonly", SOLAR_OS_AGENT_TOOL_POLICY_READONLY},
+        {"confirm", SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM},
+        {"all", SOLAR_OS_AGENT_TOOL_POLICY_ALL},
+    };
+    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
+        if (strcmp(name, values[i].name) == 0) {
+            *policy = values[i].policy;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_INVALID_ARG;
+}
+
 static void agent_load_config(void)
 {
     nvs_handle_t nvs;
@@ -164,6 +213,16 @@ static void agent_load_config(void)
                 AGENT_DEFAULT_REASONING_EFFORT,
                 sizeof(agent.config.reasoning_effort));
     }
+    char tool_policy[16];
+    len = sizeof(tool_policy);
+    if (nvs_get_str(nvs,
+                    AGENT_NVS_TOOL_POLICY_KEY,
+                    tool_policy,
+                    &len) != ESP_OK ||
+        solar_os_agent_parse_tool_policy(tool_policy,
+                                         &agent.tool_policy) != ESP_OK) {
+        agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
+    }
     nvs_close(nvs);
 }
 
@@ -182,6 +241,7 @@ esp_err_t solar_os_agent_init(void)
             sizeof(config.reasoning_effort));
     portENTER_CRITICAL(&agent_lock);
     agent.config = config;
+    agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
     portEXIT_CRITICAL(&agent_lock);
     agent_load_config();
 
@@ -269,6 +329,35 @@ esp_err_t solar_os_agent_set_reasoning_effort(const char *effort)
                           sizeof(agent.config.reasoning_effort)) : err;
 }
 
+esp_err_t solar_os_agent_set_tool_policy(solar_os_agent_tool_policy_t policy)
+{
+    const char *name = solar_os_agent_tool_policy_name(policy);
+    if (strcmp(name, "unknown") == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_agent_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    nvs_handle_t nvs;
+    err = nvs_open(AGENT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_str(nvs, AGENT_NVS_TOOL_POLICY_KEY, name);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&agent_lock);
+        agent.tool_policy = policy;
+        portEXIT_CRITICAL(&agent_lock);
+    }
+    return err;
+}
+
 esp_err_t solar_os_agent_forget(void)
 {
     esp_err_t err = solar_os_agent_init();
@@ -302,6 +391,7 @@ esp_err_t solar_os_agent_forget(void)
     strlcpy(agent.config.reasoning_effort,
             AGENT_DEFAULT_REASONING_EFFORT,
             sizeof(agent.config.reasoning_effort));
+    agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
     portEXIT_CRITICAL(&agent_lock);
     return ESP_OK;
 }
@@ -328,8 +418,12 @@ esp_err_t solar_os_agent_get_status(solar_os_agent_status_t *status)
     strlcpy(status->reasoning_effort,
             agent.config.reasoning_effort,
             sizeof(status->reasoning_effort));
+    status->tool_policy = agent.tool_policy;
     status->request_count = agent.request_count;
     status->failure_count = agent.failure_count;
+    status->tool_executed_count = agent.tool_executed_count;
+    status->tool_denied_count = agent.tool_denied_count;
+    status->tool_failed_count = agent.tool_failed_count;
     status->last_http_status = agent.last_http_status;
     status->last_error = agent.last_error;
     status->last_duration_ms = agent.last_duration_ms;
@@ -446,6 +540,84 @@ static esp_err_t agent_emit(const solar_os_agent_request_t *request,
     return request->event_handler(&event, request->user_data);
 }
 
+static bool agent_tool_info_by_name(const char *name,
+                                    solar_os_agent_tool_info_t *info)
+{
+    if (name == NULL || info == NULL) {
+        return false;
+    }
+    const size_t count = solar_os_agent_tools_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_agent_tool_info_t candidate;
+        if (solar_os_agent_tools_get(i, &candidate) &&
+            strcmp(name, candidate.provider.name) == 0) {
+            *info = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+static esp_err_t agent_authorize_tool(
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    const solar_os_agent_tool_info_t *info,
+    const char *arguments,
+    bool *allowed)
+{
+    if (request == NULL || info == NULL || arguments == NULL ||
+        allowed == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const solar_os_agent_tool_policy_decision_t decision =
+        solar_os_agent_tools_policy_decision(policy, info->risk);
+    *allowed = decision == SOLAR_OS_AGENT_TOOL_POLICY_ALLOW;
+    if (decision != SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM_ONCE) {
+        return ESP_OK;
+    }
+    if (request->confirm_tool == NULL) {
+        return ESP_OK;
+    }
+    return request->confirm_tool(info->provider.name,
+                                 solar_os_agent_tool_risk_name(info->risk),
+                                 arguments,
+                                 allowed,
+                                 request->user_data);
+}
+
+static esp_err_t agent_denied_tool_result(
+    const solar_os_agent_tool_info_t *info,
+    solar_os_agent_tool_policy_t policy,
+    char *result,
+    size_t result_len)
+{
+    if (info == NULL || result == NULL || result_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"ok\":false,\"error\":\"tool denied\","
+        "\"policy\":\"%s\",\"risk\":\"%s\"}",
+        solar_os_agent_tool_policy_name(policy),
+        solar_os_agent_tool_risk_name(info->risk));
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static void agent_note_tool_result(bool denied, esp_err_t result)
+{
+    portENTER_CRITICAL(&agent_lock);
+    if (denied) {
+        agent.tool_denied_count++;
+    } else if (result == ESP_OK) {
+        agent.tool_executed_count++;
+    } else {
+        agent.tool_failed_count++;
+    }
+    portEXIT_CRITICAL(&agent_lock);
+}
+
 static void agent_finish_request(esp_err_t error,
                                  const solar_os_agent_provider_result_t *provider_result)
 {
@@ -487,6 +659,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     const uint32_t internal_largest_before = agent_internal_largest();
     const uint32_t psram_before = agent_psram_free();
     solar_os_agent_provider_config_t config;
+    solar_os_agent_tool_policy_t tool_policy;
     portENTER_CRITICAL(&agent_lock);
     if (agent.running) {
         portEXIT_CRITICAL(&agent_lock);
@@ -497,6 +670,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         return ESP_ERR_INVALID_STATE;
     }
     config = agent.config;
+    tool_policy = agent.tool_policy;
     agent.running = true;
     agent.cancel_requested = false;
     agent.request_count++;
@@ -519,7 +693,9 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     solar_os_agent_tool_descriptor_t
         tool_descriptors[SOLAR_OS_AGENT_TOOL_REGISTRY_MAX];
     const size_t tool_count =
-        solar_os_agent_tools_collect(tool_descriptors,
+        solar_os_agent_tools_collect(request,
+                                     tool_policy,
+                                     tool_descriptors,
                                      SOLAR_OS_AGENT_TOOL_REGISTRY_MAX);
     solar_os_agent_provider_turn_t turn = {
         .prompt = request->prompt,
@@ -584,15 +760,49 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          provider_result.tool_arguments,
                          provider_result.tool_name,
                          false);
-        err = solar_os_agent_tools_execute(provider_result.tool_name,
-                                           provider_result.tool_arguments,
+        solar_os_agent_tool_info_t tool_info;
+        if (!agent_tool_info_by_name(provider_result.tool_name, &tool_info)) {
+            err = ESP_ERR_NOT_SUPPORTED;
+            (void)agent_emit(request,
+                             SOLAR_OS_AGENT_EVENT_ERROR,
+                             "tool is not available",
+                             provider_result.tool_name,
+                             false);
+            break;
+        }
+        bool allowed = false;
+        err = agent_authorize_tool(request,
+                                   tool_policy,
+                                   &tool_info,
+                                   provider_result.tool_arguments,
+                                   &allowed);
+        if (err != ESP_OK) {
+            break;
+        }
+        if (!allowed) {
+            err = agent_denied_tool_result(&tool_info,
+                                           tool_policy,
                                            tool_result,
                                            SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+            agent_note_tool_result(true, err);
+        } else {
+            err = solar_os_agent_tools_execute(provider_result.tool_name,
+                                               provider_result.tool_arguments,
+                                               request,
+                                               tool_policy,
+                                               true,
+                                               tool_result,
+                                               SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+            agent_note_tool_result(false, err);
+        }
         if (err != ESP_OK) {
             (void)agent_emit(request,
                              SOLAR_OS_AGENT_EVENT_ERROR,
                              err == ESP_ERR_NOT_SUPPORTED ?
-                                 "tool is not available" : "tool execution failed",
+                                 "tool is not available" :
+                                 (err == ESP_ERR_NOT_ALLOWED ?
+                                     "tool denied by policy" :
+                                     "tool execution failed"),
                              provider_result.tool_name,
                              false);
             break;
@@ -601,7 +811,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          SOLAR_OS_AGENT_EVENT_TOOL_RESULT,
                          tool_result,
                          provider_result.tool_name,
-                         true);
+                         allowed);
         strlcpy(tool_call_id,
                 provider_result.tool_call_id,
                 sizeof(tool_call_id));

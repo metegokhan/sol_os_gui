@@ -12,8 +12,10 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "solar_os_board.h"
+#include "solar_os_config.h"
 #include "solar_os_jobs.h"
 #include "solar_os_json.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 
 #ifndef SOLAR_OS_VERSION
@@ -22,6 +24,9 @@
 
 #define AGENT_TOOL_STORAGE_ENTRY_MAX 16U
 #define AGENT_TOOL_JSON_SCRATCH_MAX 512U
+#define AGENT_TOOL_SCRIPT_SOURCE_MAX 640U
+#define AGENT_TOOL_SCRIPT_OUTPUT_MAX 384U
+#define AGENT_TOOL_JSON_ESCAPE_FACTOR 6U
 
 #define AGENT_TOOL_SCHEMA_EMPTY \
     "{\"type\":\"object\",\"properties\":{},\"required\":[]," \
@@ -29,6 +34,10 @@
 #define AGENT_TOOL_SCHEMA_STORAGE_LIST \
     "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"," \
     "\"minLength\":1,\"maxLength\":159}},\"required\":[\"path\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_SCRIPT_RUN \
+    "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":640}},\"required\":[\"source\"]," \
     "\"additionalProperties\":false}"
 
 #define AGENT_TOOL_OUTPUT_SYSTEM_STATUS \
@@ -46,8 +55,18 @@
     "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
     "\"jobs\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
     "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_SCRIPT_RUN \
+    "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}," \
+    "\"status\":{\"type\":\"string\"},\"output\":{\"type\":\"string\"}," \
+    "\"output_truncated\":{\"type\":\"boolean\"}," \
+    "\"cancelled\":{\"type\":\"boolean\"}," \
+    "\"timed_out\":{\"type\":\"boolean\"},\"error\":{\"type\":\"string\"}}," \
+    "\"required\":[\"ok\",\"status\",\"output\",\"output_truncated\"," \
+    "\"cancelled\",\"timed_out\",\"error\"]," \
+    "\"additionalProperties\":false}"
 
 typedef esp_err_t (*agent_tool_execute_fn)(const char *arguments,
+                                           const solar_os_agent_request_t *request,
                                            char *result,
                                            size_t result_len);
 typedef bool (*agent_tool_available_fn)(void);
@@ -58,6 +77,7 @@ typedef struct {
     const char *output_schema_json;
     const char *required_capability;
     solar_os_agent_tool_risk_t risk;
+    uint32_t required_script_language;
     agent_tool_available_fn available;
     agent_tool_execute_fn execute;
 } agent_tool_definition_t;
@@ -69,18 +89,49 @@ typedef struct {
 } agent_tool_output_t;
 
 static esp_err_t agent_tool_system_status(const char *arguments,
+                                           const solar_os_agent_request_t *request,
                                            char *result,
                                            size_t result_len);
 static esp_err_t agent_tool_storage_list(const char *arguments,
+                                         const solar_os_agent_request_t *request,
                                          char *result,
                                          size_t result_len);
 static esp_err_t agent_tool_jobs_list(const char *arguments,
+                                      const solar_os_agent_request_t *request,
                                       char *result,
                                       size_t result_len);
+static esp_err_t agent_tool_script_run_python(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
+static esp_err_t agent_tool_script_run_lua(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
 
 static bool agent_tool_storage_available(void)
 {
     return solar_os_storage_is_mounted();
+}
+
+static bool agent_tool_python_available(void)
+{
+#if SOLAR_OS_PACKAGE_APP_PYTHON
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool agent_tool_lua_available(void)
+{
+#if SOLAR_OS_PACKAGE_APP_LUA
+    return true;
+#else
+    return false;
+#endif
 }
 
 static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
@@ -128,15 +179,60 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
         .execute = agent_tool_jobs_list,
     },
+    {
+        .provider = {
+            .name = "script_run_python",
+            .description =
+                "Execute a bounded MicroPython source string locally with "
+                "SolarOS APIs. This can read or change device state and must "
+                "be locally confirmed unless unrestricted tools are enabled.",
+            .parameters_json = AGENT_TOOL_SCHEMA_SCRIPT_RUN,
+            .strict = true,
+        },
+        .domain = "script",
+        .output_schema_json = AGENT_TOOL_OUTPUT_SCRIPT_RUN,
+        .required_capability = "python",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_DISRUPTIVE,
+        .required_script_language = SOLAR_OS_AGENT_SCRIPT_PYTHON,
+        .available = agent_tool_python_available,
+        .execute = agent_tool_script_run_python,
+    },
+    {
+        .provider = {
+            .name = "script_run_lua",
+            .description =
+                "Execute a bounded Lua source string locally with SolarOS "
+                "APIs. This can read or change device state and must be "
+                "locally confirmed unless unrestricted tools are enabled.",
+            .parameters_json = AGENT_TOOL_SCHEMA_SCRIPT_RUN,
+            .strict = true,
+        },
+        .domain = "script",
+        .output_schema_json = AGENT_TOOL_OUTPUT_SCRIPT_RUN,
+        .required_capability = "lua",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_DISRUPTIVE,
+        .required_script_language = SOLAR_OS_AGENT_SCRIPT_LUA,
+        .available = agent_tool_lua_available,
+        .execute = agent_tool_script_run_lua,
+    },
 };
 
 static const size_t AGENT_TOOL_COUNT =
     sizeof(AGENT_TOOL_REGISTRY) / sizeof(AGENT_TOOL_REGISTRY[0]);
 
-static bool agent_tool_is_available(const agent_tool_definition_t *definition)
+static bool agent_tool_is_available(
+    const agent_tool_definition_t *definition,
+    const solar_os_agent_request_t *request)
 {
-    return definition != NULL &&
-        (definition->available == NULL || definition->available());
+    if (definition == NULL ||
+        (definition->available != NULL && !definition->available())) {
+        return false;
+    }
+    if (definition->required_script_language == 0U || request == NULL) {
+        return true;
+    }
+    return request->run_script != NULL &&
+        (request->script_languages & definition->required_script_language) != 0U;
 }
 
 static esp_err_t agent_tool_parse_object(const char *arguments,
@@ -198,9 +294,11 @@ static esp_err_t agent_tool_validate_result(const char *result)
 }
 
 static esp_err_t agent_tool_system_status(const char *arguments,
+                                           const solar_os_agent_request_t *request,
                                            char *result,
                                            size_t result_len)
 {
+    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -235,9 +333,11 @@ static esp_err_t agent_tool_system_status(const char *arguments,
 }
 
 static esp_err_t agent_tool_storage_list(const char *arguments,
+                                         const solar_os_agent_request_t *request,
                                          char *result,
                                          size_t result_len)
 {
+    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -352,9 +452,11 @@ static esp_err_t agent_tool_storage_list(const char *arguments,
 }
 
 static esp_err_t agent_tool_jobs_list(const char *arguments,
+                                      const solar_os_agent_request_t *request,
                                       char *result,
                                       size_t result_len)
 {
+    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -409,7 +511,163 @@ static esp_err_t agent_tool_jobs_list(const char *arguments,
     return err;
 }
 
+static esp_err_t agent_tool_script_run(
+    solar_os_agent_script_language_t language,
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    if (request == NULL || request->run_script == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char *source = solar_os_memory_calloc(
+        1,
+        AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.script-source");
+    char *output = solar_os_memory_calloc(
+        1,
+        AGENT_TOOL_SCRIPT_OUTPUT_MAX,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.script-output");
+    char *escaped_output = solar_os_memory_alloc(
+        AGENT_TOOL_SCRIPT_OUTPUT_MAX * AGENT_TOOL_JSON_ESCAPE_FACTOR + 1U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.script-json");
+    char *escaped_error = solar_os_memory_alloc(
+        SOLAR_OS_SCRIPT_ERROR_MAX * AGENT_TOOL_JSON_ESCAPE_FACTOR + 1U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.script-error");
+    if (source == NULL || output == NULL ||
+        escaped_output == NULL || escaped_error == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto cleanup;
+    }
+
+    const solar_os_json_value_t *source_value =
+        solar_os_json_object_get(root, "source");
+    err = solar_os_json_get_string(source_value,
+                                   source,
+                                   AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U);
+    solar_os_json_free(doc);
+    doc = NULL;
+    if (err != ESP_OK || source[0] == '\0') {
+        err = ESP_ERR_INVALID_ARG;
+        goto cleanup;
+    }
+
+    solar_os_script_run_result_t run_result = {0};
+    err = request->run_script(language,
+                              source,
+                              output,
+                              AGENT_TOOL_SCRIPT_OUTPUT_MAX,
+                              &run_result,
+                              request->user_data);
+    if (err != ESP_OK) {
+        goto cleanup;
+    }
+    err = solar_os_json_escape_string(output,
+                                      escaped_output,
+                                      AGENT_TOOL_SCRIPT_OUTPUT_MAX *
+                                          AGENT_TOOL_JSON_ESCAPE_FACTOR + 1U);
+    if (err == ESP_OK) {
+        err = solar_os_json_escape_string(
+            run_result.error,
+            escaped_error,
+            SOLAR_OS_SCRIPT_ERROR_MAX * AGENT_TOOL_JSON_ESCAPE_FACTOR + 1U);
+    }
+    if (err != ESP_OK) {
+        goto cleanup;
+    }
+
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"ok\":%s,\"status\":\"%s\",\"output\":\"%s\","
+        "\"output_truncated\":%s,\"cancelled\":%s,\"timed_out\":%s,"
+        "\"error\":\"%s\"}",
+        run_result.success ? "true" : "false",
+        esp_err_to_name(run_result.status),
+        escaped_output,
+        run_result.output_truncated ? "true" : "false",
+        run_result.cancelled ? "true" : "false",
+        run_result.timed_out ? "true" : "false",
+        escaped_error);
+    err = written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+
+cleanup:
+    solar_os_json_free(doc);
+    solar_os_memory_free(escaped_error);
+    solar_os_memory_free(escaped_output);
+    solar_os_memory_free(output);
+    if (source != NULL) {
+        memset(source, 0, AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U);
+    }
+    solar_os_memory_free(source);
+    return err;
+}
+
+static esp_err_t agent_tool_script_run_python(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    return agent_tool_script_run(SOLAR_OS_AGENT_SCRIPT_PYTHON,
+                                 arguments,
+                                 request,
+                                 result,
+                                 result_len);
+}
+
+static esp_err_t agent_tool_script_run_lua(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    return agent_tool_script_run(SOLAR_OS_AGENT_SCRIPT_LUA,
+                                 arguments,
+                                 request,
+                                 result,
+                                 result_len);
+}
+
+solar_os_agent_tool_policy_decision_t solar_os_agent_tools_policy_decision(
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_risk_t risk)
+{
+    switch (policy) {
+    case SOLAR_OS_AGENT_TOOL_POLICY_OFF:
+        return SOLAR_OS_AGENT_TOOL_POLICY_DENY;
+    case SOLAR_OS_AGENT_TOOL_POLICY_READONLY:
+        return risk == SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY ?
+            SOLAR_OS_AGENT_TOOL_POLICY_ALLOW :
+            SOLAR_OS_AGENT_TOOL_POLICY_DENY;
+    case SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM:
+        return risk == SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY ?
+            SOLAR_OS_AGENT_TOOL_POLICY_ALLOW :
+            SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM_ONCE;
+    case SOLAR_OS_AGENT_TOOL_POLICY_ALL:
+        return SOLAR_OS_AGENT_TOOL_POLICY_ALLOW;
+    default:
+        return SOLAR_OS_AGENT_TOOL_POLICY_DENY;
+    }
+}
+
 size_t solar_os_agent_tools_collect(
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
     solar_os_agent_tool_descriptor_t *descriptors,
     size_t capacity)
 {
@@ -418,10 +676,13 @@ size_t solar_os_agent_tools_collect(
     }
     size_t count = 0;
     for (size_t i = 0; i < AGENT_TOOL_COUNT && count < capacity; i++) {
-        if (!agent_tool_is_available(&AGENT_TOOL_REGISTRY[i])) {
+        const agent_tool_definition_t *definition = &AGENT_TOOL_REGISTRY[i];
+        if (!agent_tool_is_available(definition, request) ||
+            solar_os_agent_tools_policy_decision(policy, definition->risk) ==
+                SOLAR_OS_AGENT_TOOL_POLICY_DENY) {
             continue;
         }
-        descriptors[count++] = AGENT_TOOL_REGISTRY[i].provider;
+        descriptors[count++] = definition->provider;
     }
     return count;
 }
@@ -443,13 +704,16 @@ bool solar_os_agent_tools_get(size_t index, solar_os_agent_tool_info_t *info)
         .output_schema_json = definition->output_schema_json,
         .required_capability = definition->required_capability,
         .risk = definition->risk,
-        .available = agent_tool_is_available(definition),
+        .available = agent_tool_is_available(definition, NULL),
     };
     return true;
 }
 
 esp_err_t solar_os_agent_tools_execute(const char *name,
                                        const char *arguments,
+                                       const solar_os_agent_request_t *request,
+                                       solar_os_agent_tool_policy_t policy,
+                                       bool confirmed,
                                        char *result,
                                        size_t result_len)
 {
@@ -462,11 +726,19 @@ esp_err_t solar_os_agent_tools_execute(const char *name,
         if (strcmp(name, definition->provider.name) != 0) {
             continue;
         }
-        if (!agent_tool_is_available(definition)) {
+        if (!agent_tool_is_available(definition, request)) {
             return ESP_ERR_NOT_SUPPORTED;
         }
+        const solar_os_agent_tool_policy_decision_t decision =
+            solar_os_agent_tools_policy_decision(policy, definition->risk);
+        if (decision == SOLAR_OS_AGENT_TOOL_POLICY_DENY ||
+            (decision == SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM_ONCE &&
+             !confirmed)) {
+            return ESP_ERR_NOT_ALLOWED;
+        }
         result[0] = '\0';
-        esp_err_t err = definition->execute(arguments, result, result_len);
+        esp_err_t err =
+            definition->execute(arguments, request, result, result_len);
         if (err == ESP_OK) {
             err = agent_tool_validate_result(result);
         }
