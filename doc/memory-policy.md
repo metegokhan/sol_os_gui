@@ -12,8 +12,12 @@ and other explicitly internal work. On a board without PSRAM the same APIs use
 internal SRAM and may report out of memory when the workload exceeds it.
 Classic ESP32 targets cannot safely place task stacks in PSRAM. ODROID-GO also
 keeps its smaller Wi-Fi/lwIP allocation profile because the PSRAM-first adapter
-does not fit its IRAM segment; its general, queue, and Bluetooth allocations
-still prefer PSRAM.
+does not fit its IRAM segment. Its board configuration maps the ESP32 SRAM1
+region as IRAM, adding 40 KiB of instruction space; the CI/deployment build
+requires at least 32 KiB to remain free. This image layout requires a compatible
+ESP-IDF bootloader, so devices carrying an older bootloader must receive one
+factory/full flash before later application-only or OTA updates. General,
+queue, and Bluetooth allocations still prefer PSRAM.
 
 Allocation classes:
 

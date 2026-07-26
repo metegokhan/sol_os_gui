@@ -54,6 +54,25 @@ typedef struct {
 } displayd_state_t;
 
 static displayd_state_t displayd;
+static portMUX_TYPE displayd_stats_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static void displayd_stats_add(uint32_t *counter, uint32_t value)
+{
+    portENTER_CRITICAL(&displayd_stats_lock);
+    *counter += value;
+    portEXIT_CRITICAL(&displayd_stats_lock);
+}
+
+static void displayd_stats_snapshot(uint32_t *frame_requests,
+                                    uint32_t *input_requests,
+                                    uint32_t *dropped_input)
+{
+    portENTER_CRITICAL(&displayd_stats_lock);
+    *frame_requests = displayd.frame_requests;
+    *input_requests = displayd.input_requests;
+    *dropped_input = displayd.dropped_input;
+    portEXIT_CRITICAL(&displayd_stats_lock);
+}
 
 static esp_err_t displayd_release_resources(void)
 {
@@ -290,7 +309,7 @@ static esp_err_t displayd_frame_handler(httpd_req_t *req, void *user)
     if (acquire_err != ESP_OK) {
         return displayd_send_503(req, "display frame unavailable");
     }
-    (void)__atomic_fetch_add(&state->frame_requests, 1U, __ATOMIC_RELAXED);
+    displayd_stats_add(&state->frame_requests, 1U);
 
     char etag[25];
     snprintf(etag,
@@ -384,7 +403,7 @@ static esp_err_t displayd_raw_handler(httpd_req_t *req, void *user)
     if (acquire_err != ESP_OK) {
         return displayd_send_503(req, "display frame unavailable");
     }
-    (void)__atomic_fetch_add(&state->frame_requests, 1U, __ATOMIC_RELAXED);
+    displayd_stats_add(&state->frame_requests, 1U);
 
     char etag[25];
     snprintf(etag,
@@ -450,14 +469,13 @@ static esp_err_t displayd_input_handler(httpd_req_t *req, void *user)
     size_t queued = 0;
     for (; queued < received; queued++) {
         if (xQueueSend(state->input, &body[queued], 0) != pdTRUE) {
-            (void)__atomic_fetch_add(&state->dropped_input,
-                                     (uint32_t)(received - queued),
-                                     __ATOMIC_RELAXED);
+            displayd_stats_add(&state->dropped_input,
+                               (uint32_t)(received - queued));
             break;
         }
     }
     memset(body, 0, sizeof(body));
-    (void)__atomic_fetch_add(&state->input_requests, 1U, __ATOMIC_RELAXED);
+    displayd_stats_add(&state->input_requests, 1U);
 
     if (queued != received) {
         return displayd_send_503(req, "input queue full");
@@ -695,12 +713,10 @@ static void displayd_job_stop(solar_os_context_t *ctx)
         displayd.draining = true;
         return;
     }
-    const uint32_t frame_requests =
-        __atomic_load_n(&displayd.frame_requests, __ATOMIC_RELAXED);
-    const uint32_t input_requests =
-        __atomic_load_n(&displayd.input_requests, __ATOMIC_RELAXED);
-    const uint32_t dropped_input =
-        __atomic_load_n(&displayd.dropped_input, __ATOMIC_RELAXED);
+    uint32_t frame_requests = 0;
+    uint32_t input_requests = 0;
+    uint32_t dropped_input = 0;
+    displayd_stats_snapshot(&frame_requests, &input_requests, &dropped_input);
     const esp_err_t cleanup_err = displayd_release_resources();
     if (cleanup_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "cleanup failed: %s", esp_err_to_name(cleanup_err));
@@ -738,7 +754,7 @@ static bool displayd_job_event(solar_os_context_t *ctx, const solar_os_event_t *
             solar_os_sessions_active_for_display(displayd.target, &active_session) &&
             solar_os_sessions_dispatch_session_event(active_session, &input_event);
         if (!dispatched) {
-            (void)__atomic_fetch_add(&displayd.dropped_input, 1U, __ATOMIC_RELAXED);
+            displayd_stats_add(&displayd.dropped_input, 1U);
         }
     }
     return false;
