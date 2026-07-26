@@ -19,6 +19,12 @@
   defense-in-depth executor checks, bounded local confirmation, denial
   continuations and tool counters; policy-gated Python and Lua source execution
   is now available to the model when the corresponding runtime is installed.
+  Bare `agent` now opens a resumable foreground conversation, Responses sessions
+  retain context while the app remains open, and one-shot responses wait for
+  explicit exit instead of immediately returning to the display shell. Expanded
+  the bounded tool chain to five executions plus a final response and added
+  confirmed, size-limited storage reads and writes while excluding SSH identity
+  paths.
 
 ## 4.x
 

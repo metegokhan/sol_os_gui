@@ -14,6 +14,8 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_write_bold(io, "agent");
     solar_os_shell_io_newline(io);
     solar_os_shell_io_writeln(io, "usage:");
+    solar_os_shell_io_writeln(io, "  agent");
+    solar_os_shell_io_writeln(io, "  agent help");
     solar_os_shell_io_writeln(io, "  agent status");
     solar_os_shell_io_writeln(io, "  agent tools");
     solar_os_shell_io_writeln(io, "  agent config endpoint URL");
@@ -185,6 +187,18 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (argc == 1) {
+        const esp_err_t err =
+            solar_os_context_request_launch(ctx, &solar_os_agent_app, argc, argv);
+        if (err == ESP_OK) {
+            solar_os_shell_session_prepare_foreground_launch(ctx, false);
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "agent: launch failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "help") == 0) {
         agent_usage(io);
         return;
     }

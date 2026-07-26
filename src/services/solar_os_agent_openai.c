@@ -11,7 +11,7 @@
 #include "solar_os_json.h"
 #include "solar_os_memory.h"
 
-#define AGENT_OPENAI_BODY_MAX 8192U
+#define AGENT_OPENAI_BODY_MAX 16384U
 #define AGENT_OPENAI_TOOLS_MAX 4096U
 #define AGENT_OPENAI_SSE_LINE_MAX (24U * 1024U)
 #define AGENT_OPENAI_ERROR_MAX 512U
@@ -679,8 +679,10 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
     if (err == ESP_OK && turn->continuation) {
         err = agent_openai_escape(turn->tool_result, &tool_result, "agent.tool-result");
     }
-    if (err == ESP_OK && turn->continuation &&
-        api == AGENT_OPENAI_API_RESPONSES) {
+    if (err == ESP_OK && api == AGENT_OPENAI_API_RESPONSES &&
+        (turn->continuation ||
+         (turn->previous_response_id != NULL &&
+          turn->previous_response_id[0] != '\0'))) {
         if (turn->previous_response_id == NULL ||
             turn->previous_response_id[0] == '\0') {
             err = ESP_ERR_INVALID_RESPONSE;
@@ -716,7 +718,8 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
         agent_openai_is_official_chat_endpoint(config->endpoint) ?
             "\"reasoning_effort\":\"none\"," : "";
     int written;
-    if (api == AGENT_OPENAI_API_RESPONSES && !turn->continuation) {
+    if (api == AGENT_OPENAI_API_RESPONSES && !turn->continuation &&
+        previous_response_id == NULL) {
         written = snprintf(
             body,
             AGENT_OPENAI_BODY_MAX,
@@ -729,6 +732,24 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             "\"parallel_tool_calls\":false}",
             model,
             reasoning_effort,
+            prompt,
+            tools);
+    } else if (api == AGENT_OPENAI_API_RESPONSES &&
+               !turn->continuation) {
+        written = snprintf(
+            body,
+            AGENT_OPENAI_BODY_MAX,
+            "{\"model\":\"%s\",\"stream\":true,\"store\":true,"
+            "\"instructions\":\"You are the native SolarOS agent. "
+            "Use tools when device state is needed. Keep answers concise.\","
+            "\"reasoning\":{\"effort\":\"%s\"},"
+            "\"previous_response_id\":\"%s\","
+            "\"input\":[{\"role\":\"user\",\"content\":\"%s\"}],"
+            "\"tools\":%s,\"tool_choice\":\"auto\","
+            "\"parallel_tool_calls\":false}",
+            model,
+            reasoning_effort,
+            previous_response_id,
             prompt,
             tools);
     } else if (api == AGENT_OPENAI_API_RESPONSES) {

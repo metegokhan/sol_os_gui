@@ -12,6 +12,7 @@
 #define SOLAR_OS_AGENT_API_KEY_MAX 192
 #define SOLAR_OS_AGENT_REASONING_EFFORT_MAX 12
 #define SOLAR_OS_AGENT_PROMPT_MAX 1024
+#define SOLAR_OS_AGENT_CONVERSATION_ID_MAX 96
 #define SOLAR_OS_AGENT_EVENT_TEXT_MAX 192
 #define SOLAR_OS_AGENT_TOOL_NAME_MAX 48
 
@@ -68,6 +69,9 @@ typedef esp_err_t (*solar_os_agent_script_run_fn)(
 
 typedef struct {
     const char *prompt;
+    const char *conversation_id;
+    char *next_conversation_id;
+    size_t next_conversation_id_len;
     solar_os_agent_event_fn event_handler;
     solar_os_agent_tool_confirmation_fn confirm_tool;
     solar_os_agent_script_run_fn run_script;

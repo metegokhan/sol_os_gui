@@ -616,6 +616,7 @@ static const char * const email_subcommands[] = {"status", "configure", "sync", 
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
 static const char * const agent_subcommands[] = {
+    "help",
     "status",
     "tools",
     "config",

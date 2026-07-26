@@ -25,13 +25,21 @@
 #define AGENT_NVS_TOOL_POLICY_KEY "tool_policy"
 #define AGENT_DEFAULT_REASONING_EFFORT "medium"
 #define AGENT_DEFAULT_TOOL_POLICY SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM
-#define AGENT_MAX_TOOL_ROUNDS 2U
+#define AGENT_MAX_TOOL_ROUNDS 6U
 
 typedef struct {
     solar_os_http_request_t *request;
     uint32_t refs;
     bool closing;
 } agent_request_handle_t;
+
+typedef struct {
+    solar_os_agent_provider_result_t provider_result;
+    char tool_call_id[SOLAR_OS_AGENT_TOOL_CALL_ID_MAX];
+    char tool_name[SOLAR_OS_AGENT_TOOL_NAME_MAX];
+    char tool_arguments[SOLAR_OS_AGENT_TOOL_ARGUMENTS_MAX];
+    char previous_response_id[SOLAR_OS_AGENT_RESPONSE_ID_MAX];
+} agent_run_turn_state_t;
 
 typedef struct {
     bool initialized;
@@ -699,16 +707,21 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                                      SOLAR_OS_AGENT_TOOL_REGISTRY_MAX);
     solar_os_agent_provider_turn_t turn = {
         .prompt = request->prompt,
+        .previous_response_id = request->conversation_id,
         .tools = tool_descriptors,
         .tool_count = tool_count,
     };
-    solar_os_agent_provider_result_t provider_result;
+    agent_run_turn_state_t *run = solar_os_memory_calloc(
+        1,
+        sizeof(*run),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.turn-state");
     char *tool_result =
         solar_os_memory_calloc(1,
                                SOLAR_OS_AGENT_TOOL_RESULT_MAX,
                                SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
                                "agent.tool-result");
-    if (tool_result == NULL) {
+    if (run == NULL || tool_result == NULL) {
         err = ESP_ERR_NO_MEM;
         agent_finish_request(err, NULL);
         (void)agent_emit(request,
@@ -716,32 +729,29 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          esp_err_to_name(err),
                          NULL,
                          false);
+        solar_os_memory_free(tool_result);
+        solar_os_memory_free(run);
         memset(config.api_key, 0, sizeof(config.api_key));
         return err;
     }
-    char tool_call_id[SOLAR_OS_AGENT_TOOL_CALL_ID_MAX];
-    char tool_name[SOLAR_OS_AGENT_TOOL_NAME_MAX];
-    char tool_arguments[SOLAR_OS_AGENT_TOOL_ARGUMENTS_MAX];
-    char previous_response_id[SOLAR_OS_AGENT_RESPONSE_ID_MAX];
-    previous_response_id[0] = '\0';
 
     for (uint32_t round = 0; round < AGENT_MAX_TOOL_ROUNDS; round++) {
-        memset(&provider_result, 0, sizeof(provider_result));
-        provider_result.http_status = -1;
+        memset(&run->provider_result, 0, sizeof(run->provider_result));
+        run->provider_result.http_status = -1;
         err = solar_os_agent_openai_provider.run_turn(&config,
                                                        &turn,
                                                        request->event_handler,
                                                        request->user_data,
-                                                       &provider_result);
+                                                       &run->provider_result);
         portENTER_CRITICAL(&agent_lock);
-        agent.last_http_status = provider_result.http_status;
-        agent.last_duration_ms += provider_result.duration_ms;
-        agent.last_bytes_received += provider_result.bytes_received;
+        agent.last_http_status = run->provider_result.http_status;
+        agent.last_duration_ms += run->provider_result.duration_ms;
+        agent.last_bytes_received += run->provider_result.bytes_received;
         portEXIT_CRITICAL(&agent_lock);
         if (err != ESP_OK) {
             break;
         }
-        if (!provider_result.tool_call) {
+        if (!run->provider_result.tool_call) {
             err = ESP_OK;
             break;
         }
@@ -750,23 +760,24 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
             (void)agent_emit(request,
                              SOLAR_OS_AGENT_EVENT_ERROR,
                              "tool round limit reached",
-                             provider_result.tool_name,
+                             run->provider_result.tool_name,
                              false);
             break;
         }
 
         (void)agent_emit(request,
                          SOLAR_OS_AGENT_EVENT_TOOL_CALL,
-                         provider_result.tool_arguments,
-                         provider_result.tool_name,
+                         run->provider_result.tool_arguments,
+                         run->provider_result.tool_name,
                          false);
         solar_os_agent_tool_info_t tool_info;
-        if (!agent_tool_info_by_name(provider_result.tool_name, &tool_info)) {
+        if (!agent_tool_info_by_name(run->provider_result.tool_name,
+                                     &tool_info)) {
             err = ESP_ERR_NOT_SUPPORTED;
             (void)agent_emit(request,
                              SOLAR_OS_AGENT_EVENT_ERROR,
                              "tool is not available",
-                             provider_result.tool_name,
+                             run->provider_result.tool_name,
                              false);
             break;
         }
@@ -774,7 +785,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         err = agent_authorize_tool(request,
                                    tool_policy,
                                    &tool_info,
-                                   provider_result.tool_arguments,
+                                   run->provider_result.tool_arguments,
                                    &allowed);
         if (err != ESP_OK) {
             break;
@@ -786,8 +797,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                                            SOLAR_OS_AGENT_TOOL_RESULT_MAX);
             agent_note_tool_result(true, err);
         } else {
-            err = solar_os_agent_tools_execute(provider_result.tool_name,
-                                               provider_result.tool_arguments,
+            err = solar_os_agent_tools_execute(run->provider_result.tool_name,
+                                               run->provider_result.tool_arguments,
                                                request,
                                                tool_policy,
                                                true,
@@ -803,32 +814,32 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                                  (err == ESP_ERR_NOT_ALLOWED ?
                                      "tool denied by policy" :
                                      "tool execution failed"),
-                             provider_result.tool_name,
+                             run->provider_result.tool_name,
                              false);
             break;
         }
         (void)agent_emit(request,
                          SOLAR_OS_AGENT_EVENT_TOOL_RESULT,
                          tool_result,
-                         provider_result.tool_name,
+                         run->provider_result.tool_name,
                          allowed);
-        strlcpy(tool_call_id,
-                provider_result.tool_call_id,
-                sizeof(tool_call_id));
-        strlcpy(tool_name,
-                provider_result.tool_name,
-                sizeof(tool_name));
-        strlcpy(tool_arguments,
-                provider_result.tool_arguments,
-                sizeof(tool_arguments));
-        strlcpy(previous_response_id,
-                provider_result.response_id,
-                sizeof(previous_response_id));
+        strlcpy(run->tool_call_id,
+                run->provider_result.tool_call_id,
+                sizeof(run->tool_call_id));
+        strlcpy(run->tool_name,
+                run->provider_result.tool_name,
+                sizeof(run->tool_name));
+        strlcpy(run->tool_arguments,
+                run->provider_result.tool_arguments,
+                sizeof(run->tool_arguments));
+        strlcpy(run->previous_response_id,
+                run->provider_result.response_id,
+                sizeof(run->previous_response_id));
         turn.continuation = true;
-        turn.previous_response_id = previous_response_id;
-        turn.tool_call_id = tool_call_id;
-        turn.tool_name = tool_name;
-        turn.tool_arguments = tool_arguments;
+        turn.previous_response_id = run->previous_response_id;
+        turn.tool_call_id = run->tool_call_id;
+        turn.tool_name = run->tool_name;
+        turn.tool_arguments = run->tool_arguments;
         turn.tool_result = tool_result;
     }
 
@@ -836,6 +847,14 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     if (cancelled) {
         err = ESP_ERR_INVALID_STATE;
     }
+    if (err == ESP_OK && request->next_conversation_id != NULL &&
+        request->next_conversation_id_len > 0U &&
+        run->provider_result.response_id[0] != '\0') {
+        strlcpy(request->next_conversation_id,
+                run->provider_result.response_id,
+                request->next_conversation_id_len);
+    }
+    const int last_http_status = run->provider_result.http_status;
     memset(tool_result, 0, SOLAR_OS_AGENT_TOOL_RESULT_MAX);
     solar_os_memory_free(tool_result);
     agent_finish_request(err, NULL);
@@ -846,15 +865,13 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                      NULL,
                      err == ESP_OK);
     memset(config.api_key, 0, sizeof(config.api_key));
-    memset(tool_call_id, 0, sizeof(tool_call_id));
-    memset(tool_name, 0, sizeof(tool_name));
-    memset(tool_arguments, 0, sizeof(tool_arguments));
-    memset(previous_response_id, 0, sizeof(previous_response_id));
+    memset(run, 0, sizeof(*run));
+    solar_os_memory_free(run);
     SOLAR_OS_LOGI(TAG,
                   "request done: err=%s http=%d duration=%" PRIu32
                   " internal=%" PRIu32 " low=%" PRIu32 " after=%" PRIu32,
                   esp_err_to_name(err),
-                  provider_result.http_status,
+                  last_http_status,
                   agent.last_duration_ms,
                   agent.last_internal_before,
                   agent.last_internal_low,

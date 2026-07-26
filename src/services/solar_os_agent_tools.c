@@ -23,6 +23,7 @@
 #endif
 
 #define AGENT_TOOL_STORAGE_ENTRY_MAX 16U
+#define AGENT_TOOL_STORAGE_CONTENT_MAX 3072U
 #define AGENT_TOOL_JSON_SCRATCH_MAX 512U
 #define AGENT_TOOL_SCRIPT_SOURCE_MAX 640U
 #define AGENT_TOOL_SCRIPT_OUTPUT_MAX 384U
@@ -34,6 +35,12 @@
 #define AGENT_TOOL_SCHEMA_STORAGE_LIST \
     "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"," \
     "\"minLength\":1,\"maxLength\":159}},\"required\":[\"path\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_STORAGE_READ AGENT_TOOL_SCHEMA_STORAGE_LIST
+#define AGENT_TOOL_SCHEMA_STORAGE_WRITE \
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":159},\"content\":{\"type\":\"string\"," \
+    "\"maxLength\":3072}},\"required\":[\"path\",\"content\"]," \
     "\"additionalProperties\":false}"
 #define AGENT_TOOL_SCHEMA_SCRIPT_RUN \
     "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"," \
@@ -50,6 +57,17 @@
 #define AGENT_TOOL_OUTPUT_STORAGE_LIST \
     "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}," \
     "\"entries\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_STORAGE_READ \
+    "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}," \
+    "\"path\":{\"type\":\"string\"},\"size_bytes\":{\"type\":\"integer\"}," \
+    "\"content\":{\"type\":\"string\"},\"truncated\":{\"type\":\"boolean\"}}," \
+    "\"required\":[\"ok\",\"path\",\"size_bytes\",\"content\",\"truncated\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_STORAGE_WRITE \
+    "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}," \
+    "\"path\":{\"type\":\"string\"},\"bytes_written\":{\"type\":\"integer\"}}," \
+    "\"required\":[\"ok\",\"path\",\"bytes_written\"]," \
     "\"additionalProperties\":false}"
 #define AGENT_TOOL_OUTPUT_JOBS_LIST \
     "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
@@ -96,6 +114,14 @@ static esp_err_t agent_tool_storage_list(const char *arguments,
                                          const solar_os_agent_request_t *request,
                                          char *result,
                                          size_t result_len);
+static esp_err_t agent_tool_storage_read(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len);
+static esp_err_t agent_tool_storage_write(const char *arguments,
+                                          const solar_os_agent_request_t *request,
+                                          char *result,
+                                          size_t result_len);
 static esp_err_t agent_tool_jobs_list(const char *arguments,
                                       const solar_os_agent_request_t *request,
                                       char *result,
@@ -164,6 +190,38 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
         .available = agent_tool_storage_available,
         .execute = agent_tool_storage_list,
+    },
+    {
+        .provider = {
+            .name = "storage_read",
+            .description =
+                "Read one absolute SolarOS text file, except files below "
+                ".ssh. The result is bounded and reports truncation.",
+            .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_READ,
+            .strict = true,
+        },
+        .domain = "storage",
+        .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_READ,
+        .required_capability = "storage",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_SENSITIVE_READ,
+        .available = agent_tool_storage_available,
+        .execute = agent_tool_storage_read,
+    },
+    {
+        .provider = {
+            .name = "storage_write",
+            .description =
+                "Replace or create one absolute SolarOS text file "
+                "with up to 3072 bytes, except files below .ssh.",
+            .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_WRITE,
+            .strict = true,
+        },
+        .domain = "storage",
+        .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_WRITE,
+        .required_capability = "storage",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_MUTATING,
+        .available = agent_tool_storage_available,
+        .execute = agent_tool_storage_write,
     },
     {
         .provider = {
@@ -280,6 +338,104 @@ static esp_err_t agent_tool_output_append(agent_tool_output_t *output,
     }
     output->length += (size_t)written;
     return ESP_OK;
+}
+
+static bool agent_tool_output_append_json_byte(agent_tool_output_t *output,
+                                               uint8_t byte,
+                                               size_t tail_reserve)
+{
+    char escaped[7];
+    size_t length = 1U;
+    escaped[0] = (char)byte;
+    switch (byte) {
+    case '"':
+        memcpy(escaped, "\\\"", 2U);
+        length = 2U;
+        break;
+    case '\\':
+        memcpy(escaped, "\\\\", 2U);
+        length = 2U;
+        break;
+    case '\b':
+        memcpy(escaped, "\\b", 2U);
+        length = 2U;
+        break;
+    case '\f':
+        memcpy(escaped, "\\f", 2U);
+        length = 2U;
+        break;
+    case '\n':
+        memcpy(escaped, "\\n", 2U);
+        length = 2U;
+        break;
+    case '\r':
+        memcpy(escaped, "\\r", 2U);
+        length = 2U;
+        break;
+    case '\t':
+        memcpy(escaped, "\\t", 2U);
+        length = 2U;
+        break;
+    default:
+        if (byte < 0x20U) {
+            snprintf(escaped, sizeof(escaped), "\\u%04x", byte);
+            length = 6U;
+        }
+        break;
+    }
+    if (output == NULL || output->buffer == NULL ||
+        output->length + length + tail_reserve >= output->capacity) {
+        return false;
+    }
+    memcpy(output->buffer + output->length, escaped, length);
+    output->length += length;
+    output->buffer[output->length] = '\0';
+    return true;
+}
+
+static bool agent_tool_path_has_segment(const char *path,
+                                        const char *segment)
+{
+    if (path == NULL || segment == NULL || segment[0] == '\0') {
+        return false;
+    }
+    const size_t segment_len = strlen(segment);
+    const char *cursor = path;
+    while (*cursor != '\0') {
+        while (*cursor == '/') {
+            cursor++;
+        }
+        const char *start = cursor;
+        while (*cursor != '\0' && *cursor != '/') {
+            cursor++;
+        }
+        if ((size_t)(cursor - start) == segment_len &&
+            memcmp(start, segment, segment_len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static esp_err_t agent_tool_storage_path(
+    const solar_os_json_value_t *root,
+    char *path,
+    size_t path_len)
+{
+    char requested[SOLAR_OS_STORAGE_PATH_MAX];
+    const solar_os_json_value_t *path_value =
+        solar_os_json_object_get(root, "path");
+    esp_err_t err = solar_os_json_get_string(path_value,
+                                              requested,
+                                              sizeof(requested));
+    if (err != ESP_OK || requested[0] != '/') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    err = solar_os_storage_normalize_path(requested, path, path_len);
+    if (err == ESP_OK && agent_tool_path_has_segment(path, ".ssh")) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
+    return err;
 }
 
 static esp_err_t agent_tool_validate_result(const char *result)
@@ -448,6 +604,164 @@ static esp_err_t agent_tool_storage_list(const char *arguments,
                                        "],\"truncated\":%s}",
                                        truncated ? "true" : "false");
     }
+    return err;
+}
+
+static esp_err_t agent_tool_storage_read(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    err = agent_tool_storage_path(root, path, sizeof(path));
+    solar_os_json_free(doc);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    struct stat status;
+    if (stat(path, &status) != 0 || !S_ISREG(status.st_mode)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return ESP_FAIL;
+    }
+
+    char escaped_path[AGENT_TOOL_JSON_SCRATCH_MAX];
+    err = solar_os_json_escape_string(path,
+                                      escaped_path,
+                                      sizeof(escaped_path));
+    agent_tool_output_t output = {
+        .buffer = result,
+        .capacity = result_len,
+    };
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(
+            &output,
+            "{\"ok\":true,\"path\":\"%s\",\"size_bytes\":%" PRIu64
+            ",\"content\":\"",
+            escaped_path,
+            status.st_size > 0 ? (uint64_t)status.st_size : 0U);
+    }
+
+    const size_t tail_reserve = sizeof("\",\"truncated\":true}");
+    size_t bytes_read = 0;
+    bool truncated = false;
+    while (err == ESP_OK && bytes_read < AGENT_TOOL_STORAGE_CONTENT_MAX) {
+        const int byte = fgetc(file);
+        if (byte == EOF) {
+            if (ferror(file)) {
+                err = ESP_FAIL;
+            }
+            break;
+        }
+        if (!agent_tool_output_append_json_byte(&output,
+                                                (uint8_t)byte,
+                                                tail_reserve)) {
+            truncated = true;
+            break;
+        }
+        bytes_read++;
+    }
+    if (err == ESP_OK && !truncated) {
+        const int byte = fgetc(file);
+        truncated = byte != EOF;
+        if (byte == EOF && ferror(file)) {
+            err = ESP_FAIL;
+        }
+    }
+    fclose(file);
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output,
+                                       "\",\"truncated\":%s}",
+                                       truncated ? "true" : "false");
+    }
+    return err;
+}
+
+static esp_err_t agent_tool_storage_write(const char *arguments,
+                                          const solar_os_agent_request_t *request,
+                                          char *result,
+                                          size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    err = agent_tool_storage_path(root, path, sizeof(path));
+    char *content = solar_os_memory_calloc(
+        1,
+        AGENT_TOOL_STORAGE_CONTENT_MAX + 1U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.storage-write");
+    if (err == ESP_OK && content == NULL) {
+        err = ESP_ERR_NO_MEM;
+    }
+    if (err == ESP_OK) {
+        const solar_os_json_value_t *content_value =
+            solar_os_json_object_get(root, "content");
+        err = solar_os_json_get_string(content_value,
+                                       content,
+                                       AGENT_TOOL_STORAGE_CONTENT_MAX + 1U);
+    }
+    solar_os_json_free(doc);
+    if (err != ESP_OK) {
+        solar_os_memory_free(content);
+        return err;
+    }
+
+    struct stat status;
+    if (stat(path, &status) == 0 && S_ISDIR(status.st_mode)) {
+        solar_os_memory_free(content);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        solar_os_memory_free(content);
+        return ESP_FAIL;
+    }
+    const size_t content_len = strlen(content);
+    const size_t written = fwrite(content, 1U, content_len, file);
+    const int flush_result = fflush(file);
+    const int close_result = fclose(file);
+    const bool write_ok =
+        written == content_len && flush_result == 0 && close_result == 0;
+    if (!write_ok) {
+        solar_os_memory_free(content);
+        return ESP_FAIL;
+    }
+
+    char escaped_path[AGENT_TOOL_JSON_SCRATCH_MAX];
+    err = solar_os_json_escape_string(path,
+                                      escaped_path,
+                                      sizeof(escaped_path));
+    if (err == ESP_OK) {
+        const int result_written = snprintf(
+            result,
+            result_len,
+            "{\"ok\":true,\"path\":\"%s\",\"bytes_written\":%u}",
+            escaped_path,
+            (unsigned)written);
+        err = result_written >= 0 && (size_t)result_written < result_len ?
+            ESP_OK : ESP_ERR_INVALID_SIZE;
+    }
+    memset(content, 0, AGENT_TOOL_STORAGE_CONTENT_MAX + 1U);
+    solar_os_memory_free(content);
     return err;
 }
 

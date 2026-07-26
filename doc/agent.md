@@ -1,7 +1,7 @@
 # Native Agent Service
 
 `service.agent` is the native control plane for connecting SolarOS to remote
-language models. `app.agent` is currently a one-request text frontend for
+language models. `app.agent` is a resumable foreground chat frontend for
 display and port shells.
 
 The first provider supports both the OpenAI Responses API and compatible Chat
@@ -37,11 +37,27 @@ Bearer token and is never returned by status. Use `agent config key clear` for
 a local or self-hosted endpoint without authentication, or `agent forget` to
 erase the endpoint, model, and key together.
 
-Ask a question with:
+Start the foreground chat with:
+
+```text
+agent
+```
+
+Enter sends a message, Page Up/Down scrolls the terminal transcript, and the
+app-exit key returns to the shell. Responses API chats retain their server-side
+conversation context while that foreground app is open. Exiting and launching
+`agent` again starts a new conversation. Compatible Chat Completions endpoints
+currently provide the same foreground prompt loop without cross-message
+context.
+
+For a single request, use:
 
 ```text
 agent ask Describe the current device status.
 ```
+
+The one-request frontend stays open after completion so the response remains
+readable. Use the app-exit key to return to the shell.
 
 On full builds, the same 16 KiB foreground worker can run a Python or Lua
 source string or file through the reusable script-runner contract:
@@ -69,12 +85,18 @@ validation uses the firmware certificate bundle.
 
 `agent tools` shows the canonical registry, domain and risk metadata, runtime
 availability, current policy disposition, and any required capability. The
-registry currently contains three read-only tools:
+registry currently contains:
 
 - `system_status`: board ID, SolarOS version, uptime, free and largest internal
   RAM blocks, and free PSRAM.
 - `storage_list`: up to 16 file or directory entries for one absolute path,
   including type and size. Results report when the output was truncated.
+- `storage_read`: read up to 3072 bytes from an absolute text-file path. This
+  is a sensitive read and requires confirmation under the default policy.
+- `storage_write`: create or replace an absolute text-file path with up to
+  3072 bytes. This is mutating and requires confirmation by default.
+  Both file-content tools reject paths below `.ssh`, so the agent cannot read
+  or replace the device's SSH identity files.
 - `jobs_list`: every compiled background job with its current state, last
   error, worker-stack size, and whether that stack uses internal RAM or PSRAM.
 
@@ -98,24 +120,26 @@ request. A denial is returned to the model as a structured result so it can
 explain or choose another approach rather than losing the conversation turn.
 `agent status` includes executed, denied, and failed tool counters.
 
-The service permits one tool execution and one continuation turn. Unsupported
-tools, multiple simultaneous tool calls, malformed arguments, or another tool
-request in the continuation turn fail the request instead of extending the
-loop. Definitions, input/output schemas, availability checks, risk metadata,
-and executors live in one declarative registry. Only available tools are sent
-to the provider, and every successful executor result is parsed as a JSON
-object before it is returned to the model.
+The service permits up to five sequential tool executions followed by a final
+provider turn. This supports bounded inspect/read/change workflows without
+allowing an unbounded autonomous loop. Unsupported tools, multiple simultaneous
+tool calls, malformed arguments, or a sixth tool request fail the request.
+Definitions, input/output schemas, availability checks, risk metadata, and
+executors live in one declarative registry. Only available tools are sent to
+the provider, and every successful executor result is parsed as a JSON object
+before it is returned to the model.
 
 ## Resource bounds
 
 - Foreground worker stack: 16 KiB internal RAM.
 - Stream-line buffer: 24 KiB, PSRAM preferred. Responses completion events
   contain the assembled output as one event.
-- Request body: 8 KiB, PSRAM preferred.
+- Request body: 16 KiB, PSRAM preferred.
 - Prompt: 1023 bytes.
 - Tool descriptor buffer: 4 KiB, allocated in PSRAM.
-- Tool arguments: 1023 bytes.
+- Tool arguments: 4095 bytes, held in PSRAM for a request.
 - Tool result: 4095 bytes, allocated in PSRAM.
+- Storage read/write content: 3072 bytes.
 - Generated script source: 640 bytes.
 - Generated script captured output: 383 bytes.
 - Tool confirmation deadline: 30 seconds.
@@ -134,6 +158,6 @@ reclaimed.
 The agent package requires Wi-Fi and PSRAM but does not require Python or Lua.
 The manual command and model tool are advertised only when the corresponding
 runtime is in the firmware; the agent app supplies the optional adapter callback
-without making either interpreter a package dependency. Mutating storage/job
-operations, network and hardware tools, persistent conversations, additional
-providers, and a resumable conversation UI are later phases.
+without making either interpreter a package dependency. Larger-file editing,
+persisted conversations, mutating job operations, network and hardware tools,
+and additional providers are later phases.
