@@ -106,6 +106,10 @@ registry currently contains:
   or replace the device's SSH identity files.
 - `jobs_list`: every compiled background job with its current state, last
   error, worker-stack size, and whether that stack uses internal RAM or PSRAM.
+- `display_list`: registered display targets with their real names, drivers,
+  dimensions, readiness, roles, brightness support, and current owners. The
+  provider must call this before generating code for an attached display and
+  use only a returned ready target.
 
 - `script_run_python` and `script_run_lua`: execute a source string through the
   installed interpreter adapter. Generated scripts have access to the same

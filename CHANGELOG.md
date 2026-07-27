@@ -27,7 +27,10 @@
   confirmed, size-limited storage reads and writes while excluding SSH identity
   paths. Added an on-device `solaros_reference` tool and provider grounding
   rules so generated Python and Lua consult the real SolarOS API contracts and
-  do not invent display targets, bus names, GPIOs, or service calls.
+  do not invent display targets, bus names, GPIOs, or service calls. Restored
+  the standard MicroPython `min()`/`max()` built-ins, made targetless graphics
+  report when a port/headless shell has no framebuffer, and added read-only
+  display discovery so the agent can select a verified ready target.
 
 ## 4.x
 

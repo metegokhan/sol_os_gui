@@ -3648,6 +3648,11 @@ static int solua_gfx_begin(lua_State *L)
     }
 
     if (target == NULL || target[0] == '\0') {
+        if (solua.session_gfx == NULL) {
+            return luaL_error(
+                L,
+                "no foreground display; pass a verified target to gfx.begin(name)");
+        }
         solua_gfx_release_target();
     } else if (strcmp(solua.gfx_target, target) != 0) {
         solar_os_gfx_t *gfx = NULL;

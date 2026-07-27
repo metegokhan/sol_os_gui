@@ -26,7 +26,9 @@
     "solaros_reference for the relevant modules and follow its contracts "  \
     "exactly. Never invent API names, device names, display targets, bus "   \
     "names, or GPIOs. Use only values supplied by the user or verified "     \
-    "through SolarOS APIs. Keep answers concise."
+    "through SolarOS APIs. Before writing graphics code for an attached "    \
+    "display, call display_list and use only a returned ready target. Keep "  \
+    "answers concise."
 
 typedef enum {
     AGENT_OPENAI_API_CHAT_COMPLETIONS = 0,

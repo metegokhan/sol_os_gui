@@ -45,14 +45,17 @@ static const agent_reference_entry_t AGENT_REFERENCE_ENTRIES[] = {
             "python py gfx graphics display screen draw pixel line rectangle "
             "circle font oled lcd framebuffer present",
         .reference =
-            "Python: import solaros; from solaros import gfx. For the current "
-            "foreground display call gfx.begin() with no target. Only pass "
-            "gfx.begin(name) when that attached display name was supplied or "
-            "verified with solaros.expansion.devices(); an absent name raises "
+            "Python: import solaros; from solaros import gfx. gfx.begin() uses "
+            "the current foreground display and raises RuntimeError from a "
+            "port/headless shell where there is none. For an attached display, "
+            "the agent must call display_list and pass a returned ready name "
+            "to gfx.begin(name); scripts can verify names with "
+            "solaros.expansion.devices(). An absent name raises "
             "ESP_ERR_NOT_FOUND. Use width(), height(), or size(); clear(color); "
             "color(color); pixel, line, rect, fill_rect, circle, fill_circle, "
-            "text; refresh() or present(); then end(). Colors include WHITE, "
-            "LIGHT, DARK, BLACK and gray(level).",
+            "text; refresh() or present(); then end(). Standard min() and max() "
+            "are available. Colors include WHITE, LIGHT, DARK, BLACK and "
+            "gray(level).",
     },
     {
         .topic = "lua.gfx",
@@ -62,12 +65,13 @@ static const agent_reference_entry_t AGENT_REFERENCE_ENTRIES[] = {
         .reference =
             "Lua: use the preloaded solaros table or local solaros = "
             "require(\"solaros\"), then assign local gfx = solaros.gfx. "
-            "For the current foreground display call gfx.begin() with no "
-            "target. Only pass a verified attached display name; absent names "
-            "raise ESP_ERR_NOT_FOUND. Use width, height or size; clear; color; "
-            "pixel, line, rect, fill_rect, circle, fill_circle, text; refresh "
-            "or present; then gfx.end via indexed access because end is a Lua "
-            "keyword.",
+            "gfx.begin() uses the current foreground display and errors from a "
+            "port/headless shell where there is none. For an attached display, "
+            "the agent must call display_list and pass a returned ready name; "
+            "absent names raise ESP_ERR_NOT_FOUND. Use width, height or size; "
+            "clear; color; pixel, line, rect, fill_rect, circle, fill_circle, "
+            "text; refresh or present; then gfx.end via indexed access because "
+            "end is a Lua keyword.",
     },
     {
         .topic = "python.tui",

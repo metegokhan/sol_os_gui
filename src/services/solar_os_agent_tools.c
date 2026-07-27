@@ -13,7 +13,9 @@
 #include "esp_timer.h"
 #include "solar_os_agent_reference.h"
 #include "solar_os_board.h"
+#include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#include "solar_os_display.h"
 #include "solar_os_jobs.h"
 #include "solar_os_json.h"
 #include "solar_os_memory.h"
@@ -78,6 +80,16 @@
     "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
     "\"jobs\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
     "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_DISPLAY_LIST \
+    "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
+    "\"displays\":{\"type\":\"array\",\"items\":{\"type\":\"object\"," \
+    "\"properties\":{\"name\":{\"type\":\"string\"},\"source\":" \
+    "{\"type\":\"string\"},\"driver\":{\"type\":\"string\"},\"controller\":" \
+    "{\"type\":\"string\"},\"width\":{\"type\":\"integer\"},\"height\":" \
+    "{\"type\":\"integer\"},\"role\":{\"type\":\"string\"},\"ready\":" \
+    "{\"type\":\"boolean\"},\"brightness_supported\":{\"type\":\"boolean\"}," \
+    "\"owner\":{\"type\":\"string\"}},\"additionalProperties\":false}}," \
+    "\"truncated\":{\"type\":\"boolean\"}},\"additionalProperties\":false}"
 #define AGENT_TOOL_OUTPUT_SCRIPT_RUN \
     "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}," \
     "\"status\":{\"type\":\"string\"},\"output\":{\"type\":\"string\"}," \
@@ -143,6 +155,10 @@ static esp_err_t agent_tool_jobs_list(const char *arguments,
                                       const solar_os_agent_request_t *request,
                                       char *result,
                                       size_t result_len);
+static esp_err_t agent_tool_display_list(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len);
 static esp_err_t agent_tool_script_run_python(
     const char *arguments,
     const solar_os_agent_request_t *request,
@@ -157,6 +173,11 @@ static esp_err_t agent_tool_script_run_lua(
 static bool agent_tool_storage_available(void)
 {
     return solar_os_storage_is_mounted();
+}
+
+static bool agent_tool_display_available(void)
+{
+    return solar_os_board_has(SOLAR_OS_BOARD_CAP_GFX);
 }
 
 static bool agent_tool_python_available(void)
@@ -269,6 +290,24 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .output_schema_json = AGENT_TOOL_OUTPUT_JOBS_LIST,
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
         .execute = agent_tool_jobs_list,
+    },
+    {
+        .provider = {
+            .name = "display_list",
+            .description =
+                "List registered SolarOS displays with their real target "
+                "names, size, readiness, role, driver, and current owner. "
+                "Call this before writing graphics code for an attached "
+                "display, and use only a returned ready target name.",
+            .parameters_json = AGENT_TOOL_SCHEMA_EMPTY,
+            .strict = true,
+        },
+        .domain = "display",
+        .output_schema_json = AGENT_TOOL_OUTPUT_DISPLAY_LIST,
+        .required_capability = "gfx",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .available = agent_tool_display_available,
+        .execute = agent_tool_display_list,
     },
     {
         .provider = {
@@ -864,6 +903,114 @@ static esp_err_t agent_tool_jobs_list(const char *arguments,
             esp_err_to_name(status.last_error),
             status.worker_stack_bytes,
             status.worker_stack_external ? "psram" : "internal");
+        const size_t tail_reserve = sizeof("],\"truncated\":true}");
+        if (written < 0 ||
+            (size_t)written >= sizeof(item) ||
+            output.length + (size_t)written + tail_reserve >= output.capacity) {
+            truncated = true;
+            break;
+        }
+        err = agent_tool_output_append(&output, "%s", item);
+        first = false;
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output,
+                                       "],\"truncated\":%s}",
+                                       truncated ? "true" : "false");
+    }
+    return err;
+}
+
+static esp_err_t agent_tool_display_list(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+    (void)root;
+    solar_os_json_free(doc);
+
+    const size_t total = solar_os_display_target_count();
+    agent_tool_output_t output = {
+        .buffer = result,
+        .capacity = result_len,
+    };
+    err = agent_tool_output_append(&output,
+                                   "{\"count\":%u,\"displays\":[",
+                                   (unsigned)total);
+    bool first = true;
+    bool truncated = false;
+    for (size_t i = 0; err == ESP_OK && i < total; i++) {
+        solar_os_display_target_t target;
+        if (!solar_os_display_get_target(i, &target)) {
+            continue;
+        }
+
+        char name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX *
+                      AGENT_TOOL_JSON_ESCAPE_FACTOR +
+                  1U];
+        char source[SOLAR_OS_DISPLAY_TARGET_SOURCE_MAX *
+                        AGENT_TOOL_JSON_ESCAPE_FACTOR +
+                    1U];
+        char driver[SOLAR_OS_DISPLAY_TARGET_DRIVER_MAX *
+                        AGENT_TOOL_JSON_ESCAPE_FACTOR +
+                    1U];
+        char controller[SOLAR_OS_DISPLAY_TARGET_CONTROLLER_MAX *
+                            AGENT_TOOL_JSON_ESCAPE_FACTOR +
+                        1U];
+        char role[SOLAR_OS_DISPLAY_TARGET_ROLE_MAX *
+                      AGENT_TOOL_JSON_ESCAPE_FACTOR +
+                  1U];
+        char owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX *
+                       AGENT_TOOL_JSON_ESCAPE_FACTOR +
+                   1U];
+        if (solar_os_json_escape_string(target.name,
+                                        name,
+                                        sizeof(name)) != ESP_OK ||
+            solar_os_json_escape_string(target.source,
+                                        source,
+                                        sizeof(source)) != ESP_OK ||
+            solar_os_json_escape_string(target.driver,
+                                        driver,
+                                        sizeof(driver)) != ESP_OK ||
+            solar_os_json_escape_string(target.controller,
+                                        controller,
+                                        sizeof(controller)) != ESP_OK ||
+            solar_os_json_escape_string(target.role,
+                                        role,
+                                        sizeof(role)) != ESP_OK ||
+            solar_os_json_escape_string(target.owner,
+                                        owner,
+                                        sizeof(owner)) != ESP_OK) {
+            truncated = true;
+            break;
+        }
+
+        char item[1024];
+        const int written = snprintf(
+            item,
+            sizeof(item),
+            "%s{\"name\":\"%s\",\"source\":\"%s\",\"driver\":\"%s\","
+            "\"controller\":\"%s\",\"width\":%u,\"height\":%u,"
+            "\"role\":\"%s\",\"ready\":%s,\"brightness_supported\":%s,"
+            "\"owner\":\"%s\"}",
+            first ? "" : ",",
+            name,
+            source,
+            driver,
+            controller,
+            (unsigned)target.width,
+            (unsigned)target.height,
+            role,
+            target.ready ? "true" : "false",
+            target.brightness_supported ? "true" : "false",
+            owner);
         const size_t tail_reserve = sizeof("],\"truncated\":true}");
         if (written < 0 ||
             (size_t)written >= sizeof(item) ||

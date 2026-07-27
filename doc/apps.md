@@ -14,8 +14,9 @@ Exit behavior:
 
 Native Responses/Chat-Completions LLM client and SolarOS agent control plane.
 It streams model text directly to the active shell and exposes typed
-system-status, storage-listing, job-listing, and optional Python/Lua execution
-tools. `agent tools` shows risk, policy, and runtime availability.
+system-status, storage-listing, job-listing, display-discovery, and optional
+Python/Lua execution tools. `agent tools` shows risk, policy, and runtime
+availability.
 
 Configure the full endpoint and model, then ask a question:
 

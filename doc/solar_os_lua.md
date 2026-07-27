@@ -301,7 +301,17 @@ solaros.jobs.start("slip", {"uart0", "115200"})
 
 ## Graphics
 
-`solaros.gfx` draws through the foreground graphics service. `begin(target)` claims a named display target, such as `lcd0`, until `end()` or script cleanup. Colors are `WHITE`, `LIGHT`, `DARK`, `BLACK`, and `gray(level)` with `0..GRAY_MAX`. Fonts are `FONT_SMALL`, `FONT_MONO`, `FONT_BOLD`, regular document fonts `FONT_MONO_12` through `FONT_MONO_20`, bold document fonts `FONT_BOLD_12` through `FONT_BOLD_20`, and matching italic/bold-italic constants. Italic constants currently map to the closest upright face in the trimmed firmware font set.
+`solaros.gfx` draws through the foreground graphics service. `begin()` uses the
+display framebuffer of the shell that launched the script; from a port or
+headless shell it raises an error because there is no foreground display.
+`begin(target)` claims a verified named display target, such as one returned by
+`solaros.expansion.devices()`, until `end()` or script cleanup. Colors are
+`WHITE`, `LIGHT`, `DARK`, `BLACK`, and `gray(level)` with `0..GRAY_MAX`. Fonts
+are `FONT_SMALL`, `FONT_MONO`, `FONT_BOLD`, regular document fonts
+`FONT_MONO_12` through `FONT_MONO_20`, bold document fonts `FONT_BOLD_12`
+through `FONT_BOLD_20`, and matching italic/bold-italic constants. Italic
+constants currently map to the closest upright face in the trimmed firmware
+font set.
 
 Functions:
 
@@ -347,7 +357,8 @@ end
 gfx["end"]()
 ```
 
-For an attached auxiliary display, use the target name:
+For an attached auxiliary display, first verify its ready target name, then
+pass that name:
 
 ```lua
 gfx.begin("lcd0")

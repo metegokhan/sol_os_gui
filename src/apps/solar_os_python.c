@@ -3885,6 +3885,12 @@ static mp_obj_t solaros_gfx_begin(size_t n_args, const mp_obj_t *args)
     }
 
     if (target == NULL || target[0] == '\0') {
+        if (python_app.session_gfx == NULL) {
+            mp_raise_msg(
+                &mp_type_RuntimeError,
+                MP_ERROR_TEXT(
+                    "no foreground display; pass a verified target to gfx.begin(name)"));
+        }
         python_gfx_release_target();
     } else if (strcmp(python_app.gfx_target, target) != 0) {
         solar_os_gfx_t *gfx = NULL;
