@@ -91,11 +91,12 @@ registry currently contains:
 - `system_status`: board ID, SolarOS version, uptime, free and largest internal
   RAM blocks, and free PSRAM.
 - `solaros_reference`: search compact, authoritative Python and Lua API
-  contracts by module or task. The provider instructions require this lookup
-  before generated code uses SolarOS APIs. Results include operational
-  constraints such as using `gfx.begin()` for the current foreground display
-  and accepting a named display target only when it was supplied or verified
-  through `solaros.expansion.devices()`.
+  contracts by exact language and task. Every result includes mandatory
+  SolarOS coding guidance: use documented constants rather than guessed
+  strings or numbers, discover hardware names, respect package gates, and
+  preserve cleanup patterns. Graphics matches include copyable Python and Lua
+  setup/cleanup skeletons using `gfx.WHITE`, `gfx.BLACK`, a verified target,
+  and the language-correct `gfx.end()` or `gfx["end"]()`.
 - `storage_list`: up to 16 file or directory entries for one absolute path,
   including type and size. Results report when the output was truncated.
 - `storage_read`: read up to 3072 bytes from an absolute text-file path. This

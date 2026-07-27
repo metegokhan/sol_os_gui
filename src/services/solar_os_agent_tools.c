@@ -100,11 +100,13 @@
     "\"cancelled\",\"timed_out\",\"error\"]," \
     "\"additionalProperties\":false}"
 #define AGENT_TOOL_OUTPUT_REFERENCE \
-    "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
+    "{\"type\":\"object\",\"properties\":{\"guidance\":{\"type\":\"string\"}," \
+    "\"count\":{\"type\":\"integer\"}," \
     "\"matches\":{\"type\":\"array\",\"items\":{\"type\":\"object\"," \
     "\"properties\":{\"topic\":{\"type\":\"string\"},\"reference\":" \
     "{\"type\":\"string\"}},\"required\":[\"topic\",\"reference\"]," \
-    "\"additionalProperties\":false}}},\"required\":[\"count\",\"matches\"]," \
+    "\"additionalProperties\":false}}},\"required\":[\"guidance\",\"count\"," \
+    "\"matches\"]," \
     "\"additionalProperties\":false}"
 
 typedef esp_err_t (*agent_tool_execute_fn)(const char *arguments,
@@ -218,8 +220,9 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .name = "solaros_reference",
             .description =
                 "Search the authoritative installed SolarOS Python and Lua API "
-                "contracts. Call this before writing or running code that uses "
-                "SolarOS APIs, and follow returned target and capability "
+                "contracts and mandatory coding guidance. Query the exact "
+                "language and task before writing or running code, and follow "
+                "returned constants, patterns, targets, and capability "
                 "constraints exactly.",
             .parameters_json = AGENT_TOOL_SCHEMA_REFERENCE,
             .strict = true,

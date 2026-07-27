@@ -35,6 +35,9 @@
   backgrounded conversation over the newly selected display session. Agent
   storage tools now resolve shell-style absolute paths such as `/app.lua`
   through the active default volume instead of failing on SD-capable boards.
+  Upgraded `solaros_reference` from a signature lookup to a compact coding
+  guide with mandatory constant, discovery, capability, and cleanup rules plus
+  executable Python and Lua graphics patterns.
 
 ## 4.x
 

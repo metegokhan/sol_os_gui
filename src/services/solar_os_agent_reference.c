@@ -10,6 +10,14 @@
 #define AGENT_REFERENCE_MATCH_MAX 3U
 #define AGENT_REFERENCE_TOKEN_MAX 31U
 
+static const char *const AGENT_REFERENCE_GUIDANCE =
+    "Mandatory SolarOS coding rules: use only symbols and constants documented "
+    "in the returned matches. Never replace color, font, key, GPIO mode, or "
+    "other constants with guessed strings or numbers. Never invent device, "
+    "display, bus, or GPIO names. Treat optional modules as package-gated. "
+    "Follow begin/end and cleanup patterns even on errors. If a needed API is "
+    "not documented here, call solaros_reference again before writing code.";
+
 typedef struct {
     const char *topic;
     const char *keywords;
@@ -54,8 +62,16 @@ static const agent_reference_entry_t AGENT_REFERENCE_ENTRIES[] = {
             "ESP_ERR_NOT_FOUND. Use width(), height(), or size(); clear(color); "
             "color(color); pixel, line, rect, fill_rect, circle, fill_circle, "
             "text; refresh() or present(); then end(). Standard min() and max() "
-            "are available. Colors include WHITE, LIGHT, DARK, BLACK and "
-            "gray(level).",
+            "are available. Colors are gfx.WHITE, gfx.LIGHT, gfx.DARK, "
+            "gfx.BLACK, and gfx.gray(level); pass these constants to clear() "
+            "and color(), never color-name strings or guessed integers. "
+            "Required attached-display pattern (replace the quoted target with "
+            "a ready display_list name):\n"
+            "import solaros\nfrom solaros import gfx\n"
+            "gfx.begin(\"verified-ready-target\")\ntry:\n"
+            "    gfx.clear(gfx.WHITE)\n    gfx.color(gfx.BLACK)\n"
+            "    # draw here\n    gfx.present()\nfinally:\n"
+            "    gfx.end()",
     },
     {
         .topic = "lua.gfx",
@@ -70,8 +86,18 @@ static const agent_reference_entry_t AGENT_REFERENCE_ENTRIES[] = {
             "the agent must call display_list and pass a returned ready name; "
             "absent names raise ESP_ERR_NOT_FOUND. Use width, height or size; "
             "clear; color; pixel, line, rect, fill_rect, circle, fill_circle, "
-            "text; refresh or present; then gfx.end via indexed access because "
-            "end is a Lua keyword.",
+            "text; refresh or present. Colors are gfx.WHITE, gfx.LIGHT, "
+            "gfx.DARK, gfx.BLACK, and gfx.gray(level); pass these constants to "
+            "clear and color, never color-name strings or guessed integers. "
+            "Call gfx[\"end\"]() because end is a Lua keyword. Required "
+            "attached-display pattern (replace the quoted target with a ready "
+            "display_list name):\nlocal solaros = require(\"solaros\")\n"
+            "local gfx = solaros.gfx\n"
+            "gfx.begin(\"verified-ready-target\")\n"
+            "local ok, err = pcall(function()\n"
+            "    gfx.clear(gfx.WHITE)\n    gfx.color(gfx.BLACK)\n"
+            "    -- draw here\n    gfx.present()\nend)\n"
+            "gfx[\"end\"]()\nif not ok then error(err) end",
     },
     {
         .topic = "python.tui",
@@ -460,9 +486,16 @@ esp_err_t solar_os_agent_reference_search(const char *query,
         .buffer = result,
         .capacity = result_len,
     };
-    esp_err_t err =
-        agent_reference_append(&output, "{\"count\":%u,\"matches\":[",
-                               (unsigned)count);
+    esp_err_t err = agent_reference_append(&output, "{\"guidance\":");
+    if (err == ESP_OK) {
+        err = agent_reference_append_json_string(&output,
+                                                 AGENT_REFERENCE_GUIDANCE);
+    }
+    if (err == ESP_OK) {
+        err = agent_reference_append(&output,
+                                     ",\"count\":%u,\"matches\":[",
+                                     (unsigned)count);
+    }
     for (size_t i = 0U; err == ESP_OK && i < count; i++) {
         const agent_reference_entry_t *entry =
             &AGENT_REFERENCE_ENTRIES[indices[i]];
