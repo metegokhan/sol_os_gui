@@ -432,6 +432,9 @@ static void port_shell_return_to_shell(port_shell_state_t *state)
     const bool preserve_terminal = solar_os_context_take_terminal_preserve(&state->ctx);
     if (io != NULL && !preserve_terminal) {
         solar_os_shell_io_clear(io);
+    } else if (io != NULL &&
+               solar_os_shell_io_cursor_col(io) != 0) {
+        solar_os_shell_io_newline(io);
     }
     solar_os_shell_session_prompt(&state->ctx, state->session);
 }

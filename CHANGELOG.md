@@ -37,7 +37,8 @@
   through the active default volume instead of failing on SD-capable boards.
   Upgraded `solaros_reference` from a signature lookup to a compact coding
   guide with mandatory constant, discovery, capability, and cleanup rules plus
-  executable Python and Lua graphics patterns.
+  executable Python and Lua graphics patterns. Port-shell foreground apps now
+  finish a preserved application line before drawing the resumed shell prompt.
 
 ## 4.x
 
