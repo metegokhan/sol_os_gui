@@ -42,6 +42,7 @@ void solar_os_shell_cmd_led(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_jobs(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_log(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_man(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_mkdir(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_rm(solar_os_context_t *ctx, int argc, char **argv);

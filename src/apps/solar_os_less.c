@@ -11,6 +11,7 @@
 
 #include "esp_err.h"
 #include "solar_os_keys.h"
+#include "solar_os_manual.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
@@ -26,7 +27,8 @@ typedef enum {
 } less_input_mode_t;
 
 typedef struct {
-    char *buffer;
+    const char *buffer;
+    bool buffer_owned;
     size_t len;
     size_t top_offset;
     size_t match_offset;
@@ -705,32 +707,50 @@ static esp_err_t less_load_file(void)
     }
 
     const size_t len = (size_t)st.st_size;
-    less_state.buffer = solar_os_memory_alloc(len + 1,
-                                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                               "less.file");
-    if (less_state.buffer == NULL) {
+    char *buffer = solar_os_memory_alloc(len + 1,
+                                         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                         "less.file");
+    if (buffer == NULL) {
         less_set_message("out of memory");
         return ESP_ERR_NO_MEM;
     }
 
     FILE *file = fopen(less_state.path, "rb");
     if (file == NULL) {
+        solar_os_memory_free(buffer);
         char message[sizeof(less_state.message)];
         snprintf(message, sizeof(message), "open failed: %s", strerror(errno));
         less_set_message(message);
         return ESP_FAIL;
     }
 
-    const size_t read_len = len > 0 ? fread(less_state.buffer, 1, len, file) : 0;
+    const size_t read_len = len > 0 ? fread(buffer, 1, len, file) : 0;
     const bool read_error = ferror(file);
     fclose(file);
     if (read_error || read_len != len) {
+        solar_os_memory_free(buffer);
         less_set_message("read failed");
         return ESP_FAIL;
     }
 
-    less_state.buffer[len] = '\0';
+    buffer[len] = '\0';
+    less_state.buffer = buffer;
+    less_state.buffer_owned = true;
     less_state.len = len;
+    return ESP_OK;
+}
+
+static esp_err_t less_load_manual(const char *id)
+{
+    const solar_os_manual_page_t *page = solar_os_manual_find(id);
+    if (page == NULL || page->body == NULL) {
+        less_set_message("manual entry not found");
+        return ESP_ERR_NOT_FOUND;
+    }
+    less_state.app_name = "man";
+    strlcpy(less_state.display_name, page->id, sizeof(less_state.display_name));
+    less_state.buffer = page->body;
+    less_state.len = strlen(page->body);
     return ESP_OK;
 }
 
@@ -750,6 +770,14 @@ static esp_err_t less_start_common(solar_os_context_t *ctx, const char *app_name
     }
 
     const char *arg = solar_os_context_argv(ctx, 1);
+    if (arg != NULL && strncmp(arg, "man:", 4) == 0) {
+        const esp_err_t err = less_load_manual(arg + 4);
+        if (err != ESP_OK) {
+            less_state.error_only = true;
+        }
+        less_render(ctx);
+        return ESP_OK;
+    }
     strlcpy(less_state.display_name, arg != NULL ? arg : "", sizeof(less_state.display_name));
 
     esp_err_t err = solar_os_storage_resolve_path(arg, less_state.path, sizeof(less_state.path));
@@ -780,7 +808,9 @@ static esp_err_t less_start(solar_os_context_t *ctx)
 static void less_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
-    solar_os_memory_free(less_state.buffer);
+    if (less_state.buffer_owned) {
+        solar_os_memory_free((void *)less_state.buffer);
+    }
     memset(&less_state, 0, sizeof(less_state));
 }
 

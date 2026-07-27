@@ -39,6 +39,9 @@
   guide with mandatory constant, discovery, capability, and cleanup rules plus
   executable Python and Lua graphics patterns. Port-shell foreground apps now
   finish a preserved application line before drawing the resumed shell prompt.
+  Added a package-aware `man` command with searchable generated pages and
+  `less` paging; users and `solaros_reference` now consume the same
+  flash-resident contracts without loading the corpus into RAM.
 
 ## 4.x
 

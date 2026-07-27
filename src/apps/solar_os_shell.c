@@ -31,6 +31,7 @@
 #include "solar_os_job_registry.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
+#include "solar_os_manual.h"
 #include "solar_os_memory.h"
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
@@ -84,6 +85,7 @@ typedef struct {
     const char *required_prefix;
     bool complete_commands;
     bool complete_jobs;
+    bool complete_manual_pages;
     bool complete_display_session_ids;
     bool complete_session_ids;
     bool complete_ports;
@@ -159,6 +161,7 @@ static bool shell_execute_line(solar_os_context_t *ctx,
 
 static const shell_command_t shell_builtin_commands[] = {
     {"help", "show commands", cmd_help},
+    {"man", "search the SolarOS manual", solar_os_shell_cmd_man},
     {"apps", "list applications", solar_os_shell_cmd_apps},
     {"jobs", "list background jobs", solar_os_shell_cmd_jobs},
     {"job", "control background jobs", solar_os_shell_cmd_job},
@@ -834,6 +837,8 @@ static const char * const path_plot_stream[] = {"plot", SHELL_COMPLETION_ANY};
 #endif
 static const char * const path_watch[] = {"watch"};
 static const char * const path_watch_n_interval[] = {"watch", "-n", SHELL_COMPLETION_ANY};
+static const char * const path_man[] = {"man"};
+static const char * const man_options[] = {"--list", "--apropos", "-k"};
 static const char * const path_setterm[] = {"setterm"};
 static const char * const path_setterm_orientation[] = {"setterm", "orientation"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
@@ -1274,6 +1279,14 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_jobs = true, \
     }
+#define SHELL_COMPLETION_MANUAL(path_array, value_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .values = value_array, \
+        .value_count = SHELL_ARRAY_COUNT(value_array), \
+        .complete_manual_pages = true, \
+    }
 #define SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_array) \
     { \
         .path = path_array, \
@@ -1404,6 +1417,7 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
     }
 
 static const shell_completion_rule_t shell_completion_rules[] = {
+    SHELL_COMPLETION_MANUAL(path_man, man_options),
     SHELL_COMPLETION_OPTIONS(path_ls, ls_options),
     SHELL_COMPLETION_OPTIONS(path_rm, rm_options),
 #if SOLAR_OS_PACKAGE_APP_COM
@@ -3552,6 +3566,16 @@ static void shell_completion_emit_jobs(shell_completion_match_t *state)
     }
 }
 
+static void shell_completion_emit_manual_pages(shell_completion_match_t *state)
+{
+    for (size_t i = 0U; i < solar_os_manual_count(); i++) {
+        const solar_os_manual_page_t *page = solar_os_manual_get(i);
+        if (page != NULL) {
+            shell_completion_emit(state, page->id);
+        }
+    }
+}
+
 static void shell_completion_emit_session_id(shell_completion_match_t *state, uint8_t session_id)
 {
     char value[8];
@@ -4677,6 +4701,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_jobs) {
             shell_completion_emit_jobs(state);
+        }
+        if (rule->complete_manual_pages) {
+            shell_completion_emit_manual_pages(state);
         }
         if (rule->complete_display_session_ids) {
             shell_completion_emit_display_session_ids(state);

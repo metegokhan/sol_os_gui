@@ -90,7 +90,8 @@ registry currently contains:
 
 - `system_status`: board ID, SolarOS version, uptime, free and largest internal
   RAM blocks, and free PSRAM.
-- `solaros_reference`: search compact, authoritative Python and Lua API
+- `solaros_reference`: search the same package-aware registry exposed to users
+  by `man -k` and `man TOPIC`, returning compact authoritative API and system
   contracts by exact language and task. Every result includes mandatory
   SolarOS coding guidance: use documented constants rather than guessed
   strings or numbers, discover hardware names, respect package gates, and
@@ -155,6 +156,8 @@ before it is returned to the model.
 - Tool arguments: 4095 bytes, held in PSRAM for a request.
 - Tool result: 4095 bytes, allocated in PSRAM.
 - API-reference matches: at most three compact contracts per lookup.
+- Manual search: fixed stack storage for at most 12 results; page text remains
+  in flash and is not copied into heap by `man` or `less`.
 - Storage read/write content: 3072 bytes.
 - Generated script source: 640 bytes.
 - Generated script captured output: 383 bytes.

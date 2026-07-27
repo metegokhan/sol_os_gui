@@ -43,6 +43,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | Command | Usage | Description |
 | --- | --- | --- |
 | `help` | `help` | List built-in shell commands. |
+| `man` | `man TOPIC`; `man -k QUERY...`; `man --list` | Read or search the package-aware SolarOS manual. |
 | `clear` | `clear` | Clear the active shell terminal. |
 | `watch` | `watch [-n seconds] <command> [args...]` | Repeat another shell command until `Esc`, `q`, or the app-exit key is pressed. |
 | `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
@@ -71,6 +72,14 @@ SLIP, DAQ, and HTTP serving are jobs and are controlled with `job`.
 Scripts are intentionally simple. `sh` skips blank lines and lines whose first
 non-space character is `#`, then executes each remaining line as a normal shell
 command. There are no variables, pipes, redirects, or conditionals yet.
+
+`man TOPIC` opens one manual entry in the `less` pager when that app is
+installed. Use `q`, `Esc`, or the app-exit key to return to the shell. `man -k`
+searches page names, aliases, summaries, keywords, and API contracts; `man
+--list` shows every entry compiled into the current flavor. Optional topics are
+omitted when their package is absent. The same generated registry supplies the
+agent's `solaros_reference` tool, so local help and generated-code guidance do
+not drift apart.
 
 Aliases are stored in `/.shell/alias`, one per line:
 

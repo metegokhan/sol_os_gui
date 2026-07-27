@@ -1,0 +1,326 @@
+[[pages]]
+id = "overview"
+title = "SolarOS manual"
+section = "concept"
+summary = "Find commands, applications, jobs, scripting APIs, and hardware concepts"
+aliases = ["solaros", "manual"]
+keywords = "solaros api modules python lua help reference capabilities commands apps jobs"
+contract = """
+Search again with a module or task name. Topics cover gfx, tui, storage,
+identity, jobs, sessions, apps, wifi, mqtt, net, gpio, adc, pwm, buses, i2c,
+spi, uart, onewire, expansion, audio, ble, clipboard, time, battery, sensors,
+and ssh_keys. Optional modules exist only when their package is installed.
+"""
+
+[[pages]]
+id = "agent"
+title = "Native SolarOS agent"
+section = "app"
+summary = "Configure and use the resumable LLM agent and its typed tools"
+aliases = ["llm"]
+keywords = "agent llm model openai responses reasoning tools policy prompt chat"
+packages_any = ["app_agent"]
+contract = """
+Use `agent` for a resumable foreground conversation and `agent ask PROMPT` for
+one request. Configure endpoint, model, key, reasoning, tool policy, and maximum
+tools with `agent config`. `agent tools` reports the installed typed tools and
+their policy disposition. The default `confirm` policy runs read-only tools and
+requires local approval for sensitive, mutating, or disruptive calls. Ctrl+]
+returns to the shell.
+"""
+
+[[pages]]
+id = "python.gfx"
+title = "Python graphics API"
+section = "api"
+summary = "Draw through SolarOS displays from MicroPython"
+aliases = ["py.gfx"]
+keywords = "python py gfx graphics display screen draw pixel line rectangle circle font oled lcd framebuffer present"
+packages_any = ["app_python"]
+contract = """
+Python: import solaros; from solaros import gfx. gfx.begin() uses the current
+foreground display and raises RuntimeError from a port/headless shell where
+there is none. For an attached display, the agent must call display_list and
+pass a returned ready name to gfx.begin(name); scripts can verify names with
+solaros.expansion.devices(). An absent name raises ESP_ERR_NOT_FOUND. Use
+width(), height(), or size(); clear(color); color(color); pixel, line, rect,
+fill_rect, circle, fill_circle, text; refresh() or present(); then end().
+Standard min() and max() are available. Colors are gfx.WHITE, gfx.LIGHT,
+gfx.DARK, gfx.BLACK, and gfx.gray(level); pass these constants to clear() and
+color(), never color-name strings or guessed integers. Required
+attached-display pattern (replace the quoted target with a ready display_list
+name):
+import solaros
+from solaros import gfx
+gfx.begin("verified-ready-target")
+try:
+    gfx.clear(gfx.WHITE)
+    gfx.color(gfx.BLACK)
+    # draw here
+    gfx.present()
+finally:
+    gfx.end()
+"""
+
+[[pages]]
+id = "lua.gfx"
+title = "Lua graphics API"
+section = "api"
+summary = "Draw through SolarOS displays from Lua"
+aliases = []
+keywords = "lua gfx graphics display screen draw pixel line rectangle circle font oled lcd framebuffer present"
+packages_any = ["app_lua"]
+contract = """
+Lua: use the preloaded solaros table or local solaros = require("solaros"),
+then assign local gfx = solaros.gfx. gfx.begin() uses the current foreground
+display and errors from a port/headless shell where there is none. For an
+attached display, the agent must call display_list and pass a returned ready
+name; absent names raise ESP_ERR_NOT_FOUND. Use width, height or size; clear;
+color; pixel, line, rect, fill_rect, circle, fill_circle, text; refresh or
+present. Colors are gfx.WHITE, gfx.LIGHT, gfx.DARK, gfx.BLACK, and
+gfx.gray(level); pass these constants to clear and color, never color-name
+strings or guessed integers. Call gfx["end"]() because end is a Lua keyword.
+Required attached-display pattern (replace the quoted target with a ready
+display_list name):
+local solaros = require("solaros")
+local gfx = solaros.gfx
+gfx.begin("verified-ready-target")
+local ok, err = pcall(function()
+    gfx.clear(gfx.WHITE)
+    gfx.color(gfx.BLACK)
+    -- draw here
+    gfx.present()
+end)
+gfx["end"]()
+if not ok then error(err) end
+"""
+
+[[pages]]
+id = "python.tui"
+title = "Python text user-interface API"
+section = "api"
+summary = "Build terminal applications from MicroPython"
+aliases = ["py.tui"]
+keywords = "python py tui terminal text interface curses keyboard keys input box bold inverse"
+packages_any = ["app_python"]
+contract = """
+Python: from solaros import tui. Functions are rows, cols, size, clear, refresh,
+move, write, addstr, putch, hline, vline, vrule, box, fill, and getch.
+Attributes are NORMAL, BOLD, INVERSE; key constants include KEY_ESCAPE and
+navigation keys. Loop while not solaros.should_exit() for an interactive
+foreground app.
+"""
+
+[[pages]]
+id = "lua.tui"
+title = "Lua text user-interface API"
+section = "api"
+summary = "Build terminal applications from Lua"
+aliases = []
+keywords = "lua tui terminal text interface curses keyboard keys input box bold inverse"
+packages_any = ["app_lua"]
+contract = """
+Lua: local tui = solaros.tui. Functions are rows, cols, size, clear, refresh,
+move, write, addstr, putch, hline, vline, vrule, box, fill, and getch.
+Attributes are NORMAL, BOLD, INVERSE; key constants include KEY_ESCAPE and
+navigation keys. Loop while not solaros.should_exit() for an interactive
+foreground app.
+"""
+
+[[pages]]
+id = "storage"
+title = "Storage and shell paths"
+section = "service"
+summary = "Use SolarOS volumes, files, directories, and shell-style paths"
+aliases = ["filesystem", "files"]
+keywords = "python lua storage filesystem files directories mount sd flash copy rename remove mkdir path disk volume"
+contract = """
+Use solaros.storage, not host os or io APIs. Functions include status,
+is_mounted, mount, unmount, mount_point, usage, resolve, rescan, blocks,
+block_count, block, usage_for_block, mkdir, rmdir, remove, rename, copy,
+mount_volume, and unmount_volume. SolarOS shell paths use slash for the active
+default storage volume.
+"""
+
+[[pages]]
+id = "identity"
+title = "Device identity"
+section = "service"
+summary = "Read and configure the NVS-backed user and hostname"
+aliases = ["hostname", "user"]
+keywords = "python lua identity hostname user username nvs wifi advertised device name"
+contract = """
+solaros.identity provides user(), hostname(), set_user(name),
+set_hostname(name), and format(). Values are NVS-backed. Reboot before
+expecting an already initialized Wi-Fi interface to advertise a changed
+hostname.
+"""
+
+[[pages]]
+id = "jobs"
+title = "Background jobs"
+section = "service"
+summary = "Inspect and control bounded background workers"
+aliases = ["job", "background"]
+keywords = "python lua jobs background task process start stop state waiting failed memory stack"
+contract = """
+solaros.jobs provides list(), count(), status(name), start(name,
+optional_args), and stop(name). Status includes state, last_error,
+worker_stack_bytes, worker_stack_external, tick timing, and deadline telemetry.
+Waiting means launch admission has not yet succeeded; failed records a terminal
+launch or runtime error.
+"""
+
+[[pages]]
+id = "sessions.apps"
+title = "Foreground sessions and applications"
+section = "service"
+summary = "Create shells and inspect resumable foreground applications"
+aliases = ["sessions", "apps"]
+keywords = "python lua sessions apps shell port terminal create close registry foreground"
+contract = """
+solaros.sessions.create_shell(port, optional term, cols, rows) returns a
+session id; close(id) closes it. Script-created port shells do not run
+/.shell/startup. solaros.apps.list() and find(name) inspect registered
+foreground apps.
+"""
+
+[[pages]]
+id = "network"
+title = "Wi-Fi, MQTT, and network APIs"
+section = "api"
+summary = "Connect, inspect, and communicate over installed network services"
+aliases = ["wifi", "mqtt", "net"]
+keywords = "python lua wifi wireless station access point ap nat scan connect mqtt network ping"
+packages_any = ["service_wifi", "service_mqtt", "service_net"]
+contract = """
+solaros.wifi provides status, status_text, start, stop, connect, connect_saved,
+disconnect, forget, forget_ssid, forget_all, known, scan, ap_start, ap_stop,
+and nat. solaros.mqtt provides status, connect, disconnect, publish, subscribe,
+and read. solaros.net.ping(host, optional count, timeout_ms, interval_ms,
+data_size) returns statistics. These modules are package-gated.
+"""
+
+[[pages]]
+id = "gpio.analog"
+title = "GPIO, ADC, PWM, and LED APIs"
+section = "api"
+summary = "Use runtime-safe digital and analog expansion pins"
+aliases = ["gpio", "adc", "pwm"]
+keywords = "python lua gpio pin digital led adc analog pwm input output pull read write voltage duty"
+packages_any = ["service_gpio", "service_adc", "service_pwm"]
+contract = """
+Inspect solaros.gpio.pins() and allowed(pin) before use; never invent safe GPIO
+numbers. GPIO offers mode or configure, read, write, and release plus INPUT,
+OUTPUT and pull constants. solaros.led offers status, set, on, off, toggle.
+solaros.adc offers pins and read. solaros.pwm offers status, set(pin,
+frequency, duty_percent), and off. APIs are package-gated.
+"""
+
+[[pages]]
+id = "buses"
+title = "Named runtime buses"
+section = "api"
+summary = "Create and use resource-owned I2C, SPI, UART, and OneWire buses"
+aliases = ["bus"]
+keywords = "python lua buses resource named bus create attach detach i2c spi uart onewire lease"
+packages_any = ["service_resources"]
+contract = """
+Prefer solaros.buses for named hardware. list and get inspect registered buses;
+create_i2c, create_onewire, create_spi, and create_uart create runtime buses;
+attach, detach, remove manage lifecycle. Transfer families are i2c_probe or
+scan or read_reg or write_reg, onewire_reset or scan or xfer, spi_xfer or read
+or write, and uart_read or write. Inspect descriptors before choosing names,
+pins, chip selects, or hosts.
+"""
+
+[[pages]]
+id = "compatibility.io"
+title = "Compatibility I/O modules"
+section = "api"
+summary = "Use the legacy single-bus I2C, SPI, UART, and OneWire APIs"
+aliases = ["i2c", "spi", "uart", "onewire"]
+keywords = "python lua i2c spi uart onewire serial transfer register probe scan compatibility"
+packages_any = ["service_i2c", "service_spi", "service_uart", "service_onewire"]
+contract = """
+Compatibility modules are solaros.i2c info, probe, scan, read_reg, write_reg;
+solaros.spi status, xfer, read, write; solaros.uart status, baud,
+is_valid_baud, mode, write, read; solaros.onewire allowed, reset, scan, xfer.
+Inspect status or allowed first. New multi-bus code should prefer
+solaros.buses. Modules are package-gated.
+"""
+
+[[pages]]
+id = "expansion"
+title = "Expansion drivers and attached devices"
+section = "service"
+summary = "Discover, attach, and detach package-gated expansion devices"
+aliases = ["devices", "drivers"]
+keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral"
+packages_any = ["service_expansion"]
+contract = """
+solaros.expansion.drivers() lists compiled drivers and devices() lists
+currently attached devices with normalized bindings. attach(driver, name,
+bindings) and detach(name) manage them. Never assume an example name such as
+lcd0 or oled0 exists; inspect devices() or use a name explicitly supplied by
+the user.
+"""
+
+[[pages]]
+id = "media.input"
+title = "Audio, BLE keyboard, and clipboard APIs"
+section = "api"
+summary = "Use installed media and input services"
+aliases = ["audio", "ble", "clipboard"]
+keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard clipboard"
+contract = """
+solaros.audio provides status, deinit or off, set_volume, set_mic_gain, tone,
+level, loopback, wav_info, record_wav, and play_wav. solaros.ble provides
+status, connected, pair, forget, layout, read. solaros.clipboard provides set,
+get, size, clear. Audio and BLE are package-gated.
+"""
+
+[[pages]]
+id = "time.sensors"
+title = "Time, battery, and environment APIs"
+section = "api"
+summary = "Read clocks, battery state, temperature, and humidity"
+aliases = ["time", "battery", "sensors"]
+keywords = "python lua time clock date timezone ntp uptime battery sensor temperature humidity environment"
+contract = """
+solaros.time provides uptime_ms, uptime, datetime, utc_datetime, set_datetime,
+set_utc_datetime, utc_to_local, local_to_utc, is_valid, timezone,
+set_timezone, and ntp_sync. solaros.battery.status and
+solaros.sensors.environment are package-gated.
+"""
+
+[[pages]]
+id = "ssh_keys"
+title = "SSH identity keys"
+section = "api"
+summary = "Inspect, generate, and remove the default SSH key pair"
+aliases = ["sshkeys", "sshkey"]
+keywords = "python lua ssh scp keys identity private public generate remove credentials"
+packages_any = ["service_ssh"]
+contract = """
+solaros.ssh_keys provides default_paths, default_exists, status, generate
+(optional bits and overwrite), and remove when SSH is installed. Do not
+inspect, expose, replace, or delete private key material unless the user
+explicitly requests that operation.
+"""
+
+[[pages]]
+id = "script.conventions"
+title = "SolarOS scripting conventions"
+section = "concept"
+summary = "Write cooperative Python and Lua programs against SolarOS services"
+aliases = ["scripting", "scripts"]
+keywords = "python lua script conventions import require errors exit arguments runtime package"
+packages_any = ["app_python", "app_lua"]
+contract = """
+Python imports the native solaros module; arguments are in sys.argv. Lua uses
+the preloaded global solaros or require with the module name. Mutating service
+failures surface as SolarOS errors. Optional modules are package-gated.
+Interactive code should check solaros.should_exit(). Use SolarOS service APIs
+instead of assuming Unix process, filesystem, or device APIs.
+"""
