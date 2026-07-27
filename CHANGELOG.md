@@ -46,6 +46,11 @@
   schemas and `tool_search` activates at most five package- and policy-aware
   tools. Added read-only board, GPIO, bus, Wi-Fi, battery, and environmental
   inspection tools without allowing GPIO reads to claim or configure pins.
+  Added a coherent agent development loop with bounded text search, SHA-256
+  ranged reads, conflict-safe staged byte-range patches, and execution of saved
+  Python or Lua files with arguments through the existing cancellable runner.
+  Exact tool names now win progressive discovery, and patches can use a
+  PSRAM-backed recoverable rewrite when a volume has no free staging cluster.
 
 ## 4.x
 

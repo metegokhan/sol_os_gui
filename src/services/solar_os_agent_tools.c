@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <dirent.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -17,6 +18,7 @@
 #include "solar_os_board.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#include "solar_os_crypto.h"
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
 #endif
@@ -45,11 +47,19 @@
 
 #define AGENT_TOOL_STORAGE_ENTRY_MAX 16U
 #define AGENT_TOOL_STORAGE_CONTENT_MAX 3072U
+#define AGENT_TOOL_STORAGE_RANGE_MAX 2048U
+#define AGENT_TOOL_STORAGE_SEARCH_MATCH_MAX 12U
+#define AGENT_TOOL_STORAGE_SEARCH_PATH_MAX 32U
+#define AGENT_TOOL_STORAGE_SEARCH_BYTES_MAX (64U * 1024U)
+#define AGENT_TOOL_STORAGE_SEARCH_LINE_MAX 256U
+#define AGENT_TOOL_STORAGE_PATCH_EDIT_MAX 8U
+#define AGENT_TOOL_STORAGE_PATCH_INSERT_MAX 2048U
+#define AGENT_TOOL_STORAGE_PATCH_FILE_MAX (128U * 1024U)
 #define AGENT_TOOL_JSON_SCRATCH_MAX 512U
 #define AGENT_TOOL_SCRIPT_SOURCE_MAX 640U
 #define AGENT_TOOL_SCRIPT_OUTPUT_MAX 384U
 #define AGENT_TOOL_JSON_ESCAPE_FACTOR 6U
-#define AGENT_TOOL_SEARCH_QUERY_MAX 96U
+#define AGENT_TOOL_SEARCH_QUERY_MAX 159U
 #define AGENT_TOOL_SEARCH_MATCH_MAX \
     (SOLAR_OS_AGENT_TOOL_ACTIVE_MAX - 3U)
 #define AGENT_TOOL_SEARCH_TOKEN_MAX 31U
@@ -67,9 +77,38 @@
     "\"minLength\":1,\"maxLength\":159},\"content\":{\"type\":\"string\"," \
     "\"maxLength\":3072}},\"required\":[\"path\",\"content\"]," \
     "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_STORAGE_SEARCH \
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":159},\"query\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":64}},\"required\":[\"path\",\"query\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_STORAGE_READ_RANGE \
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":159},\"offset\":{\"type\":\"integer\"," \
+    "\"minimum\":0,\"maximum\":524288},\"length\":{\"type\":\"integer\"," \
+    "\"minimum\":1,\"maximum\":2048}},\"required\":[\"path\",\"offset\"," \
+    "\"length\"],\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_STORAGE_PATCH \
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":159},\"expected_sha256\":{\"type\":\"string\"," \
+    "\"minLength\":64,\"maxLength\":64},\"edits\":{\"type\":\"array\"," \
+    "\"minItems\":1,\"maxItems\":8,\"items\":{\"type\":\"object\"," \
+    "\"properties\":{\"offset\":{\"type\":\"integer\",\"minimum\":0," \
+    "\"maximum\":131072},\"delete_bytes\":{\"type\":\"integer\",\"minimum\":0," \
+    "\"maximum\":131072},\"insert\":{\"type\":\"string\",\"maxLength\":2048}}," \
+    "\"required\":[\"offset\",\"delete_bytes\",\"insert\"]," \
+    "\"additionalProperties\":false}}},\"required\":[\"path\"," \
+    "\"expected_sha256\",\"edits\"],\"additionalProperties\":false}"
 #define AGENT_TOOL_SCHEMA_SCRIPT_RUN \
     "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"," \
     "\"minLength\":1,\"maxLength\":640}},\"required\":[\"source\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_SCRIPT_RUN_FILE \
+    "{\"type\":\"object\",\"properties\":{\"language\":{\"type\":\"string\"," \
+    "\"enum\":[\"python\",\"lua\"]},\"path\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":159},\"args\":{\"type\":\"array\"," \
+    "\"maxItems\":7,\"items\":{\"type\":\"string\",\"maxLength\":159}}}," \
+    "\"required\":[\"language\",\"path\",\"args\"]," \
     "\"additionalProperties\":false}"
 #define AGENT_TOOL_SCHEMA_REFERENCE \
     "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"," \
@@ -77,7 +116,7 @@
     "\"additionalProperties\":false}"
 #define AGENT_TOOL_SCHEMA_SEARCH \
     "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"," \
-    "\"minLength\":1,\"maxLength\":96}},\"required\":[\"query\"]," \
+    "\"minLength\":1,\"maxLength\":159}},\"required\":[\"query\"]," \
     "\"additionalProperties\":false}"
 #define AGENT_TOOL_SCHEMA_GPIO_READ \
     "{\"type\":\"object\",\"properties\":{\"pin\":{\"type\":\"integer\"," \
@@ -106,6 +145,26 @@
     "\"path\":{\"type\":\"string\"},\"bytes_written\":{\"type\":\"integer\"}}," \
     "\"required\":[\"ok\",\"path\",\"bytes_written\"]," \
     "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_STORAGE_SEARCH \
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}," \
+    "\"query\":{\"type\":\"string\"},\"matches\":{\"type\":\"array\"}," \
+    "\"files_scanned\":{\"type\":\"integer\"},\"bytes_scanned\":" \
+    "{\"type\":\"integer\"},\"truncated\":{\"type\":\"boolean\"}}," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_STORAGE_READ_RANGE \
+    "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}," \
+    "\"path\":{\"type\":\"string\"},\"size_bytes\":{\"type\":\"integer\"}," \
+    "\"sha256\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\"}," \
+    "\"bytes_returned\":{\"type\":\"integer\"},\"next_offset\":" \
+    "{\"type\":\"integer\"},\"eof\":{\"type\":\"boolean\"},\"content\":" \
+    "{\"type\":\"string\"},\"truncated\":{\"type\":\"boolean\"}}," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_STORAGE_PATCH \
+    "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}," \
+    "\"conflict\":{\"type\":\"boolean\"},\"path\":{\"type\":\"string\"}," \
+    "\"expected_sha256\":{\"type\":\"string\"},\"current_sha256\":" \
+    "{\"type\":\"string\"},\"new_sha256\":{\"type\":\"string\"}," \
+    "\"bytes_written\":{\"type\":\"integer\"}},\"additionalProperties\":false}"
 #define AGENT_TOOL_OUTPUT_JOBS_LIST \
     "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
     "\"jobs\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
@@ -212,6 +271,12 @@ typedef struct {
     unsigned score;
 } agent_tool_search_match_t;
 
+typedef struct {
+    uint32_t offset;
+    uint32_t delete_bytes;
+    char insert[AGENT_TOOL_STORAGE_PATCH_INSERT_MAX + 1U];
+} agent_tool_storage_patch_edit_t;
+
 static esp_err_t agent_tool_system_status(const char *arguments,
                                            const solar_os_agent_request_t *request,
                                            char *result,
@@ -237,6 +302,21 @@ static esp_err_t agent_tool_storage_write(const char *arguments,
                                           const solar_os_agent_request_t *request,
                                           char *result,
                                           size_t result_len);
+static esp_err_t agent_tool_storage_search(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
+static esp_err_t agent_tool_storage_read_range(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
+static esp_err_t agent_tool_storage_patch(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
 static esp_err_t agent_tool_jobs_list(const char *arguments,
                                       const solar_os_agent_request_t *request,
                                       char *result,
@@ -277,6 +357,11 @@ static esp_err_t agent_tool_script_run_python(
     char *result,
     size_t result_len);
 static esp_err_t agent_tool_script_run_lua(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
+static esp_err_t agent_tool_script_run_file(
     const char *arguments,
     const solar_os_agent_request_t *request,
     char *result,
@@ -344,6 +429,11 @@ static bool agent_tool_lua_available(void)
 #else
     return false;
 #endif
+}
+
+static bool agent_tool_script_file_available(void)
+{
+    return agent_tool_python_available() || agent_tool_lua_available();
 }
 
 static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
@@ -450,6 +540,62 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .risk = SOLAR_OS_AGENT_TOOL_RISK_MUTATING,
         .available = agent_tool_storage_available,
         .execute = agent_tool_storage_write,
+    },
+    {
+        .provider = {
+            .name = "storage_search",
+            .description =
+                "Search bounded text under one absolute file or directory and "
+                "return matching paths, line numbers, and excerpts.",
+            .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_SEARCH,
+            .strict = true,
+        },
+        .domain = "storage",
+        .search_terms =
+            "search find grep text code configuration files directories debug",
+        .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_SEARCH,
+        .required_capability = "storage",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_SENSITIVE_READ,
+        .available = agent_tool_storage_available,
+        .execute = agent_tool_storage_search,
+    },
+    {
+        .provider = {
+            .name = "storage_read_range",
+            .description =
+                "Read a bounded byte range from one absolute text file and "
+                "return its complete-file SHA-256 for conflict-safe editing.",
+            .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_READ_RANGE,
+            .strict = true,
+        },
+        .domain = "storage",
+        .search_terms =
+            "read inspect range chunk offset large file code sha256 edit debug",
+        .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_READ_RANGE,
+        .required_capability = "storage",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_SENSITIVE_READ,
+        .available = agent_tool_storage_available,
+        .execute = agent_tool_storage_read_range,
+    },
+    {
+        .provider = {
+            .name = "storage_patch",
+            .description =
+                "Apply ascending non-overlapping byte-offset edits to one "
+                "absolute text file using its expected SHA-256 version. Stale "
+                "edits return a recoverable conflict and replacement retains "
+                "a rollback copy until the new path is installed.",
+            .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_PATCH,
+            .strict = true,
+        },
+        .domain = "storage",
+        .search_terms =
+            "patch edit modify replace insert delete code file sha256 safe",
+        .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_PATCH,
+        .required_capability = "storage",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_MUTATING,
+        .available = agent_tool_storage_available,
+        .execute = agent_tool_storage_patch,
     },
     {
         .provider = {
@@ -628,6 +774,26 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .available = agent_tool_lua_available,
         .execute = agent_tool_script_run_lua,
     },
+    {
+        .provider = {
+            .name = "script_run_file",
+            .description =
+                "Run one saved Python or Lua file with bounded arguments, "
+                "captured output, cancellation, and a 30-second deadline.",
+            .parameters_json = AGENT_TOOL_SCHEMA_SCRIPT_RUN_FILE,
+            .strict = true,
+        },
+        .domain = "script",
+        .search_terms =
+            "run execute saved file python lua test debug program arguments",
+        .output_schema_json = AGENT_TOOL_OUTPUT_SCRIPT_RUN,
+        .required_capability = "python-or-lua",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_DISRUPTIVE,
+        .required_script_language =
+            SOLAR_OS_AGENT_SCRIPT_PYTHON | SOLAR_OS_AGENT_SCRIPT_LUA,
+        .available = agent_tool_script_file_available,
+        .execute = agent_tool_script_run_file,
+    },
 };
 
 static const size_t AGENT_TOOL_COUNT =
@@ -680,6 +846,31 @@ static bool agent_tool_search_stop_word(const char *token)
     return false;
 }
 
+static bool agent_tool_query_has_name(const char *query, const char *name)
+{
+    if (query == NULL || name == NULL || name[0] == '\0') {
+        return false;
+    }
+    const size_t name_len = strlen(name);
+    for (const char *cursor = query; *cursor != '\0'; cursor++) {
+        if (strncasecmp(cursor, name, name_len) != 0) {
+            continue;
+        }
+        const unsigned char before = cursor == query
+            ? '\0'
+            : (unsigned char)cursor[-1];
+        const unsigned char after = (unsigned char)cursor[name_len];
+        const bool before_boundary =
+            before == '\0' || (!isalnum(before) && before != '_');
+        const bool after_boundary =
+            after == '\0' || (!isalnum(after) && after != '_');
+        if (before_boundary && after_boundary) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static unsigned agent_tool_search_score(
     const agent_tool_definition_t *definition,
     const char *query)
@@ -687,7 +878,7 @@ static unsigned agent_tool_search_score(
     if (definition == NULL || query == NULL || query[0] == '\0') {
         return 0U;
     }
-    if (strcasecmp(definition->provider.name, query) == 0) {
+    if (agent_tool_query_has_name(query, definition->provider.name)) {
         return 100000U;
     }
     if (strcasecmp(definition->domain, query) == 0) {
@@ -943,6 +1134,78 @@ static esp_err_t agent_tool_storage_path(
         return ESP_ERR_NOT_ALLOWED;
     }
     return err;
+}
+
+static esp_err_t agent_tool_sha256_file(
+    FILE *file,
+    char hex[SOLAR_OS_CRYPTO_SHA256_HEX_LEN])
+{
+    if (file == NULL || hex == NULL || fseek(file, 0L, SEEK_SET) != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_crypto_sha256_t sha256;
+    solar_os_crypto_sha256_init(&sha256);
+    esp_err_t err = solar_os_crypto_sha256_start(&sha256);
+    uint8_t buffer[512];
+    while (err == ESP_OK) {
+        const size_t read_len = fread(buffer, 1U, sizeof(buffer), file);
+        if (read_len > 0U) {
+            err = solar_os_crypto_sha256_update(&sha256,
+                                                buffer,
+                                                read_len);
+        }
+        if (read_len < sizeof(buffer)) {
+            if (ferror(file)) {
+                err = ESP_FAIL;
+            }
+            break;
+        }
+    }
+    uint8_t digest[SOLAR_OS_CRYPTO_SHA256_LEN];
+    if (err == ESP_OK) {
+        err = solar_os_crypto_sha256_finish(&sha256, digest);
+    }
+    if (err == ESP_OK) {
+        err = solar_os_crypto_bytes_to_hex(digest,
+                                           sizeof(digest),
+                                           hex,
+                                           SOLAR_OS_CRYPTO_SHA256_HEX_LEN);
+    }
+    solar_os_crypto_sha256_free(&sha256);
+    return err;
+}
+
+static bool agent_tool_write_complete_file(const char *path,
+                                           const uint8_t *content,
+                                           size_t content_size)
+{
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    const size_t written = fwrite(content, 1U, content_size, file);
+    const int flush_result = fflush(file);
+    const int close_result = fclose(file);
+    return written == content_size &&
+           flush_result == 0 &&
+           close_result == 0;
+}
+
+static esp_err_t agent_tool_replace_from_memory(
+    const char *path,
+    const uint8_t *replacement,
+    size_t replacement_size,
+    const uint8_t *rollback,
+    size_t rollback_size)
+{
+    if (agent_tool_write_complete_file(path,
+                                       replacement,
+                                       replacement_size)) {
+        return ESP_OK;
+    }
+    return agent_tool_write_complete_file(path, rollback, rollback_size)
+        ? ESP_FAIL
+        : ESP_ERR_INVALID_STATE;
 }
 
 static esp_err_t agent_tool_validate_result(const char *result)
@@ -1366,6 +1629,707 @@ static esp_err_t agent_tool_storage_write(const char *arguments,
     }
     memset(content, 0, AGENT_TOOL_STORAGE_CONTENT_MAX + 1U);
     solar_os_memory_free(content);
+    return err;
+}
+
+static esp_err_t agent_tool_storage_search(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    char query[65];
+    err = agent_tool_storage_path(root, path, sizeof(path));
+    if (err == ESP_OK) {
+        err = solar_os_json_get_string(
+            solar_os_json_object_get(root, "query"),
+            query,
+            sizeof(query));
+    }
+    solar_os_json_free(doc);
+    if (err != ESP_OK || query[0] == '\0') {
+        return err != ESP_OK ? err : ESP_ERR_INVALID_ARG;
+    }
+
+    struct stat root_status;
+    if (stat(path, &root_status) != 0 ||
+        (!S_ISREG(root_status.st_mode) && !S_ISDIR(root_status.st_mode))) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    char (*paths)[SOLAR_OS_STORAGE_PATH_MAX] = solar_os_memory_calloc(
+        AGENT_TOOL_STORAGE_SEARCH_PATH_MAX,
+        SOLAR_OS_STORAGE_PATH_MAX,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.storage-search");
+    if (paths == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    strlcpy(paths[0], path, SOLAR_OS_STORAGE_PATH_MAX);
+    size_t queue_head = 0U;
+    size_t queue_tail = 1U;
+
+    char escaped_path[(SOLAR_OS_STORAGE_PATH_MAX *
+                       AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+    char escaped_query[(64U * AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+    err = solar_os_json_escape_string(path,
+                                      escaped_path,
+                                      sizeof(escaped_path));
+    if (err == ESP_OK) {
+        err = solar_os_json_escape_string(query,
+                                          escaped_query,
+                                          sizeof(escaped_query));
+    }
+    agent_tool_output_t output = {
+        .buffer = result,
+        .capacity = result_len,
+    };
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output,
+                                       "{\"path\":\"%s\",\"query\":\"%s\","
+                                       "\"matches\":[",
+                                       escaped_path,
+                                       escaped_query);
+    }
+
+    size_t files_scanned = 0U;
+    size_t bytes_scanned = 0U;
+    size_t matches = 0U;
+    bool first = true;
+    bool truncated = false;
+    bool stop = false;
+    while (err == ESP_OK && queue_head < queue_tail && !stop) {
+        const char *current = paths[queue_head++];
+        struct stat status;
+        if (stat(current, &status) != 0) {
+            continue;
+        }
+        if (S_ISDIR(status.st_mode)) {
+            DIR *directory = opendir(current);
+            if (directory == NULL) {
+                continue;
+            }
+            struct dirent *entry = NULL;
+            while ((entry = readdir(directory)) != NULL) {
+                if (strcmp(entry->d_name, ".") == 0 ||
+                    strcmp(entry->d_name, "..") == 0) {
+                    continue;
+                }
+                char child[SOLAR_OS_STORAGE_PATH_MAX];
+                const int written = strcmp(current, "/") == 0 ?
+                    snprintf(child,
+                             sizeof(child),
+                             "/%s",
+                             entry->d_name) :
+                    snprintf(child,
+                             sizeof(child),
+                             "%s/%s",
+                             current,
+                             entry->d_name);
+                if (written < 0 || (size_t)written >= sizeof(child)) {
+                    truncated = true;
+                    break;
+                }
+                if (agent_tool_path_has_segment(child, ".ssh")) {
+                    continue;
+                }
+                if (queue_tail >= AGENT_TOOL_STORAGE_SEARCH_PATH_MAX) {
+                    truncated = true;
+                    break;
+                }
+                strlcpy(paths[queue_tail++],
+                        child,
+                        SOLAR_OS_STORAGE_PATH_MAX);
+            }
+            closedir(directory);
+            continue;
+        }
+        if (!S_ISREG(status.st_mode)) {
+            continue;
+        }
+
+        FILE *file = fopen(current, "rb");
+        if (file == NULL) {
+            continue;
+        }
+        files_scanned++;
+        char line[AGENT_TOOL_STORAGE_SEARCH_LINE_MAX];
+        uint32_t line_number = 0U;
+        bool continuing_line = false;
+        while (fgets(line, sizeof(line), file) != NULL) {
+            if (!continuing_line) {
+                line_number++;
+            }
+            const size_t line_len = strlen(line);
+            continuing_line =
+                line_len > 0U && line[line_len - 1U] != '\n';
+            if (bytes_scanned + line_len >
+                AGENT_TOOL_STORAGE_SEARCH_BYTES_MAX) {
+                truncated = true;
+                stop = true;
+                break;
+            }
+            bytes_scanned += line_len;
+            if (!agent_tool_contains_ci(line, query)) {
+                continue;
+            }
+
+            size_t excerpt_len = line_len;
+            while (excerpt_len > 0U &&
+                   (line[excerpt_len - 1U] == '\n' ||
+                    line[excerpt_len - 1U] == '\r')) {
+                excerpt_len--;
+            }
+            if (excerpt_len > 160U) {
+                excerpt_len = 160U;
+            }
+            char excerpt[161];
+            memcpy(excerpt, line, excerpt_len);
+            excerpt[excerpt_len] = '\0';
+            char escaped_current[(SOLAR_OS_STORAGE_PATH_MAX *
+                                  AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+            char escaped_excerpt[(160U *
+                                  AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+            if (solar_os_json_escape_string(current,
+                                            escaped_current,
+                                            sizeof(escaped_current)) != ESP_OK ||
+                solar_os_json_escape_string(excerpt,
+                                            escaped_excerpt,
+                                            sizeof(escaped_excerpt)) != ESP_OK) {
+                err = ESP_ERR_INVALID_SIZE;
+                break;
+            }
+            char item[1400];
+            const int item_written = snprintf(
+                item,
+                sizeof(item),
+                "%s{\"path\":\"%s\",\"line\":%" PRIu32
+                ",\"excerpt\":\"%s\"}",
+                first ? "" : ",",
+                escaped_current,
+                line_number,
+                escaped_excerpt);
+            const size_t tail_reserve = 160U;
+            if (item_written < 0 ||
+                (size_t)item_written >= sizeof(item) ||
+                output.length + (size_t)item_written + tail_reserve >=
+                    output.capacity) {
+                truncated = true;
+                stop = true;
+                break;
+            }
+            err = agent_tool_output_append(&output, "%s", item);
+            first = false;
+            matches++;
+            if (matches >= AGENT_TOOL_STORAGE_SEARCH_MATCH_MAX) {
+                truncated = true;
+                stop = true;
+                break;
+            }
+        }
+        if (ferror(file) && err == ESP_OK) {
+            err = ESP_FAIL;
+        }
+        fclose(file);
+    }
+    if (queue_head < queue_tail) {
+        truncated = true;
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(
+            &output,
+            "],\"files_scanned\":%u,\"bytes_scanned\":%u,"
+            "\"truncated\":%s}",
+            (unsigned)files_scanned,
+            (unsigned)bytes_scanned,
+            truncated ? "true" : "false");
+    }
+    solar_os_memory_free(paths);
+    return err;
+}
+
+static esp_err_t agent_tool_storage_read_range(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    uint32_t offset = 0U;
+    uint32_t requested_length = 0U;
+    err = agent_tool_storage_path(root, path, sizeof(path));
+    if (err == ESP_OK) {
+        err = solar_os_json_get_uint32(
+            solar_os_json_object_get(root, "offset"),
+            &offset);
+    }
+    if (err == ESP_OK) {
+        err = solar_os_json_get_uint32(
+            solar_os_json_object_get(root, "length"),
+            &requested_length);
+    }
+    solar_os_json_free(doc);
+    if (err != ESP_OK || requested_length == 0U ||
+        requested_length > AGENT_TOOL_STORAGE_RANGE_MAX) {
+        return err != ESP_OK ? err : ESP_ERR_INVALID_ARG;
+    }
+
+    struct stat status;
+    if (stat(path, &status) != 0 || !S_ISREG(status.st_mode)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (status.st_size < 0 || (uint64_t)status.st_size > UINT32_MAX ||
+        offset > (uint64_t)status.st_size) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return ESP_FAIL;
+    }
+    char sha256[SOLAR_OS_CRYPTO_SHA256_HEX_LEN];
+    err = agent_tool_sha256_file(file, sha256);
+    if (err == ESP_OK && fseek(file, (long)offset, SEEK_SET) != 0) {
+        err = ESP_FAIL;
+    }
+
+    char escaped_path[(SOLAR_OS_STORAGE_PATH_MAX *
+                       AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+    if (err == ESP_OK) {
+        err = solar_os_json_escape_string(path,
+                                          escaped_path,
+                                          sizeof(escaped_path));
+    }
+    agent_tool_output_t output = {
+        .buffer = result,
+        .capacity = result_len,
+    };
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(
+            &output,
+            "{\"ok\":true,\"path\":\"%s\",\"size_bytes\":%" PRIu64
+            ",\"sha256\":\"%s\",\"offset\":%" PRIu32 ",\"content\":\"",
+            escaped_path,
+            (uint64_t)status.st_size,
+            sha256,
+            offset);
+    }
+
+    size_t bytes_returned = 0U;
+    bool truncated = false;
+    const size_t tail_reserve = 160U;
+    while (err == ESP_OK && bytes_returned < requested_length) {
+        const int byte = fgetc(file);
+        if (byte == EOF) {
+            if (ferror(file)) {
+                err = ESP_FAIL;
+            }
+            break;
+        }
+        if (!agent_tool_output_append_json_byte(&output,
+                                                (uint8_t)byte,
+                                                tail_reserve)) {
+            truncated = true;
+            break;
+        }
+        bytes_returned++;
+    }
+    fclose(file);
+    const uint32_t next_offset = offset + (uint32_t)bytes_returned;
+    const bool eof = next_offset >= (uint64_t)status.st_size;
+    if (bytes_returned < requested_length && !eof) {
+        truncated = true;
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(
+            &output,
+            "\",\"bytes_returned\":%u,\"next_offset\":%" PRIu32
+            ",\"eof\":%s,\"truncated\":%s}",
+            (unsigned)bytes_returned,
+            next_offset,
+            eof ? "true" : "false",
+            truncated ? "true" : "false");
+    }
+    return err;
+}
+
+static esp_err_t agent_tool_storage_patch(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    char expected_sha256[SOLAR_OS_CRYPTO_SHA256_HEX_LEN];
+    err = agent_tool_storage_path(root, path, sizeof(path));
+    if (err == ESP_OK) {
+        err = solar_os_json_get_string(
+            solar_os_json_object_get(root, "expected_sha256"),
+            expected_sha256,
+            sizeof(expected_sha256));
+    }
+    const solar_os_json_value_t *edits_value =
+        solar_os_json_object_get(root, "edits");
+    const size_t edit_count = solar_os_json_array_size(edits_value);
+    if (err == ESP_OK &&
+        (!solar_os_crypto_sha256_hex_is_valid(expected_sha256) ||
+         !solar_os_json_is_array(edits_value) || edit_count == 0U ||
+         edit_count > AGENT_TOOL_STORAGE_PATCH_EDIT_MAX)) {
+        err = ESP_ERR_INVALID_ARG;
+    }
+
+    agent_tool_storage_patch_edit_t *edits = NULL;
+    if (err == ESP_OK) {
+        edits = solar_os_memory_calloc(
+            edit_count,
+            sizeof(*edits),
+            SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+            "agent.tool.storage-patch-edits");
+        if (edits == NULL) {
+            err = ESP_ERR_NO_MEM;
+        }
+    }
+    for (size_t i = 0U; err == ESP_OK && i < edit_count; i++) {
+        const solar_os_json_value_t *edit =
+            solar_os_json_array_get(edits_value, i);
+        if (!solar_os_json_is_object(edit)) {
+            err = ESP_ERR_INVALID_ARG;
+            break;
+        }
+        err = solar_os_json_get_uint32(
+            solar_os_json_object_get(edit, "offset"),
+            &edits[i].offset);
+        if (err == ESP_OK) {
+            err = solar_os_json_get_uint32(
+                solar_os_json_object_get(edit, "delete_bytes"),
+                &edits[i].delete_bytes);
+        }
+        if (err == ESP_OK) {
+            err = solar_os_json_get_string(
+                solar_os_json_object_get(edit, "insert"),
+                edits[i].insert,
+                sizeof(edits[i].insert));
+        }
+    }
+    solar_os_json_free(doc);
+    if (err != ESP_OK) {
+        solar_os_memory_free(edits);
+        return err;
+    }
+
+    struct stat status;
+    if (stat(path, &status) != 0 || !S_ISREG(status.st_mode)) {
+        solar_os_memory_free(edits);
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (status.st_size < 0 ||
+        (uint64_t)status.st_size > AGENT_TOOL_STORAGE_PATCH_FILE_MAX) {
+        solar_os_memory_free(edits);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const size_t original_size = (size_t)status.st_size;
+    uint8_t *original = solar_os_memory_calloc(
+        original_size + 1U,
+        1U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.storage-patch-original");
+    if (original == NULL) {
+        solar_os_memory_free(edits);
+        return ESP_ERR_NO_MEM;
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        err = ESP_FAIL;
+        goto cleanup_patch;
+    }
+    const size_t original_read = fread(original, 1U, original_size, file);
+    const int original_close = fclose(file);
+    if (original_read != original_size || original_close != 0) {
+        err = ESP_FAIL;
+        goto cleanup_patch;
+    }
+
+    uint8_t digest[SOLAR_OS_CRYPTO_SHA256_LEN];
+    char current_sha256[SOLAR_OS_CRYPTO_SHA256_HEX_LEN];
+    err = solar_os_crypto_sha256_once(original, original_size, digest);
+    if (err == ESP_OK) {
+        err = solar_os_crypto_bytes_to_hex(digest,
+                                           sizeof(digest),
+                                           current_sha256,
+                                           sizeof(current_sha256));
+    }
+    char escaped_path[(SOLAR_OS_STORAGE_PATH_MAX *
+                       AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+    if (err == ESP_OK) {
+        err = solar_os_json_escape_string(path,
+                                          escaped_path,
+                                          sizeof(escaped_path));
+    }
+    if (err != ESP_OK) {
+        goto cleanup_patch;
+    }
+    if (!solar_os_crypto_sha256_matches_hex(digest, expected_sha256)) {
+        const int written = snprintf(
+            result,
+            result_len,
+            "{\"ok\":false,\"conflict\":true,\"path\":\"%s\","
+            "\"expected_sha256\":\"%s\",\"current_sha256\":\"%s\","
+            "\"new_sha256\":\"\",\"bytes_written\":0}",
+            escaped_path,
+            expected_sha256,
+            current_sha256);
+        err = written >= 0 && (size_t)written < result_len ?
+            ESP_OK : ESP_ERR_INVALID_SIZE;
+        goto cleanup_patch;
+    }
+
+    size_t new_size = original_size;
+    size_t previous_end = 0U;
+    for (size_t i = 0U; i < edit_count; i++) {
+        const size_t offset = edits[i].offset;
+        const size_t delete_bytes = edits[i].delete_bytes;
+        const size_t insert_bytes = strlen(edits[i].insert);
+        if (offset < previous_end || offset > original_size ||
+            delete_bytes > original_size - offset ||
+            new_size < delete_bytes ||
+            new_size - delete_bytes >
+                AGENT_TOOL_STORAGE_PATCH_FILE_MAX - insert_bytes) {
+            err = ESP_ERR_INVALID_ARG;
+            goto cleanup_patch;
+        }
+        new_size = new_size - delete_bytes + insert_bytes;
+        previous_end = offset + delete_bytes;
+    }
+
+    uint8_t *patched = solar_os_memory_calloc(
+        new_size + 1U,
+        1U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.storage-patch-output");
+    if (patched == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto cleanup_patch;
+    }
+    size_t source_offset = 0U;
+    size_t output_offset = 0U;
+    for (size_t i = 0U; i < edit_count; i++) {
+        const size_t unchanged = edits[i].offset - source_offset;
+        memcpy(patched + output_offset,
+               original + source_offset,
+               unchanged);
+        output_offset += unchanged;
+        const size_t insert_bytes = strlen(edits[i].insert);
+        memcpy(patched + output_offset, edits[i].insert, insert_bytes);
+        output_offset += insert_bytes;
+        source_offset = edits[i].offset + edits[i].delete_bytes;
+    }
+    memcpy(patched + output_offset,
+           original + source_offset,
+           original_size - source_offset);
+
+    char temp_path[SOLAR_OS_STORAGE_PATH_MAX];
+    char backup_path[SOLAR_OS_STORAGE_PATH_MAX];
+    bool staging_paths_available = false;
+    for (unsigned i = 0U; i < 4U; i++) {
+        const int temp_written = snprintf(temp_path,
+                                          sizeof(temp_path),
+                                          "%s.agent%u.tmp",
+                                          path,
+                                          i);
+        const int backup_written = snprintf(backup_path,
+                                            sizeof(backup_path),
+                                            "%s.agent%u.bak",
+                                            path,
+                                            i);
+        if (temp_written < 0 ||
+            (size_t)temp_written >= sizeof(temp_path) ||
+            backup_written < 0 ||
+            (size_t)backup_written >= sizeof(backup_path)) {
+            err = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        struct stat temp_status;
+        struct stat backup_status;
+        if (stat(temp_path, &temp_status) != 0 &&
+            stat(backup_path, &backup_status) != 0) {
+            staging_paths_available = true;
+            break;
+        }
+    }
+    if (err != ESP_OK || !staging_paths_available) {
+        if (err == ESP_OK) {
+            err = ESP_ERR_INVALID_STATE;
+        }
+        solar_os_memory_free(patched);
+        goto cleanup_patch;
+    }
+
+    bool staging_no_space = false;
+    errno = 0;
+    file = fopen(temp_path, "wb");
+    if (file == NULL) {
+        const int open_errno = errno;
+        if (open_errno == ENOSPC) {
+            (void)remove(temp_path);
+            staging_no_space = true;
+        } else {
+            err = ESP_FAIL;
+        }
+        if (err != ESP_OK) {
+            solar_os_memory_free(patched);
+            goto cleanup_patch;
+        }
+    }
+    if (!staging_no_space) {
+        errno = 0;
+        const size_t written_bytes = fwrite(patched, 1U, new_size, file);
+        const int write_errno = written_bytes == new_size ? 0 : errno;
+        const int flush_result = fflush(file);
+        const int flush_errno = flush_result == 0 ? 0 : errno;
+        const int close_result = fclose(file);
+        const int close_errno = close_result == 0 ? 0 : errno;
+        if (written_bytes != new_size ||
+            flush_result != 0 ||
+            close_result != 0) {
+            const bool no_space =
+                write_errno == ENOSPC ||
+                flush_errno == ENOSPC ||
+                close_errno == ENOSPC;
+            (void)remove(temp_path);
+            if (no_space) {
+                staging_no_space = true;
+            } else {
+                err = ESP_FAIL;
+            }
+        }
+    }
+    if (err != ESP_OK) {
+        (void)remove(temp_path);
+        solar_os_memory_free(patched);
+        goto cleanup_patch;
+    }
+    file = fopen(path, "rb");
+    if (file == NULL) {
+        (void)remove(temp_path);
+        solar_os_memory_free(patched);
+        err = ESP_FAIL;
+        goto cleanup_patch;
+    }
+    err = agent_tool_sha256_file(file, current_sha256);
+    const int verify_close = fclose(file);
+    if (err != ESP_OK || verify_close != 0) {
+        (void)remove(temp_path);
+        solar_os_memory_free(patched);
+        if (err == ESP_OK) {
+            err = ESP_FAIL;
+        }
+        goto cleanup_patch;
+    }
+    if (strcasecmp(current_sha256, expected_sha256) != 0) {
+        (void)remove(temp_path);
+        solar_os_memory_free(patched);
+        const int written = snprintf(
+            result,
+            result_len,
+            "{\"ok\":false,\"conflict\":true,\"path\":\"%s\","
+            "\"expected_sha256\":\"%s\",\"current_sha256\":\"%s\","
+            "\"new_sha256\":\"\",\"bytes_written\":0}",
+            escaped_path,
+            expected_sha256,
+            current_sha256);
+        err = written >= 0 && (size_t)written < result_len ?
+            ESP_OK : ESP_ERR_INVALID_SIZE;
+        goto cleanup_patch;
+    }
+    if (staging_no_space) {
+        err = agent_tool_replace_from_memory(path,
+                                             patched,
+                                             new_size,
+                                             original,
+                                             original_size);
+        if (err != ESP_OK) {
+            solar_os_memory_free(patched);
+            goto cleanup_patch;
+        }
+    } else {
+        /*
+         * ESP VFS filesystems do not consistently replace an existing rename
+         * destination. Preserve the verified original until the staged file
+         * has acquired the public path so a failed second rename can be
+         * rolled back.
+         */
+        if (rename(path, backup_path) != 0) {
+            (void)remove(temp_path);
+            solar_os_memory_free(patched);
+            err = ESP_FAIL;
+            goto cleanup_patch;
+        }
+        if (rename(temp_path, path) != 0) {
+            const int rollback_result = rename(backup_path, path);
+            (void)remove(temp_path);
+            solar_os_memory_free(patched);
+            err = rollback_result == 0 ? ESP_FAIL : ESP_ERR_INVALID_STATE;
+            goto cleanup_patch;
+        }
+        (void)remove(backup_path);
+    }
+
+    char new_sha256[SOLAR_OS_CRYPTO_SHA256_HEX_LEN];
+    err = solar_os_crypto_sha256_once(patched, new_size, digest);
+    if (err == ESP_OK) {
+        err = solar_os_crypto_bytes_to_hex(digest,
+                                           sizeof(digest),
+                                           new_sha256,
+                                           sizeof(new_sha256));
+    }
+    solar_os_memory_free(patched);
+    if (err == ESP_OK) {
+        const int written = snprintf(
+            result,
+            result_len,
+            "{\"ok\":true,\"conflict\":false,\"path\":\"%s\","
+            "\"expected_sha256\":\"%s\",\"current_sha256\":\"%s\","
+            "\"new_sha256\":\"%s\",\"bytes_written\":%u}",
+            escaped_path,
+            expected_sha256,
+            current_sha256,
+            new_sha256,
+            (unsigned)new_size);
+        err = written >= 0 && (size_t)written < result_len ?
+            ESP_OK : ESP_ERR_INVALID_SIZE;
+    }
+
+cleanup_patch:
+    memset(original, 0, original_size + 1U);
+    solar_os_memory_free(original);
+    if (edits != NULL) {
+        memset(edits, 0, edit_count * sizeof(*edits));
+    }
+    solar_os_memory_free(edits);
     return err;
 }
 
@@ -1971,9 +2935,12 @@ static esp_err_t agent_tool_sensors_read(const char *arguments,
     return err;
 }
 
-static esp_err_t agent_tool_script_run(
+static esp_err_t agent_tool_script_execute(
     solar_os_agent_script_language_t language,
-    const char *arguments,
+    solar_os_script_input_t input_type,
+    const char *input,
+    int argc,
+    const char *const *argv,
     const solar_os_agent_request_t *request,
     char *result,
     size_t result_len)
@@ -1981,19 +2948,11 @@ static esp_err_t agent_tool_script_run(
     if (request == NULL || request->run_script == NULL) {
         return ESP_ERR_NOT_SUPPORTED;
     }
-
-    solar_os_json_doc_t *doc = NULL;
-    const solar_os_json_value_t *root = NULL;
-    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
-    if (err != ESP_OK) {
-        return err;
+    if (input == NULL || argc < 0 || argc > SOLAR_OS_APP_ARG_MAX ||
+        (argc > 0 && argv == NULL)) {
+        return ESP_ERR_INVALID_ARG;
     }
 
-    char *source = solar_os_memory_calloc(
-        1,
-        AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U,
-        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
-        "agent.tool.script-source");
     char *output = solar_os_memory_calloc(
         1,
         AGENT_TOOL_SCRIPT_OUTPUT_MAX,
@@ -2007,31 +2966,23 @@ static esp_err_t agent_tool_script_run(
         SOLAR_OS_SCRIPT_ERROR_MAX * AGENT_TOOL_JSON_ESCAPE_FACTOR + 1U,
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
         "agent.tool.script-error");
-    if (source == NULL || output == NULL ||
-        escaped_output == NULL || escaped_error == NULL) {
-        err = ESP_ERR_NO_MEM;
-        goto cleanup;
-    }
-
-    const solar_os_json_value_t *source_value =
-        solar_os_json_object_get(root, "source");
-    err = solar_os_json_get_string(source_value,
-                                   source,
-                                   AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U);
-    solar_os_json_free(doc);
-    doc = NULL;
-    if (err != ESP_OK || source[0] == '\0') {
-        err = ESP_ERR_INVALID_ARG;
-        goto cleanup;
+    if (output == NULL || escaped_output == NULL || escaped_error == NULL) {
+        solar_os_memory_free(escaped_error);
+        solar_os_memory_free(escaped_output);
+        solar_os_memory_free(output);
+        return ESP_ERR_NO_MEM;
     }
 
     solar_os_script_run_result_t run_result = {0};
-    err = request->run_script(language,
-                              source,
-                              output,
-                              AGENT_TOOL_SCRIPT_OUTPUT_MAX,
-                              &run_result,
-                              request->user_data);
+    esp_err_t err = request->run_script(language,
+                                        input_type,
+                                        input,
+                                        argc,
+                                        argv,
+                                        output,
+                                        AGENT_TOOL_SCRIPT_OUTPUT_MAX,
+                                        &run_result,
+                                        request->user_data);
     if (err != ESP_OK) {
         goto cleanup;
     }
@@ -2066,13 +3017,54 @@ static esp_err_t agent_tool_script_run(
         ESP_OK : ESP_ERR_INVALID_SIZE;
 
 cleanup:
-    solar_os_json_free(doc);
     solar_os_memory_free(escaped_error);
     solar_os_memory_free(escaped_output);
     solar_os_memory_free(output);
-    if (source != NULL) {
-        memset(source, 0, AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U);
+    return err;
+}
+
+static esp_err_t agent_tool_script_run(
+    solar_os_agent_script_language_t language,
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
     }
+    char *source = solar_os_memory_calloc(
+        1,
+        AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.tool.script-source");
+    if (source == NULL) {
+        solar_os_json_free(doc);
+        return ESP_ERR_NO_MEM;
+    }
+    err = solar_os_json_get_string(
+        solar_os_json_object_get(root, "source"),
+        source,
+        AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U);
+    solar_os_json_free(doc);
+    if (err == ESP_OK && source[0] == '\0') {
+        err = ESP_ERR_INVALID_ARG;
+    }
+    if (err == ESP_OK) {
+        const char *argv[] = {"<agent-tool>"};
+        err = agent_tool_script_execute(language,
+                                        SOLAR_OS_SCRIPT_INPUT_SOURCE,
+                                        source,
+                                        1,
+                                        argv,
+                                        request,
+                                        result,
+                                        result_len);
+    }
+    memset(source, 0, AGENT_TOOL_SCRIPT_SOURCE_MAX + 1U);
     solar_os_memory_free(source);
     return err;
 }
@@ -2101,6 +3093,84 @@ static esp_err_t agent_tool_script_run_lua(
                                  request,
                                  result,
                                  result_len);
+}
+
+static esp_err_t agent_tool_script_run_file(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    if (request == NULL || request->run_script == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char language_name[8];
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    err = solar_os_json_get_string(
+        solar_os_json_object_get(root, "language"),
+        language_name,
+        sizeof(language_name));
+    if (err == ESP_OK) {
+        err = agent_tool_storage_path(root, path, sizeof(path));
+    }
+    solar_os_agent_script_language_t language = 0U;
+    if (err == ESP_OK && strcmp(language_name, "python") == 0) {
+        language = SOLAR_OS_AGENT_SCRIPT_PYTHON;
+    } else if (err == ESP_OK && strcmp(language_name, "lua") == 0) {
+        language = SOLAR_OS_AGENT_SCRIPT_LUA;
+    } else if (err == ESP_OK) {
+        err = ESP_ERR_INVALID_ARG;
+    }
+    if (err == ESP_OK &&
+        (request->script_languages & (uint32_t)language) == 0U) {
+        err = ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const solar_os_json_value_t *args_value =
+        solar_os_json_object_get(root, "args");
+    const size_t arg_count = solar_os_json_array_size(args_value);
+    if (err == ESP_OK &&
+        (!solar_os_json_is_array(args_value) ||
+         arg_count >= SOLAR_OS_APP_ARG_MAX)) {
+        err = ESP_ERR_INVALID_ARG;
+    }
+    char argv_storage[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN] = {{0}};
+    const char *argv[SOLAR_OS_APP_ARG_MAX] = {0};
+    if (err == ESP_OK) {
+        strlcpy(argv_storage[0], path, sizeof(argv_storage[0]));
+        argv[0] = argv_storage[0];
+    }
+    for (size_t i = 0U; err == ESP_OK && i < arg_count; i++) {
+        err = solar_os_json_get_string(
+            solar_os_json_array_get(args_value, i),
+            argv_storage[i + 1U],
+            sizeof(argv_storage[i + 1U]));
+        argv[i + 1U] = argv_storage[i + 1U];
+    }
+    solar_os_json_free(doc);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    struct stat status;
+    if (stat(path, &status) != 0 || !S_ISREG(status.st_mode)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    return agent_tool_script_execute(language,
+                                     SOLAR_OS_SCRIPT_INPUT_FILE,
+                                     path,
+                                     (int)arg_count + 1,
+                                     argv,
+                                     request,
+                                     result,
+                                     result_len);
 }
 
 solar_os_agent_tool_policy_decision_t solar_os_agent_tools_policy_decision(

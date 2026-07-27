@@ -64,7 +64,10 @@ typedef esp_err_t (*solar_os_agent_tool_confirmation_fn)(
 
 typedef esp_err_t (*solar_os_agent_script_run_fn)(
     solar_os_agent_script_language_t language,
-    const char *source,
+    solar_os_script_input_t input_type,
+    const char *input,
+    int argc,
+    const char *const *argv,
     char *output,
     size_t output_size,
     solar_os_script_run_result_t *result,

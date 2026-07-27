@@ -6,7 +6,7 @@
 #include "esp_err.h"
 #include "solar_os_agent_provider.h"
 
-#define SOLAR_OS_AGENT_TOOL_REGISTRY_MAX 16U
+#define SOLAR_OS_AGENT_TOOL_REGISTRY_MAX 20U
 #define SOLAR_OS_AGENT_TOOL_ACTIVE_MAX 8U
 
 typedef enum {

@@ -346,24 +346,29 @@ static esp_err_t agent_app_confirm_tool(const char *tool_name,
 
 static esp_err_t agent_app_run_script(
     solar_os_agent_script_language_t language,
-    const char *source,
+    solar_os_script_input_t input_type,
+    const char *input,
+    int argc,
+    const char *const *argv,
     char *output,
     size_t output_size,
     solar_os_script_run_result_t *result,
     void *user_data)
 {
     agent_app_state_t *state = (agent_app_state_t *)user_data;
-    if (state == NULL || source == NULL || output == NULL ||
-        output_size == 0 || result == NULL) {
+    if (state == NULL || input == NULL || argc < 0 ||
+        argc > SOLAR_OS_APP_ARG_MAX || (argc > 0 && argv == NULL) ||
+        output == NULL || output_size == 0 || result == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    const char *argv[] = {"<agent-tool>"};
     const solar_os_script_run_request_t request = {
         .context = state->ctx,
-        .input_type = SOLAR_OS_SCRIPT_INPUT_SOURCE,
-        .input = source,
-        .source_name = "<agent-tool>",
-        .argc = 1,
+        .input_type = input_type,
+        .input = input,
+        .source_name = input_type == SOLAR_OS_SCRIPT_INPUT_SOURCE
+            ? "<agent-tool>"
+            : input,
+        .argc = argc,
         .argv = argv,
         .timeout_ms = AGENT_APP_SCRIPT_TIMEOUT_MS,
         .cancel_requested = agent_app_script_cancel_requested,

@@ -112,8 +112,21 @@ The package- and policy-gated tools discoverable through `tool_search` are:
   is a sensitive read and requires confirmation under the default policy.
 - `storage_write`: create or replace an absolute text-file path with up to
   3072 bytes. This is mutating and requires confirmation by default.
-  Both file-content tools reject paths below `.ssh`, so the agent cannot read
-  or replace the device's SSH identity files.
+  All storage content and editing tools reject paths below `.ssh`, so the agent
+  cannot inspect or replace the device's SSH identity files.
+- `storage_search`: search one file or a bounded directory tree for text,
+  returning paths, line numbers, and excerpts. It scans at most 32 paths,
+  64 KiB, and 12 matches per call.
+- `storage_read_range`: read up to 2048 bytes at a byte offset and return the
+  complete file's SHA-256, next offset, and end-of-file state.
+- `storage_patch`: apply up to eight ascending, non-overlapping byte-offset
+  edits to a file no larger than 128 KiB. The caller must present the SHA-256
+  returned by `storage_read_range`; a stale version returns a structured
+  conflict without changing the file. Successful patches are staged on the
+  same volume; the verified original is retained as a backup until the staged
+  file has acquired the public path. If the volume has no spare allocation
+  unit for staging, replacement uses the PSRAM copy and restores the original
+  on a write failure.
 - `jobs_list`: every compiled background job with its current state, last
   error, worker-stack size, and whether that stack uses internal RAM or PSRAM.
 - `display_list`: registered display targets with their real names, drivers,
@@ -136,6 +149,9 @@ The package- and policy-gated tools discoverable through `tool_search` are:
 - `script_run_python` and `script_run_lua`: execute a source string through the
   installed interpreter adapter. Generated scripts have access to the same
   SolarOS APIs as local scripts, so both tools are classified as disruptive.
+- `script_run_file`: execute a saved Python or Lua file with up to seven
+  arguments through that same runner, including captured output, structured
+  errors, cancellation, ownership guards, and the 30-second deadline.
 
 Tool policy is NVS-backed and enforced again inside the canonical executor:
 
@@ -174,7 +190,8 @@ the model.
   contain the assembled output as one event.
 - Request body: 16 KiB, PSRAM preferred.
 - Prompt: 1023 bytes.
-- Tool descriptor buffer: 4 KiB, allocated in PSRAM. At most three bootstrap
+- Tool discovery query: 159 bytes.
+- Tool descriptor buffer: 6 KiB, allocated in PSRAM. At most three bootstrap
   plus five discovered tool schemas are serialized per provider turn.
 - Tool arguments: 4095 bytes, held in PSRAM for a request.
 - Tool result: 4095 bytes, allocated in PSRAM.
@@ -182,6 +199,11 @@ the model.
 - Manual search: fixed stack storage for at most 12 results; page text remains
   in flash and is not copied into heap by `man` or `less`.
 - Storage read/write content: 3072 bytes.
+- Storage ranged read: 2048 requested bytes; JSON output may stop earlier when
+  escaping would exhaust the bounded tool result.
+- Storage search: 32 queued paths, 64 KiB scanned text, and 12 matches.
+- Storage patch: 128 KiB file, eight edits, and 2048 inserted bytes per edit;
+  file and edit buffers require PSRAM.
 - Generated script source: 640 bytes.
 - Generated script captured output: 383 bytes.
 - Tool confirmation deadline: 30 seconds.

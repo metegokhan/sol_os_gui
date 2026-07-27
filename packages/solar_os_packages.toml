@@ -319,7 +319,7 @@ capabilities = ["wifi"]
 
 [packages.service_agent]
 label = "service.agent"
-depends = ["service_http_client", "service_json"]
+depends = ["service_crypto", "service_http_client", "service_json"]
 sources = [
   "services/solar_os_agent.c",
   "services/solar_os_agent_reference.c",

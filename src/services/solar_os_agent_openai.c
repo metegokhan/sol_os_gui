@@ -12,7 +12,7 @@
 #include "solar_os_memory.h"
 
 #define AGENT_OPENAI_BODY_MAX 16384U
-#define AGENT_OPENAI_TOOLS_MAX 4096U
+#define AGENT_OPENAI_TOOLS_MAX 6144U
 #define AGENT_OPENAI_SSE_LINE_MAX (24U * 1024U)
 #define AGENT_OPENAI_ERROR_MAX 512U
 #define AGENT_OPENAI_HTTP_TIMEOUT_MS 15000U
@@ -31,7 +31,11 @@
     "If the contract is insufficient, query again instead of guessing. "     \
     "Never invent API names, device names, display targets, bus names, or "   \
     "GPIOs. Use only values supplied by the user or verified through SolarOS "\
-    "APIs. Before writing graphics code for an attached display, activate "   \
+    "APIs. For nontrivial existing files, use storage_search and "             \
+    "storage_read_range, then apply storage_patch with the returned SHA-256. " \
+    "Run the saved program with script_run_file and use its structured error " \
+    "before editing again. Before writing graphics code for an attached "      \
+    "display, activate "                                                       \
     "display tools with tool_search, call display_list, and use only a "       \
     "returned ready target. Keep answers concise."
 
