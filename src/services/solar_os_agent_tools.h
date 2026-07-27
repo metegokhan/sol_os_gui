@@ -6,7 +6,8 @@
 #include "esp_err.h"
 #include "solar_os_agent_provider.h"
 
-#define SOLAR_OS_AGENT_TOOL_REGISTRY_MAX 9U
+#define SOLAR_OS_AGENT_TOOL_REGISTRY_MAX 16U
+#define SOLAR_OS_AGENT_TOOL_ACTIVE_MAX 8U
 
 typedef enum {
     SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY = 0,
@@ -35,6 +36,13 @@ size_t solar_os_agent_tools_collect(
     solar_os_agent_tool_policy_t policy,
     solar_os_agent_tool_descriptor_t *descriptors,
     size_t capacity);
+size_t solar_os_agent_tools_collect_discovered(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t capacity);
+bool solar_os_agent_tools_is_discovery(const char *name);
 size_t solar_os_agent_tools_count(void);
 bool solar_os_agent_tools_get(size_t index, solar_os_agent_tool_info_t *info);
 esp_err_t solar_os_agent_tools_execute(const char *name,

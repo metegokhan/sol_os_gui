@@ -86,7 +86,8 @@ validation uses the firmware certificate bundle.
 
 `agent tools` shows the canonical registry, domain and risk metadata, runtime
 availability, current policy disposition, and any required capability. The
-registry currently contains:
+registry can be larger than the schema set sent to the provider. Every request
+starts with only three bootstrap tools:
 
 - `system_status`: board ID, SolarOS version, uptime, free and largest internal
   RAM blocks, and free PSRAM.
@@ -98,6 +99,13 @@ registry currently contains:
   preserve cleanup patterns. Graphics matches include copyable Python and Lua
   setup/cleanup skeletons using `gfx.WHITE`, `gfx.BLACK`, a verified target,
   and the language-correct `gfx.end()` or `gfx["end"]()`.
+- `tool_search`: find and activate up to five installed tools relevant to an
+  exact task. A later search replaces the previous dynamic selection while
+  retaining the three bootstrap tools, so no provider turn advertises more
+  than eight schemas.
+
+The package- and policy-gated tools discoverable through `tool_search` are:
+
 - `storage_list`: up to 16 file or directory entries for one absolute path,
   including type and size. Results report when the output was truncated.
 - `storage_read`: read up to 3072 bytes from an absolute text-file path. This
@@ -112,7 +120,19 @@ registry currently contains:
   dimensions, readiness, roles, brightness support, and current owners. The
   provider must call this before generating code for an attached display and
   use only a returned ready target.
-
+- `hardware_describe`: compiled board identity, capabilities, and installed
+  PSRAM. This is the first check before assuming a peripheral exists.
+- `gpio_list`: real board GPIO slots, pin policy, availability, claims,
+  configuration, and already-readable levels without configuring a pin.
+- `gpio_read`: inspect one real board GPIO slot. It returns a level only when
+  the pin is already configured and readable; it never claims or configures the
+  pin as a side effect.
+- `buses_list`: registered I2C, SPI, UART, and OneWire buses with their actual
+  names, pin configuration, readiness, origin, sharing mode, and lease count.
+- `network_status`: current Wi-Fi station, IP, access-point, signal, channel,
+  and NAT state without changing the provider connection.
+- `sensors_read`: battery and environmental readings from installed service
+  packages. A family absent from the build is returned as unavailable.
 - `script_run_python` and `script_run_lua`: execute a source string through the
   installed interpreter adapter. Generated scripts have access to the same
   SolarOS APIs as local scripts, so both tools are classified as disruptive.
@@ -142,8 +162,10 @@ multiple simultaneous tool calls, malformed arguments, or a tool request after
 the configured limit fail the request.
 Definitions, input/output schemas, availability checks, risk metadata, and
 executors live in one declarative registry. Only available tools are sent to
-the provider, and every successful executor result is parsed as a JSON object
-before it is returned to the model.
+the provider. Discovery also filters tools denied by the current policy. The
+agent rejects calls to tools outside the currently advertised set, and every
+successful executor result is parsed as a JSON object before it is returned to
+the model.
 
 ## Resource bounds
 
@@ -152,7 +174,8 @@ before it is returned to the model.
   contain the assembled output as one event.
 - Request body: 16 KiB, PSRAM preferred.
 - Prompt: 1023 bytes.
-- Tool descriptor buffer: 4 KiB, allocated in PSRAM.
+- Tool descriptor buffer: 4 KiB, allocated in PSRAM. At most three bootstrap
+  plus five discovered tool schemas are serialized per provider turn.
 - Tool arguments: 4095 bytes, held in PSRAM for a request.
 - Tool result: 4095 bytes, allocated in PSRAM.
 - API-reference matches: at most three compact contracts per lookup.
@@ -178,5 +201,5 @@ The agent package requires Wi-Fi and PSRAM but does not require Python or Lua.
 The manual command and model tool are advertised only when the corresponding
 runtime is in the firmware; the agent app supplies the optional adapter callback
 without making either interpreter a package dependency. Larger-file editing,
-persisted conversations, mutating job operations, network and hardware tools,
-and additional providers are later phases.
+persisted conversations, mutating job/network/hardware operations, additional
+providers, remote interfaces, and scheduling are later phases.

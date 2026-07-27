@@ -1,5 +1,6 @@
 #include "solar_os_agent_tools.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <inttypes.h>
 #include <stdarg.h>
@@ -7,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 
 #include "esp_heap_caps.h"
@@ -15,11 +17,27 @@
 #include "solar_os_board.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+#include "solar_os_battery.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+#include "solar_os_buses.h"
+#endif
 #include "solar_os_display.h"
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
+#include "solar_os_gpio.h"
+#include "solar_os_pins.h"
+#endif
 #include "solar_os_jobs.h"
 #include "solar_os_json.h"
 #include "solar_os_memory.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+#include "solar_os_sensors.h"
+#endif
 #include "solar_os_storage.h"
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
+#include "solar_os_wifi.h"
+#endif
 
 #ifndef SOLAR_OS_VERSION
 #define SOLAR_OS_VERSION "0.0.0"
@@ -31,6 +49,10 @@
 #define AGENT_TOOL_SCRIPT_SOURCE_MAX 640U
 #define AGENT_TOOL_SCRIPT_OUTPUT_MAX 384U
 #define AGENT_TOOL_JSON_ESCAPE_FACTOR 6U
+#define AGENT_TOOL_SEARCH_QUERY_MAX 96U
+#define AGENT_TOOL_SEARCH_MATCH_MAX \
+    (SOLAR_OS_AGENT_TOOL_ACTIVE_MAX - 3U)
+#define AGENT_TOOL_SEARCH_TOKEN_MAX 31U
 
 #define AGENT_TOOL_SCHEMA_EMPTY \
     "{\"type\":\"object\",\"properties\":{},\"required\":[]," \
@@ -52,6 +74,14 @@
 #define AGENT_TOOL_SCHEMA_REFERENCE \
     "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"," \
     "\"minLength\":1,\"maxLength\":64}},\"required\":[\"query\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_SEARCH \
+    "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"," \
+    "\"minLength\":1,\"maxLength\":96}},\"required\":[\"query\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_GPIO_READ \
+    "{\"type\":\"object\",\"properties\":{\"pin\":{\"type\":\"integer\"," \
+    "\"minimum\":0,\"maximum\":63}},\"required\":[\"pin\"]," \
     "\"additionalProperties\":false}"
 
 #define AGENT_TOOL_OUTPUT_SYSTEM_STATUS \
@@ -108,6 +138,49 @@
     "\"additionalProperties\":false}}},\"required\":[\"guidance\",\"count\"," \
     "\"matches\"]," \
     "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_SEARCH \
+    "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}," \
+    "\"count\":{\"type\":\"integer\"},\"tools\":{\"type\":\"array\"," \
+    "\"items\":{\"type\":\"object\",\"properties\":{\"name\":" \
+    "{\"type\":\"string\"},\"domain\":{\"type\":\"string\"}," \
+    "\"description\":{\"type\":\"string\"},\"risk\":{\"type\":\"string\"}}," \
+    "\"required\":[\"name\",\"domain\",\"description\",\"risk\"]," \
+    "\"additionalProperties\":false}}},\"required\":[\"query\",\"count\"," \
+    "\"tools\"],\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_HARDWARE_DESCRIBE \
+    "{\"type\":\"object\",\"properties\":{\"board\":{\"type\":\"string\"}," \
+    "\"name\":{\"type\":\"string\"},\"capabilities\":{\"type\":\"string\"}," \
+    "\"psram_bytes\":{\"type\":\"integer\"}},\"required\":[\"board\",\"name\"," \
+    "\"capabilities\",\"psram_bytes\"],\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_GPIO_LIST \
+    "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
+    "\"pins\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
+    "\"required\":[\"count\",\"pins\",\"truncated\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_GPIO_READ \
+    "{\"type\":\"object\",\"properties\":{\"pin\":{\"type\":\"integer\"}," \
+    "\"configured\":{\"type\":\"boolean\"},\"readable\":{\"type\":\"boolean\"}," \
+    "\"level\":{\"type\":[\"boolean\",\"null\"]},\"owner\":{\"type\":\"string\"}}," \
+    "\"required\":[\"pin\",\"configured\",\"readable\",\"level\",\"owner\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_BUSES_LIST \
+    "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
+    "\"buses\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
+    "\"required\":[\"count\",\"buses\",\"truncated\"]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_NETWORK_STATUS \
+    "{\"type\":\"object\",\"properties\":{\"state\":{\"type\":\"string\"}," \
+    "\"started\":{\"type\":\"boolean\"},\"connected\":{\"type\":\"boolean\"}," \
+    "\"ssid\":{\"type\":\"string\"},\"ip\":{\"type\":\"string\"}," \
+    "\"gateway\":{\"type\":\"string\"},\"rssi\":{\"type\":\"integer\"}," \
+    "\"channel\":{\"type\":\"integer\"},\"ap_running\":{\"type\":\"boolean\"}," \
+    "\"ap_station_count\":{\"type\":\"integer\"},\"nat_active\":" \
+    "{\"type\":\"boolean\"}},\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_SENSORS_READ \
+    "{\"type\":\"object\",\"properties\":{\"battery\":{\"type\":[\"object\"," \
+    "\"null\"]},\"environment\":{\"type\":[\"object\",\"null\"]}}," \
+    "\"required\":[\"battery\",\"environment\"]," \
+    "\"additionalProperties\":false}"
 
 typedef esp_err_t (*agent_tool_execute_fn)(const char *arguments,
                                            const solar_os_agent_request_t *request,
@@ -118,10 +191,12 @@ typedef bool (*agent_tool_available_fn)(void);
 typedef struct {
     solar_os_agent_tool_descriptor_t provider;
     const char *domain;
+    const char *search_terms;
     const char *output_schema_json;
     const char *required_capability;
     solar_os_agent_tool_risk_t risk;
     uint32_t required_script_language;
+    bool bootstrap;
     agent_tool_available_fn available;
     agent_tool_execute_fn execute;
 } agent_tool_definition_t;
@@ -132,6 +207,11 @@ typedef struct {
     size_t length;
 } agent_tool_output_t;
 
+typedef struct {
+    const agent_tool_definition_t *definition;
+    unsigned score;
+} agent_tool_search_match_t;
+
 static esp_err_t agent_tool_system_status(const char *arguments,
                                            const solar_os_agent_request_t *request,
                                            char *result,
@@ -141,6 +221,10 @@ static esp_err_t agent_tool_solaros_reference(
     const solar_os_agent_request_t *request,
     char *result,
     size_t result_len);
+static esp_err_t agent_tool_search(const char *arguments,
+                                   const solar_os_agent_request_t *request,
+                                   char *result,
+                                   size_t result_len);
 static esp_err_t agent_tool_storage_list(const char *arguments,
                                          const solar_os_agent_request_t *request,
                                          char *result,
@@ -158,6 +242,32 @@ static esp_err_t agent_tool_jobs_list(const char *arguments,
                                       char *result,
                                       size_t result_len);
 static esp_err_t agent_tool_display_list(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len);
+static esp_err_t agent_tool_hardware_describe(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
+static esp_err_t agent_tool_gpio_list(const char *arguments,
+                                      const solar_os_agent_request_t *request,
+                                      char *result,
+                                      size_t result_len);
+static esp_err_t agent_tool_gpio_read(const char *arguments,
+                                      const solar_os_agent_request_t *request,
+                                      char *result,
+                                      size_t result_len);
+static esp_err_t agent_tool_buses_list(const char *arguments,
+                                       const solar_os_agent_request_t *request,
+                                       char *result,
+                                       size_t result_len);
+static esp_err_t agent_tool_network_status(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len);
+static esp_err_t agent_tool_sensors_read(const char *arguments,
                                          const solar_os_agent_request_t *request,
                                          char *result,
                                          size_t result_len);
@@ -180,6 +290,42 @@ static bool agent_tool_storage_available(void)
 static bool agent_tool_display_available(void)
 {
     return solar_os_board_has(SOLAR_OS_BOARD_CAP_GFX);
+}
+
+static bool agent_tool_gpio_available(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
+    return solar_os_board_has(SOLAR_OS_BOARD_CAP_GPIO);
+#else
+    return false;
+#endif
+}
+
+static bool agent_tool_buses_available(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool agent_tool_network_available(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
+    return solar_os_board_has(SOLAR_OS_BOARD_CAP_WIFI);
+#else
+    return false;
+#endif
+}
+
+static bool agent_tool_sensors_available(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY || SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    return true;
+#else
+    return false;
+#endif
 }
 
 static bool agent_tool_python_available(void)
@@ -211,8 +357,10 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "system",
+        .search_terms = "status memory ram psram uptime board version",
         .output_schema_json = AGENT_TOOL_OUTPUT_SYSTEM_STATUS,
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .bootstrap = true,
         .execute = agent_tool_system_status,
     },
     {
@@ -228,9 +376,29 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "reference",
+        .search_terms = "manual documentation api python lua coding help",
         .output_schema_json = AGENT_TOOL_OUTPUT_REFERENCE,
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .bootstrap = true,
         .execute = agent_tool_solaros_reference,
+    },
+    {
+        .provider = {
+            .name = "tool_search",
+            .description =
+                "Find and activate up to five installed SolarOS tools relevant "
+                "to a task. Call this before attempting storage, display, "
+                "hardware, GPIO, bus, network, sensor, or script operations "
+                "whose tools are not currently visible.",
+            .parameters_json = AGENT_TOOL_SCHEMA_SEARCH,
+            .strict = true,
+        },
+        .domain = "tools",
+        .search_terms = "discover find activate capabilities operations",
+        .output_schema_json = AGENT_TOOL_OUTPUT_SEARCH,
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .bootstrap = true,
+        .execute = agent_tool_search,
     },
     {
         .provider = {
@@ -242,6 +410,7 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "storage",
+        .search_terms = "files directories filesystem inspect browse",
         .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_LIST,
         .required_capability = "storage",
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
@@ -258,6 +427,7 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "storage",
+        .search_terms = "file content open inspect load text",
         .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_READ,
         .required_capability = "storage",
         .risk = SOLAR_OS_AGENT_TOOL_RISK_SENSITIVE_READ,
@@ -274,6 +444,7 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "storage",
+        .search_terms = "file content edit modify create save replace",
         .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_WRITE,
         .required_capability = "storage",
         .risk = SOLAR_OS_AGENT_TOOL_RISK_MUTATING,
@@ -290,6 +461,7 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "jobs",
+        .search_terms = "background workers tasks process memory state",
         .output_schema_json = AGENT_TOOL_OUTPUT_JOBS_LIST,
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
         .execute = agent_tool_jobs_list,
@@ -306,11 +478,117 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "display",
+        .search_terms = "graphics gfx screen oled lcd target attached",
         .output_schema_json = AGENT_TOOL_OUTPUT_DISPLAY_LIST,
         .required_capability = "gfx",
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
         .available = agent_tool_display_available,
         .execute = agent_tool_display_list,
+    },
+    {
+        .provider = {
+            .name = "hardware_describe",
+            .description =
+                "Describe the compiled SolarOS board and its actual hardware "
+                "capabilities. Use this before assuming peripherals exist.",
+            .parameters_json = AGENT_TOOL_SCHEMA_EMPTY,
+            .strict = true,
+        },
+        .domain = "hardware",
+        .search_terms =
+            "board capabilities peripherals gpio buses wifi battery sensors",
+        .output_schema_json = AGENT_TOOL_OUTPUT_HARDWARE_DESCRIBE,
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .execute = agent_tool_hardware_describe,
+    },
+    {
+        .provider = {
+            .name = "gpio_list",
+            .description =
+                "List real board GPIO slots, runtime policy, current claims, "
+                "configuration, and readable levels without changing pins.",
+            .parameters_json = AGENT_TOOL_SCHEMA_EMPTY,
+            .strict = true,
+        },
+        .domain = "gpio",
+        .search_terms = "pins digital input output level claims expansion",
+        .output_schema_json = AGENT_TOOL_OUTPUT_GPIO_LIST,
+        .required_capability = "gpio",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .available = agent_tool_gpio_available,
+        .execute = agent_tool_gpio_list,
+    },
+    {
+        .provider = {
+            .name = "gpio_read",
+            .description =
+                "Inspect one real GPIO slot and return its level only when it "
+                "is already configured and readable. This never configures or "
+                "claims a pin.",
+            .parameters_json = AGENT_TOOL_SCHEMA_GPIO_READ,
+            .strict = true,
+        },
+        .domain = "gpio",
+        .search_terms = "pin digital input level state inspect",
+        .output_schema_json = AGENT_TOOL_OUTPUT_GPIO_READ,
+        .required_capability = "gpio",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .available = agent_tool_gpio_available,
+        .execute = agent_tool_gpio_read,
+    },
+    {
+        .provider = {
+            .name = "buses_list",
+            .description =
+                "List registered I2C, SPI, UART, and OneWire buses with their "
+                "real names, pins, readiness, origin, sharing, and leases.",
+            .parameters_json = AGENT_TOOL_SCHEMA_EMPTY,
+            .strict = true,
+        },
+        .domain = "buses",
+        .search_terms =
+            "bus i2c spi uart onewire serial pins names leases hardware",
+        .output_schema_json = AGENT_TOOL_OUTPUT_BUSES_LIST,
+        .required_capability = "resources",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .available = agent_tool_buses_available,
+        .execute = agent_tool_buses_list,
+    },
+    {
+        .provider = {
+            .name = "network_status",
+            .description =
+                "Read current Wi-Fi station, IP, access-point, signal, and NAT "
+                "state without changing the active provider connection.",
+            .parameters_json = AGENT_TOOL_SCHEMA_EMPTY,
+            .strict = true,
+        },
+        .domain = "network",
+        .search_terms =
+            "wifi wireless connection ip gateway ssid rssi access point nat",
+        .output_schema_json = AGENT_TOOL_OUTPUT_NETWORK_STATUS,
+        .required_capability = "wifi",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .available = agent_tool_network_available,
+        .execute = agent_tool_network_status,
+    },
+    {
+        .provider = {
+            .name = "sensors_read",
+            .description =
+                "Read installed battery and environmental sensors. Missing "
+                "package-gated sensor families are returned as null.",
+            .parameters_json = AGENT_TOOL_SCHEMA_EMPTY,
+            .strict = true,
+        },
+        .domain = "sensors",
+        .search_terms =
+            "battery voltage percent power temperature humidity environment",
+        .output_schema_json = AGENT_TOOL_OUTPUT_SENSORS_READ,
+        .required_capability = "battery-or-environment",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .available = agent_tool_sensors_available,
+        .execute = agent_tool_sensors_read,
     },
     {
         .provider = {
@@ -323,6 +601,7 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "script",
+        .search_terms = "python micropython execute run code program",
         .output_schema_json = AGENT_TOOL_OUTPUT_SCRIPT_RUN,
         .required_capability = "python",
         .risk = SOLAR_OS_AGENT_TOOL_RISK_DISRUPTIVE,
@@ -341,6 +620,7 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .strict = true,
         },
         .domain = "script",
+        .search_terms = "lua execute run code program",
         .output_schema_json = AGENT_TOOL_OUTPUT_SCRIPT_RUN,
         .required_capability = "lua",
         .risk = SOLAR_OS_AGENT_TOOL_RISK_DISRUPTIVE,
@@ -352,6 +632,10 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
 
 static const size_t AGENT_TOOL_COUNT =
     sizeof(AGENT_TOOL_REGISTRY) / sizeof(AGENT_TOOL_REGISTRY[0]);
+_Static_assert(
+    sizeof(AGENT_TOOL_REGISTRY) / sizeof(AGENT_TOOL_REGISTRY[0]) <=
+        SOLAR_OS_AGENT_TOOL_REGISTRY_MAX,
+    "agent tool registry exceeds SOLAR_OS_AGENT_TOOL_REGISTRY_MAX");
 
 static bool agent_tool_is_available(
     const agent_tool_definition_t *definition,
@@ -366,6 +650,133 @@ static bool agent_tool_is_available(
     }
     return request->run_script != NULL &&
         (request->script_languages & definition->required_script_language) != 0U;
+}
+
+static bool agent_tool_contains_ci(const char *text, const char *needle)
+{
+    if (text == NULL || needle == NULL || needle[0] == '\0') {
+        return false;
+    }
+    const size_t needle_len = strlen(needle);
+    for (const char *cursor = text; *cursor != '\0'; cursor++) {
+        if (strncasecmp(cursor, needle, needle_len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool agent_tool_search_stop_word(const char *token)
+{
+    static const char *const words[] = {
+        "a", "an", "and", "for", "how", "in", "of", "on", "the", "to",
+        "tool", "tools", "use", "with",
+    };
+    for (size_t i = 0U; i < sizeof(words) / sizeof(words[0]); i++) {
+        if (strcmp(token, words[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static unsigned agent_tool_search_score(
+    const agent_tool_definition_t *definition,
+    const char *query)
+{
+    if (definition == NULL || query == NULL || query[0] == '\0') {
+        return 0U;
+    }
+    if (strcasecmp(definition->provider.name, query) == 0) {
+        return 100000U;
+    }
+    if (strcasecmp(definition->domain, query) == 0) {
+        return 50000U;
+    }
+
+    unsigned score = 0U;
+    char token[AGENT_TOOL_SEARCH_TOKEN_MAX + 1U];
+    size_t token_len = 0U;
+    for (const unsigned char *cursor = (const unsigned char *)query;; cursor++) {
+        const bool separator = *cursor == '\0' || !isalnum(*cursor);
+        if (!separator && token_len < AGENT_TOOL_SEARCH_TOKEN_MAX) {
+            token[token_len++] = (char)tolower(*cursor);
+        }
+        if (separator && token_len > 0U) {
+            token[token_len] = '\0';
+            if (!agent_tool_search_stop_word(token)) {
+                if (agent_tool_contains_ci(definition->provider.name, token)) {
+                    score += 900U;
+                }
+                if (agent_tool_contains_ci(definition->domain, token)) {
+                    score += 700U;
+                }
+                if (agent_tool_contains_ci(definition->search_terms, token)) {
+                    score += 500U;
+                }
+                if (agent_tool_contains_ci(definition->provider.description,
+                                           token)) {
+                    score += 100U;
+                }
+            }
+            token_len = 0U;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+    }
+    return score;
+}
+
+static size_t agent_tool_search_matches(
+    const char *query,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    agent_tool_search_match_t *matches,
+    size_t capacity)
+{
+    if (query == NULL || query[0] == '\0' ||
+        matches == NULL || capacity == 0U) {
+        return 0U;
+    }
+
+    size_t count = 0U;
+    for (size_t candidate = 0U; candidate < AGENT_TOOL_COUNT; candidate++) {
+        const agent_tool_definition_t *definition =
+            &AGENT_TOOL_REGISTRY[candidate];
+        if (definition->bootstrap ||
+            !agent_tool_is_available(definition, request) ||
+            solar_os_agent_tools_policy_decision(policy, definition->risk) ==
+                SOLAR_OS_AGENT_TOOL_POLICY_DENY) {
+            continue;
+        }
+        const unsigned score = agent_tool_search_score(definition, query);
+        if (score == 0U) {
+            continue;
+        }
+        size_t insert = 0U;
+        while (insert < count &&
+               (matches[insert].score > score ||
+                (matches[insert].score == score &&
+                 strcmp(matches[insert].definition->provider.name,
+                        definition->provider.name) < 0))) {
+            insert++;
+        }
+        if (insert >= capacity) {
+            continue;
+        }
+        if (count < capacity) {
+            count++;
+        }
+        for (size_t move = count - 1U; move > insert; move--) {
+            matches[move] = matches[move - 1U];
+        }
+        matches[insert] = (agent_tool_search_match_t){
+            .definition = definition,
+            .score = score,
+        };
+    }
+    return count;
 }
 
 static esp_err_t agent_tool_parse_object(const char *arguments,
@@ -387,6 +798,27 @@ static esp_err_t agent_tool_parse_object(const char *arguments,
         solar_os_json_free(*doc);
         *doc = NULL;
         *root = NULL;
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t agent_tool_parse_query(const char *arguments,
+                                        char *query,
+                                        size_t query_len)
+{
+    if (query == NULL || query_len == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err == ESP_OK) {
+        err = solar_os_json_get_string(
+            solar_os_json_object_get(root, "query"), query, query_len);
+    }
+    solar_os_json_free(doc);
+    if (err != ESP_OK || query[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
@@ -570,21 +1002,94 @@ static esp_err_t agent_tool_solaros_reference(
     size_t result_len)
 {
     (void)request;
-    solar_os_json_doc_t *doc = NULL;
-    const solar_os_json_value_t *root = NULL;
-    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    char query[65];
+    const esp_err_t err =
+        agent_tool_parse_query(arguments, query, sizeof(query));
+    if (err != ESP_OK) {
+        return err;
+    }
+    return solar_os_agent_reference_search(query, result, result_len);
+}
+
+static esp_err_t agent_tool_search_with_policy(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    char *result,
+    size_t result_len)
+{
+    char query[AGENT_TOOL_SEARCH_QUERY_MAX + 1U];
+    esp_err_t err =
+        agent_tool_parse_query(arguments, query, sizeof(query));
     if (err != ESP_OK) {
         return err;
     }
 
-    char query[65];
-    err = solar_os_json_get_string(
-        solar_os_json_object_get(root, "query"), query, sizeof(query));
-    solar_os_json_free(doc);
-    if (err != ESP_OK || query[0] == '\0') {
-        return ESP_ERR_INVALID_ARG;
+    agent_tool_search_match_t matches[AGENT_TOOL_SEARCH_MATCH_MAX] = {0};
+    const size_t count =
+        agent_tool_search_matches(query,
+                                  request,
+                                  policy,
+                                  matches,
+                                  AGENT_TOOL_SEARCH_MATCH_MAX);
+    char escaped_query[(AGENT_TOOL_SEARCH_QUERY_MAX *
+                        AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+    err = solar_os_json_escape_string(query,
+                                      escaped_query,
+                                      sizeof(escaped_query));
+    agent_tool_output_t output = {
+        .buffer = result,
+        .capacity = result_len,
+    };
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output,
+                                       "{\"query\":\"%s\",\"count\":%u,"
+                                       "\"tools\":[",
+                                       escaped_query,
+                                       (unsigned)count);
     }
-    return solar_os_agent_reference_search(query, result, result_len);
+    for (size_t i = 0U; err == ESP_OK && i < count; i++) {
+        const agent_tool_definition_t *definition = matches[i].definition;
+        char escaped_name[128];
+        char escaped_domain[128];
+        char escaped_description[1024];
+        if (solar_os_json_escape_string(definition->provider.name,
+                                        escaped_name,
+                                        sizeof(escaped_name)) != ESP_OK ||
+            solar_os_json_escape_string(definition->domain,
+                                        escaped_domain,
+                                        sizeof(escaped_domain)) != ESP_OK ||
+            solar_os_json_escape_string(definition->provider.description,
+                                        escaped_description,
+                                        sizeof(escaped_description)) != ESP_OK) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        err = agent_tool_output_append(
+            &output,
+            "%s{\"name\":\"%s\",\"domain\":\"%s\","
+            "\"description\":\"%s\",\"risk\":\"%s\"}",
+            i == 0U ? "" : ",",
+            escaped_name,
+            escaped_domain,
+            escaped_description,
+            solar_os_agent_tool_risk_name(definition->risk));
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output, "]}");
+    }
+    return err;
+}
+
+static esp_err_t agent_tool_search(const char *arguments,
+                                   const solar_os_agent_request_t *request,
+                                   char *result,
+                                   size_t result_len)
+{
+    return agent_tool_search_with_policy(arguments,
+                                         request,
+                                         SOLAR_OS_AGENT_TOOL_POLICY_ALL,
+                                         result,
+                                         result_len);
 }
 
 static esp_err_t agent_tool_storage_list(const char *arguments,
@@ -1032,6 +1537,440 @@ static esp_err_t agent_tool_display_list(const char *arguments,
     return err;
 }
 
+static esp_err_t agent_tool_hardware_describe(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+    (void)root;
+    solar_os_json_free(doc);
+
+    char capabilities[384];
+    char escaped_capabilities[sizeof(capabilities) *
+                              AGENT_TOOL_JSON_ESCAPE_FACTOR + 1U];
+    solar_os_board_capabilities_format(capabilities, sizeof(capabilities));
+    err = solar_os_json_escape_string(capabilities,
+                                      escaped_capabilities,
+                                      sizeof(escaped_capabilities));
+    if (err != ESP_OK) {
+        return err;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"board\":\"%s\",\"name\":\"%s\",\"capabilities\":\"%s\","
+        "\"psram_bytes\":%u}",
+        SOLAR_OS_BOARD_ID,
+        SOLAR_OS_BOARD_NAME,
+        escaped_capabilities,
+        (unsigned)SOLAR_OS_BOARD_PSRAM_BYTES);
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static esp_err_t agent_tool_gpio_list(const char *arguments,
+                                      const solar_os_agent_request_t *request,
+                                      char *result,
+                                      size_t result_len)
+{
+    (void)request;
+#if !SOLAR_OS_PACKAGE_SERVICE_GPIO
+    (void)arguments;
+    (void)result;
+    (void)result_len;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+    (void)root;
+    solar_os_json_free(doc);
+
+    const size_t total = solar_os_gpio_pin_count();
+    agent_tool_output_t output = {
+        .buffer = result,
+        .capacity = result_len,
+    };
+    err = agent_tool_output_append(&output,
+                                   "{\"count\":%u,\"pins\":[",
+                                   (unsigned)total);
+    bool first = true;
+    bool truncated = false;
+    for (size_t i = 0U; err == ESP_OK && i < total; i++) {
+        solar_os_gpio_pin_info_t info;
+        if (!solar_os_gpio_get_pin_info(i, &info)) {
+            continue;
+        }
+        char escaped_role[128];
+        char escaped_owner[(SOLAR_OS_GPIO_OWNER_MAX *
+                            AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+        if (solar_os_json_escape_string(info.role != NULL ? info.role : "",
+                                        escaped_role,
+                                        sizeof(escaped_role)) != ESP_OK ||
+            solar_os_json_escape_string(info.owner,
+                                        escaped_owner,
+                                        sizeof(escaped_owner)) != ESP_OK) {
+            truncated = true;
+            break;
+        }
+        char item[768];
+        const int written = snprintf(
+            item,
+            sizeof(item),
+            "%s{\"pin\":%d,\"role\":\"%s\",\"policy\":\"%s\","
+            "\"expansion\":%s,\"runtime_allowed\":%s,\"available\":%s,"
+            "\"claimed\":%s,\"owner\":\"%s\",\"configured\":%s,"
+            "\"mode\":\"%s\",\"pull\":\"%s\",\"level\":%s}",
+            first ? "" : ",",
+            info.pin,
+            escaped_role,
+            solar_os_pin_policy_name(info.policy),
+            info.expansion ? "true" : "false",
+            info.runtime_allowed ? "true" : "false",
+            info.available ? "true" : "false",
+            info.claimed ? "true" : "false",
+            escaped_owner,
+            info.configured ? "true" : "false",
+            solar_os_gpio_mode_name(info.mode),
+            solar_os_gpio_pull_name(info.pull),
+            info.level_valid ? (info.level ? "true" : "false") : "null");
+        const size_t tail_reserve = sizeof("],\"truncated\":true}");
+        if (written < 0 ||
+            (size_t)written >= sizeof(item) ||
+            output.length + (size_t)written + tail_reserve >= output.capacity) {
+            truncated = true;
+            break;
+        }
+        err = agent_tool_output_append(&output, "%s", item);
+        first = false;
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output,
+                                       "],\"truncated\":%s}",
+                                       truncated ? "true" : "false");
+    }
+    return err;
+#endif
+}
+
+static esp_err_t agent_tool_gpio_read(const char *arguments,
+                                      const solar_os_agent_request_t *request,
+                                      char *result,
+                                      size_t result_len)
+{
+    (void)request;
+#if !SOLAR_OS_PACKAGE_SERVICE_GPIO
+    (void)arguments;
+    (void)result;
+    (void)result_len;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+    int64_t pin = -1;
+    err = solar_os_json_get_int64(solar_os_json_object_get(root, "pin"), &pin);
+    solar_os_json_free(doc);
+    if (err != ESP_OK || pin < 0 || pin > 63) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    solar_os_gpio_pin_info_t info;
+    if (!solar_os_gpio_get_pin_info_by_pin((int)pin, &info)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    char escaped_owner[(SOLAR_OS_GPIO_OWNER_MAX *
+                        AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+    err = solar_os_json_escape_string(info.owner,
+                                      escaped_owner,
+                                      sizeof(escaped_owner));
+    if (err != ESP_OK) {
+        return err;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"pin\":%d,\"configured\":%s,\"readable\":%s,\"level\":%s,"
+        "\"owner\":\"%s\"}",
+        info.pin,
+        info.configured ? "true" : "false",
+        info.level_valid ? "true" : "false",
+        info.level_valid ? (info.level ? "true" : "false") : "null",
+        escaped_owner);
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+#endif
+}
+
+static esp_err_t agent_tool_buses_list(const char *arguments,
+                                       const solar_os_agent_request_t *request,
+                                       char *result,
+                                       size_t result_len)
+{
+    (void)request;
+#if !SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    (void)arguments;
+    (void)result;
+    (void)result_len;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+    (void)root;
+    solar_os_json_free(doc);
+
+    const size_t total = solar_os_bus_count();
+    agent_tool_output_t output = {
+        .buffer = result,
+        .capacity = result_len,
+    };
+    err = agent_tool_output_append(&output,
+                                   "{\"count\":%u,\"buses\":[",
+                                   (unsigned)total);
+    bool first = true;
+    bool truncated = false;
+    for (size_t i = 0U; err == ESP_OK && i < total; i++) {
+        solar_os_bus_info_t info;
+        if (!solar_os_bus_get(i, &info)) {
+            continue;
+        }
+        char escaped_name[(SOLAR_OS_BUS_NAME_MAX *
+                           AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+        if (solar_os_json_escape_string(info.name,
+                                        escaped_name,
+                                        sizeof(escaped_name)) != ESP_OK) {
+            truncated = true;
+            break;
+        }
+        char pins[256];
+        int pins_written = -1;
+        switch (info.protocol) {
+        case SOLAR_OS_BUS_PROTOCOL_I2C:
+            pins_written = snprintf(
+                pins,
+                sizeof(pins),
+                "{\"sda\":%d,\"scl\":%d,\"speed_hz\":%" PRIu32 "}",
+                info.config.i2c.sda_pin,
+                info.config.i2c.scl_pin,
+                info.config.i2c.speed_hz);
+            break;
+        case SOLAR_OS_BUS_PROTOCOL_SPI:
+            pins_written = snprintf(
+                pins,
+                sizeof(pins),
+                "{\"sclk\":%d,\"miso\":%d,\"mosi\":%d,\"cs_count\":%u}",
+                info.config.spi.sclk_pin,
+                info.config.spi.miso_pin,
+                info.config.spi.mosi_pin,
+                (unsigned)info.config.spi.cs_count);
+            break;
+        case SOLAR_OS_BUS_PROTOCOL_UART:
+            pins_written = snprintf(
+                pins,
+                sizeof(pins),
+                "{\"tx\":%d,\"rx\":%d,\"baud\":%" PRIu32 "}",
+                info.config.uart.tx_pin,
+                info.config.uart.rx_pin,
+                info.config.uart.baud_rate);
+            break;
+        case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+            pins_written = snprintf(pins,
+                                    sizeof(pins),
+                                    "{\"pin\":%d}",
+                                    info.config.onewire.pin);
+            break;
+        default:
+            pins_written = snprintf(pins, sizeof(pins), "{}");
+            break;
+        }
+        char item[768];
+        const int written = pins_written < 0 ||
+                                    (size_t)pins_written >= sizeof(pins) ?
+            -1 :
+            snprintf(
+                item,
+                sizeof(item),
+                "%s{\"name\":\"%s\",\"protocol\":\"%s\","
+                "\"origin\":\"%s\",\"sharing\":\"%s\",\"ready\":%s,"
+                "\"attached\":%s,\"detachable\":%s,\"lease_count\":%u,"
+                "\"config\":%s}",
+                first ? "" : ",",
+                escaped_name,
+                solar_os_bus_protocol_name(info.protocol),
+                solar_os_bus_origin_name(info.origin),
+                solar_os_bus_sharing_name(info.sharing),
+                info.ready ? "true" : "false",
+                info.attached ? "true" : "false",
+                info.detachable ? "true" : "false",
+                (unsigned)info.lease_count,
+                pins);
+        const size_t tail_reserve = sizeof("],\"truncated\":true}");
+        if (written < 0 ||
+            (size_t)written >= sizeof(item) ||
+            output.length + (size_t)written + tail_reserve >= output.capacity) {
+            truncated = true;
+            break;
+        }
+        err = agent_tool_output_append(&output, "%s", item);
+        first = false;
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output,
+                                       "],\"truncated\":%s}",
+                                       truncated ? "true" : "false");
+    }
+    return err;
+#endif
+}
+
+static esp_err_t agent_tool_network_status(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    char *result,
+    size_t result_len)
+{
+    (void)request;
+#if !SOLAR_OS_PACKAGE_SERVICE_WIFI
+    (void)arguments;
+    (void)result;
+    (void)result_len;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+    (void)root;
+    solar_os_json_free(doc);
+
+    solar_os_wifi_status_t status;
+    solar_os_wifi_get_status(&status);
+    char escaped_ssid[(SOLAR_OS_WIFI_SSID_MAX *
+                       AGENT_TOOL_JSON_ESCAPE_FACTOR) + 1U];
+    if (solar_os_json_escape_string(status.ssid,
+                                    escaped_ssid,
+                                    sizeof(escaped_ssid)) != ESP_OK) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"state\":\"%s\",\"started\":%s,\"connected\":%s,"
+        "\"ssid\":\"%s\",\"ip\":\"%s\",\"gateway\":\"%s\","
+        "\"rssi\":%d,\"channel\":%u,\"ap_running\":%s,"
+        "\"ap_station_count\":%u,\"nat_active\":%s}",
+        solar_os_wifi_state_name(status.state),
+        status.started ? "true" : "false",
+        status.connected ? "true" : "false",
+        escaped_ssid,
+        status.ip,
+        status.gateway,
+        (int)status.rssi,
+        (unsigned)status.channel,
+        status.ap_running ? "true" : "false",
+        (unsigned)status.ap_station_count,
+        status.nat_active ? "true" : "false");
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+#endif
+}
+
+static esp_err_t agent_tool_sensors_read(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len)
+{
+    (void)request;
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+    (void)root;
+    solar_os_json_free(doc);
+
+    agent_tool_output_t output = {
+        .buffer = result,
+        .capacity = result_len,
+    };
+    err = agent_tool_output_append(&output, "{\"battery\":");
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+    solar_os_battery_status_t battery;
+    const esp_err_t battery_err = solar_os_battery_get_status(&battery);
+    if (err == ESP_OK && battery_err == ESP_OK) {
+        err = agent_tool_output_append(
+            &output,
+            "{\"ok\":true,\"voltage_mv\":%u,\"percent\":%u,"
+            "\"percent_estimated\":%s,\"adc_calibrated\":%s,"
+            "\"external_power\":%s}",
+            (unsigned)battery.voltage_mv,
+            (unsigned)battery.percent,
+            battery.percent_estimated ? "true" : "false",
+            battery.adc_calibrated ? "true" : "false",
+            battery.external_power ? "true" : "false");
+    } else if (err == ESP_OK) {
+        err = agent_tool_output_append(
+            &output,
+            "{\"ok\":false,\"error\":\"%s\"}",
+            esp_err_to_name(battery_err));
+    }
+#else
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output, "null");
+    }
+#endif
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output, ",\"environment\":");
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    solar_os_environment_t environment;
+    const esp_err_t environment_err =
+        solar_os_sensors_read_environment(&environment);
+    if (err == ESP_OK && environment_err == ESP_OK) {
+        err = agent_tool_output_append(
+            &output,
+            "{\"ok\":true,\"temperature_c\":%.2f,"
+            "\"humidity_percent\":%.2f}",
+            (double)environment.temperature_c,
+            (double)environment.humidity_percent);
+    } else if (err == ESP_OK) {
+        err = agent_tool_output_append(
+            &output,
+            "{\"ok\":false,\"error\":\"%s\"}",
+            esp_err_to_name(environment_err));
+    }
+#else
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output, "null");
+    }
+#endif
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(&output, "}");
+    }
+    return err;
+}
+
 static esp_err_t agent_tool_script_run(
     solar_os_agent_script_language_t language,
     const char *arguments,
@@ -1195,10 +2134,14 @@ size_t solar_os_agent_tools_collect(
     if (descriptors == NULL || capacity == 0) {
         return 0;
     }
+    if (capacity > SOLAR_OS_AGENT_TOOL_ACTIVE_MAX) {
+        capacity = SOLAR_OS_AGENT_TOOL_ACTIVE_MAX;
+    }
     size_t count = 0;
     for (size_t i = 0; i < AGENT_TOOL_COUNT && count < capacity; i++) {
         const agent_tool_definition_t *definition = &AGENT_TOOL_REGISTRY[i];
-        if (!agent_tool_is_available(definition, request) ||
+        if (!definition->bootstrap ||
+            !agent_tool_is_available(definition, request) ||
             solar_os_agent_tools_policy_decision(policy, definition->risk) ==
                 SOLAR_OS_AGENT_TOOL_POLICY_DENY) {
             continue;
@@ -1206,6 +2149,53 @@ size_t solar_os_agent_tools_collect(
         descriptors[count++] = definition->provider;
     }
     return count;
+}
+
+size_t solar_os_agent_tools_collect_discovered(
+    const char *arguments,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t capacity)
+{
+    if (arguments == NULL || descriptors == NULL || capacity == 0U) {
+        return 0U;
+    }
+    if (capacity > SOLAR_OS_AGENT_TOOL_ACTIVE_MAX) {
+        capacity = SOLAR_OS_AGENT_TOOL_ACTIVE_MAX;
+    }
+    const size_t bootstrap_count =
+        solar_os_agent_tools_collect(request,
+                                     policy,
+                                     descriptors,
+                                     capacity);
+    char query[AGENT_TOOL_SEARCH_QUERY_MAX + 1U];
+    if (agent_tool_parse_query(arguments, query, sizeof(query)) != ESP_OK ||
+        bootstrap_count >= capacity) {
+        return bootstrap_count;
+    }
+
+    agent_tool_search_match_t matches[AGENT_TOOL_SEARCH_MATCH_MAX] = {0};
+    size_t match_capacity = capacity - bootstrap_count;
+    if (match_capacity > AGENT_TOOL_SEARCH_MATCH_MAX) {
+        match_capacity = AGENT_TOOL_SEARCH_MATCH_MAX;
+    }
+    const size_t match_count =
+        agent_tool_search_matches(query,
+                                  request,
+                                  policy,
+                                  matches,
+                                  match_capacity);
+    for (size_t i = 0U; i < match_count; i++) {
+        descriptors[bootstrap_count + i] =
+            matches[i].definition->provider;
+    }
+    return bootstrap_count + match_count;
+}
+
+bool solar_os_agent_tools_is_discovery(const char *name)
+{
+    return name != NULL && strcmp(name, "tool_search") == 0;
 }
 
 size_t solar_os_agent_tools_count(void)
@@ -1258,7 +2248,12 @@ esp_err_t solar_os_agent_tools_execute(const char *name,
             return ESP_ERR_NOT_ALLOWED;
         }
         result[0] = '\0';
-        esp_err_t err =
+        esp_err_t err = solar_os_agent_tools_is_discovery(name) ?
+            agent_tool_search_with_policy(arguments,
+                                          request,
+                                          policy,
+                                          result,
+                                          result_len) :
             definition->execute(arguments, request, result, result_len);
         if (err == ESP_OK) {
             err = agent_tool_validate_result(result);

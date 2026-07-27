@@ -41,7 +41,11 @@
   finish a preserved application line before drawing the resumed shell prompt.
   Added a package-aware `man` command with searchable generated pages and
   `less` paging; users and `solaros_reference` now consume the same
-  flash-resident contracts without loading the corpus into RAM.
+  flash-resident contracts without loading the corpus into RAM. Added bounded
+  progressive tool discovery: provider turns begin with three bootstrap
+  schemas and `tool_search` activates at most five package- and policy-aware
+  tools. Added read-only board, GPIO, bus, Wi-Fi, battery, and environmental
+  inspection tools without allowing GPIO reads to claim or configure pins.
 
 ## 4.x
 

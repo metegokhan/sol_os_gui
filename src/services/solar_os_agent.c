@@ -604,6 +604,23 @@ static bool agent_tool_info_by_name(const char *name,
     return false;
 }
 
+static bool agent_tool_is_active(
+    const char *name,
+    const solar_os_agent_tool_descriptor_t *descriptors,
+    size_t descriptor_count)
+{
+    if (name == NULL || descriptors == NULL) {
+        return false;
+    }
+    for (size_t i = 0U; i < descriptor_count; i++) {
+        if (descriptors[i].name != NULL &&
+            strcmp(name, descriptors[i].name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static esp_err_t agent_authorize_tool(
     const solar_os_agent_request_t *request,
     solar_os_agent_tool_policy_t policy,
@@ -739,12 +756,12 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                      false);
 
     solar_os_agent_tool_descriptor_t
-        tool_descriptors[SOLAR_OS_AGENT_TOOL_REGISTRY_MAX];
-    const size_t tool_count =
+        tool_descriptors[SOLAR_OS_AGENT_TOOL_ACTIVE_MAX];
+    size_t tool_count =
         solar_os_agent_tools_collect(request,
                                      tool_policy,
                                      tool_descriptors,
-                                     SOLAR_OS_AGENT_TOOL_REGISTRY_MAX);
+                                     SOLAR_OS_AGENT_TOOL_ACTIVE_MAX);
     solar_os_agent_provider_turn_t turn = {
         .prompt = request->prompt,
         .previous_response_id = request->conversation_id,
@@ -818,7 +835,10 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          run->provider_result.tool_name,
                          false);
         solar_os_agent_tool_info_t tool_info;
-        if (!agent_tool_info_by_name(run->provider_result.tool_name,
+        if (!agent_tool_is_active(run->provider_result.tool_name,
+                                  tool_descriptors,
+                                  tool_count) ||
+            !agent_tool_info_by_name(run->provider_result.tool_name,
                                      &tool_info)) {
             err = ESP_ERR_NOT_SUPPORTED;
             (void)agent_emit(request,
@@ -864,6 +884,16 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                              run->provider_result.tool_name,
                              false);
             break;
+        }
+        if (solar_os_agent_tools_is_discovery(
+                run->provider_result.tool_name)) {
+            tool_count = solar_os_agent_tools_collect_discovered(
+                run->provider_result.tool_arguments,
+                request,
+                tool_policy,
+                tool_descriptors,
+                SOLAR_OS_AGENT_TOOL_ACTIVE_MAX);
+            turn.tool_count = tool_count;
         }
         (void)agent_emit(request,
                          SOLAR_OS_AGENT_EVENT_TOOL_RESULT,
