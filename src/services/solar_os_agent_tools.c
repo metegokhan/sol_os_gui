@@ -503,7 +503,7 @@ static esp_err_t agent_tool_storage_path(
     if (err != ESP_OK || requested[0] != '/') {
         return ESP_ERR_INVALID_ARG;
     }
-    err = solar_os_storage_normalize_path(requested, path, path_len);
+    err = solar_os_storage_resolve_path(requested, path, path_len);
     if (err == ESP_OK && agent_tool_path_has_segment(path, ".ssh")) {
         return ESP_ERR_NOT_ALLOWED;
     }
@@ -606,7 +606,7 @@ static esp_err_t agent_tool_storage_list(const char *arguments,
         return ESP_ERR_INVALID_ARG;
     }
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    err = solar_os_storage_normalize_path(requested, path, sizeof(path));
+    err = solar_os_storage_resolve_path(requested, path, sizeof(path));
     solar_os_json_free(doc);
     if (err != ESP_OK) {
         return err;
