@@ -60,6 +60,7 @@ typedef struct {
     volatile int confirm_decision;
     volatile bool confirmation_pending;
     bool running;
+    bool suspended;
     bool text_started;
     bool turn_finished;
     bool script_reported;
@@ -807,6 +808,24 @@ static void agent_app_stop(solar_os_context_t *ctx)
     agent_app_cleanup();
 }
 
+static void agent_app_suspend(solar_os_context_t *ctx)
+{
+    (void)ctx;
+    agent_app.suspended = true;
+}
+
+static void agent_app_resume(solar_os_context_t *ctx)
+{
+    agent_app.suspended = false;
+    if (agent_app.mode == AGENT_APP_MODE_CHAT ||
+        agent_app.mode == AGENT_APP_MODE_ASK) {
+        agent_app_drain_events(ctx);
+        agent_app_finish_turn(ctx);
+    } else {
+        agent_app_report_script(ctx);
+    }
+}
+
 static bool agent_app_event(solar_os_context_t *ctx,
                             const solar_os_event_t *event)
 {
@@ -814,6 +833,9 @@ static bool agent_app_event(solar_os_context_t *ctx,
         return false;
     }
     if (event->type == SOLAR_OS_EVENT_TICK) {
+        if (agent_app.suspended) {
+            return true;
+        }
         if (agent_app.mode == AGENT_APP_MODE_CHAT ||
             agent_app.mode == AGENT_APP_MODE_ASK) {
             agent_app_drain_events(ctx);
@@ -922,6 +944,8 @@ const solar_os_app_t solar_os_agent_app = {
     .summary = "native LLM agent",
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = agent_app_start,
+    .suspend = agent_app_suspend,
+    .resume = agent_app_resume,
     .stop = agent_app_stop,
     .event = agent_app_event,
     .worker_stack_bytes = AGENT_APP_TASK_STACK,

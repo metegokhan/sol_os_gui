@@ -30,7 +30,9 @@
   do not invent display targets, bus names, GPIOs, or service calls. Restored
   the standard MicroPython `min()`/`max()` built-ins, made targetless graphics
   report when a port/headless shell has no framebuffer, and added read-only
-  display discovery so the agent can select a verified ready target.
+  display discovery so the agent can select a verified ready target. Fixed
+  Alt+Tab suspension so streamed agent output cannot keep repainting a
+  backgrounded conversation over the newly selected display session.
 
 ## 4.x
 
