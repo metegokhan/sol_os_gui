@@ -15,6 +15,16 @@ CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=0
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
 CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
+# SolarTerm favors usable internal SRAM over peak Wi-Fi throughput. These
+# optional speed paths otherwise occupy more than 27 KiB of executable SRAM.
+# CONFIG_ESP_WIFI_IRAM_OPT is not set
+# CONFIG_ESP_WIFI_RX_IRAM_OPT is not set
+# Keep the proven pre-IDF-5.5 receive profile instead of silently accepting its
+# larger PSRAM-board defaults. Trim four always-resident TX buffers; the driver
+# retains twelve plus its PSRAM-backed cache queue for bursts.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=12
 CONFIG_FATFS_VOLUME_COUNT=4
 CONFIG_LWIP_IP_FORWARD=y
 CONFIG_LWIP_IPV4_NAPT=y
