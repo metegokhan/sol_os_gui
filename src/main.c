@@ -109,6 +109,17 @@
 
 static const char *TAG = "solar_os";
 
+static void log_runtime_memory(void)
+{
+    ESP_LOGI(TAG,
+             "runtime memory: internal free=%u largest=%u dma free=%u largest=%u psram free=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+}
+
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 static solar_os_board_display_t board_display;
 #endif
@@ -1346,6 +1357,7 @@ void app_main(void)
     }
 
     SOLAR_OS_LOGI(TAG, "SolarOS runtime started");
+    log_runtime_memory();
 
     while (true) {
         solar_os_power_poll();
