@@ -199,8 +199,9 @@ the model.
 - Tool arguments: 4095 bytes, held in PSRAM for a request.
 - Tool result: 4095 bytes, allocated in PSRAM.
 - API-reference matches: at most three compact contracts per lookup.
-- Manual search: fixed stack storage for at most 12 results; page text remains
-  in flash and is not copied into heap by `man` or `less`.
+- Manual search: fixed stack storage for at most 12 results. Embedded page text
+  remains in flash. A verified SD override is loaded into PSRAM only while a
+  `man` page or agent reference result is being consumed.
 - Storage read/write content: 3072 bytes.
 - Storage ranged read: 2048 requested bytes; JSON output may stop earlier when
   escaping would exhaust the bounded tool result.

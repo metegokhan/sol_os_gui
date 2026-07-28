@@ -1,0 +1,71 @@
++++
+id = "lua.gfx"
+title = "Lua graphics API"
+section = "api"
+summary = "Draw through SolarOS displays from Lua"
+aliases = []
+keywords = "lua gfx graphics display screen draw pixel line rectangle circle font oled lcd framebuffer present"
+packages_any = ["app_lua"]
++++
+# Lua graphics API
+
+`solaros.gfx` draws through the display owned by the current foreground
+application. The module is already available as `solaros`; it can also be
+loaded with `require("solaros")`.
+
+## Draw safely
+
+```lua
+local solaros = require("solaros")
+local gfx = solaros.gfx
+
+gfx.begin()
+local ok, err = pcall(function()
+    local width = gfx.width()
+    local height = gfx.height()
+    gfx.clear(gfx.WHITE)
+    gfx.color(gfx.BLACK)
+    gfx.fill_circle(math.floor(width / 2), math.floor(height / 2),
+                    math.floor(math.min(width, height) / 4))
+    gfx.present()
+end)
+gfx["end"]()
+if not ok then error(err) end
+```
+
+Lua uses `gfx["end"]()` because `end` is a language keyword. The cleanup must
+run even when drawing fails.
+
+## Attached displays
+
+A port shell has no current foreground display. Discover a ready target with
+`display list` and pass its real name to `gfx.begin(name)`. Never assume that an
+example such as `oled0` exists.
+
+## Quick reference
+
+Lua: use the preloaded solaros table or local solaros = require("solaros"),
+then assign local gfx = solaros.gfx. gfx.begin() uses the current foreground
+display and errors from a port/headless shell where there is none. For an
+attached display, the agent must call display_list and pass a returned ready
+name; absent names raise ESP_ERR_NOT_FOUND. Use width, height or size; clear;
+color; pixel, line, rect, fill_rect, circle, fill_circle, text; refresh or
+present. Colors are gfx.WHITE, gfx.LIGHT, gfx.DARK, gfx.BLACK, and
+gfx.gray(level); pass these constants to clear and color, never color-name
+strings or guessed integers. Call gfx["end"]() because end is a Lua keyword.
+Required attached-display pattern (replace the quoted target with a ready
+display_list name):
+
+```lua
+local solaros = require("solaros")
+local gfx = solaros.gfx
+gfx.begin("verified-ready-target")
+local ok, err = pcall(function()
+    gfx.clear(gfx.WHITE)
+    gfx.color(gfx.BLACK)
+    -- draw here
+    gfx.present()
+end)
+gfx["end"]()
+if not ok then error(err) end
+```

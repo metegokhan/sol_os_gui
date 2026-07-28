@@ -146,6 +146,17 @@ esp_err_t solar_os_agent_reference_search(const char *query,
     }
     for (size_t i = 0U; err == ESP_OK && i < count; i++) {
         const solar_os_manual_page_t *page = matches[i];
+        const char *reference = NULL;
+        size_t reference_len = 0U;
+        bool reference_owned = false;
+        err = solar_os_manual_load_contract(page,
+                                            &reference,
+                                            &reference_len,
+                                            &reference_owned);
+        (void)reference_len;
+        if (err != ESP_OK) {
+            break;
+        }
         err = agent_reference_append(&output,
                                      "%s{\"topic\":",
                                      i == 0U ? "" : ",");
@@ -157,11 +168,12 @@ esp_err_t solar_os_agent_reference_search(const char *query,
         }
         if (err == ESP_OK) {
             err = agent_reference_append_json_string(&output,
-                                                     page->contract);
+                                                     reference);
         }
         if (err == ESP_OK) {
             err = agent_reference_append(&output, "}");
         }
+        solar_os_manual_release_text(reference, reference_owned);
     }
     if (err == ESP_OK) {
         err = agent_reference_append(&output, "]}");

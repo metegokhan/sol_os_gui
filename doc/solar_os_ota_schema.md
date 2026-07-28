@@ -66,8 +66,27 @@ solaros/
 
 `latest` may be a symlink to a versioned directory or a real directory populated by the deploy job. Paths inside `index.json` are relative to `base_url`. Paths inside a per-artifact `manifest.json` are relative to the directory that contains that manifest.
 
+Each version directory also contains a refreshable device manual:
+
+```text
+doc/
+  catalog.json
+  catalog.sig
+  manual/
+    overview.md
+    python.gfx.md
+    ...
+```
+
+`catalog.sig` is the same base64 DER ECDSA P-256/SHA-256 signature format as
+`index.sig`, but covers the exact `catalog.json` bytes. The catalog schema is
+`solaros.manual_catalog` version `1`. It names the exact firmware version and
+an immutable revision, then records every Markdown page's path, byte size,
+SHA-256, metadata, and Quick reference. Firmware accepts only a catalog for its
+running version and verifies every page before activating it.
+
 `index.sig` must be regenerated whenever `index.json` changes. A compatible
-manual signing flow is:
+index signing flow is:
 
 ```sh
 openssl dgst -sha256 -sign ota_signing_private.pem -out index.sig.der index.json

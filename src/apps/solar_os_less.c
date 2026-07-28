@@ -749,9 +749,10 @@ static esp_err_t less_load_manual(const char *id)
     }
     less_state.app_name = "man";
     strlcpy(less_state.display_name, page->id, sizeof(less_state.display_name));
-    less_state.buffer = page->body;
-    less_state.len = strlen(page->body);
-    return ESP_OK;
+    return solar_os_manual_load_body(page,
+                                     &less_state.buffer,
+                                     &less_state.len,
+                                     &less_state.buffer_owned);
 }
 
 static esp_err_t less_start_common(solar_os_context_t *ctx, const char *app_name)
@@ -809,7 +810,7 @@ static void less_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
     if (less_state.buffer_owned) {
-        solar_os_memory_free((void *)less_state.buffer);
+        solar_os_manual_release_text(less_state.buffer, true);
     }
     memset(&less_state, 0, sizeof(less_state));
 }

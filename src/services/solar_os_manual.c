@@ -1,16 +1,329 @@
 #include "solar_os_manual.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+#include "solar_os_docs.h"
+#endif
+#include "solar_os_memory.h"
+#include "solar_os_storage.h"
 
 #define MANUAL_SEARCH_MAX 12U
 #define MANUAL_TOKEN_MAX 31U
+#define MANUAL_EXTERNAL_MAX (64U * 1024U)
 
 #include "solar_os_manual_data.h"
+
+static void manual_use_embedded(const char *text,
+                                const char **result,
+                                size_t *result_len,
+                                bool *owned)
+{
+    *result = text;
+    *result_len = text != NULL ? strlen(text) : 0U;
+    *owned = false;
+}
+
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+static esp_err_t manual_read_external(const char *id, char **source, size_t *source_len)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t err = solar_os_docs_page_path(id, path, sizeof(path));
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (st.st_size <= 0 || (uint64_t)st.st_size > MANUAL_EXTERNAL_MAX) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    const size_t len = (size_t)st.st_size;
+    char *buffer = solar_os_memory_alloc(len + 1U,
+                                         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                         "manual.source");
+    if (buffer == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        solar_os_memory_free(buffer);
+        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
+    const size_t read_len = fread(buffer, 1U, len, file);
+    const bool failed = ferror(file) || read_len != len;
+    fclose(file);
+    if (failed) {
+        solar_os_memory_free(buffer);
+        return ESP_FAIL;
+    }
+    buffer[len] = '\0';
+    *source = buffer;
+    *source_len = len;
+    return ESP_OK;
+}
+
+static char *manual_markdown_body(char *source)
+{
+    if (source == NULL || strncmp(source, "+++\n", 4U) != 0) {
+        return NULL;
+    }
+    char *end = strstr(source + 4U, "\n+++\n");
+    return end != NULL ? end + 5U : NULL;
+}
+
+static bool manual_heading(const char *line,
+                           size_t line_len,
+                           size_t *level,
+                           const char **text,
+                           size_t *text_len)
+{
+    size_t hashes = 0U;
+    while (hashes < line_len && hashes < 6U && line[hashes] == '#') {
+        hashes++;
+    }
+    if (hashes == 0U || hashes >= line_len || line[hashes] != ' ') {
+        return false;
+    }
+    *level = hashes;
+    *text = line + hashes + 1U;
+    *text_len = line_len - hashes - 1U;
+    return true;
+}
+
+static bool manual_heading_equals(const char *text,
+                                  size_t text_len,
+                                  const char *expected)
+{
+    const size_t expected_len = strlen(expected);
+    return text_len == expected_len &&
+           strncasecmp(text, expected, expected_len) == 0;
+}
+
+static esp_err_t manual_extract_reference(char *source,
+                                          const char **result,
+                                          size_t *result_len,
+                                          bool *owned)
+{
+    char *body = manual_markdown_body(source);
+    if (body == NULL) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    char *cursor = body;
+    char *start = NULL;
+    size_t section_level = 0U;
+    while (*cursor != '\0') {
+        char *end = strchr(cursor, '\n');
+        const size_t len = end != NULL ? (size_t)(end - cursor) : strlen(cursor);
+        size_t level = 0U;
+        size_t text_len = 0U;
+        const char *text = NULL;
+        if (manual_heading(cursor, len, &level, &text, &text_len)) {
+            if (start == NULL && manual_heading_equals(text, text_len, "Quick reference")) {
+                start = end != NULL ? end + 1U : cursor + len;
+                section_level = level;
+            } else if (start != NULL && level <= section_level) {
+                *cursor = '\0';
+                break;
+            }
+        }
+        if (end == NULL) {
+            break;
+        }
+        cursor = end + 1U;
+    }
+    if (start == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    size_t len = strlen(start);
+    while (len > 0U && (start[len - 1U] == '\n' || start[len - 1U] == '\r')) {
+        len--;
+    }
+    char *copy = solar_os_memory_alloc(len + 1U,
+                                       SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                       "manual.reference");
+    if (copy == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    memcpy(copy, start, len);
+    copy[len] = '\0';
+    *result = copy;
+    *result_len = len;
+    *owned = true;
+    return ESP_OK;
+}
+
+static esp_err_t manual_render_markdown(char *source,
+                                        size_t source_len,
+                                        const char **result,
+                                        size_t *result_len,
+                                        bool *owned)
+{
+    char *body = manual_markdown_body(source);
+    if (body == NULL) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    const size_t body_len = source_len - (size_t)(body - source);
+    const size_t output_capacity = body_len * 3U + 2U;
+    char *output = solar_os_memory_alloc(output_capacity,
+                                         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                         "manual.body");
+    if (output == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t out = 0U;
+    bool fenced = false;
+    bool paragraph = false;
+    for (char *cursor = body; *cursor != '\0';) {
+        char *end = strchr(cursor, '\n');
+        size_t len = end != NULL ? (size_t)(end - cursor) : strlen(cursor);
+        if (len > 0U && cursor[len - 1U] == '\r') {
+            len--;
+        }
+        if (len >= 3U && strncmp(cursor, "```", 3U) == 0) {
+            if (paragraph && out > 0U) {
+                output[out++] = '\n';
+            }
+            paragraph = false;
+            fenced = !fenced;
+        } else if (fenced) {
+            if (out + len + 3U > output_capacity) {
+                solar_os_memory_free(output);
+                return ESP_ERR_INVALID_SIZE;
+            }
+            output[out++] = ' ';
+            output[out++] = ' ';
+            memcpy(output + out, cursor, len);
+            out += len;
+            output[out++] = '\n';
+        } else {
+            size_t level = 0U;
+            size_t text_len = 0U;
+            const char *text = NULL;
+            if (manual_heading(cursor, len, &level, &text, &text_len)) {
+                if (paragraph && out > 0U) {
+                    output[out++] = '\n';
+                }
+                if (out > 0U && output[out - 1U] != '\n') {
+                    output[out++] = '\n';
+                }
+                for (size_t i = 0U; i < text_len; i++) {
+                    output[out++] = (char)toupper((unsigned char)text[i]);
+                }
+                output[out++] = '\n';
+                output[out++] = '\n';
+                paragraph = false;
+            } else if (len == 0U) {
+                if (paragraph && out > 0U) {
+                    output[out++] = '\n';
+                }
+                if (out > 0U && output[out - 1U] != '\n') {
+                    output[out++] = '\n';
+                }
+                paragraph = false;
+            } else {
+                size_t first = 0U;
+                while (first < len && isspace((unsigned char)cursor[first])) {
+                    first++;
+                }
+                if (paragraph && out > 0U && output[out - 1U] != '\n') {
+                    output[out++] = ' ';
+                }
+                for (size_t i = first; i < len; i++) {
+                    if (cursor[i] == '`') {
+                        continue;
+                    }
+                    if (cursor[i] == '*' && i + 1U < len && cursor[i + 1U] == '*') {
+                        i++;
+                        continue;
+                    }
+                    output[out++] = cursor[i];
+                }
+                paragraph = true;
+            }
+        }
+        if (end == NULL) {
+            break;
+        }
+        cursor = end + 1U;
+    }
+    while (out > 0U && output[out - 1U] == '\n') {
+        out--;
+    }
+    output[out++] = '\n';
+    output[out] = '\0';
+    *result = output;
+    *result_len = out;
+    *owned = true;
+    return ESP_OK;
+}
+#endif
+
+esp_err_t solar_os_manual_load_body(const solar_os_manual_page_t *page,
+                                    const char **body,
+                                    size_t *body_len,
+                                    bool *owned)
+{
+    if (page == NULL || body == NULL || body_len == NULL || owned == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    char *source = NULL;
+    size_t source_len = 0U;
+    if (manual_read_external(page->id, &source, &source_len) == ESP_OK) {
+        const esp_err_t err =
+            manual_render_markdown(source, source_len, body, body_len, owned);
+        solar_os_memory_free(source);
+        if (err == ESP_OK) {
+            return ESP_OK;
+        }
+    }
+#endif
+    manual_use_embedded(page->body, body, body_len, owned);
+    return page->body != NULL ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t solar_os_manual_load_contract(const solar_os_manual_page_t *page,
+                                        const char **contract,
+                                        size_t *contract_len,
+                                        bool *owned)
+{
+    if (page == NULL || contract == NULL || contract_len == NULL || owned == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    char *source = NULL;
+    size_t source_len = 0U;
+    if (manual_read_external(page->id, &source, &source_len) == ESP_OK) {
+        const esp_err_t err =
+            manual_extract_reference(source, contract, contract_len, owned);
+        solar_os_memory_free(source);
+        if (err == ESP_OK) {
+            return ESP_OK;
+        }
+    }
+#endif
+    manual_use_embedded(page->contract, contract, contract_len, owned);
+    return page->contract != NULL ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+void solar_os_manual_release_text(const char *text, bool owned)
+{
+    if (owned) {
+        solar_os_memory_free((void *)text);
+    }
+}
 
 size_t solar_os_manual_count(void)
 {

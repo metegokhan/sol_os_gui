@@ -43,6 +43,7 @@ members = [
 [groups.maintenance_apps]
 members = [
   "service_ota",
+  "service_docs",
   "core_fs_commands",
   "app_inbox",
   "app_com",
@@ -211,6 +212,18 @@ requires = [
   "esp_https_ota",
 ]
 capabilities = ["wifi"]
+
+[packages.service_docs]
+label = "maintenance.docs"
+depends = [
+  "service_crypto",
+  "service_http_client",
+  "service_json",
+  "service_ota",
+  "service_sd",
+]
+sources = ["services/solar_os_docs.c"]
+capabilities = ["psram", "sd", "wifi"]
 
 [packages.core_shell]
 label = "bootstrap.shell"

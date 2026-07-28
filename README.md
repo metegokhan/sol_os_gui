@@ -130,6 +130,7 @@ Detailed documentation split by topic:
 - [Python API](doc/solar_os_python.md)
 - [Lua API](doc/solar_os_lua.md)
 - [OTA release schema](doc/solar_os_ota_schema.md)
+- [Unified device manual and signed refresh](doc/manual-system.md)
 
 ## Architecture
 ![Architecture diagram](doc/solar_os_architecture.png)
