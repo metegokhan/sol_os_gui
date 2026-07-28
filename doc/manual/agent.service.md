@@ -23,7 +23,7 @@ agent config model gpt-model
 agent config key api-key
 agent config reasoning medium
 agent config tools confirm
-agent config max-tools 8
+agent config max-tools 16
 agent status
 ```
 
@@ -181,13 +181,15 @@ request. A denial is returned to the model as a structured result so it can
 explain or choose another approach rather than losing the conversation turn.
 `agent status` includes executed, denied, and failed tool counters.
 
-The service permits up to eight sequential tool calls by default and always
+The service permits up to 16 sequential tool calls by default and always
 reserves a separate provider turn for the final response. Set the per-request
-limit with `agent config max-tools COUNT`; accepted values are 1 through 12 and
-the selection is stored in NVS. This supports bounded inspect/read/change
-workflows without allowing an unbounded autonomous loop. Unsupported tools,
-multiple simultaneous tool calls, malformed arguments, or a tool request after
-the configured limit fail the request.
+limit with `agent config max-tools COUNT`; accepted values are 1 through 32 and
+the selection is stored in NVS. Once the budget is consumed, the reserved final
+turn advertises no tools, so the model must conclude from the results already
+collected instead of failing by requesting another tool. This supports bounded
+inspect/read/change/test/repair workflows without allowing an unbounded
+autonomous loop. Unsupported tools, multiple simultaneous tool calls, and
+malformed arguments still fail the request.
 Definitions, input/output schemas, availability checks, risk metadata, and
 executors live in one declarative registry. Only available tools are sent to
 the provider. Discovery also filters tools denied by the current policy. The
@@ -226,11 +228,11 @@ the model.
 - Request deadline: 90 seconds.
 - Per-I/O timeout: 15 seconds.
 
-`agent status` records internal free memory, the lowest sample observed during
-HTTP streaming, largest internal blocks, and PSRAM before and at request
-completion. The completion sample still includes the foreground worker stack;
-run `mem policy` after the app returns to confirm that the task stack was
-reclaimed.
+`agent status` records tool calls used versus the last request's configured
+budget, internal free memory, the lowest sample observed during HTTP streaming,
+largest internal blocks, and PSRAM before and at request completion. The
+completion sample still includes the foreground worker stack; run `mem policy`
+after the app returns to confirm that the task stack was reclaimed.
 
 The agent package requires Wi-Fi and PSRAM but does not require Python or Lua.
 The manual command and model tool are advertised only when the corresponding

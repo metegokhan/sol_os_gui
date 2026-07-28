@@ -23,7 +23,7 @@ agent config model gpt-model
 agent config key api-key
 agent config reasoning medium
 agent config tools confirm
-agent config max-tools 8
+agent config max-tools 16
 agent status
 ```
 
@@ -43,7 +43,8 @@ press `Ctrl+]`.
 ## Troubleshooting
 
 - `agent status` shows the endpoint, model, policy, request failures, and memory
-  telemetry without printing the API key.
+  telemetry without printing the API key. It also reports how many tool calls
+  the last request used from its configured budget.
 - If a generated script guesses an API or display name, ask the agent to call
   `solaros_reference` and the relevant discovery tool first.
 - If a call is denied, the model receives a structured denial and can explain

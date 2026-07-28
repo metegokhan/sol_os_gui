@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Raised the native agent's default tool budget to 16 and configurable maximum
+  to 32 calls. The reserved final provider turn now advertises no tools, so an
+  exhausted budget produces a concluding response instead of a tool-limit
+  failure, and `agent status` reports the last request's used/maximum calls.
+
 ## 4.x
 
 - **4.3.11** — 2026-07-28 — Made `doc/manual/` the comprehensive source shared

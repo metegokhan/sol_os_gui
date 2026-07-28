@@ -637,7 +637,15 @@ static const char * const agent_config_fields[] = {
     "max-tools",
 };
 static const char * const agent_key_values[] = {"clear"};
-static const char * const agent_max_tools_values[] = {"1", "4", "8", "12"};
+static const char * const agent_max_tools_values[] = {
+    "1",
+    "4",
+    "8",
+    "12",
+    "16",
+    "24",
+    "32",
+};
 static const char * const agent_tool_policy_values[] = {
     "off",
     "readonly",

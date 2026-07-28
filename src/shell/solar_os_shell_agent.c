@@ -28,7 +28,7 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(
         io,
         "  agent config tools off|readonly|confirm|all");
-    solar_os_shell_io_writeln(io, "  agent config max-tools 1..12");
+    solar_os_shell_io_writeln(io, "  agent config max-tools 1..32");
     solar_os_shell_io_writeln(io, "  agent forget");
     solar_os_shell_io_writeln(io, "  agent ask PROMPT...");
     solar_os_shell_io_writeln(
@@ -112,6 +112,11 @@ static void agent_status(solar_os_shell_io_t *io)
         return;
     }
 
+    solar_os_shell_io_printf(
+        io,
+        "Last request tools: %u/%u used\n",
+        (unsigned int)status.last_tool_call_count,
+        (unsigned int)status.last_max_tools);
     solar_os_shell_io_printf(
         io,
         "Last: %s, HTTP %d, %" PRIu32 " ms, %" PRIu32 " bytes\n",
