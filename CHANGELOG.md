@@ -2,13 +2,12 @@
 
 ## Unreleased
 
-- Raised the native agent's default tool budget to 16 and configurable maximum
-  to 32 calls. The reserved final provider turn now advertises no tools, so an
-  exhausted budget produces a concluding response instead of a tool-limit
-  failure, and `agent status` reports the last request's used/maximum calls.
-
 ## 4.x
 
+- **4.3.12** — 2026-07-28 — Raised the native agent's default tool budget to
+  16 and configurable maximum to 32 calls, made the reserved final provider
+  turn tool-free, and added per-request budget usage to `agent status`.
+  (`281f45f`)
 - **4.3.11** — 2026-07-28 — Made `doc/manual/` the comprehensive source shared
   by GitHub, the website, device help, and the native agent. Added the foldable
   `help` browser, `commands` and package-aware `man`, display-aware
