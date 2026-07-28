@@ -43,21 +43,23 @@ present; an empty list makes it universal.
 ## Release and refresh
 
 The deployment pipeline copies the Markdown tree to
-`/ota/<version>/doc/manual/`, generates `doc/catalog.json`, and signs the exact
-catalog bytes as `doc/catalog.sig` with the OTA release key. Each catalog entry
-contains the page path, byte count, SHA-256, metadata, and Quick reference.
+`/ota/<version>/doc/manual/`, creates `doc/manual.zip`, generates
+`doc/catalog.json`, and signs the exact catalog bytes as `doc/catalog.sig` with
+the OTA release key. The schema-v2 catalog authenticates the archive path, byte
+count, and SHA-256. Each page entry also contains its extracted path, byte
+count, SHA-256, metadata, and Quick reference.
 
 On a Wi-Fi, PSRAM, and SD capable build, `help update` resolves the configured
 OTA URL to the exact running firmware version. The device verifies the catalog
-signature, rejects version mismatches, downloads every page into an immutable
-revision directory, and checks its signed size and SHA-256 before changing the
-small active-revision pointer. Existing readers retain valid paths because
-activated revisions are not deleted at runtime.
+signature, rejects version mismatches, downloads the one authenticated archive,
+extracts it into a temporary revision, and checks every page's signed size and
+SHA-256 before changing the small active-revision pointer. Existing readers
+retain valid paths because activated revisions are not deleted at runtime.
 
 Downloaded pages override only the body and Quick reference of topics already
 compiled into the firmware. Search metadata and package availability remain
 the embedded registry's responsibility. If the SD card, active pointer,
-signature, catalog, page, or parser is unavailable, each lookup falls back to
+signature, catalog, archive, page, or parser is unavailable, each lookup falls back to
 the embedded copy.
 
 Use:

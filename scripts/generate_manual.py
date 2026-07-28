@@ -5,15 +5,19 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
 import tomllib
+import zipfile
 
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 FRONT_MATTER_DELIMITER = "+++"
 QUICK_REFERENCE_HEADING = "quick reference"
+CATALOG_SCHEMA_VERSION = 2
+ARCHIVE_PATH = "manual.zip"
 SECTION_INFO = {
     "concept": (10, "Getting started"),
     "shell": (20, "Shell and storage"),
@@ -566,9 +570,42 @@ def render_header(pages: list[dict[str, object]], source: Path) -> str:
     return "\n".join(lines)
 
 
-def render_catalog(pages: list[dict[str, object]], version: str) -> str:
+def build_archive(pages: list[dict[str, object]]) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(
+        output,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as archive:
+        for page in pages:
+            info = zipfile.ZipInfo(
+                filename=f"manual/{page['id']}.md",
+                date_time=(1980, 1, 1, 0, 0, 0),
+            )
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.create_system = 3
+            info.external_attr = 0o100644 << 16
+            archive.writestr(
+                info,
+                str(page["release_markdown"]).encode("utf-8"),
+                compress_type=zipfile.ZIP_DEFLATED,
+                compresslevel=9,
+            )
+    return output.getvalue()
+
+
+def render_catalog(
+    pages: list[dict[str, object]], version: str, archive: bytes
+) -> str:
     catalog_pages: list[dict[str, object]] = []
     revision_hash = hashlib.sha256()
+    archive_digest = hashlib.sha256(archive).hexdigest()
+    revision_hash.update(
+        f"{CATALOG_SCHEMA_VERSION}:{ARCHIVE_PATH}:{archive_digest}\n".encode(
+            "ascii"
+        )
+    )
     for page in pages:
         markdown = str(page["release_markdown"]).encode("utf-8")
         digest = hashlib.sha256(markdown).hexdigest()
@@ -595,9 +632,14 @@ def render_catalog(pages: list[dict[str, object]], version: str) -> str:
         )
     catalog = {
         "schema": "solaros.manual_catalog",
-        "schema_version": 1,
+        "schema_version": CATALOG_SCHEMA_VERSION,
         "firmware_version": version,
         "revision": revision_hash.hexdigest()[:16],
+        "archive": {
+            "path": ARCHIVE_PATH,
+            "size": len(archive),
+            "sha256": archive_digest,
+        },
         "pages": catalog_pages,
     }
     return json.dumps(catalog, indent=2, ensure_ascii=True) + "\n"
@@ -651,6 +693,12 @@ def write_release_pages(
             path.unlink()
 
 
+def write_archive(archive: bytes, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not output.exists() or output.read_bytes() != archive:
+        output.write_bytes(archive)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
@@ -659,6 +707,7 @@ def main() -> int:
     parser.add_argument("--catalog-output", type=Path)
     parser.add_argument("--github-index-output", type=Path)
     parser.add_argument("--release-output-dir", type=Path)
+    parser.add_argument("--archive-output", type=Path)
     parser.add_argument("--version")
     args = parser.parse_args()
     if (
@@ -666,22 +715,32 @@ def main() -> int:
         and args.catalog_output is None
         and args.github_index_output is None
         and args.release_output_dir is None
+        and args.archive_output is None
     ):
         parser.error(
             "at least one of --output, --catalog-output, or "
-            "--github-index-output, or --release-output-dir is required"
+            "--github-index-output, --release-output-dir, or "
+            "--archive-output is required"
         )
     if args.catalog_output is not None and not args.version:
         parser.error("--version is required with --catalog-output")
+    if args.catalog_output is not None and args.archive_output is None:
+        parser.error("--archive-output is required with --catalog-output")
 
     pages = load_pages(args.input, args.packages)
+    archive = (
+        build_archive(pages)
+        if args.archive_output is not None or args.catalog_output is not None
+        else None
+    )
     if args.output is not None:
         output = render_header(pages, args.input)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         if not args.output.exists() or args.output.read_text() != output:
             args.output.write_text(output)
     if args.catalog_output is not None:
-        catalog = render_catalog(pages, args.version)
+        assert archive is not None
+        catalog = render_catalog(pages, args.version, archive)
         args.catalog_output.parent.mkdir(parents=True, exist_ok=True)
         if (
             not args.catalog_output.exists()
@@ -698,6 +757,9 @@ def main() -> int:
             args.github_index_output.write_text(index)
     if args.release_output_dir is not None:
         write_release_pages(pages, args.release_output_dir)
+    if args.archive_output is not None:
+        assert archive is not None
+        write_archive(archive, args.archive_output)
     return 0
 
 

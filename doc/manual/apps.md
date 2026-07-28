@@ -235,8 +235,8 @@ Controls:
 - `q`, `Esc`, or the app-exit key: return to the shell.
 
 The maintenance forms `help status`, `help update`, and `help reset` remain
-shell operations. SD-capable builds show terminal-width-aware catalog and
-per-page progress while downloading an exact-version signed manual.
+shell operations. SD-capable builds show terminal-width-aware progress while
+downloading and extracting one exact-version signed manual archive.
 
 ## edit
 

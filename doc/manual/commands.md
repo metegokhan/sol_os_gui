@@ -93,11 +93,12 @@ not drift apart.
 
 Bare `help` opens a foldable topic tree. Graphic display shells read the
 selected topic in `reader`; text shells use `less`, both through the same
-`man:TOPIC` source. On builds with Wi-Fi, PSRAM, and SD, `help update` shows a
-terminal-width-aware catalog and per-page progress bar while downloading the manual
-published for the exact running firmware version. The catalog is verified with
-the OTA public key and every Markdown page is checked by size and SHA-256 before
-activation. `help reset` returns immediately to the embedded manual.
+`man:TOPIC` source. On builds with Wi-Fi, PSRAM, and SD, `help update` shows
+terminal-width-aware progress while downloading one `manual.zip` published for
+the exact running firmware version. The catalog signature authenticates the
+archive hash; after extraction every Markdown page is checked by size and
+SHA-256 before activation. `help reset` returns immediately to the embedded
+manual.
 
 Aliases are stored in `/.shell/alias`, one per line:
 

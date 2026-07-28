@@ -72,6 +72,7 @@ Each version directory also contains a refreshable device manual:
 doc/
   catalog.json
   catalog.sig
+  manual.zip
   manual/
     overview.md
     python.gfx.md
@@ -80,10 +81,12 @@ doc/
 
 `catalog.sig` is the same base64 DER ECDSA P-256/SHA-256 signature format as
 `index.sig`, but covers the exact `catalog.json` bytes. The catalog schema is
-`solaros.manual_catalog` version `1`. It names the exact firmware version and
-an immutable revision, then records every Markdown page's path, byte size,
-SHA-256, metadata, and Quick reference. Firmware accepts only a catalog for its
-running version and verifies every page before activating it.
+`solaros.manual_catalog` version `2`. It names the exact firmware version and
+an immutable revision, authenticates the `manual.zip` path, byte size, and
+SHA-256, then records every extracted Markdown page's path, byte size, SHA-256,
+metadata, and Quick reference. Firmware accepts only a catalog for its running
+version, verifies the archive before extraction, and verifies every page before
+activating it.
 
 `index.sig` must be regenerated whenever `index.json` changes. A compatible
 index signing flow is:

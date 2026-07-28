@@ -203,15 +203,18 @@ static const char *docs_progress_stage_name(
         return "catalog";
     case SOLAR_OS_DOCS_PROGRESS_SIGNATURE:
         return "signature";
+    case SOLAR_OS_DOCS_PROGRESS_ARCHIVE:
+        return "archive";
+    case SOLAR_OS_DOCS_PROGRESS_EXTRACTING:
+        return "extracting";
     case SOLAR_OS_DOCS_PROGRESS_VERIFYING:
         return "verifying";
     case SOLAR_OS_DOCS_PROGRESS_ACTIVATING:
         return "activating";
     case SOLAR_OS_DOCS_PROGRESS_DONE:
         return "done";
-    case SOLAR_OS_DOCS_PROGRESS_PAGE:
     default:
-        return "page";
+        return "update";
     }
 }
 
@@ -279,30 +282,32 @@ static void docs_shell_progress_cb(
     solar_os_shell_io_clear_line_from(state->io, state->row, 0U);
     char prefix[48];
     const size_t cols = solar_os_shell_io_cols(state->io);
-    if (progress->stage == SOLAR_OS_DOCS_PROGRESS_PAGE) {
-        if (cols >= 56U) {
+    if (progress->stage == SOLAR_OS_DOCS_PROGRESS_ARCHIVE) {
+        snprintf(prefix,
+                 sizeof(prefix),
+                 cols > 0U && cols < 24U ? "zip " : "help archive ");
+        docs_render_progress_bar(state->io, prefix, percent);
+    } else if (progress->stage == SOLAR_OS_DOCS_PROGRESS_EXTRACTING) {
+        if (cols >= 32U) {
             snprintf(prefix,
                      sizeof(prefix),
-                     "help %02u/%02u %-16.16s ",
+                     "help extract %03u/%03u ",
                      (unsigned)progress->page_index,
-                     (unsigned)progress->page_count,
-                     progress->topic);
-        } else if (cols >= 32U) {
+                     (unsigned)progress->page_count);
+        } else if (cols >= 20U) {
             snprintf(prefix,
                      sizeof(prefix),
-                     "help %02u/%02u ",
+                     "extract %03u/%03u ",
                      (unsigned)progress->page_index,
                      (unsigned)progress->page_count);
         } else {
             snprintf(prefix,
                      sizeof(prefix),
-                     "%02u/%02u ",
+                     "%03u/%03u ",
                      (unsigned)progress->page_index,
                      (unsigned)progress->page_count);
         }
-        docs_render_progress_bar(state->io,
-                                 prefix,
-                                 percent);
+        docs_render_progress_bar(state->io, prefix, percent);
     } else {
         if (progress->stage == SOLAR_OS_DOCS_PROGRESS_CATALOG ||
             progress->stage == SOLAR_OS_DOCS_PROGRESS_SIGNATURE ||

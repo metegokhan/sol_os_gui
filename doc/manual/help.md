@@ -30,12 +30,12 @@ help update
 ```
 
 SolarOS requests the documentation published for its exact running firmware
-version. It verifies the catalog with the OTA public key and verifies every
-Markdown page against the signed size and SHA-256 before activating the new
-revision. The command shows catalog and per-page download progress using a bar
-that adapts to the active terminal width, including the narrow display shell at
-text size 16. An interrupted or invalid download leaves the previous manual
-active.
+version. It verifies the catalog with the OTA public key, downloads the single
+`manual.zip` archive authenticated by that catalog, and extracts it into a
+temporary revision. Every extracted Markdown page is then checked against its
+signed size and SHA-256 before activation. The command shows width-aware
+download and extraction progress, including on the narrow display shell at text
+size 16. An interrupted or invalid download leaves the previous manual active.
 
 `help status` shows whether the external revision or embedded fallback is in
 use. `help reset` stops using the downloaded revision; it does not remove the
@@ -54,8 +54,8 @@ signature is valid.
 group and selects that topic initially. Graphic display shells open topics with
 `reader`; CDC, UART, Telnet, SSH, and other text shells use `less`.
 `help status` reports the active source, firmware version, revision, page count,
-update state, and last error. `help update` displays download progress, stores
-the signed exact-version catalog and Markdown pages on SD, and activates them
-only after signature, size, and SHA-256 verification. `help reset` immediately
+update state, and last error. `help update` downloads one catalog-authenticated
+archive, verifies every extracted page, stores the exact-version manual on SD,
+and activates it only after signature, size, and SHA-256 verification. `help reset` immediately
 returns `man`, `help`, and the agent to the embedded manual. Refreshing requires
 Wi-Fi, PSRAM, and SD.

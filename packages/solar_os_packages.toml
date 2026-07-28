@@ -222,6 +222,7 @@ depends = [
   "service_json",
   "service_ota",
   "service_sd",
+  "service_zip",
 ]
 sources = ["services/solar_os_docs.c"]
 capabilities = ["psram", "sd", "wifi"]
@@ -252,10 +253,12 @@ requires = ["esp_timer", "heap"]
 
 [packages.core_fs_commands]
 label = "core.fs-commands"
-sources = [
-  "shell/solar_os_shell_fs.c",
-  "services/solar_os_zip.c",
-]
+depends = ["service_zip"]
+sources = ["shell/solar_os_shell_fs.c"]
+
+[packages.service_zip]
+label = "service.zip"
+sources = ["services/solar_os_zip.c"]
 
 [packages.service_wifi]
 label = "service.wifi"
