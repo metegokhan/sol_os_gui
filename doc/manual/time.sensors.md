@@ -1,7 +1,7 @@
 +++
 id = "time.sensors"
 title = "Time, battery, and environment APIs"
-section = "api"
+section = "hardware"
 summary = "Read clocks, battery state, temperature, and humidity"
 aliases = ["time", "battery", "sensors"]
 keywords = "python lua time clock date timezone ntp uptime battery sensor temperature humidity environment"

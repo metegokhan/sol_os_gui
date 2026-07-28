@@ -14,6 +14,17 @@ import tomllib
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 FRONT_MATTER_DELIMITER = "+++"
 QUICK_REFERENCE_HEADING = "quick reference"
+SECTION_INFO = {
+    "concept": (10, "Getting started"),
+    "shell": (20, "Shell and storage"),
+    "app": (30, "Applications"),
+    "job": (40, "Background jobs"),
+    "network": (50, "Networking and security"),
+    "hardware": (60, "Hardware and expansion"),
+    "api": (70, "Scripting APIs"),
+    "service": (80, "System services"),
+    "build": (90, "Boards and firmware"),
+}
 
 
 def package_macro(package: str) -> str:
@@ -162,6 +173,8 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
     pages: list[dict[str, object]] = []
     seen_ids: set[str] = set()
     for path in sorted(source.glob("*.md")):
+        if path.name.casefold() == "readme.md":
+            continue
         metadata, markdown = parse_front_matter(path)
         page = dict(metadata)
         for field in ("id", "title", "section", "summary", "keywords"):
@@ -188,6 +201,11 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
         ):
             raise ValueError(f"{page_id}: aliases must be valid topic names")
         page["aliases"] = [alias.strip() for alias in aliases]
+
+        section = str(page["section"])
+        if section not in SECTION_INFO:
+            raise ValueError(f"{page_id}: unknown manual section {section}")
+        page["section_title"] = SECTION_INFO[section][1]
 
         packages_any = page.get("packages_any", [])
         if not isinstance(packages_any, list) or not all(
@@ -218,7 +236,14 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
                     f"manual topic name {name} is shared by {owner} and {page_id}"
                 )
             seen_names[folded] = page_id
-    return pages
+    return sorted(
+        pages,
+        key=lambda page: (
+            SECTION_INFO[str(page["section"])][0],
+            str(page["title"]).casefold(),
+            str(page["id"]),
+        ),
+    )
 
 
 def render_header(pages: list[dict[str, object]], source: Path) -> str:
@@ -242,11 +267,17 @@ def render_header(pages: list[dict[str, object]], source: Path) -> str:
                 f"        .id = {c_string(str(page['id']))},",
                 f"        .title = {c_string(str(page['title']))},",
                 f"        .section = {c_string(str(page['section']))},",
+                f"        .section_title = {c_string(str(page['section_title']))},",
                 f"        .summary = {c_string(str(page['summary']))},",
                 f"        .aliases = {c_string(aliases)},",
                 f"        .keywords = {c_string(str(page['keywords']))},",
                 f"        .body = {c_string(str(page['body']))},",
                 f"        .contract = {c_string(str(page['contract']))},",
+                "#if SOLAR_OS_PACKAGE_APP_READER",
+                f"        .markdown = {c_string(str(page['markdown']))},",
+                "#else",
+                "        .markdown = NULL,",
+                "#endif",
                 "    },",
             ]
         )
@@ -284,6 +315,7 @@ def render_catalog(
                 "id": page["id"],
                 "title": page["title"],
                 "section": page["section"],
+                "section_title": page["section_title"],
                 "summary": page["summary"],
                 "aliases": page["aliases"],
                 "keywords": page["keywords"],
@@ -304,16 +336,57 @@ def render_catalog(
     return json.dumps(catalog, indent=2, ensure_ascii=True) + "\n"
 
 
+def render_github_index(pages: list[dict[str, object]]) -> str:
+    lines = [
+        "# SolarOS User Manual",
+        "",
+        "This is the canonical documentation used by GitHub, the generated "
+        "solar-os.eu website, the signed on-device `docs` browser, `man`, "
+        "and the native agent reference tool.",
+        "",
+    ]
+    current_section = None
+    for page in pages:
+        section = str(page["section"])
+        if section != current_section:
+            if current_section is not None:
+                lines.append("")
+            lines.extend((f"## {page['section_title']}", ""))
+            current_section = section
+        path = Path(page["path"])
+        lines.append(
+            f"- [{page['title']}]({path.name}) — {page['summary']}"
+        )
+    lines.extend(
+        (
+            "",
+            "The TOML frontmatter on each topic controls package availability, "
+            "search metadata, and placement in the documentation tree. Edit "
+            "the topic itself; do not maintain a separate device or website copy.",
+            "",
+        )
+    )
+    return "\n".join(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--packages", required=True, type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--catalog-output", type=Path)
+    parser.add_argument("--github-index-output", type=Path)
     parser.add_argument("--version")
     args = parser.parse_args()
-    if args.output is None and args.catalog_output is None:
-        parser.error("at least one of --output or --catalog-output is required")
+    if (
+        args.output is None
+        and args.catalog_output is None
+        and args.github_index_output is None
+    ):
+        parser.error(
+            "at least one of --output, --catalog-output, or "
+            "--github-index-output is required"
+        )
     if args.catalog_output is not None and not args.version:
         parser.error("--version is required with --catalog-output")
 
@@ -331,6 +404,14 @@ def main() -> int:
             or args.catalog_output.read_text() != catalog
         ):
             args.catalog_output.write_text(catalog)
+    if args.github_index_output is not None:
+        index = render_github_index(pages)
+        args.github_index_output.parent.mkdir(parents=True, exist_ok=True)
+        if (
+            not args.github_index_output.exists()
+            or args.github_index_output.read_text() != index
+        ):
+            args.github_index_output.write_text(index)
     return 0
 
 

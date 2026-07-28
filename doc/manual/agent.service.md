@@ -1,3 +1,12 @@
++++
+id = "agent.service"
+title = "Agent service and tool reference"
+section = "app"
+summary = "Provider contract, typed tools, policy, resource bounds, and roadmap"
+aliases = ["agent.tools"]
+keywords = "agent service responses api tools policy memory bounds provider"
+packages_any = ["app_agent"]
++++
 # Native Agent Service
 
 `service.agent` is the native control plane for connecting SolarOS to remote
@@ -229,3 +238,11 @@ runtime is in the firmware; the agent app supplies the optional adapter callback
 without making either interpreter a package dependency. Larger-file editing,
 persisted conversations, mutating job/network/hardware operations, additional
 providers, remote interfaces, and scheduling are later phases.
+
+## Quick reference
+
+The native agent uses the configured OpenAI-compatible Responses endpoint,
+applies the selected confirmation policy, and exposes bounded typed tools for
+installed SolarOS features. `agent status` reports provider, policy, requests,
+tool activity, and memory. This page defines the tool contract and resource
+limits; `man agent` is the task-oriented usage guide.

@@ -1,7 +1,7 @@
 +++
 id = "jobs"
 title = "Background jobs"
-section = "service"
+section = "job"
 summary = "Inspect and control bounded background workers"
 aliases = ["job", "background"]
 keywords = "python lua jobs background task process start stop state waiting failed memory stack"

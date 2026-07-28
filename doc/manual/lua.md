@@ -1,3 +1,12 @@
++++
+id = "lua"
+title = "Lua API reference"
+section = "api"
+summary = "Complete Lua service API, conventions, and examples"
+aliases = ["lua.api"]
+keywords = "lua solaros api storage wifi gpio buses gfx tui examples"
+packages_any = ["app_lua"]
++++
 # SolarOS Lua API
 
 SolarOS embeds Lua as the `lua` foreground application. It can run an interactive REPL or execute `.lua` files from storage.
@@ -373,3 +382,10 @@ gfx["end"]()
 Lua tables returned as lists use normal Lua 1-based array indexes. Direct block lookup with `solaros.storage.block(index)` follows the underlying storage service index, matching Python's 0-based `block(index)`.
 
 The Lua bridge intentionally does not expose raw SSH/SCP session handles. Those need explicit object lifetime and event-loop rules before becoming scriptable.
+
+## Quick reference
+
+Load `solaros` and use its service tables for storage, time, networking,
+hardware, jobs, sessions, TUI, and graphics. Lua arrays are 1-based unless an
+individual service explicitly exposes a native index. Close resources and keep
+long-running loops cooperative.

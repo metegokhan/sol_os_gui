@@ -1,3 +1,12 @@
++++
+id = "jobs.reference"
+title = "Background job reference"
+section = "job"
+summary = "Configuration, ownership, and examples for every background job"
+aliases = ["job.reference"]
+keywords = "jobs background workers start stop status memory ports examples"
+packages_any = []
++++
 # SolarOS Jobs
 
 This document covers the built-in background job registry. Jobs are autonomous
@@ -706,3 +715,10 @@ Notes:
 - Basic trigger commands are accepted for host compatibility, but this first
   implementation captures immediately instead of waiting for a trigger.
 - Captures remain available to the `logic` app after the job stops.
+
+## Quick reference
+
+Use `jobs` to inspect state and memory requirements, `job NAME start` to launch
+a worker, `job NAME status` for details, and `job NAME stop` to release it.
+Jobs run in the background and may claim ports or hardware resources; this page
+documents every installed job's arguments and ownership rules.

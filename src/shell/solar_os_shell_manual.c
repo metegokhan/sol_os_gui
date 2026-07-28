@@ -196,20 +196,6 @@ typedef struct {
     volatile bool done;
 } docs_update_worker_t;
 
-static void docs_format_bytes(size_t bytes, char *text, size_t text_len)
-{
-    if (bytes >= 1024U) {
-        const size_t tenths = ((bytes * 10U) + 512U) / 1024U;
-        snprintf(text,
-                 text_len,
-                 "%u.%uK",
-                 (unsigned)(tenths / 10U),
-                 (unsigned)(tenths % 10U));
-    } else {
-        snprintf(text, text_len, "%uB", (unsigned)bytes);
-    }
-}
-
 static const char *docs_progress_stage_name(
     solar_os_docs_progress_stage_t stage)
 {
@@ -231,29 +217,30 @@ static const char *docs_progress_stage_name(
 }
 
 static void docs_render_progress_bar(solar_os_shell_io_t *io,
-                                     uint8_t percent,
-                                     size_t read,
-                                     size_t total,
-                                     bool total_known)
+                                     const char *prefix,
+                                     uint8_t percent)
 {
+    size_t cols = solar_os_shell_io_cols(io);
+    if (cols < 16U) {
+        cols = 80U;
+    }
+    const size_t line_budget = cols > 1U ? cols - 1U : cols;
+    size_t prefix_len = prefix != NULL ? strlen(prefix) : 0U;
+    const size_t fixed = prefix_len + 7U;
+    size_t bar_width = line_budget > fixed ? line_budget - fixed : 1U;
+    if (bar_width > DOCS_PROGRESS_BAR_WIDTH) {
+        bar_width = DOCS_PROGRESS_BAR_WIDTH;
+    }
     const uint8_t filled =
-        (uint8_t)((percent * DOCS_PROGRESS_BAR_WIDTH) / 100U);
+        (uint8_t)((percent * bar_width) / 100U);
+    if (prefix_len > 0U) {
+        solar_os_shell_io_write(io, prefix);
+    }
     solar_os_shell_io_put_char(io, '[');
-    for (uint8_t i = 0U; i < DOCS_PROGRESS_BAR_WIDTH; i++) {
+    for (size_t i = 0U; i < bar_width; i++) {
         solar_os_shell_io_put_char(io, i < filled ? '#' : '-');
     }
     solar_os_shell_io_printf(io, "] %3u%%", (unsigned)percent);
-    if (read > 0U || total_known) {
-        char read_text[16];
-        char total_text[16];
-        docs_format_bytes(read, read_text, sizeof(read_text));
-        if (total_known) {
-            docs_format_bytes(total, total_text, sizeof(total_text));
-            solar_os_shell_io_printf(io, " %s/%s", read_text, total_text);
-        } else {
-            solar_os_shell_io_printf(io, " %s", read_text);
-        }
-    }
 }
 
 static void docs_shell_progress_cb(
@@ -291,31 +278,54 @@ static void docs_shell_progress_cb(
     }
     solar_os_shell_io_set_cursor(state->io, state->row, 0U);
     solar_os_shell_io_clear_line_from(state->io, state->row, 0U);
+    char prefix[48];
+    const size_t cols = solar_os_shell_io_cols(state->io);
     if (progress->stage == SOLAR_OS_DOCS_PROGRESS_PAGE) {
-        solar_os_shell_io_printf(state->io,
-                                 "docs: %02u/%02u %-18.18s ",
-                                 (unsigned)progress->page_index,
-                                 (unsigned)progress->page_count,
-                                 progress->topic);
+        if (cols >= 56U) {
+            snprintf(prefix,
+                     sizeof(prefix),
+                     "docs %02u/%02u %-16.16s ",
+                     (unsigned)progress->page_index,
+                     (unsigned)progress->page_count,
+                     progress->topic);
+        } else if (cols >= 32U) {
+            snprintf(prefix,
+                     sizeof(prefix),
+                     "docs %02u/%02u ",
+                     (unsigned)progress->page_index,
+                     (unsigned)progress->page_count);
+        } else {
+            snprintf(prefix,
+                     sizeof(prefix),
+                     "%02u/%02u ",
+                     (unsigned)progress->page_index,
+                     (unsigned)progress->page_count);
+        }
         docs_render_progress_bar(state->io,
-                                 percent,
-                                 progress->bytes_read,
-                                 progress->bytes_total,
-                                 progress->total_known);
+                                 prefix,
+                                 percent);
     } else {
-        solar_os_shell_io_printf(
-            state->io,
-            "docs: %s",
-            docs_progress_stage_name(progress->stage));
         if (progress->stage == SOLAR_OS_DOCS_PROGRESS_CATALOG ||
             progress->stage == SOLAR_OS_DOCS_PROGRESS_SIGNATURE ||
             progress->stage == SOLAR_OS_DOCS_PROGRESS_DONE) {
-            solar_os_shell_io_write(state->io, " ");
-            docs_render_progress_bar(state->io,
-                                     percent,
-                                     progress->bytes_read,
-                                     progress->bytes_total,
-                                     progress->total_known);
+            if (cols > 0U && cols < 24U) {
+                const char *short_name =
+                    progress->stage == SOLAR_OS_DOCS_PROGRESS_CATALOG ? "cat" :
+                    progress->stage == SOLAR_OS_DOCS_PROGRESS_SIGNATURE ? "sig" :
+                    "done";
+                snprintf(prefix, sizeof(prefix), "%s ", short_name);
+            } else {
+                snprintf(prefix,
+                         sizeof(prefix),
+                         "docs %s ",
+                         docs_progress_stage_name(progress->stage));
+            }
+            docs_render_progress_bar(state->io, prefix, percent);
+        } else {
+            solar_os_shell_io_printf(
+                state->io,
+                "docs %s",
+                docs_progress_stage_name(progress->stage));
         }
     }
     solar_os_shell_io_flush(state->io);

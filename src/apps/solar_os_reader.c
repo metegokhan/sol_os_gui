@@ -15,6 +15,7 @@
 #include "solar_os_epub.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
+#include "solar_os_manual.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
 
@@ -1312,6 +1313,28 @@ static esp_err_t reader_load_doc_file(const char *path)
     return solar_os_doc_load_path_as(&reader.doc, path, reader_path_is_markdown(path));
 }
 
+static esp_err_t reader_load_manual_page(const solar_os_manual_page_t *page)
+{
+    const char *markdown = NULL;
+    size_t markdown_len = 0U;
+    bool owned = false;
+    const esp_err_t err =
+        solar_os_manual_load_markdown(page,
+                                      &markdown,
+                                      &markdown_len,
+                                      &owned);
+    if (err != ESP_OK) {
+        return err;
+    }
+    const esp_err_t parse_err =
+        solar_os_doc_parse_markdown(&reader.doc,
+                                    markdown,
+                                    markdown_len,
+                                    reader.path);
+    solar_os_manual_release_text(markdown, owned);
+    return parse_err;
+}
+
 static esp_err_t reader_start(solar_os_context_t *ctx)
 {
     memset(&reader, 0, sizeof(reader));
@@ -1333,7 +1356,9 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
     const int argc = solar_os_context_argc(ctx);
     if (argc != 2) {
         reader.error_only = true;
-        snprintf(reader.message, sizeof(reader.message), "usage: reader <file.txt|file.md|file.epub>");
+        snprintf(reader.message,
+                 sizeof(reader.message),
+                 "usage: reader <file.txt|file.md|file.epub|man:topic>");
         solar_os_context_set_graphics_active(ctx, true);
         reader_render(ctx);
         return ESP_OK;
@@ -1342,10 +1367,30 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
     const char *arg = solar_os_context_argv(ctx, 1);
     strlcpy(reader.display_name, arg != NULL ? arg : "", sizeof(reader.display_name));
 
-    esp_err_t err = solar_os_storage_resolve_path(arg, reader.path, sizeof(reader.path));
+    const bool manual_target = arg != NULL && strncmp(arg, "man:", 4U) == 0;
+    const solar_os_manual_page_t *manual_page =
+        manual_target ? solar_os_manual_find(arg + 4U) : NULL;
+    esp_err_t err = ESP_OK;
+    if (manual_target) {
+        if (manual_page == NULL) {
+            err = ESP_ERR_NOT_FOUND;
+        } else {
+            strlcpy(reader.path, arg, sizeof(reader.path));
+            strlcpy(reader.display_name,
+                    manual_page->title,
+                    sizeof(reader.display_name));
+        }
+    } else {
+        err = solar_os_storage_resolve_path(arg,
+                                            reader.path,
+                                            sizeof(reader.path));
+    }
     if (err != ESP_OK) {
         reader.error_only = true;
-        snprintf(reader.message, sizeof(reader.message), "invalid path: %s", esp_err_to_name(err));
+        snprintf(reader.message,
+                 sizeof(reader.message),
+                 "invalid document: %s",
+                 esp_err_to_name(err));
         solar_os_context_set_graphics_active(ctx, true);
         reader_render(ctx);
         return ESP_OK;
@@ -1361,7 +1406,7 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
         reader.zoom = saved.zoom;
     }
 
-    reader.epub = reader_path_is_epub(reader.path);
+    reader.epub = !manual_target && reader_path_is_epub(reader.path);
     if (reader.epub) {
         err = solar_os_epub_open(reader.path, &reader.epub_book);
         if (err != ESP_OK) {
@@ -1388,7 +1433,9 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
         }
     }
 
-    err = reader_load_doc_file(reader.path);
+    err = manual_target ?
+        reader_load_manual_page(manual_page) :
+        reader_load_doc_file(reader.path);
     if (err != ESP_OK) {
         reader.error_only = true;
         snprintf(reader.message, sizeof(reader.message), "load failed: %s", esp_err_to_name(err));

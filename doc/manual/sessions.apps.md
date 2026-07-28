@@ -3,7 +3,7 @@ id = "sessions.apps"
 title = "Foreground sessions and applications"
 section = "service"
 summary = "Create shells and inspect resumable foreground applications"
-aliases = ["sessions", "apps"]
+aliases = ["sessions"]
 keywords = "python lua sessions apps shell port terminal create close registry foreground"
 packages_any = []
 +++

@@ -1,7 +1,7 @@
 +++
 id = "ssh_keys"
 title = "SSH identity keys"
-section = "api"
+section = "network"
 summary = "Inspect, generate, and remove the default SSH key pair"
 aliases = ["sshkeys", "sshkey"]
 keywords = "python lua ssh scp keys identity private public generate remove credentials"

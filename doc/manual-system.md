@@ -1,14 +1,17 @@
 # Unified device manual
 
-SolarOS keeps user help and agent API guidance in one canonical source:
-`doc/manual/*.md`. Each topic is an ordinary Markdown tutorial with TOML
-frontmatter and a final `Quick reference` section.
+SolarOS keeps GitHub user documentation, device help, website pages, and agent
+API guidance in one canonical source: `doc/manual/*.md`. Each topic is an
+ordinary Markdown guide with TOML frontmatter and a final `Quick reference`
+section. `doc/manual/README.md` is a generated GitHub index over the same topic
+metadata.
 
 The build generator reads those pages and creates a package-gated C registry.
-`man` displays a terminal-normalized form of the tutorial, while the agent's
-`solaros_reference` tool returns the compact `Quick reference` section. Topic
-IDs, aliases, summaries, keywords, and package gates therefore cannot drift
-between the two interfaces.
+`man` and text-shell `docs` display a terminal-normalized form, graphic display
+shells open the Markdown in `reader`, and the agent's `solaros_reference` tool
+returns the compact `Quick reference` section. The website generator renders
+the same files as HTML. Topic IDs, groups, aliases, summaries, keywords, and
+package gates therefore cannot drift between those interfaces.
 
 ## Topic format
 
@@ -32,7 +35,8 @@ The concise, authoritative contract used by the agent...
 ```
 
 The `id` is the runtime lookup key, and the filename must be `<id>.md`. IDs and
-aliases must be unique. `packages_any` contains package IDs from
+aliases must be unique. `section` is one of the ordered documentation-tree
+groups defined by the generator. `packages_any` contains package IDs from
 `packages/solar_os_packages.toml`. A topic is embedded when any named package is
 present; an empty list makes it universal.
 

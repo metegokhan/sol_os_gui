@@ -155,8 +155,8 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${SOLAR_OS_BOARD_METADATA_PROFILES}
     "${SOLAR_OS_PROJECT_DIR}/src/services/solar_os_board_caps.h"
     "${SOLAR_OS_PROJECT_DIR}/src/services/solar_os_board_caps.c"
-    "${SOLAR_OS_PROJECT_DIR}/doc/solar_os_boards.md"
-    "${SOLAR_OS_PROJECT_DIR}/doc/expansion.md"
+    "${SOLAR_OS_PROJECT_DIR}/doc/manual/boards.md"
+    "${SOLAR_OS_PROJECT_DIR}/doc/manual/expansion.reference.md"
     "${SOLAR_OS_PROJECT_DIR}/platformio.ini"
 )
 execute_process(

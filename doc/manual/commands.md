@@ -1,3 +1,12 @@
++++
+id = "commands"
+title = "Shell command reference"
+section = "shell"
+summary = "Complete syntax, behavior, and examples for built-in shell commands"
+aliases = ["command", "shell"]
+keywords = "shell commands syntax examples files network hardware ota sessions jobs"
+packages_any = []
++++
 # SolarOS Shell Commands
 
 This document covers built-in shell commands. Foreground applications are
@@ -82,9 +91,10 @@ omitted when their package is absent. The same generated registry supplies the
 agent's `solaros_reference` tool, so local help and generated-code guidance do
 not drift apart.
 
-Bare `docs` opens a foreground topic browser; Enter reads the selected topic
-through the same rendered path as `man`. On builds with Wi-Fi, PSRAM, and SD,
-`docs update` shows catalog and per-page progress while downloading the manual
+Bare `docs` opens a foldable topic tree. Graphic display shells read the
+selected topic in `reader`; text shells use `less`, both through the same
+`man:TOPIC` source. On builds with Wi-Fi, PSRAM, and SD, `docs update` shows a
+terminal-width-aware catalog and per-page progress bar while downloading the manual
 published for the exact running firmware version. The catalog is verified with
 the OTA public key and every Markdown page is checked by size and SHA-256 before
 activation. `docs reset` returns immediately to the embedded manual.
@@ -595,3 +605,10 @@ session create shell cdc0 --term auto
 session create shell lcd0
 xfer send uart0 /logs/payload.bin --zmodem
 ```
+
+## Quick reference
+
+Run `help` to list commands compiled into the current firmware, `man TOPIC` for
+a focused guide, and `docs` for the complete manual tree. Commands are
+package-aware, support shell completion where applicable, and use the current
+shell working directory for relative paths.

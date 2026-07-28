@@ -9,13 +9,19 @@ typedef struct {
     const char *id;
     const char *title;
     const char *section;
+    const char *section_title;
     const char *summary;
     const char *aliases;
     const char *keywords;
     const char *body;
     const char *contract;
+    const char *markdown;
 } solar_os_manual_page_t;
 
+esp_err_t solar_os_manual_load_markdown(const solar_os_manual_page_t *page,
+                                        const char **markdown,
+                                        size_t *markdown_len,
+                                        bool *owned);
 esp_err_t solar_os_manual_load_body(const solar_os_manual_page_t *page,
                                     const char **body,
                                     size_t *body_len,

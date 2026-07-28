@@ -62,8 +62,8 @@ tracked_files = (
     project_dir / "src" / "services" / "solar_os_board_caps.h",
     project_dir / "src" / "services" / "solar_os_board_caps.c",
     project_dir / "include" / "solar_os_board.h",
-    project_dir / "doc" / "solar_os_boards.md",
-    project_dir / "doc" / "expansion.md",
+    project_dir / "doc" / "manual" / "boards.md",
+    project_dir / "doc" / "manual" / "expansion.reference.md",
 ) + board_files + board_headers + sdkconfig_default_files
 stamp = f"board={board}\nflavor={flavor}\n"
 for tracked_file in tracked_files:

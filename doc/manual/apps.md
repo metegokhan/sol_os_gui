@@ -1,3 +1,12 @@
++++
+id = "apps"
+title = "Application reference"
+section = "app"
+summary = "Usage, controls, and examples for every foreground application"
+aliases = ["applications"]
+keywords = "apps applications foreground controls usage examples reader less files agent"
+packages_any = []
++++
 # SolarOS Embedded Apps
 
 This document covers foreground applications registered in SolarOS. Availability
@@ -206,9 +215,9 @@ Controls:
 
 ## docs
 
-Foreground browser for the package-aware SolarOS manual. The list shows the
-topics compiled for the current firmware and whether it is using the embedded
-copy or a verified downloaded revision.
+Foreground browser for the package-aware SolarOS manual. The foldable tree
+groups the topics compiled for the current firmware and shows whether it is
+using the embedded copy or a verified downloaded revision.
 
 Usage:
 
@@ -219,13 +228,15 @@ docs agent
 
 Controls:
 
-- `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`: select a topic.
-- `Enter` or `Right`: open the selected topic in the manual pager.
+- `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`: move through the tree.
+- `Left`/`Right`, `Enter`, or Space on a group: fold or unfold it.
+- `Enter` or `Right` on a topic: open it in `reader` on graphic display shells
+  or `less` on text shells.
 - `q`, `Esc`, or the app-exit key: return to the shell.
 
 The maintenance forms `docs status`, `docs update`, and `docs reset` remain
-shell operations. SD-capable builds show catalog and per-page progress while
-downloading an exact-version signed manual.
+shell operations. SD-capable builds show terminal-width-aware catalog and
+per-page progress while downloading an exact-version signed manual.
 
 ## edit
 
@@ -643,3 +654,10 @@ Controls:
 
 - Keyboard navigation follows the active web UI state.
 - `Esc` or app-exit key exits.
+
+## Quick reference
+
+Use `apps` to list applications installed in the current firmware. Start an app
+by entering its name and arguments. Use the app-exit key to return to the shell;
+resumable applications can also be switched through sessions. This page is the
+complete usage and controls reference for foreground applications.

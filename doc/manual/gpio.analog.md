@@ -1,7 +1,7 @@
 +++
 id = "gpio.analog"
 title = "GPIO, ADC, PWM, and LED APIs"
-section = "api"
+section = "hardware"
 summary = "Use runtime-safe digital and analog expansion pins"
 aliases = ["gpio", "adc", "pwm"]
 keywords = "python lua gpio pin digital led adc analog pwm input output pull read write voltage duty"

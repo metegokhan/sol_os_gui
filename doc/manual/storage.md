@@ -1,7 +1,7 @@
 +++
 id = "storage"
 title = "Storage and shell paths"
-section = "service"
+section = "shell"
 summary = "Use SolarOS volumes, files, directories, and shell-style paths"
 aliases = ["filesystem", "files"]
 keywords = "python lua storage filesystem files directories mount sd flash copy rename remove mkdir path disk volume"

@@ -1,3 +1,12 @@
++++
+id = "python"
+title = "Python API reference"
+section = "api"
+summary = "Complete MicroPython service API, conventions, and examples"
+aliases = ["micropython", "python.api"]
+keywords = "python micropython solaros api storage wifi gpio buses gfx tui examples"
+packages_any = ["app_python"]
++++
 # SolarOS Python API
 
 SolarOS embeds MicroPython as the `python` foreground application. It can run an interactive REPL or execute `.py` and `.mpy` files from storage.
@@ -953,3 +962,10 @@ solaros.write("wifi {} {}\n".format(wifi["state"], wifi["ip"]))
 ## Not Exposed Yet
 
 The Python bridge intentionally does not expose raw SSH/SCP session handles yet. Those APIs need object lifetime, ownership, and event-loop rules before they can safely become scriptable.
+
+## Quick reference
+
+Import `solaros` and use its service tables for storage, time, networking,
+hardware, jobs, sessions, TUI, and graphics. APIs return `None` or raise
+`OSError` as documented. Long-running programs must yield cooperatively and
+release opened buses, graphics targets, and other resources in `finally`.

@@ -1,7 +1,7 @@
 +++
 id = "expansion"
 title = "Expansion drivers and attached devices"
-section = "service"
+section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
 aliases = ["devices", "drivers"]
 keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral"

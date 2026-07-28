@@ -1,3 +1,12 @@
++++
+id = "packages"
+title = "Firmware packages and flavors"
+section = "build"
+summary = "Understand package ownership, groups, flavors, and custom builds"
+aliases = ["flavors"]
+keywords = "packages flavors groups capabilities build custom firmware pkg"
+packages_any = []
++++
 # Firmware Packages and Flavors
 
 SolarOS package selection is declared in `packages/solar_os_packages.toml`.
@@ -81,3 +90,10 @@ app_curl = true
 ```
 
 Use `pkg` on the device to inspect the resolved package list.
+
+## Quick reference
+
+Packages are the actual build units, groups are convenience bundles, and a
+flavor selects packages for a board. Board capabilities remove packages that
+cannot run. Use `pkg` on-device to inspect the resolved firmware and edit a
+flavor TOML file when producing a custom build.

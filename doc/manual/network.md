@@ -1,7 +1,7 @@
 +++
 id = "network"
 title = "Wi-Fi, MQTT, and network APIs"
-section = "api"
+section = "network"
 summary = "Connect, inspect, and communicate over installed network services"
 aliases = ["wifi", "mqtt", "net"]
 keywords = "python lua wifi wireless station access point ap nat scan connect mqtt network ping"

@@ -82,6 +82,25 @@ static char *manual_markdown_body(char *source)
     return end != NULL ? end + 5U : NULL;
 }
 
+static esp_err_t manual_extract_markdown(char *source,
+                                         size_t source_len,
+                                         const char **result,
+                                         size_t *result_len,
+                                         bool *owned)
+{
+    char *body = manual_markdown_body(source);
+    if (body == NULL) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    const size_t body_len = source_len - (size_t)(body - source);
+    memmove(source, body, body_len);
+    source[body_len] = '\0';
+    *result = source;
+    *result_len = body_len;
+    *owned = true;
+    return ESP_OK;
+}
+
 static bool manual_heading(const char *line,
                            size_t line_len,
                            size_t *level,
@@ -269,6 +288,35 @@ static esp_err_t manual_render_markdown(char *source,
     return ESP_OK;
 }
 #endif
+
+esp_err_t solar_os_manual_load_markdown(const solar_os_manual_page_t *page,
+                                        const char **markdown,
+                                        size_t *markdown_len,
+                                        bool *owned)
+{
+    if (page == NULL || markdown == NULL || markdown_len == NULL ||
+        owned == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    char *source = NULL;
+    size_t source_len = 0U;
+    if (manual_read_external(page->id, &source, &source_len) == ESP_OK) {
+        const esp_err_t err =
+            manual_extract_markdown(source,
+                                    source_len,
+                                    markdown,
+                                    markdown_len,
+                                    owned);
+        if (err == ESP_OK) {
+            return ESP_OK;
+        }
+        solar_os_memory_free(source);
+    }
+#endif
+    manual_use_embedded(page->markdown, markdown, markdown_len, owned);
+    return page->markdown != NULL ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
 
 esp_err_t solar_os_manual_load_body(const solar_os_manual_page_t *page,
                                     const char **body,

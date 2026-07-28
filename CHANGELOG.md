@@ -7,6 +7,10 @@
   catalog, fail-safe SD activation with embedded fallback, a foreground `docs`
   topic browser, per-page update progress, maintenance commands, and
   release/site generation for the same pages.
+- Made `doc/manual/` the canonical GitHub, device, agent, and website
+  documentation source. The `docs` browser now presents foldable topic groups,
+  opens `reader` on graphic display shells and `less` on text shells, and keeps
+  update progress within the active terminal width.
 - Added the first native agent slice: a provider-neutral service, bounded
   OpenAI-compatible streaming adapter, NVS-backed configuration, cancellable
   `agent` app, and read-only `system_status` tool. Shell-only subcommands run

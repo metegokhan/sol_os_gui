@@ -1,7 +1,7 @@
 +++
 id = "media.input"
 title = "Audio, BLE keyboard, and clipboard APIs"
-section = "api"
+section = "hardware"
 summary = "Use installed media and input services"
 aliases = ["audio", "ble", "clipboard"]
 keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard clipboard"
