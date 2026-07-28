@@ -204,6 +204,29 @@ Controls:
 
 - App-exit key cancels an active transfer.
 
+## docs
+
+Foreground browser for the package-aware SolarOS manual. The list shows the
+topics compiled for the current firmware and whether it is using the embedded
+copy or a verified downloaded revision.
+
+Usage:
+
+```text
+docs
+docs agent
+```
+
+Controls:
+
+- `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`: select a topic.
+- `Enter` or `Right`: open the selected topic in the manual pager.
+- `q`, `Esc`, or the app-exit key: return to the shell.
+
+The maintenance forms `docs status`, `docs update`, and `docs reset` remain
+shell operations. SD-capable builds show catalog and per-page progress while
+downloading an exact-version signed manual.
+
 ## edit
 
 Text editor for files on mounted storage. It supports cursor navigation,

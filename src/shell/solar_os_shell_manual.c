@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#if SOLAR_OS_PACKAGE_APP_DOCS
+#include "solar_os_docs_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,6 +24,7 @@
 #define MAN_SEARCH_MAX 12U
 #define DOCS_UPDATE_TASK_STACK 16384U
 #define DOCS_UPDATE_WAIT_MS 100U
+#define DOCS_PROGRESS_BAR_WIDTH 20U
 
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(DOCS_UPDATE_TASK_STACK);
@@ -174,25 +178,170 @@ void solar_os_shell_cmd_man(solar_os_context_t *ctx, int argc, char **argv)
     }
 }
 
+#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 typedef struct {
+    solar_os_shell_io_t *io;
+    size_t row;
+    bool row_valid;
+    solar_os_docs_progress_stage_t last_stage;
+    size_t last_page;
+    uint8_t last_percent;
+    bool last_known;
+} docs_shell_progress_t;
+
+typedef struct {
+    docs_shell_progress_t progress;
     esp_err_t result;
     volatile bool done;
 } docs_update_worker_t;
+
+static void docs_format_bytes(size_t bytes, char *text, size_t text_len)
+{
+    if (bytes >= 1024U) {
+        const size_t tenths = ((bytes * 10U) + 512U) / 1024U;
+        snprintf(text,
+                 text_len,
+                 "%u.%uK",
+                 (unsigned)(tenths / 10U),
+                 (unsigned)(tenths % 10U));
+    } else {
+        snprintf(text, text_len, "%uB", (unsigned)bytes);
+    }
+}
+
+static const char *docs_progress_stage_name(
+    solar_os_docs_progress_stage_t stage)
+{
+    switch (stage) {
+    case SOLAR_OS_DOCS_PROGRESS_CATALOG:
+        return "catalog";
+    case SOLAR_OS_DOCS_PROGRESS_SIGNATURE:
+        return "signature";
+    case SOLAR_OS_DOCS_PROGRESS_VERIFYING:
+        return "verifying";
+    case SOLAR_OS_DOCS_PROGRESS_ACTIVATING:
+        return "activating";
+    case SOLAR_OS_DOCS_PROGRESS_DONE:
+        return "done";
+    case SOLAR_OS_DOCS_PROGRESS_PAGE:
+    default:
+        return "page";
+    }
+}
+
+static void docs_render_progress_bar(solar_os_shell_io_t *io,
+                                     uint8_t percent,
+                                     size_t read,
+                                     size_t total,
+                                     bool total_known)
+{
+    const uint8_t filled =
+        (uint8_t)((percent * DOCS_PROGRESS_BAR_WIDTH) / 100U);
+    solar_os_shell_io_put_char(io, '[');
+    for (uint8_t i = 0U; i < DOCS_PROGRESS_BAR_WIDTH; i++) {
+        solar_os_shell_io_put_char(io, i < filled ? '#' : '-');
+    }
+    solar_os_shell_io_printf(io, "] %3u%%", (unsigned)percent);
+    if (read > 0U || total_known) {
+        char read_text[16];
+        char total_text[16];
+        docs_format_bytes(read, read_text, sizeof(read_text));
+        if (total_known) {
+            docs_format_bytes(total, total_text, sizeof(total_text));
+            solar_os_shell_io_printf(io, " %s/%s", read_text, total_text);
+        } else {
+            solar_os_shell_io_printf(io, " %s", read_text);
+        }
+    }
+}
+
+static void docs_shell_progress_cb(
+    const solar_os_docs_progress_t *progress,
+    void *user)
+{
+    docs_shell_progress_t *state = (docs_shell_progress_t *)user;
+    if (progress == NULL || state == NULL || state->io == NULL) {
+        return;
+    }
+    uint8_t percent = 0U;
+    if (progress->total_known && progress->bytes_total > 0U) {
+        size_t calculated =
+            (progress->bytes_read * 100U) / progress->bytes_total;
+        if (calculated > 100U) {
+            calculated = 100U;
+        }
+        percent = (uint8_t)calculated;
+    }
+    if (progress->stage == SOLAR_OS_DOCS_PROGRESS_DONE) {
+        percent = 100U;
+    }
+    const bool changed =
+        !state->row_valid ||
+        progress->stage != state->last_stage ||
+        progress->page_index != state->last_page ||
+        progress->total_known != state->last_known ||
+        percent != state->last_percent;
+    if (!changed) {
+        return;
+    }
+    if (!state->row_valid) {
+        state->row = solar_os_shell_io_cursor_row(state->io);
+        state->row_valid = true;
+    }
+    solar_os_shell_io_set_cursor(state->io, state->row, 0U);
+    solar_os_shell_io_clear_line_from(state->io, state->row, 0U);
+    if (progress->stage == SOLAR_OS_DOCS_PROGRESS_PAGE) {
+        solar_os_shell_io_printf(state->io,
+                                 "docs: %02u/%02u %-18.18s ",
+                                 (unsigned)progress->page_index,
+                                 (unsigned)progress->page_count,
+                                 progress->topic);
+        docs_render_progress_bar(state->io,
+                                 percent,
+                                 progress->bytes_read,
+                                 progress->bytes_total,
+                                 progress->total_known);
+    } else {
+        solar_os_shell_io_printf(
+            state->io,
+            "docs: %s",
+            docs_progress_stage_name(progress->stage));
+        if (progress->stage == SOLAR_OS_DOCS_PROGRESS_CATALOG ||
+            progress->stage == SOLAR_OS_DOCS_PROGRESS_SIGNATURE ||
+            progress->stage == SOLAR_OS_DOCS_PROGRESS_DONE) {
+            solar_os_shell_io_write(state->io, " ");
+            docs_render_progress_bar(state->io,
+                                     percent,
+                                     progress->bytes_read,
+                                     progress->bytes_total,
+                                     progress->total_known);
+        }
+    }
+    solar_os_shell_io_flush(state->io);
+    state->last_stage = progress->stage;
+    state->last_page = progress->page_index;
+    state->last_percent = percent;
+    state->last_known = progress->total_known;
+}
 
 static void docs_update_task(void *arg)
 {
     docs_update_worker_t *worker = (docs_update_worker_t *)arg;
     if (worker != NULL) {
-        worker->result = solar_os_docs_update();
+        worker->result =
+            solar_os_docs_update(docs_shell_progress_cb, &worker->progress);
         worker->done = true;
     }
     solar_os_task_delete_internal(NULL);
 }
 
-static esp_err_t docs_run_update(void)
+static esp_err_t docs_run_update(solar_os_shell_io_t *io)
 {
     docs_update_worker_t worker = {
+        .progress = {
+            .io = io,
+        },
         .result = ESP_FAIL,
     };
     TaskHandle_t task = NULL;
@@ -237,6 +386,26 @@ static void docs_print_status(solar_os_shell_io_t *io)
         solar_os_shell_io_printf(io, "Last error: %s\n", status.last_error);
     }
 }
+#endif
+
+#if SOLAR_OS_PACKAGE_APP_DOCS
+static bool docs_launch_browser(solar_os_context_t *ctx,
+                                solar_os_shell_io_t *io,
+                                int argc,
+                                char **argv)
+{
+    const esp_err_t err =
+        solar_os_context_request_launch(ctx, &solar_os_docs_app, argc, argv);
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(io,
+                                 "docs: launch failed: %s\n",
+                                 esp_err_to_name(err));
+        return false;
+    }
+    solar_os_shell_session_prepare_foreground_launch(ctx, false);
+    return true;
+}
+#endif
 
 void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
 {
@@ -244,6 +413,7 @@ void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
     if (io == NULL) {
         return;
     }
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
     if (argc == 2 && strcmp(argv[1], "status") == 0) {
         docs_print_status(io);
         return;
@@ -251,7 +421,8 @@ void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 2 && strcmp(argv[1], "update") == 0) {
         solar_os_shell_io_writeln(io, "docs: downloading signed manual");
         solar_os_shell_io_flush(io);
-        const esp_err_t err = docs_run_update();
+        const esp_err_t err = docs_run_update(io);
+        solar_os_shell_io_newline(io);
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(io, "docs: manual updated");
             docs_print_status(io);
@@ -273,6 +444,28 @@ void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
         }
         return;
     }
-    solar_os_shell_io_writeln(io, "usage: docs status|update|reset");
+#else
+    if (argc == 2 && strcmp(argv[1], "status") == 0) {
+        solar_os_shell_io_writeln(io, "External manual: embedded");
+        solar_os_shell_io_writeln(io, "Updates: unavailable on this build");
+        return;
+    }
+    if (argc == 2 &&
+        (strcmp(argv[1], "update") == 0 ||
+         strcmp(argv[1], "reset") == 0)) {
+        solar_os_shell_io_writeln(
+            io,
+            "docs: signed refresh is unavailable on this build");
+        return;
+    }
+#endif
+#if SOLAR_OS_PACKAGE_APP_DOCS
+    if (argc == 1 ||
+        (argc == 2 && solar_os_manual_find(argv[1]) != NULL)) {
+        (void)docs_launch_browser(ctx, io, argc, argv);
+        return;
+    }
+#endif
+    solar_os_shell_io_writeln(io, "usage: docs [TOPIC]|status|update|reset");
 }
 #endif

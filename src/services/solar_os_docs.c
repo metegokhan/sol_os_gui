@@ -3,7 +3,9 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -44,6 +46,9 @@ typedef struct {
     char *data;
     size_t capacity;
     size_t length;
+    solar_os_docs_progress_fn progress_fn;
+    void *progress_user;
+    solar_os_docs_progress_t progress;
 } docs_http_buffer_t;
 
 typedef struct {
@@ -57,6 +62,15 @@ static esp_err_t docs_validate_catalog_pages(
 
 static portMUX_TYPE docs_lock = portMUX_INITIALIZER_UNLOCKED;
 static solar_os_docs_status_t docs_status;
+
+static void docs_report_progress(solar_os_docs_progress_fn callback,
+                                 void *user,
+                                 solar_os_docs_progress_t *progress)
+{
+    if (callback != NULL && progress != NULL) {
+        callback(progress, user);
+    }
+}
 
 static void docs_set_error(const char *message)
 {
@@ -180,7 +194,27 @@ static esp_err_t docs_ensure_root(char *root, size_t root_len)
 static esp_err_t docs_http_event(const solar_os_http_event_t *event, void *user_data)
 {
     docs_http_buffer_t *buffer = (docs_http_buffer_t *)user_data;
-    if (event == NULL || buffer == NULL || event->type != SOLAR_OS_HTTP_EVENT_DATA) {
+    if (event == NULL || buffer == NULL) {
+        return ESP_OK;
+    }
+    if (event->type == SOLAR_OS_HTTP_EVENT_HEADER) {
+        if (event->header_name != NULL && event->header_value != NULL &&
+            strcasecmp(event->header_name, "Content-Length") == 0) {
+            char *end = NULL;
+            const unsigned long long parsed =
+                strtoull(event->header_value, &end, 10);
+            if (end != event->header_value && *end == '\0' &&
+                parsed <= buffer->capacity - 1U) {
+                buffer->progress.bytes_total = (size_t)parsed;
+                buffer->progress.total_known = true;
+                docs_report_progress(buffer->progress_fn,
+                                     buffer->progress_user,
+                                     &buffer->progress);
+            }
+        }
+        return ESP_OK;
+    }
+    if (event->type != SOLAR_OS_HTTP_EVENT_DATA) {
         return ESP_OK;
     }
     if (event->data_len > buffer->capacity - buffer->length - 1U) {
@@ -189,13 +223,20 @@ static esp_err_t docs_http_event(const solar_os_http_event_t *event, void *user_
     memcpy(buffer->data + buffer->length, event->data, event->data_len);
     buffer->length += event->data_len;
     buffer->data[buffer->length] = '\0';
+    buffer->progress.bytes_read = buffer->length;
+    docs_report_progress(buffer->progress_fn,
+                         buffer->progress_user,
+                         &buffer->progress);
     return ESP_OK;
 }
 
 static esp_err_t docs_download(const char *url,
                                size_t max_len,
                                char **body,
-                               size_t *body_len)
+                               size_t *body_len,
+                               solar_os_docs_progress_fn progress_fn,
+                               void *progress_user,
+                               const solar_os_docs_progress_t *progress)
 {
     if (url == NULL || body == NULL || body_len == NULL || max_len == 0U) {
         return ESP_ERR_INVALID_ARG;
@@ -212,7 +253,13 @@ static esp_err_t docs_download(const char *url,
     docs_http_buffer_t buffer = {
         .data = data,
         .capacity = max_len + 1U,
+        .progress_fn = progress_fn,
+        .progress_user = progress_user,
     };
+    if (progress != NULL) {
+        buffer.progress = *progress;
+    }
+    docs_report_progress(progress_fn, progress_user, &buffer.progress);
     const solar_os_http_request_options_t options = {
         .url = url,
         .method = SOLAR_OS_HTTP_METHOD_GET,
@@ -244,6 +291,13 @@ static esp_err_t docs_download(const char *url,
         solar_os_memory_free(data);
         return err;
     }
+    buffer.progress.bytes_read = buffer.length;
+    if (!buffer.progress.total_known && response.content_length >= 0 &&
+        (uint64_t)response.content_length <= max_len) {
+        buffer.progress.bytes_total = (size_t)response.content_length;
+        buffer.progress.total_known = true;
+    }
+    docs_report_progress(progress_fn, progress_user, &buffer.progress);
     *body = data;
     *body_len = buffer.length;
     return ESP_OK;
@@ -729,7 +783,8 @@ esp_err_t solar_os_docs_page_path(const char *id, char *path, size_t path_len)
     return docs_join(base, relative, path, path_len);
 }
 
-esp_err_t solar_os_docs_update(void)
+esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
+                               void *progress_user)
 {
     solar_os_docs_status_t before;
     portENTER_CRITICAL(&docs_lock);
@@ -750,23 +805,40 @@ esp_err_t solar_os_docs_update(void)
     size_t signature_len = 0U;
     solar_os_json_doc_t *document = NULL;
     docs_catalog_t info;
+    solar_os_docs_progress_t progress = {
+        .stage = SOLAR_OS_DOCS_PROGRESS_CATALOG,
+    };
     esp_err_t err = docs_exact_release_base(base_url, sizeof(base_url));
     if (err == ESP_OK) {
         err = docs_url(base_url, DOCS_CATALOG_FILE, url, sizeof(url));
     }
     if (err == ESP_OK) {
-        err = docs_download(url, DOCS_CATALOG_MAX, &catalog, &catalog_len);
+        err = docs_download(url,
+                            DOCS_CATALOG_MAX,
+                            &catalog,
+                            &catalog_len,
+                            progress_fn,
+                            progress_user,
+                            &progress);
     }
     if (err == ESP_OK) {
         err = docs_url(base_url, DOCS_SIGNATURE_FILE, url, sizeof(url));
     }
     if (err == ESP_OK) {
+        memset(&progress, 0, sizeof(progress));
+        progress.stage = SOLAR_OS_DOCS_PROGRESS_SIGNATURE;
         err = docs_download(url,
                             DOCS_SIGNATURE_MAX,
                             &signature,
-                            &signature_len);
+                            &signature_len,
+                            progress_fn,
+                            progress_user,
+                            &progress);
     }
     if (err == ESP_OK) {
+        memset(&progress, 0, sizeof(progress));
+        progress.stage = SOLAR_OS_DOCS_PROGRESS_VERIFYING;
+        docs_report_progress(progress_fn, progress_user, &progress);
         err = docs_verify_signature(catalog, catalog_len, signature);
     }
     if (err == ESP_OK) {
@@ -835,7 +907,20 @@ esp_err_t solar_os_docs_update(void)
         char *data = NULL;
         size_t data_len = 0U;
         if (err == ESP_OK) {
-            err = docs_download(url, DOCS_PAGE_MAX, &data, &data_len);
+            memset(&progress, 0, sizeof(progress));
+            progress.stage = SOLAR_OS_DOCS_PROGRESS_PAGE;
+            progress.page_index = i + 1U;
+            progress.page_count = info.page_count;
+            progress.bytes_total = expected_size;
+            progress.total_known = true;
+            strlcpy(progress.topic, id, sizeof(progress.topic));
+            err = docs_download(url,
+                                DOCS_PAGE_MAX,
+                                &data,
+                                &data_len,
+                                progress_fn,
+                                progress_user,
+                                &progress);
         }
         if (err == ESP_OK) {
             err = docs_verify_page_data(data, data_len, expected_size, sha);
@@ -860,6 +945,10 @@ esp_err_t solar_os_docs_update(void)
 
     char final_path[SOLAR_OS_STORAGE_PATH_MAX];
     if (err == ESP_OK) {
+        memset(&progress, 0, sizeof(progress));
+        progress.stage = SOLAR_OS_DOCS_PROGRESS_VERIFYING;
+        progress.page_count = info.page_count;
+        docs_report_progress(progress_fn, progress_user, &progress);
         err = docs_join(root, info.revision, final_path, sizeof(final_path));
     }
     struct stat final_stat;
@@ -875,6 +964,8 @@ esp_err_t solar_os_docs_update(void)
         err = ESP_FAIL;
     }
     if (err == ESP_OK) {
+        progress.stage = SOLAR_OS_DOCS_PROGRESS_ACTIVATING;
+        docs_report_progress(progress_fn, progress_user, &progress);
         err = docs_activate(&info);
     }
 
@@ -883,6 +974,11 @@ esp_err_t solar_os_docs_update(void)
     solar_os_memory_free(catalog);
     if (err == ESP_OK) {
         docs_set_result(true, false, info.revision, info.page_count, "");
+        memset(&progress, 0, sizeof(progress));
+        progress.stage = SOLAR_OS_DOCS_PROGRESS_DONE;
+        progress.page_index = info.page_count;
+        progress.page_count = info.page_count;
+        docs_report_progress(progress_fn, progress_user, &progress);
     } else {
         char message[SOLAR_OS_DOCS_ERROR_MAX];
         snprintf(message, sizeof(message), "update failed: %s", esp_err_to_name(err));

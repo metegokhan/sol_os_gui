@@ -21,7 +21,7 @@ void solar_os_shell_cmd_daq(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_date(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv);
-#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
 void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL

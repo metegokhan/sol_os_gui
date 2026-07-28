@@ -8,6 +8,29 @@
 #define SOLAR_OS_DOCS_REVISION_MAX 17U
 #define SOLAR_OS_DOCS_ERROR_MAX 96U
 
+typedef enum {
+    SOLAR_OS_DOCS_PROGRESS_CATALOG,
+    SOLAR_OS_DOCS_PROGRESS_SIGNATURE,
+    SOLAR_OS_DOCS_PROGRESS_PAGE,
+    SOLAR_OS_DOCS_PROGRESS_VERIFYING,
+    SOLAR_OS_DOCS_PROGRESS_ACTIVATING,
+    SOLAR_OS_DOCS_PROGRESS_DONE,
+} solar_os_docs_progress_stage_t;
+
+typedef struct {
+    solar_os_docs_progress_stage_t stage;
+    size_t page_index;
+    size_t page_count;
+    size_t bytes_read;
+    size_t bytes_total;
+    bool total_known;
+    char topic[64];
+} solar_os_docs_progress_t;
+
+typedef void (*solar_os_docs_progress_fn)(
+    const solar_os_docs_progress_t *progress,
+    void *user);
+
 typedef struct {
     bool available;
     bool updating;
@@ -19,7 +42,7 @@ typedef struct {
 
 esp_err_t solar_os_docs_init(void);
 esp_err_t solar_os_docs_get_status(solar_os_docs_status_t *status);
-esp_err_t solar_os_docs_update(void);
+esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress, void *user);
 esp_err_t solar_os_docs_reset(void);
 
 /*

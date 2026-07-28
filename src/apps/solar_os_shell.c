@@ -162,8 +162,8 @@ static bool shell_execute_line(solar_os_context_t *ctx,
 static const shell_command_t shell_builtin_commands[] = {
     {"help", "show commands", cmd_help},
     {"man", "search the SolarOS manual", solar_os_shell_cmd_man},
-#if SOLAR_OS_PACKAGE_SERVICE_DOCS
-    {"docs", "refresh the signed SolarOS manual", solar_os_shell_cmd_docs},
+#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
+    {"docs", "browse or refresh the SolarOS manual", solar_os_shell_cmd_docs},
 #endif
     {"apps", "list applications", solar_os_shell_cmd_apps},
     {"jobs", "list background jobs", solar_os_shell_cmd_jobs},
@@ -842,7 +842,7 @@ static const char * const path_watch[] = {"watch"};
 static const char * const path_watch_n_interval[] = {"watch", "-n", SHELL_COMPLETION_ANY};
 static const char * const path_man[] = {"man"};
 static const char * const man_options[] = {"--list", "--apropos", "-k"};
-#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
 static const char * const path_docs[] = {"docs"};
 static const char * const docs_subcommands[] = {"status", "update", "reset"};
 #endif
@@ -1425,8 +1425,8 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
 
 static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_MANUAL(path_man, man_options),
-#if SOLAR_OS_PACKAGE_SERVICE_DOCS
-    SHELL_COMPLETION_STATIC(path_docs, docs_subcommands),
+#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
+    SHELL_COMPLETION_MANUAL(path_docs, docs_subcommands),
 #endif
     SHELL_COMPLETION_OPTIONS(path_ls, ls_options),
     SHELL_COMPLETION_OPTIONS(path_rm, rm_options),

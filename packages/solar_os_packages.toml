@@ -45,6 +45,7 @@ members = [
   "service_ota",
   "service_docs",
   "core_fs_commands",
+  "app_docs",
   "app_inbox",
   "app_com",
   "app_edit",
@@ -663,6 +664,11 @@ sources = [
 [packages.app_less]
 label = "app.less"
 sources = ["apps/solar_os_less.c"]
+
+[packages.app_docs]
+label = "app.docs"
+depends = ["app_less"]
+sources = ["apps/solar_os_docs_app.c"]
 
 [packages.app_reader]
 label = "app.reader"

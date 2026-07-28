@@ -4,8 +4,9 @@
 
 - Replaced the terse manual source with tutorial-oriented Markdown topics shared
   by users and the native agent. Added a signed, exact-version documentation
-  catalog, fail-safe SD activation with embedded fallback, the `docs
-  status|update|reset` command, and release/site generation for the same pages.
+  catalog, fail-safe SD activation with embedded fallback, a foreground `docs`
+  topic browser, per-page update progress, maintenance commands, and
+  release/site generation for the same pages.
 - Added the first native agent slice: a provider-neutral service, bounded
   OpenAI-compatible streaming adapter, NVS-backed configuration, cancellable
   `agent` app, and read-only `system_status` tool. Shell-only subcommands run

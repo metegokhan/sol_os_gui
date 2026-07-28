@@ -44,7 +44,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | --- | --- | --- |
 | `help` | `help` | List built-in shell commands. |
 | `man` | `man TOPIC`; `man -k QUERY...`; `man --list` | Read or search the package-aware SolarOS manual. |
-| `docs` | `docs status`; `docs update`; `docs reset` | Inspect, refresh, or disable the signed exact-version manual on SD-capable builds. |
+| `docs` | `docs [TOPIC]`; `docs status`; `docs update`; `docs reset` | Browse the package-aware manual or manage its signed exact-version SD copy. |
 | `clear` | `clear` | Clear the active shell terminal. |
 | `watch` | `watch [-n seconds] <command> [args...]` | Repeat another shell command until `Esc`, `q`, or the app-exit key is pressed. |
 | `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
@@ -82,7 +82,9 @@ omitted when their package is absent. The same generated registry supplies the
 agent's `solaros_reference` tool, so local help and generated-code guidance do
 not drift apart.
 
-On builds with Wi-Fi, PSRAM, and SD, `docs update` downloads the manual
+Bare `docs` opens a foreground topic browser; Enter reads the selected topic
+through the same rendered path as `man`. On builds with Wi-Fi, PSRAM, and SD,
+`docs update` shows catalog and per-page progress while downloading the manual
 published for the exact running firmware version. The catalog is verified with
 the OTA public key and every Markdown page is checked by size and SHA-256 before
 activation. `docs reset` returns immediately to the embedded manual.
