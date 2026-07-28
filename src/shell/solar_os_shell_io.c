@@ -7,6 +7,7 @@
 
 #define SHELL_IO_DEFAULT_COLS 80
 #define SHELL_IO_DEFAULT_ROWS 24
+#define SHELL_IO_FOOTER_MAX 160
 
 static uint16_t shell_io_nonzero_or_default(uint16_t value, uint16_t fallback)
 {
@@ -756,6 +757,147 @@ esp_err_t solar_os_shell_io_clear_line_from(solar_os_shell_io_t *io, size_t row,
     }
 
     return ESP_ERR_INVALID_STATE;
+}
+
+static esp_err_t shell_io_port_draw_footer(solar_os_shell_io_t *io,
+                                           const char *text)
+{
+    if (io == NULL || text == NULL || !io->footer_enabled ||
+        io->footer_rows < 2 || !shell_io_port_supports_ansi_controls(io)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char sequence[40];
+    const int length = snprintf(sequence,
+                                sizeof(sequence),
+                                "\x1b[s\x1b[%u;1H\x1b[7m",
+                                (unsigned)io->footer_rows);
+    if (length <= 0 || (size_t)length >= sizeof(sequence)) {
+        return ESP_FAIL;
+    }
+    esp_err_t err =
+        shell_io_port_write_bytes(io, sequence, (size_t)length);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char bar[SHELL_IO_FOOTER_MAX];
+    size_t width = io->cols;
+    if (width >= sizeof(bar)) {
+        width = sizeof(bar) - 1U;
+    }
+    memset(bar, ' ', width);
+    const size_t text_len = strlen(text);
+    const size_t copy = text_len < width ? text_len : width;
+    memcpy(bar, text, copy);
+    err = shell_io_port_write_bytes(io, bar, width);
+    if (err != ESP_OK) {
+        return err;
+    }
+    return shell_io_port_write_bytes(io,
+                                     "\x1b[27m\x1b[u",
+                                     strlen("\x1b[27m\x1b[u"));
+}
+
+esp_err_t solar_os_shell_io_set_footer(solar_os_shell_io_t *io,
+                                       const char *text)
+{
+    if (io == NULL || text == NULL || text[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (io->kind == SOLAR_OS_SHELL_IO_KIND_TERMINAL) {
+        solar_os_terminal_set_footer(io->terminal, text);
+        io->rows = (uint16_t)solar_os_terminal_rows(io->terminal);
+        io->cursor_row = solar_os_terminal_cursor_row(io->terminal);
+        io->cursor_col = solar_os_terminal_cursor_col(io->terminal);
+        io->footer_enabled = true;
+        return ESP_OK;
+    }
+    if (io->kind != SOLAR_OS_SHELL_IO_KIND_PORT ||
+        !shell_io_port_supports_ansi_controls(io)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (!io->footer_enabled) {
+        if (io->rows < 2) {
+            return ESP_ERR_NOT_SUPPORTED;
+        }
+        io->footer_rows = io->rows;
+        io->rows--;
+        if (io->cursor_row >= io->rows) {
+            io->cursor_row = io->rows - 1U;
+        }
+        char sequence[48];
+        const int length = snprintf(sequence,
+                                    sizeof(sequence),
+                                    "\x1b[1;%ur\x1b[%u;%uH",
+                                    (unsigned)io->rows,
+                                    (unsigned)(io->cursor_row + 1U),
+                                    (unsigned)(io->cursor_col + 1U));
+        if (length <= 0 || (size_t)length >= sizeof(sequence)) {
+            io->rows = io->footer_rows;
+            io->footer_rows = 0;
+            return ESP_FAIL;
+        }
+        const esp_err_t err =
+            shell_io_port_write_bytes(io, sequence, (size_t)length);
+        if (err != ESP_OK) {
+            io->rows = io->footer_rows;
+            io->footer_rows = 0;
+            return err;
+        }
+        io->footer_enabled = true;
+    }
+    return shell_io_port_draw_footer(io, text);
+}
+
+esp_err_t solar_os_shell_io_clear_footer(solar_os_shell_io_t *io)
+{
+    if (io == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!io->footer_enabled) {
+        return ESP_OK;
+    }
+
+    if (io->kind == SOLAR_OS_SHELL_IO_KIND_TERMINAL) {
+        solar_os_terminal_set_footer(io->terminal, NULL);
+        io->rows = (uint16_t)solar_os_terminal_rows(io->terminal);
+        io->cursor_row = solar_os_terminal_cursor_row(io->terminal);
+        io->cursor_col = solar_os_terminal_cursor_col(io->terminal);
+        io->footer_enabled = false;
+        return ESP_OK;
+    }
+    if (io->kind != SOLAR_OS_SHELL_IO_KIND_PORT ||
+        !shell_io_port_supports_ansi_controls(io) ||
+        io->footer_rows < 2) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const uint16_t full_rows = io->footer_rows;
+    const size_t cursor_row = io->cursor_row;
+    const size_t cursor_col = io->cursor_col;
+    char sequence[96];
+    const int length = snprintf(
+        sequence,
+        sizeof(sequence),
+        "\x1b[s\x1b[%u;1H\x1b[27m\x1b[2K\x1b[u"
+        "\x1b[r\x1b[%u;%uH",
+        (unsigned)full_rows,
+        (unsigned)(cursor_row + 1U),
+        (unsigned)(cursor_col + 1U));
+    if (length <= 0 || (size_t)length >= sizeof(sequence)) {
+        return ESP_FAIL;
+    }
+    const esp_err_t err =
+        shell_io_port_write_bytes(io, sequence, (size_t)length);
+    if (err == ESP_OK) {
+        io->rows = full_rows;
+        io->footer_rows = 0;
+        io->footer_enabled = false;
+    }
+    return err;
 }
 
 esp_err_t solar_os_shell_io_flush(solar_os_shell_io_t *io)

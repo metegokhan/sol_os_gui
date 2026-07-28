@@ -45,11 +45,14 @@ agent
 ```
 
 Enter sends a message, Page Up/Down scrolls the terminal transcript, and the
-app-exit key returns to the shell. Responses API chats retain their server-side
+app-exit key returns to the shell. The prompt uses the configured SolarOS
+username, agent labels are bold, and the protected bottom status bar shows the
+latest input, output, and total token counts without adding usage lines to the
+conversation or scrollback. Narrow displays abbreviate those fields as `I`, `O`,
+and `T`. Responses API chats retain their server-side
 conversation context while that foreground app is open. Exiting and launching
 `agent` again starts a new conversation. Compatible Chat Completions endpoints
-currently provide the same foreground prompt loop without cross-message
-context.
+currently provide the same foreground prompt loop without cross-message context.
 
 For a single request, use:
 

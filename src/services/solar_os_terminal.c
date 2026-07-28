@@ -520,7 +520,8 @@ static void terminal_apply_settings(solar_os_terminal_t *terminal, bool clear_sc
         baseline_offset = status_bar_height + TERM_MARGIN_Y + line_height - 1;
     }
 
-    int text_bottom = display_height - TERM_MARGIN_Y;
+    int text_bottom = display_height - TERM_MARGIN_Y -
+        (terminal->footer_enabled ? line_height : 0);
     if (text_bottom < baseline_offset) {
         text_bottom = baseline_offset;
     }
@@ -1290,6 +1291,42 @@ void solar_os_terminal_get_status_bar(const solar_os_terminal_t *terminal,
     }
 
     *status = terminal->status_bar;
+}
+
+void solar_os_terminal_set_footer(solar_os_terminal_t *terminal,
+                                  const char *text)
+{
+    if (terminal == NULL) {
+        return;
+    }
+
+    const bool enabled = text != NULL && text[0] != '\0';
+    char footer[SOLAR_OS_TERMINAL_MAX_COLS + 1] = {0};
+    if (enabled) {
+        size_t i = 0;
+        while (text[i] != '\0' && i < SOLAR_OS_TERMINAL_MAX_COLS) {
+            const unsigned char ch = (unsigned char)text[i];
+            footer[i] = ch >= 0x20U && ch <= 0x7eU ? ch : '?';
+            i++;
+        }
+    }
+    if (terminal->footer_enabled == enabled &&
+        memcmp(terminal->footer, footer, sizeof(footer)) == 0) {
+        return;
+    }
+
+    const bool geometry_changed = terminal->footer_enabled != enabled;
+    const size_t previous_rows = terminal_rows(terminal);
+    terminal->footer_enabled = enabled;
+    memcpy(terminal->footer, footer, sizeof(terminal->footer));
+    if (geometry_changed) {
+        terminal_apply_settings(terminal, false);
+        const size_t current_rows = terminal_rows(terminal);
+        for (size_t row = previous_rows; row < current_rows; row++) {
+            solar_os_terminal_clear_line_from(terminal, row, 0);
+        }
+    }
+    solar_os_terminal_mark_dirty(terminal);
 }
 
 size_t solar_os_terminal_cursor_col(const solar_os_terminal_t *terminal)
@@ -2444,6 +2481,45 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     terminal_set_draw_color(terminal, u8g2, 0);
 }
 
+static void terminal_draw_footer(solar_os_terminal_t *terminal,
+                                 u8g2_t *u8g2,
+                                 uint8_t text_scale)
+{
+    if (terminal == NULL || u8g2 == NULL || !terminal->footer_enabled) {
+        return;
+    }
+
+    const int display_width = u8g2_GetDisplayWidth(u8g2);
+    const int display_height = u8g2_GetDisplayHeight(u8g2);
+    const int top = display_height - terminal->line_height;
+    const int baseline = display_height - 2;
+    terminal_set_draw_color(terminal, u8g2, 0);
+    u8g2_DrawBox(u8g2,
+                 0,
+                 (u8g2_uint_t)(top > 0 ? top : 0),
+                 (u8g2_uint_t)display_width,
+                 terminal->line_height);
+
+    const size_t len = strnlen(terminal->footer, SOLAR_OS_TERMINAL_MAX_COLS);
+    for (size_t pos = 0; pos < len; pos++) {
+        const int x = TERM_MARGIN_X + (int)(pos * terminal->char_width);
+        if (x >= display_width) {
+            break;
+        }
+        terminal_draw_cell(terminal,
+                           u8g2,
+                           text_scale,
+                           x,
+                           baseline,
+                           terminal->footer[pos],
+                           false,
+                           false,
+                           false,
+                           true);
+    }
+    terminal_set_draw_color(terminal, u8g2, 0);
+}
+
 void solar_os_terminal_draw(solar_os_terminal_t *terminal)
 {
     if (terminal == NULL || terminal->u8g2 == NULL) {
@@ -2483,6 +2559,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     }
 
     terminal_draw_vrules(terminal, u8g2);
+    terminal_draw_footer(terminal, u8g2, text_scale);
 
     if (terminal->cursor_visible && !solar_os_terminal_is_scrolled_back(terminal)) {
         const int cursor_x = cursor_x_position(terminal);
