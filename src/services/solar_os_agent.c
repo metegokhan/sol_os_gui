@@ -48,6 +48,8 @@ typedef struct {
     solar_os_agent_provider_config_t config;
     solar_os_agent_tool_policy_t tool_policy;
     uint8_t max_tools;
+    uint8_t last_tool_call_count;
+    uint8_t last_max_tools;
     agent_request_handle_t *active_request;
     uint32_t request_count;
     uint32_t failure_count;
@@ -465,6 +467,8 @@ esp_err_t solar_os_agent_get_status(solar_os_agent_status_t *status)
             sizeof(status->reasoning_effort));
     status->tool_policy = agent.tool_policy;
     status->max_tools = agent.max_tools;
+    status->last_tool_call_count = agent.last_tool_call_count;
+    status->last_max_tools = agent.last_max_tools;
     status->request_count = agent.request_count;
     status->failure_count = agent.failure_count;
     status->tool_executed_count = agent.tool_executed_count;
@@ -743,6 +747,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     agent.last_error = ESP_OK;
     agent.last_duration_ms = 0;
     agent.last_bytes_received = 0;
+    agent.last_tool_call_count = 0U;
+    agent.last_max_tools = max_tools;
     agent.last_internal_before = internal_before;
     agent.last_internal_low = agent.last_internal_before;
     agent.last_internal_largest_before = internal_largest_before;
@@ -828,6 +834,9 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                              false);
             break;
         }
+        portENTER_CRITICAL(&agent_lock);
+        agent.last_tool_call_count = (uint8_t)(turn_index + 1U);
+        portEXIT_CRITICAL(&agent_lock);
 
         (void)agent_emit(request,
                          SOLAR_OS_AGENT_EVENT_TOOL_CALL,
@@ -918,6 +927,10 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         turn.tool_name = run->tool_name;
         turn.tool_arguments = run->tool_arguments;
         turn.tool_result = tool_result;
+        if (turn_index + 1U >= (uint32_t)max_tools) {
+            turn.tools = NULL;
+            turn.tool_count = 0U;
+        }
     }
 
     const bool cancelled = solar_os_agent_provider_cancel_requested();

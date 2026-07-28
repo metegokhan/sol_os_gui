@@ -203,6 +203,11 @@ static void agent_app_print_status(solar_os_context_t *ctx)
     if (status.request_count > 0) {
         solar_os_shell_io_printf(
             io,
+            "Last request tools: %u/%u used\n",
+            (unsigned int)status.last_tool_call_count,
+            (unsigned int)status.last_max_tools);
+        solar_os_shell_io_printf(
+            io,
             "Last: %s, HTTP %d, %" PRIu32 " ms, %" PRIu32 " bytes\n",
             esp_err_to_name(status.last_error),
             status.last_http_status,
