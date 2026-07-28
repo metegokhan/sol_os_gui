@@ -1,3 +1,12 @@
++++
+id = "boards"
+title = "Boards and hardware targets"
+section = "build"
+summary = "Supported boards, capabilities, porting structure, and validation"
+aliases = ["board", "targets"]
+keywords = "boards targets waveshare devkit odroid elecrow capabilities porting validation"
+packages_any = []
++++
 # Defining SolarOS Boards
 
 SolarOS separates board support into a small board profile, a C header with board
@@ -15,7 +24,8 @@ defines.
 `scripts/validate_board_metadata.py` checks every board during CMake
 configuration. It verifies board registration and identity, capability registry
 coverage and dependencies, pin masks against their named lists and free-pin
-slots, static bus protocol gates, and the GPIO/bus tables in `doc/expansion.md`.
+slots, static bus protocol gates, and the GPIO/bus tables in
+`expansion.reference.md`.
 Run it directly after changing board metadata:
 
 ```sh
@@ -815,3 +825,10 @@ Before committing a new board target:
 
 7. If the board has no display, confirm the primary shell starts on `uart0` and
    that `cdc0` can still be claimed by a job when needed.
+
+## Quick reference
+
+Select the PlatformIO environment matching the physical target. Board profiles
+declare capabilities and drivers; flavors select packages within those
+capabilities. The built-in target table, pin rules, display/storage/audio
+details, porting procedure, and validation checklist are maintained here.

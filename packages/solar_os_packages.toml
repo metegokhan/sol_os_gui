@@ -43,7 +43,9 @@ members = [
 [groups.maintenance_apps]
 members = [
   "service_ota",
+  "service_docs",
   "core_fs_commands",
+  "app_docs",
   "app_inbox",
   "app_com",
   "app_edit",
@@ -110,6 +112,11 @@ triggers = [
   "job_ntp_sync",
 ]
 
+[groups.agent]
+members = ["app_agent"]
+triggers = ["app_agent"]
+capabilities = ["psram", "wifi"]
+
 [groups.media]
 members = ["app_view"]
 triggers = ["app_view"]
@@ -167,6 +174,7 @@ sources = [
   "services/solar_os_gfx.c",
   "services/solar_os_identity.c",
   "services/solar_os_log.c",
+  "services/solar_os_manual.c",
   "services/solar_os_memory.c",
   "services/solar_os_port.c",
   "services/solar_os_port_shell.c",
@@ -206,6 +214,19 @@ requires = [
 ]
 capabilities = ["wifi"]
 
+[packages.service_docs]
+label = "maintenance.docs"
+depends = [
+  "service_crypto",
+  "service_http_client",
+  "service_json",
+  "service_ota",
+  "service_sd",
+  "service_zip",
+]
+sources = ["services/solar_os_docs.c"]
+capabilities = ["psram", "sd", "wifi"]
+
 [packages.core_shell]
 label = "bootstrap.shell"
 sources = [
@@ -213,6 +234,7 @@ sources = [
   "shell/solar_os_shell_common.c",
   "shell/solar_os_shell_commands.c",
   "shell/solar_os_shell_io.c",
+  "shell/solar_os_shell_manual.c",
   "shell/solar_os_shell_setterm_tui.c",
   "shell/solar_os_shell_system.c",
   "shell/solar_os_vt100.c",
@@ -231,10 +253,12 @@ requires = ["esp_timer", "heap"]
 
 [packages.core_fs_commands]
 label = "core.fs-commands"
-sources = [
-  "shell/solar_os_shell_fs.c",
-  "services/solar_os_zip.c",
-]
+depends = ["service_zip"]
+sources = ["shell/solar_os_shell_fs.c"]
+
+[packages.service_zip]
+label = "service.zip"
+sources = ["services/solar_os_zip.c"]
 
 [packages.service_wifi]
 label = "service.wifi"
@@ -309,6 +333,22 @@ depends = ["service_wifi"]
 sources = ["services/solar_os_http_server.c"]
 requires = ["esp_http_server", "esp_hw_support"]
 capabilities = ["wifi"]
+
+[packages.service_agent]
+label = "service.agent"
+depends = ["service_crypto", "service_http_client", "service_json"]
+sources = [
+  "services/solar_os_agent.c",
+  "services/solar_os_agent_reference.c",
+  "services/solar_os_agent_openai.c",
+  "services/solar_os_agent_tools.c",
+]
+requires = ["heap", "nvs_flash"]
+capabilities = ["psram", "wifi"]
+
+[packages.service_script_runner]
+label = "service.script_runner"
+sources = ["services/solar_os_script_runner.c"]
 
 [packages.service_image]
 label = "media.image"
@@ -555,6 +595,15 @@ depends = ["job_chat_sync"]
 sources = ["apps/solar_os_chat.c"]
 capabilities = ["psram", "wifi"]
 
+[packages.app_agent]
+label = "app.agent"
+depends = ["service_agent"]
+sources = [
+  "apps/solar_os_agent_app.c",
+  "shell/solar_os_shell_agent.c",
+]
+capabilities = ["psram", "wifi"]
+
 [packages.app_email]
 label = "app.email"
 depends = ["service_mail"]
@@ -585,12 +634,14 @@ capabilities = ["gfx"]
 
 [packages.app_python]
 label = "app.python"
+depends = ["service_script_runner"]
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
 capabilities = ["psram"]
 
 [packages.app_lua]
 label = "app.lua"
+depends = ["service_script_runner"]
 sources = ["apps/solar_os_lua.c"]
 requires = ["lua"]
 capabilities = ["psram"]
@@ -616,6 +667,11 @@ sources = [
 [packages.app_less]
 label = "app.less"
 sources = ["apps/solar_os_less.c"]
+
+[packages.app_docs]
+label = "app.docs"
+depends = ["app_less"]
+sources = ["apps/solar_os_docs_app.c"]
 
 [packages.app_reader]
 label = "app.reader"

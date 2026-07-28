@@ -9,6 +9,7 @@ maintenance_apps = true
 maintenance_jobs = true
 audio = false
 net = true
+agent = true
 media = false
 games = false
 python = false

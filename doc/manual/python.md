@@ -1,3 +1,12 @@
++++
+id = "python"
+title = "Python API reference"
+section = "api"
+summary = "Complete MicroPython service API, conventions, and examples"
+aliases = ["micropython", "python.api"]
+keywords = "python micropython solaros api storage wifi gpio buses gfx tui examples"
+packages_any = ["app_python"]
++++
 # SolarOS Python API
 
 SolarOS embeds MicroPython as the `python` foreground application. It can run an interactive REPL or execute `.py` and `.mpy` files from storage.
@@ -20,6 +29,9 @@ solaros.write("SolarOS " + solaros.version() + "\n")
 ## Conventions
 
 Most mutating functions return `None` on success and raise `OSError("ESP_ERR_...")` on service failure. Query functions return strings, integers, booleans, dictionaries, or lists.
+
+SolarOS uses a size-trimmed MicroPython configuration but includes the standard
+`min()` and `max()` built-ins used by ordinary device scripts.
 
 Functions that accept file paths use SolarOS shell-style paths. `/` means the default storage mount; internally this resolves to the active storage mount point.
 
@@ -833,7 +845,14 @@ while not solaros.should_exit():
 
 ## `solaros.gfx`
 
-Graphics functions provide queued access to the SolarOS foreground graphics service. Call `begin()` before drawing and `refresh()`/`present()` to push the frame to the display. `begin(target)` claims a named display target, such as `lcd0`, until `end()` or script cleanup.
+Graphics functions provide queued access to the SolarOS foreground graphics
+service. Call `begin()` before drawing and `refresh()`/`present()` to push the
+frame to the display. With no argument, `begin()` uses the display framebuffer
+of the shell that launched the script. A port or headless shell has no such
+framebuffer, so targetless `begin()` raises `RuntimeError` instead of silently
+drawing nowhere. `begin(target)` claims a verified named display target, such
+as one returned by `solaros.expansion.devices()`, until `end()` or script
+cleanup.
 
 Colors:
 
@@ -859,7 +878,9 @@ Italic constants currently map to the closest upright face in the trimmed firmwa
 
 Functions:
 
-- `begin([target])`: enter foreground graphics mode; when `target` is provided, claim and draw to that named display target.
+- `begin([target])`: enter foreground graphics mode; without a target, require
+  the current shell to have a display framebuffer; when `target` is provided,
+  claim and draw to that named display target.
 - `end()`: leave graphics mode and redraw the terminal.
 - `width()`: return graphics width in pixels.
 - `height()`: return graphics height in pixels.
@@ -908,7 +929,8 @@ while not solaros.should_exit():
 gfx.end()
 ```
 
-For an attached auxiliary display, use the target name:
+For an attached auxiliary display, first verify its ready target name with
+`solaros.expansion.devices()`, then pass that name:
 
 ```python
 gfx.begin("lcd0")
@@ -940,3 +962,10 @@ solaros.write("wifi {} {}\n".format(wifi["state"], wifi["ip"]))
 ## Not Exposed Yet
 
 The Python bridge intentionally does not expose raw SSH/SCP session handles yet. Those APIs need object lifetime, ownership, and event-loop rules before they can safely become scriptable.
+
+## Quick reference
+
+Import `solaros` and use its service tables for storage, time, networking,
+hardware, jobs, sessions, TUI, and graphics. APIs return `None` or raise
+`OSError` as documented. Long-running programs must yield cooperatively and
+release opened buses, graphics targets, and other resources in `finally`.

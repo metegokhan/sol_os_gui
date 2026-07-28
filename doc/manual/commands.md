@@ -1,8 +1,17 @@
++++
+id = "commands"
+title = "Shell command reference"
+section = "shell"
+summary = "Complete syntax, behavior, and examples for built-in shell commands"
+aliases = ["command", "shell"]
+keywords = "shell commands syntax examples files network hardware ota sessions jobs"
+packages_any = []
++++
 # SolarOS Shell Commands
 
 This document covers built-in shell commands. Foreground applications are
 documented separately in [apps.md](apps.md). Command availability depends on the
-compiled firmware flavor and board capabilities; `help` shows the commands in
+compiled firmware flavor and board capabilities; `commands` shows the commands in
 the running image.
 
 ## Shell Conventions
@@ -42,7 +51,9 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `help` | `help` | List built-in shell commands. |
+| `commands` | `commands` | List built-in shell commands. |
+| `help` | `help [TOPIC]`; `help status`; `help update`; `help reset` | Browse the package-aware manual or manage its signed exact-version SD copy. |
+| `man` | `man TOPIC`; `man -k QUERY...`; `man --list` | Read or search the package-aware SolarOS manual. |
 | `clear` | `clear` | Clear the active shell terminal. |
 | `watch` | `watch [-n seconds] <command> [args...]` | Repeat another shell command until `Esc`, `q`, or the app-exit key is pressed. |
 | `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
@@ -71,6 +82,23 @@ SLIP, DAQ, and HTTP serving are jobs and are controlled with `job`.
 Scripts are intentionally simple. `sh` skips blank lines and lines whose first
 non-space character is `#`, then executes each remaining line as a normal shell
 command. There are no variables, pipes, redirects, or conditionals yet.
+
+`man TOPIC` opens one manual entry in the `less` pager when that app is
+installed. Use `q`, `Esc`, or the app-exit key to return to the shell. `man -k`
+searches page names, aliases, summaries, keywords, and API contracts; `man
+--list` shows every entry compiled into the current flavor. Optional topics are
+omitted when their package is absent. The same generated registry supplies the
+agent's `solaros_reference` tool, so local help and generated-code guidance do
+not drift apart.
+
+Bare `help` opens a foldable topic tree. Graphic display shells read the
+selected topic in `reader`; text shells use `less`, both through the same
+`man:TOPIC` source. On builds with Wi-Fi, PSRAM, and SD, `help update` shows
+terminal-width-aware progress while downloading one `manual.zip` published for
+the exact running firmware version. The catalog signature authenticates the
+archive hash; after extraction every Markdown page is checked by size and
+SHA-256 before activation. `help reset` returns immediately to the embedded
+manual.
 
 Aliases are stored in `/.shell/alias`, one per line:
 
@@ -166,6 +194,11 @@ runtime-only.
 | Command | Usage | Description |
 | --- | --- | --- |
 | `apps` | `apps` | List registered foreground apps compiled into the firmware. |
+| `agent` | `agent`; `agent ask PROMPT...` | Open the native LLM agent TUI or make one foreground request. |
+| `agent` | `agent status`; `agent tools` | Inspect provider state, request statistics, typed tools, risk, and policy. |
+| `agent` | `agent config endpoint|model|key|reasoning|tools|max-tools VALUE` | Configure the provider and tool policy. |
+| `agent` | `agent script python\|lua (-c SOURCE \| FILE) [ARGS...]` | Run a bounded script through the agent execution path. |
+| `agent` | `agent forget` | Erase the saved agent configuration. |
 | `jobs` | `jobs` | List registered jobs and their state. |
 | `job` | `job status [name]` | Show one job or all jobs. |
 | `job` | `job start <name> [args...]` | Start or restart a job. |
@@ -463,6 +496,12 @@ and writes the inactive ESP-IDF OTA partition.
 | `onewire` | `onewire xfer <bus\|pin> <read-len> [byte...]` | Reset, write bytes, then read bytes on a 1-Wire target. |
 | `adc` | `adc status` | Show ADC service status. |
 | `adc` | `adc read <pin>` | Read an ADC-capable runtime pin. |
+| `dpad` | `dpad [status]` | Show ADC D-pad pins, raw values, zones, and calibration thresholds. |
+| `dpad` | `dpad calibrate [idle]` | Calibrate the current D-pad idle value. |
+| `dpad` | `dpad calibrate reset` | Restore the compiled D-pad calibration. |
+| `joystick` | `joystick [status]` | Show joystick axes, raw values, direction, and thresholds. |
+| `joystick` | `joystick calibrate` | Calibrate the current joystick center. |
+| `joystick` | `joystick calibrate reset` | Restore the compiled joystick calibration. |
 | `pwm` | `pwm status` | Show PWM state. |
 | `pwm` | `pwm set <pin> <freq-hz> <duty-percent>` | Start LEDC PWM on a runtime pin. |
 | `pwm` | `pwm off <pin>` | Stop PWM on a pin. |
@@ -578,3 +617,10 @@ session create shell cdc0 --term auto
 session create shell lcd0
 xfer send uart0 /logs/payload.bin --zmodem
 ```
+
+## Quick reference
+
+Run `commands` to list commands compiled into the current firmware, `man TOPIC`
+for a focused guide, and `help` for the complete manual tree. Commands are
+package-aware, support shell completion where applicable, and use the current
+shell working directory for relative paths.

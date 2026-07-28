@@ -1,3 +1,12 @@
++++
+id = "expansion.reference"
+title = "Expansion hardware reference"
+section = "hardware"
+summary = "Resource rules, workflows, drivers, bindings, and wiring examples"
+aliases = ["hardware.expansion"]
+keywords = "expansion ports gpio adc pwm buses i2c spi uart wiring displays"
+packages_any = []
++++
 # Expansion Ports
 
 SolarOS treats an expansion port as a board-described collection of resources,
@@ -243,3 +252,10 @@ After an auxiliary display is attached, it can also host a shell session:
 ```text
 session create shell oled0
 ```
+
+## Quick reference
+
+Inspect runtime-safe pins and buses before attaching hardware. Use the `io`
+application or the `gpio`, `adc`, `pwm`, `i2c`, `spi`, `uart`, `bus`, and
+`expansion` commands as documented here. Resource ownership prevents two
+drivers, jobs, or sessions from claiming the same hardware concurrently.

@@ -53,6 +53,8 @@ struct solar_os_terminal {
     uint8_t baseline_offset;
     uint8_t status_bar_height;
     solar_os_status_bar_t status_bar;
+    char footer[SOLAR_OS_TERMINAL_MAX_COLS + 1];
+    bool footer_enabled;
     uint32_t utf8_codepoint;
     uint8_t utf8_remaining;
     bool dirty;

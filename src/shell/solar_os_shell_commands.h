@@ -4,6 +4,9 @@
 #include "solar_os_config.h"
 
 void solar_os_shell_cmd_apps(solar_os_context_t *ctx, int argc, char **argv);
+#if SOLAR_OS_PACKAGE_APP_AGENT
+void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 void solar_os_shell_cmd_adc(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_dpad(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv);
@@ -18,6 +21,7 @@ void solar_os_shell_cmd_daq(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_date(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_help(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 void solar_os_shell_cmd_email(solar_os_context_t *ctx, int argc, char **argv);
 #endif
@@ -39,6 +43,7 @@ void solar_os_shell_cmd_led(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_jobs(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_log(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_man(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_mkdir(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_rm(solar_os_context_t *ctx, int argc, char **argv);

@@ -13,6 +13,9 @@
 #if SOLAR_OS_PACKAGE_APP_CHAT
 #include "solar_os_chat_app.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_AGENT
+#include "solar_os_agent_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_CURL
 #include "solar_os_curl.h"
 #endif
@@ -36,6 +39,9 @@
 #endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
 #include "solar_os_edit.h"
+#endif
+#if SOLAR_OS_PACKAGE_APP_DOCS
+#include "solar_os_docs_app.h"
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 #include "solar_os_email_app.h"
@@ -90,6 +96,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #if SOLAR_OS_PACKAGE_APP_CHAT
     {"chat", "shared chat client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
 #endif
+#if SOLAR_OS_PACKAGE_APP_AGENT
+    {"agent", "native LLM agent", &solar_os_agent_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+#endif
 #if SOLAR_OS_PACKAGE_APP_CURL
     {"curl", "HTTP client", &solar_os_curl_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
 #endif
@@ -113,6 +122,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
     {"edit", "text editor", &solar_os_edit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+#endif
+#if SOLAR_OS_PACKAGE_APP_DOCS
+    {"help", "browse the SolarOS manual", &solar_os_docs_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     {"email", "IMAP email client", &solar_os_email_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},

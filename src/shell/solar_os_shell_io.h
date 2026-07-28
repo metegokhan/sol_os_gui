@@ -29,6 +29,7 @@ struct solar_os_shell_io {
     solar_os_port_handle_t port;
     uint16_t cols;
     uint16_t rows;
+    uint16_t footer_rows;
     size_t cursor_row;
     size_t cursor_col;
     bool bold;
@@ -36,6 +37,7 @@ struct solar_os_shell_io {
     bool underline;
     bool inverse;
     bool cursor_visible;
+    bool footer_enabled;
 };
 
 void solar_os_shell_io_init_terminal(solar_os_shell_io_t *io, solar_os_terminal_t *terminal);
@@ -78,4 +80,7 @@ esp_err_t solar_os_shell_io_set_cursor(solar_os_shell_io_t *io, size_t row, size
 esp_err_t solar_os_shell_io_set_cursor_visible(solar_os_shell_io_t *io, bool visible);
 bool solar_os_shell_io_cursor_visible(const solar_os_shell_io_t *io);
 esp_err_t solar_os_shell_io_clear_line_from(solar_os_shell_io_t *io, size_t row, size_t col);
+esp_err_t solar_os_shell_io_set_footer(solar_os_shell_io_t *io,
+                                       const char *text);
+esp_err_t solar_os_shell_io_clear_footer(solar_os_shell_io_t *io);
 esp_err_t solar_os_shell_io_flush(solar_os_shell_io_t *io);

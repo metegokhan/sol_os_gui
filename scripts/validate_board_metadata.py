@@ -207,7 +207,9 @@ def _validate_global_metadata(root: Path) -> tuple[list[str], set[str]]:
     cmake_text = (root / "src" / "CMakeLists.txt").read_text(encoding="utf-8")
     caps_header = (root / "src" / "services" / "solar_os_board_caps.h").read_text(encoding="utf-8")
     caps_source = (root / "src" / "services" / "solar_os_board_caps.c").read_text(encoding="utf-8")
-    board_doc = (root / "doc" / "solar_os_boards.md").read_text(encoding="utf-8")
+    board_doc = (
+        root / "doc" / "manual" / "boards.md"
+    ).read_text(encoding="utf-8")
 
     block = re.search(r"set\(SOLAR_OS_BOARD_CAPABILITY_NAMES(.*?)\n\)", cmake_text, re.DOTALL)
     cmake_caps = (
@@ -412,10 +414,12 @@ def _validate_registration(root: Path, board: BoardMetadata) -> list[str]:
 
 def _validate_documentation(root: Path, board: BoardMetadata) -> list[str]:
     errors: list[str] = []
-    boards_doc = (root / "doc" / "solar_os_boards.md").read_text(encoding="utf-8")
-    expansion_doc = (root / "doc" / "expansion.md").read_text(encoding="utf-8")
+    boards_path = root / "doc" / "manual" / "boards.md"
+    expansion_path = root / "doc" / "manual" / "expansion.reference.md"
+    boards_doc = boards_path.read_text(encoding="utf-8")
+    expansion_doc = expansion_path.read_text(encoding="utf-8")
     if f"`{board.board_id}`" not in boards_doc:
-        errors.append(f"{board.board_id}: missing from doc/solar_os_boards.md target table")
+        errors.append(f"{board.board_id}: missing from {boards_path.relative_to(root)} target table")
 
     short_name = board.name
     if board.vendor and short_name.startswith(board.vendor + " "):
@@ -424,7 +428,7 @@ def _validate_documentation(root: Path, board: BoardMetadata) -> list[str]:
     gpio_section = _section(expansion_doc, "### GPIO, ADC, and PWM", "### Named and Runtime Buses")
     gpio_row = _table_row(gpio_section, labels)
     if not gpio_row or len(gpio_row) < 4:
-        errors.append(f"{board.board_id}: missing GPIO row in doc/expansion.md")
+        errors.append(f"{board.board_id}: missing GPIO row in {expansion_path.relative_to(root)}")
     else:
         try:
             expected = (
@@ -448,7 +452,7 @@ def _validate_documentation(root: Path, board: BoardMetadata) -> list[str]:
     bus_section = _section(expansion_doc, "### Named and Runtime Buses", "## Typical Workflow")
     bus_row = _table_row(bus_section, labels)
     if not bus_row or len(bus_row) < 2:
-        errors.append(f"{board.board_id}: missing bus row in doc/expansion.md")
+        errors.append(f"{board.board_id}: missing bus row in {expansion_path.relative_to(root)}")
     else:
         documented_names = set(re.findall(r"`([a-z][a-z0-9]*\d+)`", bus_row[1]))
         expected_names = {name for name, _ in board.static_buses}

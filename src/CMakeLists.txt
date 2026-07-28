@@ -155,8 +155,8 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${SOLAR_OS_BOARD_METADATA_PROFILES}
     "${SOLAR_OS_PROJECT_DIR}/src/services/solar_os_board_caps.h"
     "${SOLAR_OS_PROJECT_DIR}/src/services/solar_os_board_caps.c"
-    "${SOLAR_OS_PROJECT_DIR}/doc/solar_os_boards.md"
-    "${SOLAR_OS_PROJECT_DIR}/doc/expansion.md"
+    "${SOLAR_OS_PROJECT_DIR}/doc/manual/boards.md"
+    "${SOLAR_OS_PROJECT_DIR}/doc/manual/expansion.reference.md"
     "${SOLAR_OS_PROJECT_DIR}/platformio.ini"
 )
 execute_process(
@@ -195,6 +195,30 @@ if(NOT SOLAR_OS_FLAVOR_GENERATE_RESULT EQUAL 0)
 endif()
 include("${SOLAR_OS_GENERATED_CMAKE}")
 message(STATUS "SolarOS flavor: ${SOLAR_OS_FLAVOR_NAME} (${SOLAR_OS_FLAVOR_INPUT})")
+
+set(SOLAR_OS_MANUAL_INPUT "${SOLAR_OS_PROJECT_DIR}/doc/manual")
+set(SOLAR_OS_MANUAL_GENERATOR "${SOLAR_OS_PROJECT_DIR}/scripts/generate_manual.py")
+file(GLOB SOLAR_OS_MANUAL_SOURCES
+    "${SOLAR_OS_MANUAL_INPUT}/*.md"
+)
+set(SOLAR_OS_GENERATED_MANUAL_HEADER
+    "${SOLAR_OS_GENERATED_DIR}/solar_os_manual_data.h"
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${SOLAR_OS_MANUAL_SOURCES}
+    "${SOLAR_OS_MANUAL_GENERATOR}"
+)
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}"
+            "${SOLAR_OS_MANUAL_GENERATOR}"
+            "--input" "${SOLAR_OS_MANUAL_INPUT}"
+            "--packages" "${SOLAR_OS_PACKAGE_CATALOG}"
+            "--output" "${SOLAR_OS_GENERATED_MANUAL_HEADER}"
+    RESULT_VARIABLE SOLAR_OS_MANUAL_GENERATE_RESULT
+)
+if(NOT SOLAR_OS_MANUAL_GENERATE_RESULT EQUAL 0)
+    message(FATAL_ERROR "SolarOS manual generation failed")
+endif()
 
 if((SOLAR_OS_PACKAGE_EXPANSION_PCD8544 OR SOLAR_OS_PACKAGE_EXPANSION_SSD1306)
         AND NOT SOLAR_OS_BOARD_HAS_GFX)

@@ -1,3 +1,12 @@
++++
+id = "apps"
+title = "Application reference"
+section = "app"
+summary = "Usage, controls, and examples for every foreground application"
+aliases = ["applications"]
+keywords = "apps applications foreground controls usage examples reader less files agent"
+packages_any = []
++++
 # SolarOS Embedded Apps
 
 This document covers foreground applications registered in SolarOS. Availability
@@ -9,6 +18,68 @@ Exit behavior:
 - Display shell: `CTRL+ALT+DEL` exits foreground apps.
 - Port shells: `Ctrl+]` exits foreground apps.
 - `Alt+Tab` switches between resumable foreground sessions on display builds.
+
+## agent
+
+Native Responses/Chat-Completions LLM client and SolarOS agent control plane.
+It streams model text directly to the active shell and exposes typed
+system-status, storage-listing, job-listing, display-discovery, and optional
+Python/Lua execution tools. `agent tools` shows risk, policy, and runtime
+availability.
+
+Configure the full endpoint and model, then ask a question:
+
+```text
+agent config endpoint https://api.openai.com/v1/responses
+agent config model gpt-model
+agent config key api-key
+agent config reasoning medium
+agent config tools confirm
+agent config max-tools 8
+agent
+agent ask How much memory is free on this device?
+agent script python -c "print(6 * 7)"
+agent script lua /script.lua argument
+```
+
+Bare `agent` opens a resumable foreground prompt loop and keeps the transcript
+visible. Responses API sessions retain conversation context until the app is
+exited. `agent ask` performs one request but likewise waits for the app-exit key
+after completion, so display-shell output is not immediately replaced by the
+shell screen.
+
+Use `agent config key clear` for an endpoint that does not require bearer
+authentication. `agent status` shows configuration, request counters, HTTP
+status, reasoning effort, duration, traffic, and internal-RAM/PSRAM measurements
+from the last request. The API key itself is never printed. A
+Chat-Completions-compatible endpoint can still be configured explicitly.
+
+The agent permits eight sequential tool calls by default, followed by a
+separately reserved final provider turn. `agent config max-tools COUNT` stores
+a per-request limit from 1 through 12 in NVS. Output is bounded to 16 KiB,
+protocol buffers and queues prefer PSRAM, and the foreground worker uses a
+declared 16 KiB internal stack.
+Full builds can reuse that worker for bounded Python or Lua source/file
+execution. The manual script path captures at most 4095 output bytes, has a
+30-second deadline, and supports app-exit cancellation. Model-generated source
+is capped at 640 bytes and captures 383 output bytes.
+
+The storage registry includes bounded listing, sensitive text-file reads, and
+text-file replacement. Reads and writes are capped at 3072 bytes and paths
+below `.ssh` are unavailable to protect SSH identity files.
+
+The default `confirm` policy runs read-only tools automatically and shows the
+exact arguments of sensitive, mutating, disruptive, and script calls before
+waiting for a local `y/N` decision. `off` disables tools, `readonly` excludes
+all protected risk classes, and explicit `all` allows every available tool
+without prompting.
+See [Native Agent Service](agent.md) for the provider contract and current
+limits.
+
+Controls:
+
+- App-exit key cancels an active request.
+- `Page Up`/`Page Down` scroll terminal output while a request is active.
 
 ## aplay
 
@@ -141,6 +212,31 @@ curl [-L] [-o file] URL
 Controls:
 
 - App-exit key cancels an active transfer.
+
+## help
+
+Foreground browser for the package-aware SolarOS manual. The foldable tree
+groups the topics compiled for the current firmware and shows whether it is
+using the embedded copy or a verified downloaded revision.
+
+Usage:
+
+```text
+help
+help agent
+```
+
+Controls:
+
+- `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`: move through the tree.
+- `Left`/`Right`, `Enter`, or Space on a group: fold or unfold it.
+- `Enter` or `Right` on a topic: open it in `reader` on graphic display shells
+  or `less` on text shells.
+- `q`, `Esc`, or the app-exit key: return to the shell.
+
+The maintenance forms `help status`, `help update`, and `help reset` remain
+shell operations. SD-capable builds show terminal-width-aware progress while
+downloading and extracting one exact-version signed manual archive.
 
 ## edit
 
@@ -558,3 +654,10 @@ Controls:
 
 - Keyboard navigation follows the active web UI state.
 - `Esc` or app-exit key exits.
+
+## Quick reference
+
+Use `apps` to list applications installed in the current firmware. Start an app
+by entering its name and arguments. Use the app-exit key to return to the shell;
+resumable applications can also be switched through sessions. This page is the
+complete usage and controls reference for foreground applications.

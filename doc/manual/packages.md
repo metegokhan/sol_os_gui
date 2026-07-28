@@ -1,3 +1,12 @@
++++
+id = "packages"
+title = "Firmware packages and flavors"
+section = "build"
+summary = "Understand package ownership, groups, flavors, and custom builds"
+aliases = ["flavors"]
+keywords = "packages flavors groups capabilities build custom firmware pkg"
+packages_any = []
++++
 # Firmware Packages and Flavors
 
 SolarOS package selection is declared in `packages/solar_os_packages.toml`.
@@ -18,8 +27,8 @@ package dependencies and then removes packages unsupported by the target board.
   unavailable, its dependants are removed as well.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
-`maintenance_jobs`, `audio`, `net`, `media`, `games`, `python`, `lua`, and
-`utils`. Maintenance apps and jobs can therefore be selected independently.
+`maintenance_jobs`, `audio`, `net`, `agent`, `media`, `games`, `python`, `lua`,
+and `utils`. Maintenance apps and jobs can therefore be selected independently.
 
 Network ownership is intentionally split. `network.base`, `network.mqtt`,
 `network.ssh`, `network.mail`, `network.chat`, `network.http-client`, and
@@ -32,6 +41,25 @@ and `web`. It exposes request headers and bodies, redirects, streaming response
 events, cross-task cancellation, per-I/O timeouts, and an end-to-end deadline.
 Callers continue to own their worker task and response consumer; see
 [HTTP Client Service](http_client.md) for the native API and lifecycle.
+
+The `agent` group selects `app.agent` and its `service.agent` dependency.
+`service.agent` owns provider-neutral events, NVS-backed provider
+configuration, bounded tool-loop policy, a declarative typed-tool registry,
+and the OpenAI Responses/Chat-Completions adapter. The registry owns provider
+schemas, output schemas, risk and availability metadata, and shared execution
+for the system, storage, jobs, and policy-gated script tools. Its NVS-backed
+`off`, `readonly`, `confirm`, and `all` policy filters advertised schemas and
+is enforced again at execution time.
+It depends on the shared HTTP and JSON services and is pruned from targets
+without both Wi-Fi and PSRAM. Python and Lua are not dependencies. See
+[Native Agent Service](agent.md).
+
+`app.python` and `app.lua` each depend on `service.script_runner`. That service
+defines the common source/file request, bounded output, cancellation, deadline,
+and completion-status contract. Each interpreter owns its language adapter and
+single-owner guard. `app.agent` supplies installed adapters to both the manual
+`agent script` command and the typed agent registry without making either
+interpreter a dependency of the agent package.
 
 Chat is split further: `network.chat` owns the transport-neutral message store
 and outbox, `chat.transport.gateway` owns the gateway wire protocol, and
@@ -62,3 +90,10 @@ app_curl = true
 ```
 
 Use `pkg` on the device to inspect the resolved package list.
+
+## Quick reference
+
+Packages are the actual build units, groups are convenience bundles, and a
+flavor selects packages for a board. Board capabilities remove packages that
+cannot run. Use `pkg` on-device to inspect the resolved firmware and edit a
+flavor TOML file when producing a custom build.

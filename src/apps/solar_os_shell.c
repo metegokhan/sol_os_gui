@@ -31,6 +31,7 @@
 #include "solar_os_job_registry.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
+#include "solar_os_manual.h"
 #include "solar_os_memory.h"
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
@@ -84,6 +85,7 @@ typedef struct {
     const char *required_prefix;
     bool complete_commands;
     bool complete_jobs;
+    bool complete_manual_pages;
     bool complete_display_session_ids;
     bool complete_session_ids;
     bool complete_ports;
@@ -143,7 +145,7 @@ struct solar_os_shell_session {
 static EXT_RAM_BSS_ATTR solar_os_shell_session_t shell_display_session;
 static bool shell_startup_attempted;
 
-static void cmd_help(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_watch(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv);
@@ -158,7 +160,9 @@ static bool shell_execute_line(solar_os_context_t *ctx,
                                size_t line_number);
 
 static const shell_command_t shell_builtin_commands[] = {
-    {"help", "show commands", cmd_help},
+    {"help", "browse or refresh the SolarOS manual", solar_os_shell_cmd_help},
+    {"commands", "list shell commands", cmd_commands},
+    {"man", "search the SolarOS manual", solar_os_shell_cmd_man},
     {"apps", "list applications", solar_os_shell_cmd_apps},
     {"jobs", "list background jobs", solar_os_shell_cmd_jobs},
     {"job", "control background jobs", solar_os_shell_cmd_job},
@@ -188,6 +192,9 @@ static const shell_command_t shell_builtin_commands[] = {
     {"daq", "capture data streams", solar_os_shell_cmd_daq},
 #endif
     {"log", "show SolarOS logs", solar_os_shell_cmd_log},
+#if SOLAR_OS_PACKAGE_APP_AGENT
+    {"agent", "native LLM agent", solar_os_shell_cmd_agent},
+#endif
 #if SOLAR_OS_PACKAGE_APP_INBOX
     {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
 #endif
@@ -611,6 +618,52 @@ static const char * const inbox_list_values[] = {"all", "unread"};
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const email_subcommands[] = {"status", "configure", "sync", "forget"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_AGENT
+static const char * const agent_subcommands[] = {
+    "help",
+    "status",
+    "tools",
+    "config",
+    "forget",
+    "ask",
+    "script",
+};
+static const char * const agent_config_fields[] = {
+    "endpoint",
+    "model",
+    "key",
+    "reasoning",
+    "tools",
+    "max-tools",
+};
+static const char * const agent_key_values[] = {"clear"};
+static const char * const agent_max_tools_values[] = {"1", "4", "8", "12"};
+static const char * const agent_tool_policy_values[] = {
+    "off",
+    "readonly",
+    "confirm",
+    "all",
+};
+#if SOLAR_OS_PACKAGE_APP_PYTHON || SOLAR_OS_PACKAGE_APP_LUA
+static const char * const agent_script_languages[] = {
+#if SOLAR_OS_PACKAGE_APP_PYTHON
+    "python",
+#endif
+#if SOLAR_OS_PACKAGE_APP_LUA
+    "lua",
+#endif
+};
+#endif
+static const char * const agent_reasoning_values[] = {
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+};
+#endif
 
 static const char * const gpio_subcommands[] = {
     "status",
@@ -785,6 +838,10 @@ static const char * const path_plot_stream[] = {"plot", SHELL_COMPLETION_ANY};
 #endif
 static const char * const path_watch[] = {"watch"};
 static const char * const path_watch_n_interval[] = {"watch", "-n", SHELL_COMPLETION_ANY};
+static const char * const path_man[] = {"man"};
+static const char * const man_options[] = {"--list", "--apropos", "-k"};
+static const char * const path_help[] = {"help"};
+static const char * const help_subcommands[] = {"status", "update", "reset"};
 static const char * const path_setterm[] = {"setterm"};
 static const char * const path_setterm_orientation[] = {"setterm", "orientation"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
@@ -808,6 +865,27 @@ static const char * const path_inbox_list[] = {"inbox", "list"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const path_email[] = {"email"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_AGENT
+static const char * const path_agent[] = {"agent"};
+static const char * const path_agent_config[] = {"agent", "config"};
+static const char * const path_agent_script[] = {"agent", "script"};
+static const char * const path_agent_config_key[] = {"agent", "config", "key"};
+static const char * const path_agent_config_reasoning[] = {
+    "agent",
+    "config",
+    "reasoning",
+};
+static const char * const path_agent_config_tools[] = {
+    "agent",
+    "config",
+    "tools",
+};
+static const char * const path_agent_config_max_tools[] = {
+    "agent",
+    "config",
+    "max-tools",
+};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const path_engine[] = {"engine"};
@@ -1204,6 +1282,14 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_jobs = true, \
     }
+#define SHELL_COMPLETION_MANUAL(path_array, value_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .values = value_array, \
+        .value_count = SHELL_ARRAY_COUNT(value_array), \
+        .complete_manual_pages = true, \
+    }
 #define SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_array) \
     { \
         .path = path_array, \
@@ -1334,6 +1420,8 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
     }
 
 static const shell_completion_rule_t shell_completion_rules[] = {
+    SHELL_COMPLETION_MANUAL(path_man, man_options),
+    SHELL_COMPLETION_MANUAL(path_help, help_subcommands),
     SHELL_COMPLETION_OPTIONS(path_ls, ls_options),
     SHELL_COMPLETION_OPTIONS(path_rm, rm_options),
 #if SOLAR_OS_PACKAGE_APP_COM
@@ -1527,6 +1615,17 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     SHELL_COMPLETION_STATIC(path_email, email_subcommands),
 #endif
+#if SOLAR_OS_PACKAGE_APP_AGENT
+    SHELL_COMPLETION_STATIC(path_agent, agent_subcommands),
+    SHELL_COMPLETION_STATIC(path_agent_config, agent_config_fields),
+#if SOLAR_OS_PACKAGE_APP_PYTHON || SOLAR_OS_PACKAGE_APP_LUA
+    SHELL_COMPLETION_STATIC(path_agent_script, agent_script_languages),
+#endif
+    SHELL_COMPLETION_STATIC(path_agent_config_key, agent_key_values),
+    SHELL_COMPLETION_STATIC(path_agent_config_reasoning, agent_reasoning_values),
+    SHELL_COMPLETION_STATIC(path_agent_config_tools, agent_tool_policy_values),
+    SHELL_COMPLETION_STATIC(path_agent_config_max_tools, agent_max_tools_values),
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
     SHELL_COMPLETION_STATIC(path_led, led_subcommands),
 #endif
@@ -1651,14 +1750,14 @@ static solar_os_shell_io_t *shell_io(solar_os_context_t *ctx)
     return io;
 }
 
-static void cmd_help(solar_os_context_t *ctx, int argc, char **argv)
+static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = shell_io(ctx);
 
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(io, "usage: help");
+        solar_os_shell_io_writeln(io, "usage: commands");
         return;
     }
 
@@ -3471,6 +3570,16 @@ static void shell_completion_emit_jobs(shell_completion_match_t *state)
     }
 }
 
+static void shell_completion_emit_manual_pages(shell_completion_match_t *state)
+{
+    for (size_t i = 0U; i < solar_os_manual_count(); i++) {
+        const solar_os_manual_page_t *page = solar_os_manual_get(i);
+        if (page != NULL) {
+            shell_completion_emit(state, page->id);
+        }
+    }
+}
+
 static void shell_completion_emit_session_id(shell_completion_match_t *state, uint8_t session_id)
 {
     char value[8];
@@ -4596,6 +4705,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_jobs) {
             shell_completion_emit_jobs(state);
+        }
+        if (rule->complete_manual_pages) {
+            shell_completion_emit_manual_pages(state);
         }
         if (rule->complete_display_session_ids) {
             shell_completion_emit_display_session_ids(state);

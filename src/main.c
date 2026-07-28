@@ -33,6 +33,9 @@
 #endif
 #include "solar_os_cdc.h"
 #include "solar_os_display.h"
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+#include "solar_os_docs.h"
+#endif
 #include "solar_os_engines.h"
 #include "solar_os_expansion.h"
 #include "solar_os_gpio.h"
@@ -1041,6 +1044,14 @@ static void init_peripherals(void)
     const esp_err_t ota_err = solar_os_ota_init();
     if (ota_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "OTA service unavailable: %s", esp_err_to_name(ota_err));
+    }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    const esp_err_t docs_err = solar_os_docs_init();
+    if (docs_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "External documentation unavailable: %s",
+                      esp_err_to_name(docs_err));
     }
 #endif
 
