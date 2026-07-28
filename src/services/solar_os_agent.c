@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
+#include "solar_os_agent_conversation.h"
 #include "solar_os_agent_provider.h"
 #include "solar_os_agent_tools.h"
 #include "solar_os_log.h"
@@ -26,6 +27,8 @@
 #define AGENT_NVS_MAX_TOOLS_KEY "max_tools"
 #define AGENT_DEFAULT_REASONING_EFFORT "medium"
 #define AGENT_DEFAULT_TOOL_POLICY SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM
+#define AGENT_ASSISTANT_CAPTURE_MAX (16U * 1024U)
+#define AGENT_TOOL_SUMMARY_MAX 768U
 
 typedef struct {
     solar_os_http_request_t *request;
@@ -34,11 +37,21 @@ typedef struct {
 } agent_request_handle_t;
 
 typedef struct {
+    const solar_os_agent_request_t *request;
+    char *assistant;
+    size_t assistant_len;
+    bool assistant_truncated;
+} agent_event_capture_t;
+
+typedef struct {
     solar_os_agent_provider_result_t provider_result;
     char tool_call_id[SOLAR_OS_AGENT_TOOL_CALL_ID_MAX];
     char tool_name[SOLAR_OS_AGENT_TOOL_NAME_MAX];
     char tool_arguments[SOLAR_OS_AGENT_TOOL_ARGUMENTS_MAX];
     char previous_response_id[SOLAR_OS_AGENT_RESPONSE_ID_MAX];
+    char tool_summary[AGENT_TOOL_SUMMARY_MAX];
+    size_t tool_summary_len;
+    agent_event_capture_t capture;
 } agent_run_turn_state_t;
 
 typedef struct {
@@ -590,6 +603,51 @@ static esp_err_t agent_emit(const solar_os_agent_request_t *request,
     return request->event_handler(&event, request->user_data);
 }
 
+static esp_err_t agent_capture_event(const solar_os_agent_event_t *event,
+                                     void *user_data)
+{
+    agent_event_capture_t *capture = user_data;
+    if (event == NULL || capture == NULL || capture->request == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (event->type == SOLAR_OS_AGENT_EVENT_TEXT_DELTA &&
+        capture->assistant != NULL && event->text[0] != '\0') {
+        const size_t length = strlen(event->text);
+        const size_t remaining =
+            AGENT_ASSISTANT_CAPTURE_MAX - capture->assistant_len;
+        const size_t copy = length < remaining ? length : remaining;
+        memcpy(capture->assistant + capture->assistant_len, event->text, copy);
+        capture->assistant_len += copy;
+        capture->assistant[capture->assistant_len] = '\0';
+        capture->assistant_truncated = copy < length;
+    }
+    return capture->request->event_handler(event,
+                                            capture->request->user_data);
+}
+
+static void agent_append_tool_summary(agent_run_turn_state_t *run,
+                                      const char *tool_name,
+                                      bool allowed)
+{
+    if (run == NULL || tool_name == NULL ||
+        run->tool_summary_len >= sizeof(run->tool_summary) - 1U) {
+        return;
+    }
+    const int written = snprintf(
+        run->tool_summary + run->tool_summary_len,
+        sizeof(run->tool_summary) - run->tool_summary_len,
+        "%s%s: %s",
+        run->tool_summary_len == 0 ? "" : "\n",
+        tool_name,
+        allowed ? "complete" : "denied");
+    if (written > 0) {
+        const size_t available =
+            sizeof(run->tool_summary) - run->tool_summary_len;
+        run->tool_summary_len +=
+            (size_t)written < available ? (size_t)written : available - 1U;
+    }
+}
+
 static bool agent_tool_info_by_name(const char *name,
                                     solar_os_agent_tool_info_t *info)
 {
@@ -768,12 +826,6 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                                      tool_policy,
                                      tool_descriptors,
                                      SOLAR_OS_AGENT_TOOL_ACTIVE_MAX);
-    solar_os_agent_provider_turn_t turn = {
-        .prompt = request->prompt,
-        .previous_response_id = request->conversation_id,
-        .tools = tool_descriptors,
-        .tool_count = tool_count,
-    };
     agent_run_turn_state_t *run = solar_os_memory_calloc(
         1,
         sizeof(*run),
@@ -784,7 +836,12 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                                SOLAR_OS_AGENT_TOOL_RESULT_MAX,
                                SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
                                "agent.tool-result");
-    if (run == NULL || tool_result == NULL) {
+    char *assistant = solar_os_memory_calloc(
+        1,
+        AGENT_ASSISTANT_CAPTURE_MAX + 1U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "agent.assistant-capture");
+    if (run == NULL || tool_result == NULL || assistant == NULL) {
         err = ESP_ERR_NO_MEM;
         agent_finish_request(err, NULL);
         (void)agent_emit(request,
@@ -793,10 +850,52 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          NULL,
                          false);
         solar_os_memory_free(tool_result);
+        solar_os_memory_free(assistant);
         solar_os_memory_free(run);
         memset(config.api_key, 0, sizeof(config.api_key));
         return err;
     }
+
+    run->capture = (agent_event_capture_t){
+        .request = request,
+        .assistant = assistant,
+    };
+    solar_os_agent_history_t history = {0};
+    const solar_os_agent_provider_resume_mode_t resume_mode =
+        solar_os_agent_openai_provider.resume_mode != NULL ?
+            solar_os_agent_openai_provider.resume_mode(&config) :
+            SOLAR_OS_AGENT_PROVIDER_RESUME_LOCAL_HISTORY;
+    if (request->conversation_id != NULL &&
+        request->conversation_id[0] != '\0') {
+        err = solar_os_agent_conversation_load_history(
+            request->conversation_id,
+            resume_mode == SOLAR_OS_AGENT_PROVIDER_RESUME_LOCAL_HISTORY,
+            &history);
+        if (err != ESP_OK) {
+            agent_finish_request(err, NULL);
+            (void)agent_emit(request,
+                             SOLAR_OS_AGENT_EVENT_DONE,
+                             esp_err_to_name(err),
+                             NULL,
+                             false);
+            solar_os_memory_free(assistant);
+            solar_os_memory_free(tool_result);
+            solar_os_memory_free(run);
+            memset(config.api_key, 0, sizeof(config.api_key));
+            return err;
+        }
+    }
+    solar_os_agent_provider_turn_t turn = {
+        .prompt = request->prompt,
+        .history = history.messages,
+        .history_count = history.message_count,
+        .previous_response_id =
+            resume_mode == SOLAR_OS_AGENT_PROVIDER_RESUME_REMOTE_ID &&
+                    history.provider_response_id[0] != '\0' ?
+                history.provider_response_id : NULL,
+        .tools = tool_descriptors,
+        .tool_count = tool_count,
+    };
 
     for (uint32_t turn_index = 0;
          turn_index <= (uint32_t)max_tools;
@@ -805,8 +904,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         run->provider_result.http_status = -1;
         err = solar_os_agent_openai_provider.run_turn(&config,
                                                        &turn,
-                                                       request->event_handler,
-                                                       request->user_data,
+                                                       agent_capture_event,
+                                                       &run->capture,
                                                        &run->provider_result);
         portENTER_CRITICAL(&agent_lock);
         agent.last_http_status = run->provider_result.http_status;
@@ -909,6 +1008,9 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          tool_result,
                          run->provider_result.tool_name,
                          allowed);
+        agent_append_tool_summary(run,
+                                  run->provider_result.tool_name,
+                                  allowed);
         strlcpy(run->tool_call_id,
                 run->provider_result.tool_call_id,
                 sizeof(run->tool_call_id));
@@ -938,13 +1040,33 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         err = ESP_ERR_INVALID_STATE;
     }
     if (err == ESP_OK && request->next_conversation_id != NULL &&
-        request->next_conversation_id_len > 0U &&
-        run->provider_result.response_id[0] != '\0') {
-        strlcpy(request->next_conversation_id,
-                run->provider_result.response_id,
-                request->next_conversation_id_len);
+        request->next_conversation_id_len >=
+            SOLAR_OS_AGENT_CONVERSATION_ID_MAX) {
+        const char *saved_assistant =
+            run->capture.assistant_len > 0 ?
+                run->capture.assistant : "[No text response]";
+        err = solar_os_agent_conversation_commit(
+            request->conversation_id,
+            solar_os_agent_openai_provider.name,
+            config.model,
+            request->prompt,
+            saved_assistant,
+            run->tool_summary,
+            run->provider_result.response_id,
+            request->next_conversation_id,
+            request->next_conversation_id_len);
+        if (err != ESP_OK) {
+            (void)agent_emit(request,
+                             SOLAR_OS_AGENT_EVENT_ERROR,
+                             "conversation could not be saved",
+                             NULL,
+                             false);
+        }
     }
     const int last_http_status = run->provider_result.http_status;
+    solar_os_agent_conversation_free_history(&history);
+    memset(assistant, 0, AGENT_ASSISTANT_CAPTURE_MAX + 1U);
+    solar_os_memory_free(assistant);
     memset(tool_result, 0, SOLAR_OS_AGENT_TOOL_RESULT_MAX);
     solar_os_memory_free(tool_result);
     agent_finish_request(err, NULL);

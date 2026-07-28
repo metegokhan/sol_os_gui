@@ -55,11 +55,37 @@ typedef struct {
     solar_os_job_resource_t resources[SOLAR_OS_JOB_RESOURCE_MAX];
 } solar_os_job_status_t;
 
+typedef enum {
+    SOLAR_OS_JOB_START_READY,
+    SOLAR_OS_JOB_START_RUNNING,
+    SOLAR_OS_JOB_START_WAITING_MEMORY,
+    SOLAR_OS_JOB_START_BLOCKED,
+} solar_os_job_start_disposition_t;
+
+typedef enum {
+    SOLAR_OS_JOB_START_REASON_NONE,
+    SOLAR_OS_JOB_START_REASON_ALREADY_RUNNING,
+    SOLAR_OS_JOB_START_REASON_WORKER_STACK_MEMORY,
+    SOLAR_OS_JOB_START_REASON_LIFECYCLE_BUSY,
+    SOLAR_OS_JOB_START_REASON_NOT_STARTABLE,
+} solar_os_job_start_reason_t;
+
+typedef struct {
+    solar_os_job_status_t status;
+    solar_os_job_start_disposition_t disposition;
+    solar_os_job_start_reason_t reason;
+} solar_os_job_inspection_t;
+
 esp_err_t solar_os_jobs_init(void);
 size_t solar_os_jobs_count(void);
 bool solar_os_jobs_get(size_t index, solar_os_job_status_t *status);
 bool solar_os_jobs_get_by_name(const char *name, solar_os_job_status_t *status);
 bool solar_os_jobs_get_by_owner(const char *owner, solar_os_job_status_t *status);
+bool solar_os_jobs_inspect(size_t index,
+                           solar_os_job_inspection_t *inspection);
+bool solar_os_jobs_inspect_by_name(
+    const char *name,
+    solar_os_job_inspection_t *inspection);
 esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int argc, char **argv);
 esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name);
 /* Capture during start; asynchronous completion must present the same generation. */
@@ -80,3 +106,7 @@ esp_err_t solar_os_jobs_claim_port(const char *name,
 const char *solar_os_job_state_name(solar_os_job_state_t state);
 const char *solar_os_job_kind_name(solar_os_job_kind_t kind);
 const char *solar_os_job_resource_type_name(solar_os_job_resource_type_t type);
+const char *solar_os_job_start_disposition_name(
+    solar_os_job_start_disposition_t disposition);
+const char *solar_os_job_start_reason_name(
+    solar_os_job_start_reason_t reason);

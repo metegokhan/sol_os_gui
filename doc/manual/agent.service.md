@@ -51,6 +51,7 @@ Start the foreground chat with:
 
 ```text
 agent
+agent new
 ```
 
 Enter sends a message, Page Up/Down scrolls the terminal transcript, and the
@@ -58,10 +59,26 @@ app-exit key returns to the shell. The prompt uses the configured SolarOS
 username, agent labels are bold, and the protected bottom status bar shows the
 latest input, output, and total token counts without adding usage lines to the
 conversation or scrollback. Narrow displays abbreviate those fields as `I`, `O`,
-and `T`. Responses API chats retain their server-side
-conversation context while that foreground app is open. Exiting and launching
-`agent` again starts a new conversation. Compatible Chat Completions endpoints
-currently provide the same foreground prompt loop without cross-message context.
+and `T`. Completed turns are stored under `.solar/agent/conversations` on the
+preferred persistent filesystem. Use `agent list`, `agent resume SLOT`, and
+`agent delete SLOT` to manage them. New conversations use slots `1` through `3`
+on internal flash or `1` through `8` on SD; once full, the oldest slot is
+replaced atomically. Exiting and launching bare `agent` again
+still starts a new conversation; restoring an old one is always explicit.
+
+Each provider adapter declares its resume mode. Responses resumes from the
+saved provider response ID. Chat Completions rebuilds a bounded request from
+normalized local user and assistant messages. Restoring the visible transcript
+streams checked records from storage rather than placing the entire
+conversation in internal SRAM.
+
+Only completed turns are committed. Each conversation is an independently
+checksummed file replaced through temporary and backup names, so an interrupted
+write cannot damage other conversations. With internal flash selected, the
+store keeps at most three 10 KiB conversations; with SD selected, it keeps at
+most eight 48 KiB conversations. Oldest conversations are evicted
+deterministically. Provider, model, title, timestamps, messages, tool summaries,
+and continuation IDs are stored; the bearer key remains only in NVS.
 
 For a single request, use:
 
@@ -70,7 +87,7 @@ agent ask Describe the current device status.
 ```
 
 The one-request frontend stays open after completion so the response remains
-readable. Use the app-exit key to return to the shell.
+readable. It is not persisted. Use the app-exit key to return to the shell.
 
 On full builds, the same 16 KiB foreground worker can run a Python or Lua
 source string or file through the reusable script-runner contract:
@@ -139,8 +156,15 @@ The package- and policy-gated tools discoverable through `tool_search` are:
   file has acquired the public path. If the volume has no spare allocation
   unit for staging, replacement uses the PSRAM copy and restores the original
   on a write failure.
-- `jobs_list`: every compiled background job with its current state, last
-  error, worker-stack size, and whether that stack uses internal RAM or PSRAM.
+- `jobs_list`: read-only workload inspection using the actual centralized task
+  admission policy. An empty `name` lists jobs; a job name requests one complete
+  record. Results include a point-in-time internal/PSRAM free and largest-block
+  snapshot, the background reserve and task overhead, plus each job's state,
+  generation, `ready`/`running`/`waiting_for_memory`/`blocked` start
+  disposition, machine-readable reason, last error, declared worker-stack
+  placement, owner, and current resource claims. It never starts or stops a
+  job. Resource claims describe the current invocation, and `ready` cannot
+  predict undeclared dynamic buffers or argument-selected resources.
 - `display_list`: registered display targets with their real names, drivers,
   dimensions, readiness, roles, brightness support, and current owners. The
   provider must call this before generating code for an attached display and
@@ -225,6 +249,11 @@ the model.
 - Manual script output: 4095 bytes, allocated in PSRAM.
 - Manual script deadline: 30 seconds.
 - Model output: 16 KiB per provider turn.
+- Provider request body: 32 KiB in PSRAM, including at most 8 KiB of raw local
+  history serialized into a 16 KiB history fragment for Chat Completions.
+- Assistant capture for a completed turn: 16 KiB in PSRAM.
+- Conversation file: 10 KiB on internal flash or 48 KiB on SD; three flash
+  conversations or eight SD conversations are retained.
 - Request deadline: 90 seconds.
 - Per-I/O timeout: 15 seconds.
 
@@ -238,13 +267,16 @@ The agent package requires Wi-Fi and PSRAM but does not require Python or Lua.
 The manual command and model tool are advertised only when the corresponding
 runtime is in the firmware; the agent app supplies the optional adapter callback
 without making either interpreter a package dependency. Larger-file editing,
-persisted conversations, mutating job/network/hardware operations, additional
-providers, remote interfaces, and scheduling are later phases.
+mutating job/network/hardware operations, additional providers, remote
+interfaces, and scheduling are later phases.
 
 ## Quick reference
 
 The native agent uses the configured OpenAI-compatible Responses endpoint,
 applies the selected confirmation policy, and exposes bounded typed tools for
-installed SolarOS features. `agent status` reports provider, policy, requests,
-tool activity, and memory. This page defines the tool contract and resource
-limits; `man agent` is the task-oriented usage guide.
+installed SolarOS features. Completed chat turns are stored locally;
+`agent list`, `agent resume SLOT`, and `agent delete SLOT` manage them. Responses
+uses a provider continuation ID and Chat Completions uses bounded local
+history. `agent status` reports provider, policy, requests, tool activity, and
+memory. This page defines the tool contract and resource limits; `man agent` is
+the task-oriented usage guide.

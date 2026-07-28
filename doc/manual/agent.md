@@ -33,12 +33,44 @@ agent should only inspect the system.
 
 ## Start a conversation
 
-Run `agent`, enter a message, and wait for the response. The bottom bar shows
+Run `agent` or `agent new`, enter a message, and wait for the response. The
+bottom bar shows
 the latest input, output, and total token counts. Tool activity stays in the
 conversation, while usage does not.
 
+Completed turns are saved. Inspect and resume them explicitly:
+
+```text
+agent list
+agent resume SLOT
+agent delete SLOT
+```
+
+Slots are numbered `1` through `3` on internal flash or `1` through `8` on SD.
+When all slots are occupied, a new conversation replaces the oldest one.
+`agent resume` restores the transcript. Responses endpoints continue from the
+saved provider response ID; Chat Completions endpoints receive a bounded local
+message window. Bare `agent` always starts a new conversation.
+
 Use `agent ask PROMPT` for one request. It leaves the answer visible until you
-press `Ctrl+]`.
+press `Ctrl+]`; one-request answers are not added to the conversation store.
+
+## Inspect background workloads
+
+The agent can inspect job admission without starting or stopping anything. For
+example, ask:
+
+```text
+Which background jobs are running, and which stopped jobs could start now?
+Why is email-sync waiting?
+```
+
+The answer is based on the same worker-stack admission policy used by SolarOS.
+It includes current internal and PSRAM headroom, each job's declared stack
+placement, generation, current resource claims, start disposition, and last
+error. A `ready` disposition covers declared worker-stack admission only; a
+job may still need dynamic buffers or an argument-selected resource when it
+actually starts.
 
 ## Troubleshooting
 
@@ -52,9 +84,12 @@ press `Ctrl+]`.
 
 ## Quick reference
 
-Use `agent` for a resumable foreground conversation and `agent ask PROMPT` for
-one request. Configure endpoint, model, key, reasoning, tool policy, and maximum
+Use `agent` or `agent new` for a new durable foreground conversation,
+`agent list` to inspect saved slots, `agent resume SLOT` to restore one, and
+`agent delete SLOT` to remove one. `agent ask PROMPT` makes an unsaved one-shot
+request. Configure endpoint, model, key, reasoning, tool policy, and maximum
 tools with `agent config`. `agent tools` reports the installed typed tools and
-their policy disposition. The default `confirm` policy runs read-only tools and
-requires local approval for sensitive, mutating, or disruptive calls. Ctrl+]
-returns to the shell.
+their policy disposition. `jobs_list` is read-only and reports actual job
+admission and memory state; it does not start or stop jobs. The default
+`confirm` policy runs read-only tools and requires local approval for sensitive,
+mutating, or disruptive calls. Ctrl+] returns to the shell.

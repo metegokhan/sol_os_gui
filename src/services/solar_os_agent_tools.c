@@ -33,6 +33,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_json.h"
 #include "solar_os_memory.h"
+#include "solar_os_task.h"
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 #include "solar_os_sensors.h"
 #endif
@@ -63,9 +64,14 @@
 #define AGENT_TOOL_SEARCH_MATCH_MAX \
     (SOLAR_OS_AGENT_TOOL_ACTIVE_MAX - 3U)
 #define AGENT_TOOL_SEARCH_TOKEN_MAX 31U
+#define AGENT_TOOL_JOB_NAME_MAX 32U
 
 #define AGENT_TOOL_SCHEMA_EMPTY \
     "{\"type\":\"object\",\"properties\":{},\"required\":[]," \
+    "\"additionalProperties\":false}"
+#define AGENT_TOOL_SCHEMA_JOBS_LIST \
+    "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"," \
+    "\"maxLength\":31}},\"required\":[\"name\"]," \
     "\"additionalProperties\":false}"
 #define AGENT_TOOL_SCHEMA_STORAGE_LIST \
     "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"," \
@@ -166,9 +172,28 @@
     "{\"type\":\"string\"},\"new_sha256\":{\"type\":\"string\"}," \
     "\"bytes_written\":{\"type\":\"integer\"}},\"additionalProperties\":false}"
 #define AGENT_TOOL_OUTPUT_JOBS_LIST \
-    "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
-    "\"jobs\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
-    "\"additionalProperties\":false}"
+    "{\"type\":\"object\",\"properties\":{\"memory\":{\"type\":\"object\"," \
+    "\"properties\":{\"internal_free_bytes\":{\"type\":\"integer\"}," \
+    "\"internal_largest_block_bytes\":{\"type\":\"integer\"}," \
+    "\"psram_free_bytes\":{\"type\":\"integer\"}," \
+    "\"psram_largest_block_bytes\":{\"type\":\"integer\"}," \
+    "\"background_internal_reserve_bytes\":{\"type\":\"integer\"}," \
+    "\"task_internal_overhead_bytes\":{\"type\":\"integer\"}," \
+    "\"external_stacks_supported\":{\"type\":\"boolean\"}}," \
+    "\"additionalProperties\":false},\"jobs\":{\"type\":\"array\",\"items\":" \
+    "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}," \
+    "\"kind\":{\"type\":\"string\"},\"state\":{\"type\":\"string\"}," \
+    "\"generation\":{\"type\":\"integer\"},\"start_disposition\":" \
+    "{\"type\":\"string\"},\"start_reason\":{\"type\":\"string\"}," \
+    "\"last_error\":{\"type\":\"string\"},\"worker_stack_bytes\":" \
+    "{\"type\":\"integer\"},\"worker_stack_region\":{\"type\":\"string\"}," \
+    "\"owner\":{\"type\":\"string\"},\"resources_current\":{\"type\":" \
+    "\"boolean\"},\"resources\":{\"type\":\"array\",\"items\":{\"type\":" \
+    "\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":" \
+    "{\"type\":\"string\"},\"detail\":{\"type\":\"string\"}}," \
+    "\"additionalProperties\":false}}},\"additionalProperties\":false}}," \
+    "\"count\":{\"type\":\"integer\"},\"total\":{\"type\":\"integer\"}," \
+    "\"truncated\":{\"type\":\"boolean\"}},\"additionalProperties\":false}"
 #define AGENT_TOOL_OUTPUT_DISPLAY_LIST \
     "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"}," \
     "\"displays\":{\"type\":\"array\",\"items\":{\"type\":\"object\"," \
@@ -601,9 +626,12 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .provider = {
             .name = "jobs_list",
             .description =
-                "List SolarOS background jobs with state, last error, and "
-                "worker-stack memory requirements.",
-            .parameters_json = AGENT_TOOL_SCHEMA_EMPTY,
+                "Inspect SolarOS background workloads with current memory "
+                "headroom, start admission, wait/failure reasons, generation, "
+                "worker-stack requirements, and current resource claims. Pass "
+                "an empty name to list jobs or a job name for one complete "
+                "record.",
+            .parameters_json = AGENT_TOOL_SCHEMA_JOBS_LIST,
             .strict = true,
         },
         .domain = "jobs",
@@ -1089,6 +1117,24 @@ static bool agent_tool_output_append_json_byte(agent_tool_output_t *output,
     output->length += length;
     output->buffer[output->length] = '\0';
     return true;
+}
+
+static esp_err_t agent_tool_output_append_json_string(
+    agent_tool_output_t *output,
+    const char *text)
+{
+    esp_err_t err = agent_tool_output_append(output, "\"");
+    if (err != ESP_OK) {
+        return err;
+    }
+    const uint8_t *cursor =
+        (const uint8_t *)(text != NULL ? text : "");
+    while (*cursor != '\0') {
+        if (!agent_tool_output_append_json_byte(output, *cursor++, 1U)) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+    }
+    return agent_tool_output_append(output, "\"");
 }
 
 static bool agent_tool_path_has_segment(const char *path,
@@ -2333,6 +2379,79 @@ cleanup_patch:
     return err;
 }
 
+static esp_err_t agent_tool_append_job(
+    agent_tool_output_t *output,
+    const solar_os_job_inspection_t *inspection,
+    bool first)
+{
+    if (output == NULL || inspection == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t start = output->length;
+    const solar_os_job_status_t *status = &inspection->status;
+    esp_err_t err = agent_tool_output_append(output,
+                                             "%s{\"name\":",
+                                             first ? "" : ",");
+    if (err == ESP_OK) {
+        err = agent_tool_output_append_json_string(output, status->name);
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(
+            output,
+            ",\"kind\":\"%s\",\"state\":\"%s\",\"generation\":%" PRIu32
+            ",\"start_disposition\":\"%s\",\"start_reason\":\"%s\","
+            "\"last_error\":\"%s\",\"worker_stack_bytes\":%" PRIu32
+            ",\"worker_stack_region\":\"%s\",\"owner\":",
+            solar_os_job_kind_name(status->kind),
+            solar_os_job_state_name(status->state),
+            status->generation,
+            solar_os_job_start_disposition_name(inspection->disposition),
+            solar_os_job_start_reason_name(inspection->reason),
+            esp_err_to_name(status->last_error),
+            status->worker_stack_bytes,
+            status->worker_stack_bytes == 0 ? "none" :
+                (status->worker_stack_external ? "psram" : "internal"));
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append_json_string(output, status->owner);
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(output,
+                                       ",\"resources_current\":true,"
+                                       "\"resources\":[");
+    }
+    for (size_t i = 0; err == ESP_OK && i < status->resource_count; i++) {
+        const solar_os_job_resource_t *resource = &status->resources[i];
+        err = agent_tool_output_append(
+            output,
+            "%s{\"type\":\"%s\",\"name\":",
+            i == 0 ? "" : ",",
+            solar_os_job_resource_type_name(resource->type));
+        if (err == ESP_OK) {
+            err = agent_tool_output_append_json_string(output,
+                                                       resource->name);
+        }
+        if (err == ESP_OK) {
+            err = agent_tool_output_append(output, ",\"detail\":");
+        }
+        if (err == ESP_OK) {
+            err = agent_tool_output_append_json_string(output,
+                                                       resource->detail);
+        }
+        if (err == ESP_OK) {
+            err = agent_tool_output_append(output, "}");
+        }
+    }
+    if (err == ESP_OK) {
+        err = agent_tool_output_append(output, "]}");
+    }
+    if (err != ESP_OK) {
+        output->length = start;
+        output->buffer[start] = '\0';
+    }
+    return err;
+}
+
 static esp_err_t agent_tool_jobs_list(const char *arguments,
                                       const solar_os_agent_request_t *request,
                                       char *result,
@@ -2342,53 +2461,88 @@ static esp_err_t agent_tool_jobs_list(const char *arguments,
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    char filter[AGENT_TOOL_JOB_NAME_MAX] = {0};
+    if (err == ESP_OK) {
+        const solar_os_json_value_t *name =
+            solar_os_json_object_get(root, "name");
+        if (name != NULL) {
+            err = solar_os_json_get_string(name,
+                                           filter,
+                                           sizeof(filter));
+        }
+    }
+    solar_os_json_free(doc);
     if (err != ESP_OK) {
         return err;
     }
-    (void)root;
-    solar_os_json_free(doc);
 
-    const size_t total = solar_os_jobs_count();
+    solar_os_task_admission_status_t memory;
+    solar_os_task_get_admission_status(&memory);
     agent_tool_output_t output = {
         .buffer = result,
-        .capacity = result_len,
+        .capacity = result_len > 96U ? result_len - 96U : 0U,
     };
-    err = agent_tool_output_append(&output,
-                                   "{\"count\":%u,\"jobs\":[",
-                                   (unsigned)total);
-    bool first = true;
+    err = agent_tool_output_append(
+        &output,
+        "{\"memory\":{\"internal_free_bytes\":%" PRIu32
+        ",\"internal_largest_block_bytes\":%" PRIu32
+        ",\"psram_free_bytes\":%" PRIu32
+        ",\"psram_largest_block_bytes\":%" PRIu32
+        ",\"background_internal_reserve_bytes\":%" PRIu32
+        ",\"task_internal_overhead_bytes\":%" PRIu32
+        ",\"external_stacks_supported\":%s},\"jobs\":[",
+        memory.internal_free_bytes,
+        memory.internal_largest_block_bytes,
+        memory.external_free_bytes,
+        memory.external_largest_block_bytes,
+        memory.background_internal_reserve_bytes,
+        memory.task_internal_overhead_bytes,
+        memory.external_stacks_supported ? "true" : "false");
+
+    size_t total = 0;
+    size_t returned = 0;
     bool truncated = false;
-    for (size_t i = 0; err == ESP_OK && i < total; i++) {
-        solar_os_job_status_t status;
-        if (!solar_os_jobs_get(i, &status)) {
-            continue;
+    if (err == ESP_OK && filter[0] != '\0') {
+        solar_os_job_inspection_t inspection;
+        if (solar_os_jobs_inspect_by_name(filter, &inspection)) {
+            total = 1;
+            err = agent_tool_append_job(&output, &inspection, true);
+            if (err == ESP_OK) {
+                returned = 1;
+            } else if (err == ESP_ERR_INVALID_SIZE) {
+                truncated = true;
+                err = ESP_OK;
+            }
         }
-        char item[AGENT_TOOL_JSON_SCRATCH_MAX];
-        const int written = snprintf(
-            item,
-            sizeof(item),
-            "%s{\"name\":\"%s\",\"state\":\"%s\",\"last_error\":\"%s\","
-            "\"memory_bytes\":%" PRIu32 ",\"memory_region\":\"%s\"}",
-            first ? "" : ",",
-            status.name,
-            solar_os_job_state_name(status.state),
-            esp_err_to_name(status.last_error),
-            status.worker_stack_bytes,
-            status.worker_stack_external ? "psram" : "internal");
-        const size_t tail_reserve = sizeof("],\"truncated\":true}");
-        if (written < 0 ||
-            (size_t)written >= sizeof(item) ||
-            output.length + (size_t)written + tail_reserve >= output.capacity) {
-            truncated = true;
-            break;
+    } else if (err == ESP_OK) {
+        total = solar_os_jobs_count();
+        for (size_t i = 0; i < total; i++) {
+            solar_os_job_inspection_t inspection;
+            if (!solar_os_jobs_inspect(i, &inspection)) {
+                continue;
+            }
+            err = agent_tool_append_job(&output,
+                                        &inspection,
+                                        returned == 0);
+            if (err == ESP_ERR_INVALID_SIZE) {
+                truncated = true;
+                err = ESP_OK;
+                break;
+            }
+            if (err != ESP_OK) {
+                break;
+            }
+            returned++;
         }
-        err = agent_tool_output_append(&output, "%s", item);
-        first = false;
     }
     if (err == ESP_OK) {
-        err = agent_tool_output_append(&output,
-                                       "],\"truncated\":%s}",
-                                       truncated ? "true" : "false");
+        output.capacity = result_len;
+        err = agent_tool_output_append(
+            &output,
+            "],\"count\":%u,\"total\":%u,\"truncated\":%s}",
+            (unsigned)returned,
+            (unsigned)total,
+            truncated ? "true" : "false");
     }
     return err;
 }

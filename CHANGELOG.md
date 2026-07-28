@@ -4,6 +4,14 @@
 
 ## 4.x
 
+- **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
+  in three flash or eight SD slots, with atomic checked records and explicit
+  new/list/resume/delete operations,
+  restored TUI transcripts, Responses continuation IDs, and bounded local
+  history for Chat Completions. Added read-only native-agent workload
+  inspection with centralized admission results, memory headroom, generations,
+  failure reasons, and current resource claims. (`8de1c54`, `0374c24`,
+  `8e3bdca`)
 - **4.3.12** — 2026-07-28 — Raised the native agent's default tool budget to
   16 and configurable maximum to 32 calls, made the reserved final provider
   turn tool-free, and added per-request budget usage to `agent status`.

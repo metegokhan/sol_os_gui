@@ -12,7 +12,9 @@
 #define SOLAR_OS_AGENT_API_KEY_MAX 192
 #define SOLAR_OS_AGENT_REASONING_EFFORT_MAX 12
 #define SOLAR_OS_AGENT_PROMPT_MAX 1024
-#define SOLAR_OS_AGENT_CONVERSATION_ID_MAX 96
+#define SOLAR_OS_AGENT_CONVERSATION_ID_MAX 24
+#define SOLAR_OS_AGENT_CONVERSATION_TITLE_MAX 64
+#define SOLAR_OS_AGENT_CONVERSATION_LIST_MAX 8
 #define SOLAR_OS_AGENT_EVENT_TEXT_MAX 192
 #define SOLAR_OS_AGENT_TOOL_NAME_MAX 48
 #define SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS 16U
@@ -75,6 +77,7 @@ typedef esp_err_t (*solar_os_agent_script_run_fn)(
 
 typedef struct {
     const char *prompt;
+    /* SolarOS-local durable conversation ID, not a provider response ID. */
     const char *conversation_id;
     char *next_conversation_id;
     size_t next_conversation_id_len;
@@ -84,6 +87,29 @@ typedef struct {
     uint32_t script_languages;
     void *user_data;
 } solar_os_agent_request_t;
+
+typedef enum {
+    SOLAR_OS_AGENT_MESSAGE_USER = 0,
+    SOLAR_OS_AGENT_MESSAGE_ASSISTANT,
+    SOLAR_OS_AGENT_MESSAGE_TOOL,
+} solar_os_agent_message_role_t;
+
+typedef struct {
+    char id[SOLAR_OS_AGENT_CONVERSATION_ID_MAX];
+    char title[SOLAR_OS_AGENT_CONVERSATION_TITLE_MAX];
+    char provider[24];
+    char model[SOLAR_OS_AGENT_MODEL_MAX];
+    uint64_t created_at;
+    uint64_t updated_at;
+    uint16_t turn_count;
+    uint32_t stored_bytes;
+} solar_os_agent_conversation_info_t;
+
+typedef esp_err_t (*solar_os_agent_message_visit_fn)(
+    solar_os_agent_message_role_t role,
+    const char *text,
+    size_t text_len,
+    void *user_data);
 
 typedef struct {
     bool initialized;
@@ -130,6 +156,18 @@ const char *solar_os_agent_tool_policy_name(
     solar_os_agent_tool_policy_t policy);
 esp_err_t solar_os_agent_forget(void);
 esp_err_t solar_os_agent_get_status(solar_os_agent_status_t *status);
+esp_err_t solar_os_agent_conversations_list(
+    solar_os_agent_conversation_info_t *items,
+    size_t capacity,
+    size_t *count);
+esp_err_t solar_os_agent_conversation_get(
+    const char *id,
+    solar_os_agent_conversation_info_t *info);
+esp_err_t solar_os_agent_conversation_visit(
+    const char *id,
+    solar_os_agent_message_visit_fn visitor,
+    void *user_data);
+esp_err_t solar_os_agent_conversation_delete(const char *id);
 
 /* Blocking; callers should use a foreground worker task. */
 esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request);

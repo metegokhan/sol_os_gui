@@ -43,6 +43,16 @@ typedef struct {
     bool launch_locked;
 } solar_os_task_managed_admission_t;
 
+typedef struct {
+    uint32_t internal_free_bytes;
+    uint32_t internal_largest_block_bytes;
+    uint32_t external_free_bytes;
+    uint32_t external_largest_block_bytes;
+    uint32_t background_internal_reserve_bytes;
+    uint32_t task_internal_overhead_bytes;
+    bool external_stacks_supported;
+} solar_os_task_admission_status_t;
+
 BaseType_t solar_os_task_create_pinned(TaskFunction_t task,
                                         const char *name,
                                         uint32_t stack_depth,
@@ -96,6 +106,8 @@ bool solar_os_task_wait_done(TaskHandle_t task,
                              uint32_t timeout_ms);
 
 void solar_os_task_get_status(solar_os_task_status_t *status);
+void solar_os_task_get_admission_status(
+    solar_os_task_admission_status_t *status);
 const char *solar_os_task_role_name(solar_os_task_role_t role);
 bool solar_os_task_can_create(uint32_t stack_depth,
                               solar_os_task_role_t role,

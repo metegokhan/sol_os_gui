@@ -23,8 +23,10 @@ job status log
 ```
 
 The status includes the worker stack size and whether it uses internal RAM or
-PSRAM. It also shows claimed resources and the last error. Check `mem` before
-starting several internal-stack jobs together.
+PSRAM. Detailed status also shows the current start-admission disposition and
+reason using the same centralized policy that launches jobs. It shows claimed
+resources and the last error. Check `mem` before starting several
+internal-stack jobs together.
 
 ## Waiting and failed
 
@@ -50,5 +52,7 @@ replaces the previous invocation.
 solaros.jobs provides list(), count(), status(name), start(name,
 optional_args), and stop(name). Status includes state, last_error,
 worker_stack_bytes, worker_stack_external, tick timing, and deadline telemetry.
+The shell's detailed status adds the current start-admission disposition and
+reason.
 Waiting means launch admission has not yet succeeded; failed records a terminal
 launch or runtime error.

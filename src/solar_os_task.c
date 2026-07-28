@@ -183,6 +183,32 @@ bool solar_os_task_can_create(uint32_t stack_depth,
 #endif
 }
 
+void solar_os_task_get_admission_status(
+    solar_os_task_admission_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    const uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    const uint32_t external_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    *status = (solar_os_task_admission_status_t){
+        .internal_free_bytes =
+            (uint32_t)heap_caps_get_free_size(internal_caps),
+        .internal_largest_block_bytes =
+            (uint32_t)heap_caps_get_largest_free_block(internal_caps),
+        .external_free_bytes =
+            (uint32_t)heap_caps_get_free_size(external_caps),
+        .external_largest_block_bytes =
+            (uint32_t)heap_caps_get_largest_free_block(external_caps),
+        .background_internal_reserve_bytes =
+            SOLAR_OS_INTERNAL_LAUNCH_RESERVE_BYTES,
+        .task_internal_overhead_bytes =
+            SOLAR_OS_TASK_INTERNAL_OVERHEAD_BYTES,
+        .external_stacks_supported =
+            SOLAR_OS_FREERTOS_EXTERNAL_MEMORY != 0,
+    };
+}
+
 static void task_log_create_failure(const char *name,
                                     uint32_t stack_depth,
                                     solar_os_task_role_t role,
