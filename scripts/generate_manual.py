@@ -17,6 +17,7 @@ QUICK_REFERENCE_HEADING = "quick reference"
 SECTION_INFO = {
     "concept": (10, "Getting started"),
     "shell": (20, "Shell and storage"),
+    "command": (25, "Commands"),
     "app": (30, "Applications"),
     "job": (40, "Background jobs"),
     "network": (50, "Networking and security"),
@@ -25,6 +26,10 @@ SECTION_INFO = {
     "service": (80, "System services"),
     "build": (90, "Boards and firmware"),
 }
+
+
+def topic_slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
 
 
 def package_macro(package: str) -> str:
@@ -97,6 +102,254 @@ def strip_inline_markdown(text: str) -> str:
     text = text.replace("**", "").replace("__", "")
     text = text.replace("*", "")
     return text.strip()
+
+
+def first_paragraph(markdown: str) -> str:
+    paragraph: list[str] = []
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if paragraph:
+                break
+            continue
+        if stripped.startswith(("#", "```", "|", "-", "*", ">")):
+            if paragraph:
+                break
+            continue
+        paragraph.append(strip_inline_markdown(stripped))
+    return " ".join(paragraph).strip()
+
+
+def markdown_section(markdown: str, heading: str) -> str | None:
+    lines = markdown.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        parsed = heading_text(line)
+        if parsed == (2, heading):
+            start = index + 1
+            break
+    if start is None:
+        return None
+    end = len(lines)
+    for index in range(start, len(lines)):
+        parsed = heading_text(lines[index])
+        if parsed is not None and parsed[0] <= 2:
+            end = index
+            break
+    return "\n".join(lines[start:end]).strip()
+
+
+def toml_array(values: list[str]) -> str:
+    return "[" + ", ".join(json.dumps(value) for value in values) + "]"
+
+
+def release_markdown(page: dict[str, object]) -> str:
+    lines = [
+        FRONT_MATTER_DELIMITER,
+        f"id = {json.dumps(str(page['id']))}",
+        f"title = {json.dumps(str(page['title']))}",
+        f"section = {json.dumps(str(page['section']))}",
+        f"summary = {json.dumps(str(page['summary']))}",
+        f"aliases = {toml_array(list(page['aliases']))}",
+        f"keywords = {json.dumps(str(page['keywords']))}",
+        f"packages_any = {toml_array(list(page['packages_any']))}",
+        FRONT_MATTER_DELIMITER,
+        str(page["markdown"]).rstrip(),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def derived_page(
+    *,
+    page_id: str,
+    title: str,
+    section: str,
+    summary: str,
+    alias: str,
+    keywords: str,
+    packages_any: list[str],
+    markdown: str,
+    contract: str,
+    source_path: Path,
+    source_href: str,
+) -> dict[str, object]:
+    return {
+        "id": page_id,
+        "title": title,
+        "section": section,
+        "section_title": SECTION_INFO[section][1],
+        "summary": summary,
+        "aliases": [alias],
+        "keywords": keywords,
+        "packages_any": packages_any,
+        "path": source_path,
+        "github_href": source_href,
+        "markdown": markdown.rstrip() + "\n",
+        "body": markdown_to_terminal_text(markdown),
+        "contract": contract.strip(),
+        "derived": True,
+    }
+
+
+def derive_application_pages(
+    source: Path,
+    pages: list[dict[str, object]],
+    known_packages: set[str],
+) -> list[dict[str, object]]:
+    path = source / "apps.md"
+    page = next(item for item in pages if item["id"] == "apps")
+    markdown = str(page["markdown"])
+    derived: list[dict[str, object]] = []
+    for match in re.finditer(r"^## ([a-z0-9-]+)\s*$", markdown, re.MULTILINE):
+        name = match.group(1)
+        content = markdown_section(markdown, name)
+        if content is None:
+            continue
+        package = "app_" + name.replace("-", "_")
+        if name == "help":
+            package = "app_docs"
+        packages_any = [package] if package in known_packages else []
+        summary = first_paragraph(content) or f"Use the {name} application"
+        body = f"# {name}\n\n{content}\n"
+        derived.append(
+            derived_page(
+                page_id=f"app.{name}",
+                title=f"{name} application",
+                section="app",
+                summary=summary,
+                alias=name,
+                keywords=f"{name} app application usage controls examples",
+                packages_any=packages_any,
+                markdown=body,
+                contract=content,
+                source_path=path,
+                source_href=f"apps.md#{topic_slug(name)}",
+            )
+        )
+    return derived
+
+
+def derive_job_pages(
+    source: Path,
+    pages: list[dict[str, object]],
+    known_packages: set[str],
+) -> list[dict[str, object]]:
+    path = source / "jobs.reference.md"
+    page = next(item for item in pages if item["id"] == "jobs.reference")
+    markdown = str(page["markdown"])
+    derived: list[dict[str, object]] = []
+    for match in re.finditer(r"^## ([a-z0-9-]+)\s*$", markdown, re.MULTILINE):
+        name = match.group(1)
+        content = markdown_section(markdown, name)
+        if content is None:
+            continue
+        package = "job_" + name.replace("-", "_")
+        packages_any = [package] if package in known_packages else []
+        summary = first_paragraph(content) or f"Run the {name} background job"
+        body = f"# {name}\n\n{content}\n"
+        derived.append(
+            derived_page(
+                page_id=f"job.{name}",
+                title=f"{name} job",
+                section="job",
+                summary=summary,
+                alias=name,
+                keywords=f"{name} job background start stop status examples",
+                packages_any=packages_any,
+                markdown=body,
+                contract=content,
+                source_path=path,
+                source_href=f"jobs.reference.md#{topic_slug(name)}",
+            )
+        )
+    return derived
+
+
+def split_table_row(line: str) -> list[str]:
+    source = line.strip()
+    if source.startswith("|"):
+        source = source[1:]
+    if source.endswith("|"):
+        source = source[:-1]
+    cells: list[str] = []
+    cell: list[str] = []
+    inline_code = False
+    escaped = False
+    for char in source:
+        if escaped:
+            cell.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            cell.append(char)
+            escaped = True
+            continue
+        if char == "`":
+            inline_code = not inline_code
+            cell.append(char)
+            continue
+        if char == "|" and not inline_code:
+            cells.append("".join(cell).strip())
+            cell.clear()
+            continue
+        cell.append(char)
+    cells.append("".join(cell).strip())
+    return cells
+
+
+def derive_command_pages(
+    source: Path,
+    pages: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    path = source / "commands.md"
+    page = next(item for item in pages if item["id"] == "commands")
+    lines = str(page["markdown"]).splitlines()
+    commands: dict[str, list[tuple[str, str]]] = {}
+    index = 0
+    while index + 2 < len(lines):
+        header = split_table_row(lines[index]) if lines[index].startswith("|") else []
+        if header != ["Command", "Usage", "Description"]:
+            index += 1
+            continue
+        index += 2
+        while index < len(lines) and lines[index].startswith("|"):
+            cells = split_table_row(lines[index])
+            if len(cells) == 3:
+                command = strip_inline_markdown(cells[0]).split()[0]
+                usage = cells[1]
+                description = cells[2]
+                commands.setdefault(command, []).append((usage, description))
+            index += 1
+
+    derived: list[dict[str, object]] = []
+    for name, rows in commands.items():
+        summary = strip_inline_markdown(rows[0][1])
+        table = [
+            "| Usage | Description |",
+            "| --- | --- |",
+            *[f"| {usage} | {description} |" for usage, description in rows],
+        ]
+        body = (
+            f"# {name}\n\n{summary}\n\n"
+            "## Usage\n\n" + "\n".join(table) + "\n"
+        )
+        derived.append(
+            derived_page(
+                page_id=f"command.{name}",
+                title=f"{name} command",
+                section="command",
+                summary=summary,
+                alias=name,
+                keywords=f"{name} command shell syntax usage examples",
+                packages_any=[],
+                markdown=body,
+                contract="\n".join(table),
+                source_path=path,
+                source_href="commands.md",
+            )
+        )
+    return derived
 
 
 def markdown_to_terminal_text(markdown: str) -> str:
@@ -217,25 +470,42 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
             raise ValueError(f"{page_id}: unknown packages: {', '.join(unknown)}")
         page["packages_any"] = packages_any
         page["path"] = path
+        page["github_href"] = path.name
         page["markdown"] = markdown
         page["body"] = markdown_to_terminal_text(markdown)
         page["contract"] = extract_quick_reference(markdown, path)
+        page["release_markdown"] = path.read_text(encoding="utf-8")
+        page["derived"] = False
         pages.append(page)
 
     if not pages:
         raise ValueError("manual source must contain at least one Markdown page")
 
+    pages.extend(derive_command_pages(source, pages))
+    pages.extend(derive_application_pages(source, pages, known_packages))
+    pages.extend(derive_job_pages(source, pages, known_packages))
+
     seen_names: dict[str, str] = {}
     for page in pages:
         page_id = str(page["id"])
-        for name in [page_id, *page["aliases"]]:
+        names = [page_id, *page["aliases"]]
+        for index, name in enumerate(names):
             folded = str(name).casefold()
             owner = seen_names.get(folded)
             if owner is not None:
+                if index > 0 and bool(page["derived"]):
+                    page["aliases"] = [
+                        alias
+                        for alias in page["aliases"]
+                        if str(alias).casefold() != folded
+                    ]
+                    continue
                 raise ValueError(
                     f"manual topic name {name} is shared by {owner} and {page_id}"
                 )
             seen_names[folded] = page_id
+        if bool(page["derived"]):
+            page["release_markdown"] = release_markdown(page)
     return sorted(
         pages,
         key=lambda page: (
@@ -296,16 +566,13 @@ def render_header(pages: list[dict[str, object]], source: Path) -> str:
     return "\n".join(lines)
 
 
-def render_catalog(
-    pages: list[dict[str, object]], source: Path, version: str
-) -> str:
+def render_catalog(pages: list[dict[str, object]], version: str) -> str:
     catalog_pages: list[dict[str, object]] = []
     revision_hash = hashlib.sha256()
     for page in pages:
-        path = Path(page["path"])
-        markdown = path.read_bytes()
+        markdown = str(page["release_markdown"]).encode("utf-8")
         digest = hashlib.sha256(markdown).hexdigest()
-        relative = path.relative_to(source.parent).as_posix()
+        relative = f"manual/{page['id']}.md"
         revision_hash.update(relative.encode("utf-8"))
         revision_hash.update(b"\0")
         revision_hash.update(digest.encode("ascii"))
@@ -341,7 +608,7 @@ def render_github_index(pages: list[dict[str, object]]) -> str:
         "# SolarOS User Manual",
         "",
         "This is the canonical documentation used by GitHub, the generated "
-        "solar-os.eu website, the signed on-device `docs` browser, `man`, "
+        "solar-os.eu website, the signed on-device `help` browser, `man`, "
         "and the native agent reference tool.",
         "",
     ]
@@ -353,9 +620,8 @@ def render_github_index(pages: list[dict[str, object]]) -> str:
                 lines.append("")
             lines.extend((f"## {page['section_title']}", ""))
             current_section = section
-        path = Path(page["path"])
         lines.append(
-            f"- [{page['title']}]({path.name}) — {page['summary']}"
+            f"- [{page['title']}]({page['github_href']}) — {page['summary']}"
         )
     lines.extend(
         (
@@ -369,6 +635,22 @@ def render_github_index(pages: list[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
+def write_release_pages(
+    pages: list[dict[str, object]], output_dir: Path
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    expected: set[Path] = set()
+    for page in pages:
+        path = output_dir / f"{page['id']}.md"
+        expected.add(path)
+        content = str(page["release_markdown"])
+        if not path.exists() or path.read_text(encoding="utf-8") != content:
+            path.write_text(content, encoding="utf-8")
+    for path in output_dir.glob("*.md"):
+        if path not in expected:
+            path.unlink()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
@@ -376,16 +658,18 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--catalog-output", type=Path)
     parser.add_argument("--github-index-output", type=Path)
+    parser.add_argument("--release-output-dir", type=Path)
     parser.add_argument("--version")
     args = parser.parse_args()
     if (
         args.output is None
         and args.catalog_output is None
         and args.github_index_output is None
+        and args.release_output_dir is None
     ):
         parser.error(
             "at least one of --output, --catalog-output, or "
-            "--github-index-output is required"
+            "--github-index-output, or --release-output-dir is required"
         )
     if args.catalog_output is not None and not args.version:
         parser.error("--version is required with --catalog-output")
@@ -397,7 +681,7 @@ def main() -> int:
         if not args.output.exists() or args.output.read_text() != output:
             args.output.write_text(output)
     if args.catalog_output is not None:
-        catalog = render_catalog(pages, args.input, args.version)
+        catalog = render_catalog(pages, args.version)
         args.catalog_output.parent.mkdir(parents=True, exist_ok=True)
         if (
             not args.catalog_output.exists()
@@ -412,6 +696,8 @@ def main() -> int:
             or args.github_index_output.read_text() != index
         ):
             args.github_index_output.write_text(index)
+    if args.release_output_dir is not None:
+        write_release_pages(pages, args.release_output_dir)
     return 0
 
 

@@ -7,7 +7,7 @@ section. `doc/manual/README.md` is a generated GitHub index over the same topic
 metadata.
 
 The build generator reads those pages and creates a package-gated C registry.
-`man` and text-shell `docs` display a terminal-normalized form, graphic display
+`man` and text-shell `help` display a terminal-normalized form, graphic display
 shells open the Markdown in `reader`, and the agent's `solaros_reference` tool
 returns the compact `Quick reference` section. The website generator renders
 the same files as HTML. Topic IDs, groups, aliases, summaries, keywords, and
@@ -47,7 +47,7 @@ The deployment pipeline copies the Markdown tree to
 catalog bytes as `doc/catalog.sig` with the OTA release key. Each catalog entry
 contains the page path, byte count, SHA-256, metadata, and Quick reference.
 
-On a Wi-Fi, PSRAM, and SD capable build, `docs update` resolves the configured
+On a Wi-Fi, PSRAM, and SD capable build, `help update` resolves the configured
 OTA URL to the exact running firmware version. The device verifies the catalog
 signature, rejects version mismatches, downloads every page into an immutable
 revision directory, and checks its signed size and SHA-256 before changing the
@@ -63,10 +63,10 @@ the embedded copy.
 Use:
 
 ```text
-docs status
-docs update
-docs reset
+help status
+help update
+help reset
 ```
 
-`docs reset` removes the active pointer and immediately restores the embedded
+`help reset` removes the active pointer and immediately restores the embedded
 manual. Cached immutable revision directories may remain on SD.

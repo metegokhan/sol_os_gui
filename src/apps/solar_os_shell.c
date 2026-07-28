@@ -145,7 +145,7 @@ struct solar_os_shell_session {
 static EXT_RAM_BSS_ATTR solar_os_shell_session_t shell_display_session;
 static bool shell_startup_attempted;
 
-static void cmd_help(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_watch(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv);
@@ -160,11 +160,9 @@ static bool shell_execute_line(solar_os_context_t *ctx,
                                size_t line_number);
 
 static const shell_command_t shell_builtin_commands[] = {
-    {"help", "show commands", cmd_help},
+    {"help", "browse or refresh the SolarOS manual", solar_os_shell_cmd_help},
+    {"commands", "list shell commands", cmd_commands},
     {"man", "search the SolarOS manual", solar_os_shell_cmd_man},
-#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
-    {"docs", "browse or refresh the SolarOS manual", solar_os_shell_cmd_docs},
-#endif
     {"apps", "list applications", solar_os_shell_cmd_apps},
     {"jobs", "list background jobs", solar_os_shell_cmd_jobs},
     {"job", "control background jobs", solar_os_shell_cmd_job},
@@ -842,10 +840,8 @@ static const char * const path_watch[] = {"watch"};
 static const char * const path_watch_n_interval[] = {"watch", "-n", SHELL_COMPLETION_ANY};
 static const char * const path_man[] = {"man"};
 static const char * const man_options[] = {"--list", "--apropos", "-k"};
-#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
-static const char * const path_docs[] = {"docs"};
-static const char * const docs_subcommands[] = {"status", "update", "reset"};
-#endif
+static const char * const path_help[] = {"help"};
+static const char * const help_subcommands[] = {"status", "update", "reset"};
 static const char * const path_setterm[] = {"setterm"};
 static const char * const path_setterm_orientation[] = {"setterm", "orientation"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
@@ -1425,9 +1421,7 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
 
 static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_MANUAL(path_man, man_options),
-#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
-    SHELL_COMPLETION_MANUAL(path_docs, docs_subcommands),
-#endif
+    SHELL_COMPLETION_MANUAL(path_help, help_subcommands),
     SHELL_COMPLETION_OPTIONS(path_ls, ls_options),
     SHELL_COMPLETION_OPTIONS(path_rm, rm_options),
 #if SOLAR_OS_PACKAGE_APP_COM
@@ -1756,14 +1750,14 @@ static solar_os_shell_io_t *shell_io(solar_os_context_t *ctx)
     return io;
 }
 
-static void cmd_help(solar_os_context_t *ctx, int argc, char **argv)
+static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = shell_io(ctx);
 
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(io, "usage: help");
+        solar_os_shell_io_writeln(io, "usage: commands");
         return;
     }
 

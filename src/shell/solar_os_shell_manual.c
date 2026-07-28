@@ -178,7 +178,6 @@ void solar_os_shell_cmd_man(solar_os_context_t *ctx, int argc, char **argv)
     }
 }
 
-#if SOLAR_OS_PACKAGE_APP_DOCS || SOLAR_OS_PACKAGE_SERVICE_DOCS
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 typedef struct {
     solar_os_shell_io_t *io;
@@ -284,14 +283,14 @@ static void docs_shell_progress_cb(
         if (cols >= 56U) {
             snprintf(prefix,
                      sizeof(prefix),
-                     "docs %02u/%02u %-16.16s ",
+                     "help %02u/%02u %-16.16s ",
                      (unsigned)progress->page_index,
                      (unsigned)progress->page_count,
                      progress->topic);
         } else if (cols >= 32U) {
             snprintf(prefix,
                      sizeof(prefix),
-                     "docs %02u/%02u ",
+                     "help %02u/%02u ",
                      (unsigned)progress->page_index,
                      (unsigned)progress->page_count);
         } else {
@@ -317,14 +316,14 @@ static void docs_shell_progress_cb(
             } else {
                 snprintf(prefix,
                          sizeof(prefix),
-                         "docs %s ",
+                         "help %s ",
                          docs_progress_stage_name(progress->stage));
             }
             docs_render_progress_bar(state->io, prefix, percent);
         } else {
             solar_os_shell_io_printf(
                 state->io,
-                "docs %s",
+                "help %s",
                 docs_progress_stage_name(progress->stage));
         }
     }
@@ -380,7 +379,7 @@ static void docs_print_status(solar_os_shell_io_t *io)
     solar_os_docs_status_t status;
     const esp_err_t err = solar_os_docs_get_status(&status);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io, "docs: status failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "help: status failed: %s\n", esp_err_to_name(err));
         return;
     }
     solar_os_shell_io_printf(io, "Firmware: %s\n", status.version);
@@ -408,7 +407,7 @@ static bool docs_launch_browser(solar_os_context_t *ctx,
         solar_os_context_request_launch(ctx, &solar_os_docs_app, argc, argv);
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io,
-                                 "docs: launch failed: %s\n",
+                                 "help: launch failed: %s\n",
                                  esp_err_to_name(err));
         return false;
     }
@@ -417,7 +416,7 @@ static bool docs_launch_browser(solar_os_context_t *ctx,
 }
 #endif
 
-void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
+void solar_os_shell_cmd_help(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
     if (io == NULL) {
@@ -429,16 +428,16 @@ void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (argc == 2 && strcmp(argv[1], "update") == 0) {
-        solar_os_shell_io_writeln(io, "docs: downloading signed manual");
+        solar_os_shell_io_writeln(io, "help: downloading signed manual");
         solar_os_shell_io_flush(io);
         const esp_err_t err = docs_run_update(io);
         solar_os_shell_io_newline(io);
         if (err == ESP_OK) {
-            solar_os_shell_io_writeln(io, "docs: manual updated");
+            solar_os_shell_io_writeln(io, "help: manual updated");
             docs_print_status(io);
         } else {
             solar_os_shell_io_printf(io,
-                                     "docs: update failed: %s\n",
+                                     "help: update failed: %s\n",
                                      esp_err_to_name(err));
         }
         return;
@@ -446,10 +445,10 @@ void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 2 && strcmp(argv[1], "reset") == 0) {
         const esp_err_t err = solar_os_docs_reset();
         if (err == ESP_OK) {
-            solar_os_shell_io_writeln(io, "docs: using embedded manual");
+            solar_os_shell_io_writeln(io, "help: using embedded manual");
         } else {
             solar_os_shell_io_printf(io,
-                                     "docs: reset failed: %s\n",
+                                     "help: reset failed: %s\n",
                                      esp_err_to_name(err));
         }
         return;
@@ -465,7 +464,7 @@ void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
          strcmp(argv[1], "reset") == 0)) {
         solar_os_shell_io_writeln(
             io,
-            "docs: signed refresh is unavailable on this build");
+            "help: signed refresh is unavailable on this build");
         return;
     }
 #endif
@@ -475,7 +474,17 @@ void solar_os_shell_cmd_docs(solar_os_context_t *ctx, int argc, char **argv)
         (void)docs_launch_browser(ctx, io, argc, argv);
         return;
     }
+#else
+    if (argc == 1) {
+        solar_os_shell_io_writeln(io, "Read a topic: man TOPIC");
+        solar_os_shell_io_writeln(io, "Search:       man -k QUERY");
+        solar_os_shell_io_writeln(io, "List topics:  man --list");
+        return;
+    }
+    if (argc == 2 && solar_os_manual_find(argv[1]) != NULL) {
+        solar_os_shell_cmd_man(ctx, argc, argv);
+        return;
+    }
 #endif
-    solar_os_shell_io_writeln(io, "usage: docs [TOPIC]|status|update|reset");
+    solar_os_shell_io_writeln(io, "usage: help [TOPIC]|status|update|reset");
 }
-#endif

@@ -1,18 +1,18 @@
 +++
-id = "docs"
+id = "help"
 title = "Browsing and refreshing documentation"
 section = "concept"
 summary = "Browse the manual and refresh its signed Markdown pages"
 aliases = ["documentation"]
-keywords = "docs documentation manual browser tui update refresh signed catalog sd fallback version"
-packages_any = ["app_docs"]
+keywords = "help documentation manual browser tui update refresh signed catalog sd fallback version"
+packages_any = []
 +++
 # Browse and refresh documentation
 
 SolarOS always carries a manual in firmware, so `man` and the agent reference
 tool work without a network connection.
 
-Run `docs` to open the foreground documentation browser. Topics are grouped in
+Run `help` to open the foreground documentation browser. Topics are grouped in
 a tree. Use Left and Right or Enter on a group to fold and unfold it, then
 select a topic and press Enter to read it. On a graphic display the topic opens
 in `reader`; text shells use `less`. Both consume the same `man:TOPIC` source,
@@ -26,7 +26,7 @@ without installing new firmware.
 First connect Wi-Fi and make sure the SD card is mounted. Then run:
 
 ```text
-docs update
+help update
 ```
 
 SolarOS requests the documentation published for its exact running firmware
@@ -37,8 +37,8 @@ that adapts to the active terminal width, including the narrow display shell at
 text size 16. An interrupted or invalid download leaves the previous manual
 active.
 
-`docs status` shows whether the external revision or embedded fallback is in
-use. `docs reset` stops using the downloaded revision; it does not remove the
+`help status` shows whether the external revision or embedded fallback is in
+use. `help reset` stops using the downloaded revision; it does not remove the
 immutable cached files from the SD card.
 
 ## Why versions must match
@@ -50,12 +50,12 @@ signature is valid.
 
 ## Quick reference
 
-`docs` opens the foldable topic tree; `docs TOPIC` expands the corresponding
+`help` opens the foldable topic tree; `help TOPIC` expands the corresponding
 group and selects that topic initially. Graphic display shells open topics with
 `reader`; CDC, UART, Telnet, SSH, and other text shells use `less`.
-`docs status` reports the active source, firmware version, revision, page count,
-update state, and last error. `docs update` displays download progress, stores
+`help status` reports the active source, firmware version, revision, page count,
+update state, and last error. `help update` displays download progress, stores
 the signed exact-version catalog and Markdown pages on SD, and activates them
-only after signature, size, and SHA-256 verification. `docs reset` immediately
-returns man, docs, and the agent to the embedded manual. Refreshing requires
+only after signature, size, and SHA-256 verification. `help reset` immediately
+returns `man`, `help`, and the agent to the embedded manual. Refreshing requires
 Wi-Fi, PSRAM, and SD.

@@ -10,7 +10,7 @@ hardware services, Python, and Lua.
 The [SolarOS User Manual](doc/manual/README.md) is the canonical source for:
 
 - the documentation browsed on GitHub;
-- the signed on-device `docs` tree and `man`;
+- the signed on-device `help` tree and `man`;
 - the native agent's SolarOS reference;
 - the generated documentation on solar-os.eu.
 

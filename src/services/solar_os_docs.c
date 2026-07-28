@@ -25,7 +25,8 @@
 #define SOLAR_OS_VERSION "0.0.0"
 #endif
 
-#define DOCS_CATALOG_MAX (64U * 1024U)
+#define DOCS_CATALOG_MAX (256U * 1024U)
+#define DOCS_PAGE_COUNT_MAX 256U
 #define DOCS_SIGNATURE_MAX 512U
 #define DOCS_PAGE_MAX (64U * 1024U)
 #define DOCS_URL_MAX 256U
@@ -413,7 +414,8 @@ static esp_err_t docs_parse_catalog(const char *catalog,
         return ESP_ERR_INVALID_RESPONSE;
     }
     info->page_count = solar_os_json_array_size(pages);
-    if (info->page_count < solar_os_manual_count() || info->page_count > 64U) {
+    if (info->page_count < solar_os_manual_count() ||
+        info->page_count > DOCS_PAGE_COUNT_MAX) {
         solar_os_json_free(*document);
         *document = NULL;
         return ESP_ERR_INVALID_RESPONSE;

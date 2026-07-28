@@ -80,7 +80,7 @@ Once SolarOS boots, these commands give a quick view of the installed system:
 
 ```text
 help
-docs
+help
 apps
 jobs
 sessions
@@ -99,7 +99,7 @@ was compiled and which hardware is exposed.
 ## Finding documentation
 
 Optional topics appear only when their package is part of the firmware. Open
-`docs` for the foldable manual tree, or search by task:
+`help` for the foldable manual tree, or search by task:
 
 ```text
 man --list
@@ -109,7 +109,7 @@ man -k background job memory
 ```
 
 Open a result with `man TOPIC`. Graphic display shells can also open topics from
-`docs` in `reader`; text shells use `less`. Arrow and Page Up/Page Down keys
+`help` in `reader`; text shells use `less`. Arrow and Page Up/Page Down keys
 scroll, `/` searches inside a page, and the app-exit key returns to the shell.
 
 ## Where to begin
@@ -119,7 +119,7 @@ scroll, `/` searches inside a page, and the app-exit key returns to the shell.
 - Use `man jobs` to understand background workers and their memory.
 - Use `man buses` and `man expansion` before connecting external hardware.
 - Use `man identity` to configure the device user and hostname.
-- Use `man docs` to refresh the signed manual on a supported device.
+- Use `man help` to learn how to refresh the signed manual on a supported device.
 
 ## Quick reference
 

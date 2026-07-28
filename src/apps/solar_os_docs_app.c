@@ -268,7 +268,7 @@ static void docs_app_header(char *line, size_t line_len)
     if (solar_os_docs_get_status(&status) == ESP_OK && status.available) {
         snprintf(line,
                  line_len,
-                 "SolarOS docs  %u topics  downloaded %s",
+                 "SolarOS manual  %u topics  downloaded %s",
                  (unsigned)count,
                  status.revision);
         return;
@@ -276,7 +276,7 @@ static void docs_app_header(char *line, size_t line_len)
 #endif
     snprintf(line,
              line_len,
-             "SolarOS docs  %u topics  embedded",
+             "SolarOS manual  %u topics  embedded",
              (unsigned)count);
 }
 
@@ -501,7 +501,7 @@ static void docs_app_title(solar_os_context_t *ctx,
 {
     (void)ctx;
     if (buffer != NULL && buffer_len > 0U) {
-        strlcpy(buffer, "docs", buffer_len);
+        strlcpy(buffer, "help", buffer_len);
     }
 }
 
@@ -579,7 +579,7 @@ static bool docs_app_event(solar_os_context_t *ctx,
 }
 
 const solar_os_app_t solar_os_docs_app = {
-    .name = "docs",
+    .name = "help",
     .summary = "browse the SolarOS manual",
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = docs_app_start,
