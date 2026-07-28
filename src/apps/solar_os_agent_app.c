@@ -591,6 +591,38 @@ static void agent_app_print_delta(solar_os_shell_io_t *io,
     }
 }
 
+static esp_err_t agent_app_print_saved_message(
+    solar_os_agent_message_role_t role,
+    const char *text,
+    size_t text_len,
+    void *user_data)
+{
+    solar_os_context_t *ctx = user_data;
+    if (ctx == NULL || text == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_shell_io_t *io = agent_app_io(ctx);
+    if (role == SOLAR_OS_AGENT_MESSAGE_USER) {
+        char prompt[SOLAR_OS_IDENTITY_USER_MAX + 3U];
+        snprintf(prompt,
+                 sizeof(prompt),
+                 "%s: ",
+                 agent_app.username[0] != '\0' ?
+                    agent_app.username : SOLAR_OS_IDENTITY_DEFAULT_USER);
+        solar_os_shell_io_write_bold(io, prompt);
+    } else {
+        agent_app_write_prefix(io);
+        if (role == SOLAR_OS_AGENT_MESSAGE_TOOL) {
+            solar_os_shell_io_write(io, "tools: ");
+        }
+    }
+    for (size_t i = 0; i < text_len; i++) {
+        solar_os_shell_io_put_utf8_byte(io, (uint8_t)text[i]);
+    }
+    solar_os_shell_io_newline(io);
+    return ESP_OK;
+}
+
 static void agent_app_report_script(solar_os_context_t *ctx)
 {
     if (agent_app.mode == AGENT_APP_MODE_CHAT ||
@@ -795,14 +827,18 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
     (void)solar_os_agent_init();
 
     const int argc = solar_os_context_argc(ctx);
-    const bool chat_mode = argc == 1;
+    const bool new_mode = argc == 2 &&
+        strcmp(solar_os_context_argv(ctx, 1), "new") == 0;
+    const bool resume_mode = argc == 3 &&
+        strcmp(solar_os_context_argv(ctx, 1), "resume") == 0;
+    const bool chat_mode = argc == 1 || new_mode || resume_mode;
     const bool ask_mode = argc >= 3 &&
         strcmp(solar_os_context_argv(ctx, 1), "ask") == 0;
     const bool script_mode = argc >= 4 &&
         strcmp(solar_os_context_argv(ctx, 1), "script") == 0;
     if (!chat_mode && !ask_mode && !script_mode) {
         agent_app_writeln(agent_app_io(ctx),
-                          "launch with agent, ask, or script");
+                          "launch with agent, new, resume, ask, or script");
         solar_os_shell_io_flush(agent_app_io(ctx));
         agent_app_return_to_shell(ctx);
         return ESP_OK;
@@ -829,6 +865,22 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
             solar_os_shell_io_flush(agent_app_io(ctx));
             agent_app_return_to_shell(ctx);
             return ESP_OK;
+        }
+        if (resume_mode) {
+            const char *id = solar_os_context_argv(ctx, 2);
+            solar_os_agent_conversation_info_t info;
+            err = solar_os_agent_conversation_get(id, &info);
+            if (err != ESP_OK) {
+                agent_app_printf(agent_app_io(ctx),
+                                 "conversation not found: %s\n",
+                                 id);
+                solar_os_shell_io_flush(agent_app_io(ctx));
+                agent_app_return_to_shell(ctx);
+                return ESP_OK;
+            }
+            strlcpy(agent_app.conversation_id,
+                    info.id,
+                    sizeof(agent_app.conversation_id));
         }
         err = chat_mode ? ESP_OK : agent_app_build_prompt(ctx);
     } else {
@@ -872,6 +924,25 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
         solar_os_shell_io_writeln(
             agent_app_io(ctx),
             "Enter sends. Page Up/Down scrolls. Ctrl+] exits.");
+        if (resume_mode) {
+            solar_os_agent_conversation_info_t info;
+            if (solar_os_agent_conversation_get(agent_app.conversation_id,
+                                                &info) == ESP_OK) {
+                solar_os_shell_io_printf(agent_app_io(ctx),
+                                         "Resumed %s — %s\n\n",
+                                         info.id,
+                                         info.title);
+            }
+            err = solar_os_agent_conversation_visit(
+                agent_app.conversation_id,
+                agent_app_print_saved_message,
+                ctx);
+            if (err != ESP_OK) {
+                agent_app_printf(agent_app_io(ctx),
+                                 "could not restore transcript: %s\n",
+                                 esp_err_to_name(err));
+            }
+        }
         agent_app_chat_prompt(ctx);
         return ESP_OK;
     }

@@ -33,12 +33,25 @@ agent should only inspect the system.
 
 ## Start a conversation
 
-Run `agent`, enter a message, and wait for the response. The bottom bar shows
+Run `agent` or `agent new`, enter a message, and wait for the response. The
+bottom bar shows
 the latest input, output, and total token counts. Tool activity stays in the
 conversation, while usage does not.
 
+Completed turns are saved. Inspect and resume them explicitly:
+
+```text
+agent list
+agent resume CONVERSATION-ID
+agent delete CONVERSATION-ID
+```
+
+`agent resume` restores the transcript. Responses endpoints continue from the
+saved provider response ID; Chat Completions endpoints receive a bounded local
+message window. Bare `agent` always starts a new conversation.
+
 Use `agent ask PROMPT` for one request. It leaves the answer visible until you
-press `Ctrl+]`.
+press `Ctrl+]`; one-request answers are not added to the conversation store.
 
 ## Troubleshooting
 
@@ -52,9 +65,11 @@ press `Ctrl+]`.
 
 ## Quick reference
 
-Use `agent` for a resumable foreground conversation and `agent ask PROMPT` for
-one request. Configure endpoint, model, key, reasoning, tool policy, and maximum
+Use `agent` or `agent new` for a new durable foreground conversation,
+`agent list` to find saved IDs, `agent resume ID` to restore one, and
+`agent delete ID` to remove one. `agent ask PROMPT` makes an unsaved one-shot
+request. Configure endpoint, model, key, reasoning, tool policy, and maximum
 tools with `agent config`. `agent tools` reports the installed typed tools and
-their policy disposition. The default `confirm` policy runs read-only tools and
-requires local approval for sensitive, mutating, or disruptive calls. Ctrl+]
-returns to the shell.
+their policy disposition. The default `confirm` policy runs read-only tools
+and requires local approval for sensitive, mutating, or disruptive calls.
+Ctrl+] returns to the shell.

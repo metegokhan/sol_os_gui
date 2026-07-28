@@ -16,6 +16,10 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_newline(io);
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  agent");
+    solar_os_shell_io_writeln(io, "  agent new");
+    solar_os_shell_io_writeln(io, "  agent list");
+    solar_os_shell_io_writeln(io, "  agent resume ID");
+    solar_os_shell_io_writeln(io, "  agent delete ID");
     solar_os_shell_io_writeln(io, "  agent help");
     solar_os_shell_io_writeln(io, "  agent status");
     solar_os_shell_io_writeln(io, "  agent tools");
@@ -34,6 +38,76 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(
         io,
         "  agent script python|lua (-c SOURCE | FILE) [ARGS...]");
+}
+
+static void agent_conversations(solar_os_shell_io_t *io)
+{
+    solar_os_agent_conversation_info_t
+        items[SOLAR_OS_AGENT_CONVERSATION_LIST_MAX];
+    size_t count = 0;
+    const esp_err_t err = solar_os_agent_conversations_list(
+        items,
+        SOLAR_OS_AGENT_CONVERSATION_LIST_MAX,
+        &count);
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(io,
+                                 "agent: list failed: %s\n",
+                                 esp_err_to_name(err));
+        return;
+    }
+    if (count == 0) {
+        solar_os_shell_io_writeln(io, "No saved conversations.");
+        return;
+    }
+    size_t cols = solar_os_shell_io_cols(io);
+    if (cols == 0U) {
+        cols = 80U;
+    }
+    if (cols < 72U) {
+        for (size_t i = 0; i < count; i++) {
+            const int value_width = cols > 9U ? (int)(cols - 9U) : 1;
+            solar_os_shell_io_printf(io,
+                                     "%s  %u turn%s\n"
+                                     "  model: %.*s\n"
+                                     "  title: %.*s\n",
+                                     items[i].id,
+                                     (unsigned int)items[i].turn_count,
+                                     items[i].turn_count == 1U ? "" : "s",
+                                     value_width,
+                                     items[i].model,
+                                     value_width,
+                                     items[i].title);
+        }
+        return;
+    }
+    solar_os_shell_io_writeln(io,
+                              "ID                TURNS  MODEL             TITLE");
+    const int title_width = (int)(cols - 43U);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_shell_io_printf(io,
+                                 "%-17s %-6u %-17.17s %.*s\n",
+                                 items[i].id,
+                                 (unsigned int)items[i].turn_count,
+                                 items[i].model,
+                                 title_width,
+                                 items[i].title);
+    }
+}
+
+static void agent_launch(solar_os_context_t *ctx,
+                         solar_os_shell_io_t *io,
+                         int argc,
+                         char **argv)
+{
+    const esp_err_t err =
+        solar_os_context_request_launch(ctx, &solar_os_agent_app, argc, argv);
+    if (err == ESP_OK) {
+        solar_os_shell_session_prepare_foreground_launch(ctx, false);
+    } else {
+        solar_os_shell_io_printf(io,
+                                 "agent: launch failed: %s\n",
+                                 esp_err_to_name(err));
+    }
 }
 
 static void agent_tools(solar_os_shell_io_t *io)
@@ -203,13 +277,30 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (argc == 1) {
-        const esp_err_t err =
-            solar_os_context_request_launch(ctx, &solar_os_agent_app, argc, argv);
+        agent_launch(ctx, io, argc, argv);
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "new") == 0) {
+        agent_launch(ctx, io, argc, argv);
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "list") == 0) {
+        agent_conversations(io);
+        return;
+    }
+    if (argc == 3 && strcmp(argv[1], "resume") == 0) {
+        agent_launch(ctx, io, argc, argv);
+        return;
+    }
+    if (argc == 3 && strcmp(argv[1], "delete") == 0) {
+        const esp_err_t err = solar_os_agent_conversation_delete(argv[2]);
         if (err == ESP_OK) {
-            solar_os_shell_session_prepare_foreground_launch(ctx, false);
+            solar_os_shell_io_printf(io,
+                                     "agent: deleted %s\n",
+                                     argv[2]);
         } else {
             solar_os_shell_io_printf(io,
-                                     "agent: launch failed: %s\n",
+                                     "agent: delete failed: %s\n",
                                      esp_err_to_name(err));
         }
         return;
@@ -242,27 +333,11 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (strcmp(argv[1], "ask") == 0 && argc >= 3) {
-        const esp_err_t err =
-            solar_os_context_request_launch(ctx, &solar_os_agent_app, argc, argv);
-        if (err == ESP_OK) {
-            solar_os_shell_session_prepare_foreground_launch(ctx, false);
-        } else {
-            solar_os_shell_io_printf(io,
-                                     "agent: launch failed: %s\n",
-                                     esp_err_to_name(err));
-        }
+        agent_launch(ctx, io, argc, argv);
         return;
     }
     if (strcmp(argv[1], "script") == 0 && argc >= 4) {
-        const esp_err_t err =
-            solar_os_context_request_launch(ctx, &solar_os_agent_app, argc, argv);
-        if (err == ESP_OK) {
-            solar_os_shell_session_prepare_foreground_launch(ctx, false);
-        } else {
-            solar_os_shell_io_printf(io,
-                                     "agent: launch failed: %s\n",
-                                     esp_err_to_name(err));
-        }
+        agent_launch(ctx, io, argc, argv);
         return;
     }
     agent_usage(io);

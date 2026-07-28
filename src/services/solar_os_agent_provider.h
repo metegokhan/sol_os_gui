@@ -12,6 +12,7 @@
 #define SOLAR_OS_AGENT_TOOL_ARGUMENTS_MAX 4096
 #define SOLAR_OS_AGENT_TOOL_RESULT_MAX 4096
 #define SOLAR_OS_AGENT_RESPONSE_ID_MAX 96
+#define SOLAR_OS_AGENT_HISTORY_MESSAGE_MAX 24
 
 typedef struct {
     char endpoint[SOLAR_OS_AGENT_ENDPOINT_MAX];
@@ -27,8 +28,21 @@ typedef struct {
     bool strict;
 } solar_os_agent_tool_descriptor_t;
 
+typedef enum {
+    SOLAR_OS_AGENT_PROVIDER_RESUME_LOCAL_HISTORY = 0,
+    SOLAR_OS_AGENT_PROVIDER_RESUME_REMOTE_ID,
+} solar_os_agent_provider_resume_mode_t;
+
+typedef struct {
+    solar_os_agent_message_role_t role;
+    const char *text;
+    size_t text_len;
+} solar_os_agent_history_message_t;
+
 typedef struct {
     const char *prompt;
+    const solar_os_agent_history_message_t *history;
+    size_t history_count;
     const solar_os_agent_tool_descriptor_t *tools;
     size_t tool_count;
     bool continuation;
@@ -53,6 +67,8 @@ typedef struct {
 typedef struct {
     const char *name;
     uint32_t capabilities;
+    solar_os_agent_provider_resume_mode_t (*resume_mode)(
+        const solar_os_agent_provider_config_t *config);
     esp_err_t (*run_turn)(const solar_os_agent_provider_config_t *config,
                           const solar_os_agent_provider_turn_t *turn,
                           solar_os_agent_event_fn event_handler,
