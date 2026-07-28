@@ -60,8 +60,10 @@ username, agent labels are bold, and the protected bottom status bar shows the
 latest input, output, and total token counts without adding usage lines to the
 conversation or scrollback. Narrow displays abbreviate those fields as `I`, `O`,
 and `T`. Completed turns are stored under `.solar/agent/conversations` on the
-preferred persistent filesystem. Use `agent list`, `agent resume ID`, and
-`agent delete ID` to manage them. Exiting and launching bare `agent` again
+preferred persistent filesystem. Use `agent list`, `agent resume SLOT`, and
+`agent delete SLOT` to manage them. New conversations use slots `1` through `3`
+on internal flash or `1` through `8` on SD; once full, the oldest slot is
+replaced atomically. Exiting and launching bare `agent` again
 still starts a new conversation; restoring an old one is always explicit.
 
 Each provider adapter declares its resume mode. Responses resumes from the
@@ -266,7 +268,7 @@ interfaces, and scheduling are later phases.
 The native agent uses the configured OpenAI-compatible Responses endpoint,
 applies the selected confirmation policy, and exposes bounded typed tools for
 installed SolarOS features. Completed chat turns are stored locally;
-`agent list`, `agent resume ID`, and `agent delete ID` manage them. Responses
+`agent list`, `agent resume SLOT`, and `agent delete SLOT` manage them. Responses
 uses a provider continuation ID and Chat Completions uses bounded local
 history. `agent status` reports provider, policy, requests, tool activity, and
 memory. This page defines the tool contract and resource limits; `man agent` is

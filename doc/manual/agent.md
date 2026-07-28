@@ -42,10 +42,12 @@ Completed turns are saved. Inspect and resume them explicitly:
 
 ```text
 agent list
-agent resume CONVERSATION-ID
-agent delete CONVERSATION-ID
+agent resume SLOT
+agent delete SLOT
 ```
 
+Slots are numbered `1` through `3` on internal flash or `1` through `8` on SD.
+When all slots are occupied, a new conversation replaces the oldest one.
 `agent resume` restores the transcript. Responses endpoints continue from the
 saved provider response ID; Chat Completions endpoints receive a bounded local
 message window. Bare `agent` always starts a new conversation.
@@ -66,8 +68,8 @@ press `Ctrl+]`; one-request answers are not added to the conversation store.
 ## Quick reference
 
 Use `agent` or `agent new` for a new durable foreground conversation,
-`agent list` to find saved IDs, `agent resume ID` to restore one, and
-`agent delete ID` to remove one. `agent ask PROMPT` makes an unsaved one-shot
+`agent list` to inspect saved slots, `agent resume SLOT` to restore one, and
+`agent delete SLOT` to remove one. `agent ask PROMPT` makes an unsaved one-shot
 request. Configure endpoint, model, key, reasoning, tool policy, and maximum
 tools with `agent config`. `agent tools` reports the installed typed tools and
 their policy disposition. The default `confirm` policy runs read-only tools

@@ -38,17 +38,19 @@ agent config tools confirm
 agent config max-tools 16
 agent
 agent list
-agent resume CONVERSATION-ID
+agent resume SLOT
 agent ask How much memory is free on this device?
 agent script python -c "print(6 * 7)"
 agent script lua /script.lua argument
 ```
 
 Bare `agent` and `agent new` open a new foreground prompt loop. Completed turns
-are saved, and `agent list` plus `agent resume ID` restore a selected transcript
-after leaving the app or rebooting. `agent delete ID` removes one conversation
+are saved, and `agent list` plus `agent resume SLOT` restore a selected transcript
+after leaving the app or rebooting. `agent delete SLOT` removes one conversation
 without changing provider credentials. Responses uses its saved provider
-continuation ID; Chat Completions uses bounded local history. `agent ask`
+continuation ID; Chat Completions uses bounded local history. Slots are `1` to
+`3` on internal flash or `1` to `8` on SD; the oldest is reused when full.
+`agent ask`
 performs one unsaved request but likewise waits for the app-exit key after
 completion, so display-shell output is not immediately replaced by the shell
 screen.

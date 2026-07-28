@@ -9,7 +9,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_memory.h"
@@ -22,6 +21,7 @@
 #define AGENT_CONVERSATION_RECORD_MAX 64U
 #define AGENT_CONVERSATION_FLASH_COUNT 3U
 #define AGENT_CONVERSATION_SD_COUNT 8U
+#define AGENT_CONVERSATION_SLOT_MAX 8U
 #define AGENT_CONVERSATION_FLASH_BYTES (10U * 1024U)
 #define AGENT_CONVERSATION_SD_BYTES (48U * 1024U)
 #define AGENT_CONVERSATION_FLASH_MESSAGE_MAX 4096U
@@ -343,13 +343,15 @@ static void conversation_make_title(const char *prompt,
     title[used] = '\0';
 }
 
-static void conversation_generate_id(char *id, size_t id_len)
+static bool conversation_slot_number(const char *id, size_t *slot)
 {
-    snprintf(id,
-             id_len,
-             "%08lx-%08lx",
-             (unsigned long)esp_random(),
-             (unsigned long)esp_random());
+    if (id == NULL || id[0] < '1' || id[0] > '8' || id[1] != '\0') {
+        return false;
+    }
+    if (slot != NULL) {
+        *slot = (size_t)(id[0] - '0');
+    }
+    return true;
 }
 
 static esp_err_t conversation_write_record(FILE *file,
@@ -424,6 +426,46 @@ static void conversation_header_to_info(
     info->updated_at = header->updated_at;
     info->turn_count = header->turn_count;
     info->stored_bytes = header->stored_bytes;
+}
+
+static esp_err_t conversation_allocate_slot(char *id, size_t id_len)
+{
+    if (id == NULL || id_len < 2U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_agent_conversation_info_t items[AGENT_CONVERSATION_SLOT_MAX];
+    size_t count = 0;
+    esp_err_t err = solar_os_agent_conversations_list(
+        items,
+        AGENT_CONVERSATION_SLOT_MAX,
+        &count);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    bool used[AGENT_CONVERSATION_SLOT_MAX + 1U] = {false};
+    for (size_t i = 0; i < count; i++) {
+        size_t slot = 0;
+        if (conversation_slot_number(items[i].id, &slot)) {
+            used[slot] = true;
+        }
+    }
+    const size_t limit = conversation_count_limit();
+    for (size_t slot = 1; slot <= limit; slot++) {
+        if (!used[slot]) {
+            id[0] = (char)('0' + slot);
+            id[1] = '\0';
+            return ESP_OK;
+        }
+    }
+
+    for (size_t i = count; i > 0; i--) {
+        if (conversation_slot_number(items[i - 1U].id, NULL)) {
+            strlcpy(id, items[i - 1U].id, id_len);
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NO_MEM;
 }
 
 static bool conversation_filename_id(const char *name,
@@ -742,7 +784,10 @@ static esp_err_t conversation_commit_unlocked(
     if (id != NULL) {
         strlcpy(local_id, id, sizeof(local_id));
     } else {
-        conversation_generate_id(local_id, sizeof(local_id));
+        err = conversation_allocate_slot(local_id, sizeof(local_id));
+        if (err != ESP_OK) {
+            return err;
+        }
     }
     agent_conversation_header_t header = {
         .magic = AGENT_CONVERSATION_MAGIC,

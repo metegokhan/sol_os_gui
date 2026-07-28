@@ -195,7 +195,7 @@ runtime-only.
 | --- | --- | --- |
 | `apps` | `apps` | List registered foreground apps compiled into the firmware. |
 | `agent` | `agent`; `agent new`; `agent ask PROMPT...` | Open a new native LLM agent TUI or make one unsaved foreground request. |
-| `agent` | `agent list`; `agent resume ID`; `agent delete ID` | List, restore, or delete durable local conversations. |
+| `agent` | `agent list`; `agent resume SLOT`; `agent delete SLOT` | List, restore, or delete durable local conversation slots. |
 | `agent` | `agent status`; `agent tools` | Inspect provider state, request statistics, typed tools, risk, and policy. |
 | `agent` | `agent config endpoint|model|key|reasoning|tools|max-tools VALUE` | Configure the provider and tool policy. |
 | `agent` | `agent script python\|lua (-c SOURCE \| FILE) [ARGS...]` | Run a bounded script through the agent execution path. |

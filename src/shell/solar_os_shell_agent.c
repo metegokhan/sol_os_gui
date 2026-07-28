@@ -18,8 +18,8 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  agent");
     solar_os_shell_io_writeln(io, "  agent new");
     solar_os_shell_io_writeln(io, "  agent list");
-    solar_os_shell_io_writeln(io, "  agent resume ID");
-    solar_os_shell_io_writeln(io, "  agent delete ID");
+    solar_os_shell_io_writeln(io, "  agent resume SLOT");
+    solar_os_shell_io_writeln(io, "  agent delete SLOT");
     solar_os_shell_io_writeln(io, "  agent help");
     solar_os_shell_io_writeln(io, "  agent status");
     solar_os_shell_io_writeln(io, "  agent tools");
@@ -63,7 +63,15 @@ static void agent_conversations(solar_os_shell_io_t *io)
     if (cols == 0U) {
         cols = 80U;
     }
-    if (cols < 72U) {
+    bool slots_only = true;
+    for (size_t i = 0; i < count; i++) {
+        if (items[i].id[0] < '1' || items[i].id[0] > '8' ||
+            items[i].id[1] != '\0') {
+            slots_only = false;
+            break;
+        }
+    }
+    if (cols < 72U || !slots_only) {
         for (size_t i = 0; i < count; i++) {
             const int value_width = cols > 9U ? (int)(cols - 9U) : 1;
             solar_os_shell_io_printf(io,
@@ -81,11 +89,11 @@ static void agent_conversations(solar_os_shell_io_t *io)
         return;
     }
     solar_os_shell_io_writeln(io,
-                              "ID                TURNS  MODEL             TITLE");
-    const int title_width = (int)(cols - 43U);
+                              "SLOT TURNS  MODEL             TITLE");
+    const int title_width = (int)(cols - 30U);
     for (size_t i = 0; i < count; i++) {
         solar_os_shell_io_printf(io,
-                                 "%-17s %-6u %-17.17s %.*s\n",
+                                 "%-4s %-6u %-17.17s %.*s\n",
                                  items[i].id,
                                  (unsigned int)items[i].turn_count,
                                  items[i].model,
