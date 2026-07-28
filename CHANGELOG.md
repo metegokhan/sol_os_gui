@@ -2,67 +2,18 @@
 
 ## Unreleased
 
-- Replaced the terse manual source with tutorial-oriented Markdown topics shared
-  by users and the native agent. Added a signed, exact-version documentation
-  catalog, fail-safe SD activation with embedded fallback, a foreground `docs`
-  topic browser, per-page update progress, maintenance commands, and
-  release/site generation for the same pages.
-- Made `doc/manual/` the canonical GitHub, device, agent, and website
-  documentation source. The `docs` browser now presents foldable topic groups,
-  opens `reader` on graphic display shells and `less` on text shells, and keeps
-  update progress within the active terminal width.
-- Added the first native agent slice: a provider-neutral service, bounded
-  OpenAI-compatible streaming adapter, NVS-backed configuration, cancellable
-  `agent` app, and read-only `system_status` tool. Shell-only subcommands run
-  inline so their output remains visible when the prompt returns. Official
-  OpenAI Chat Completions requests disable reasoning effort when function tools
-  are present, as required by that endpoint. Added an endpoint-selected
-  Responses API path with configurable reasoning effort, typed streaming
-  events, and reasoning-preserving tool continuations. Added a declarative
-  typed-tool registry with schemas, risk and availability metadata, validated
-  JSON results, and read-only system status, storage listing, and job listing
-  tools. Added a reusable Python/Lua source-and-file runner with bounded
-  captured output, structured completion, VM-level cancellation and deadlines,
-  interpreter ownership guards, and a manual `agent script` validation path.
-  Added NVS-backed `off`, `readonly`, `confirm`, and `all` tool policy with
-  defense-in-depth executor checks, bounded local confirmation, denial
-  continuations and tool counters; policy-gated Python and Lua source execution
-  is now available to the model when the corresponding runtime is installed.
-  Bare `agent` now opens a resumable foreground conversation, Responses sessions
-  retain context while the app remains open, and one-shot responses wait for
-  explicit exit instead of immediately returning to the display shell. Expanded
-  the bounded tool chain, added an NVS-backed 1-to-12 tool-call limit with an
-  eight-call default and a separately reserved final response, and added
-  confirmed, size-limited storage reads and writes while excluding SSH identity
-  paths. Added an on-device `solaros_reference` tool and provider grounding
-  rules so generated Python and Lua consult the real SolarOS API contracts and
-  do not invent display targets, bus names, GPIOs, or service calls. Restored
-  the standard MicroPython `min()`/`max()` built-ins, made targetless graphics
-  report when a port/headless shell has no framebuffer, and added read-only
-  display discovery so the agent can select a verified ready target. Fixed
-  Alt+Tab suspension so streamed agent output cannot keep repainting a
-  backgrounded conversation over the newly selected display session. Agent
-  storage tools now resolve shell-style absolute paths such as `/app.lua`
-  through the active default volume instead of failing on SD-capable boards.
-  Upgraded `solaros_reference` from a signature lookup to a compact coding
-  guide with mandatory constant, discovery, capability, and cleanup rules plus
-  executable Python and Lua graphics patterns. Port-shell foreground apps now
-  finish a preserved application line before drawing the resumed shell prompt.
-  Added a package-aware `man` command with searchable generated pages and
-  `less` paging; users and `solaros_reference` now consume the same
-  flash-resident contracts without loading the corpus into RAM. Added bounded
-  progressive tool discovery: provider turns begin with three bootstrap
-  schemas and `tool_search` activates at most five package- and policy-aware
-  tools. Added read-only board, GPIO, bus, Wi-Fi, battery, and environmental
-  inspection tools without allowing GPIO reads to claim or configure pins.
-  Added a coherent agent development loop with bounded text search, SHA-256
-  ranged reads, conflict-safe staged byte-range patches, and execution of saved
-  Python or Lua files with arguments through the existing cancellable runner.
-  Exact tool names now win progressive discovery, and patches can use a
-  PSRAM-backed recoverable rewrite when a volume has no free staging cluster.
-
 ## 4.x
 
+- **4.3.11** — 2026-07-28 — Made `doc/manual/` the comprehensive source shared
+  by GitHub, the website, device help, and the native agent. Added the foldable
+  `help` browser, `commands` and package-aware `man`, display-aware
+  `reader`/`less` routing, and fail-safe exact-version updates through one
+  catalog-authenticated manual archive with embedded fallback. (`10c39d2`)
+- **4.3.10** — 2026-07-26 — Added the native resumable agent with OpenAI
+  Responses reasoning, configurable tool policy and limits, progressive
+  SolarOS-grounded tools, and safe script/storage development operations.
+  Improved foreground switching and status rendering, and reduced Wi-Fi SRAM
+  use. (`e7866d7`)
 - **4.3.9** — 2026-07-26 — Moved device identity to NVS, added identity controls, and advertised the configured hostname over Wi-Fi. (`1acfe134`)
 - **4.3.8** — 2026-07-26 — Improved job diagnostics with bold running rows, worker-stack requirements, and clearer waiting-versus-failed reporting; restored ODROID-GO IRAM headroom. (`0c73f0cd`, `f239ca6b`)
 - **4.3.7** — 2026-07-25 — Added target-addressed routing to `displayd`. (`b9514e17`)
