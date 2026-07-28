@@ -278,6 +278,101 @@ bool solar_os_jobs_get_by_owner(const char *owner, solar_os_job_status_t *status
     return found;
 }
 
+static void job_finish_inspection(solar_os_job_inspection_t *inspection,
+                                  bool lifecycle_busy,
+                                  bool startable)
+{
+    if (inspection == NULL) {
+        return;
+    }
+    if (lifecycle_busy) {
+        inspection->disposition = SOLAR_OS_JOB_START_BLOCKED;
+        inspection->reason = SOLAR_OS_JOB_START_REASON_LIFECYCLE_BUSY;
+    } else if (inspection->status.state == SOLAR_OS_JOB_WAITING) {
+        inspection->disposition = SOLAR_OS_JOB_START_WAITING_MEMORY;
+        inspection->reason = SOLAR_OS_JOB_START_REASON_WORKER_STACK_MEMORY;
+    } else if (inspection->status.state == SOLAR_OS_JOB_RUNNING) {
+        inspection->disposition = SOLAR_OS_JOB_START_RUNNING;
+        inspection->reason = SOLAR_OS_JOB_START_REASON_ALREADY_RUNNING;
+    } else if (!startable) {
+        inspection->disposition = SOLAR_OS_JOB_START_BLOCKED;
+        inspection->reason = SOLAR_OS_JOB_START_REASON_NOT_STARTABLE;
+    } else if (inspection->status.worker_stack_bytes > 0 &&
+               !solar_os_task_can_create(
+                   inspection->status.worker_stack_bytes,
+                   SOLAR_OS_TASK_ROLE_BACKGROUND,
+                   inspection->status.worker_stack_external)) {
+        inspection->disposition = SOLAR_OS_JOB_START_WAITING_MEMORY;
+        inspection->reason = SOLAR_OS_JOB_START_REASON_WORKER_STACK_MEMORY;
+    } else {
+        inspection->disposition = SOLAR_OS_JOB_START_READY;
+        inspection->reason = SOLAR_OS_JOB_START_REASON_NONE;
+    }
+}
+
+static bool job_inspection_from_runtime(
+    size_t index,
+    solar_os_job_inspection_t *inspection,
+    bool *lifecycle_busy,
+    bool *startable)
+{
+    if (inspection == NULL || lifecycle_busy == NULL || startable == NULL ||
+        !job_status_from_runtime(index, &inspection->status)) {
+        return false;
+    }
+    const solar_os_job_runtime_t *runtime = &job_runtimes[index];
+    *lifecycle_busy = runtime->lifecycle_busy;
+    *startable = runtime->entry != NULL &&
+        runtime->entry->job != NULL &&
+        runtime->entry->job->start != NULL;
+    return true;
+}
+
+bool solar_os_jobs_inspect(size_t index,
+                           solar_os_job_inspection_t *inspection)
+{
+    if (inspection == NULL || solar_os_jobs_init() != ESP_OK) {
+        return false;
+    }
+    memset(inspection, 0, sizeof(*inspection));
+    bool lifecycle_busy = false;
+    bool startable = false;
+    portENTER_CRITICAL(&jobs_lock);
+    const bool found = job_inspection_from_runtime(index,
+                                                   inspection,
+                                                   &lifecycle_busy,
+                                                   &startable);
+    portEXIT_CRITICAL(&jobs_lock);
+    if (found) {
+        job_finish_inspection(inspection, lifecycle_busy, startable);
+    }
+    return found;
+}
+
+bool solar_os_jobs_inspect_by_name(
+    const char *name,
+    solar_os_job_inspection_t *inspection)
+{
+    if (inspection == NULL || solar_os_jobs_init() != ESP_OK) {
+        return false;
+    }
+    memset(inspection, 0, sizeof(*inspection));
+    bool lifecycle_busy = false;
+    bool startable = false;
+    portENTER_CRITICAL(&jobs_lock);
+    const int index = job_index_by_name(name);
+    const bool found = index >= 0 &&
+        job_inspection_from_runtime((size_t)index,
+                                    inspection,
+                                    &lifecycle_busy,
+                                    &startable);
+    portEXIT_CRITICAL(&jobs_lock);
+    if (found) {
+        job_finish_inspection(inspection, lifecycle_busy, startable);
+    }
+    return found;
+}
+
 esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int argc, char **argv)
 {
     esp_err_t ret = solar_os_jobs_init();
@@ -849,5 +944,41 @@ const char *solar_os_job_resource_type_name(solar_os_job_resource_type_t type)
     case SOLAR_OS_JOB_RESOURCE_NONE:
     default:
         return "none";
+    }
+}
+
+const char *solar_os_job_start_disposition_name(
+    solar_os_job_start_disposition_t disposition)
+{
+    switch (disposition) {
+    case SOLAR_OS_JOB_START_READY:
+        return "ready";
+    case SOLAR_OS_JOB_START_RUNNING:
+        return "running";
+    case SOLAR_OS_JOB_START_WAITING_MEMORY:
+        return "waiting_for_memory";
+    case SOLAR_OS_JOB_START_BLOCKED:
+        return "blocked";
+    default:
+        return "unknown";
+    }
+}
+
+const char *solar_os_job_start_reason_name(
+    solar_os_job_start_reason_t reason)
+{
+    switch (reason) {
+    case SOLAR_OS_JOB_START_REASON_NONE:
+        return "none";
+    case SOLAR_OS_JOB_START_REASON_ALREADY_RUNNING:
+        return "already_running";
+    case SOLAR_OS_JOB_START_REASON_WORKER_STACK_MEMORY:
+        return "worker_stack_memory";
+    case SOLAR_OS_JOB_START_REASON_LIFECYCLE_BUSY:
+        return "lifecycle_busy";
+    case SOLAR_OS_JOB_START_REASON_NOT_STARTABLE:
+        return "not_startable";
+    default:
+        return "unknown";
     }
 }

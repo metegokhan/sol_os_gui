@@ -1015,6 +1015,15 @@ static void job_print_status(solar_os_shell_io_t *term,
     solar_os_shell_io_printf(term,
                              "  owner: %s\n",
                              status->owner[0] != '\0' ? status->owner : "-");
+    solar_os_job_inspection_t inspection;
+    if (status->name != NULL &&
+        solar_os_jobs_inspect_by_name(status->name, &inspection)) {
+        solar_os_shell_io_printf(
+            term,
+            "  start admission: %s (%s)\n",
+            solar_os_job_start_disposition_name(inspection.disposition),
+            solar_os_job_start_reason_name(inspection.reason));
+    }
     if (status->worker_stack_bytes > 0) {
         solar_os_shell_io_printf(term,
                                  "  worker stack: %u bytes (%s)\n",

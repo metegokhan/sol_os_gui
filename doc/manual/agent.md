@@ -55,6 +55,23 @@ message window. Bare `agent` always starts a new conversation.
 Use `agent ask PROMPT` for one request. It leaves the answer visible until you
 press `Ctrl+]`; one-request answers are not added to the conversation store.
 
+## Inspect background workloads
+
+The agent can inspect job admission without starting or stopping anything. For
+example, ask:
+
+```text
+Which background jobs are running, and which stopped jobs could start now?
+Why is email-sync waiting?
+```
+
+The answer is based on the same worker-stack admission policy used by SolarOS.
+It includes current internal and PSRAM headroom, each job's declared stack
+placement, generation, current resource claims, start disposition, and last
+error. A `ready` disposition covers declared worker-stack admission only; a
+job may still need dynamic buffers or an argument-selected resource when it
+actually starts.
+
 ## Troubleshooting
 
 - `agent status` shows the endpoint, model, policy, request failures, and memory
@@ -72,6 +89,7 @@ Use `agent` or `agent new` for a new durable foreground conversation,
 `agent delete SLOT` to remove one. `agent ask PROMPT` makes an unsaved one-shot
 request. Configure endpoint, model, key, reasoning, tool policy, and maximum
 tools with `agent config`. `agent tools` reports the installed typed tools and
-their policy disposition. The default `confirm` policy runs read-only tools
-and requires local approval for sensitive, mutating, or disruptive calls.
-Ctrl+] returns to the shell.
+their policy disposition. `jobs_list` is read-only and reports actual job
+admission and memory state; it does not start or stop jobs. The default
+`confirm` policy runs read-only tools and requires local approval for sensitive,
+mutating, or disruptive calls. Ctrl+] returns to the shell.

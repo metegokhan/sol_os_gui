@@ -156,8 +156,15 @@ The package- and policy-gated tools discoverable through `tool_search` are:
   file has acquired the public path. If the volume has no spare allocation
   unit for staging, replacement uses the PSRAM copy and restores the original
   on a write failure.
-- `jobs_list`: every compiled background job with its current state, last
-  error, worker-stack size, and whether that stack uses internal RAM or PSRAM.
+- `jobs_list`: read-only workload inspection using the actual centralized task
+  admission policy. An empty `name` lists jobs; a job name requests one complete
+  record. Results include a point-in-time internal/PSRAM free and largest-block
+  snapshot, the background reserve and task overhead, plus each job's state,
+  generation, `ready`/`running`/`waiting_for_memory`/`blocked` start
+  disposition, machine-readable reason, last error, declared worker-stack
+  placement, owner, and current resource claims. It never starts or stops a
+  job. Resource claims describe the current invocation, and `ready` cannot
+  predict undeclared dynamic buffers or argument-selected resources.
 - `display_list`: registered display targets with their real names, drivers,
   dimensions, readiness, roles, brightness support, and current owners. The
   provider must call this before generating code for an attached display and
