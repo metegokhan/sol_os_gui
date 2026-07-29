@@ -36,9 +36,12 @@ bool solar_os_sessions_switch_to_app(const solar_os_app_t *app);
 bool solar_os_sessions_switch_to_app_with_policy(const solar_os_app_t *app,
                                                  solar_os_launch_policy_t policy);
 void solar_os_sessions_cycle_next(void);
+bool solar_os_sessions_cycle_input_focus(void);
 void solar_os_sessions_mark_foreground_dirty(void);
 
 void solar_os_sessions_dispatch_foreground_event(const solar_os_event_t *event);
+bool solar_os_sessions_dispatch_input_event(const solar_os_event_t *event);
+const solar_os_app_t *solar_os_sessions_input_app(void);
 void solar_os_sessions_dispatch_tick(uint32_t now_ms);
 void solar_os_sessions_dispatch_resume(uint32_t now_ms);
 void solar_os_sessions_process_requests(void);
@@ -52,6 +55,15 @@ esp_err_t solar_os_sessions_create_detached_display_shell(const char *target_nam
                                                           uint8_t *session_id,
                                                           char *busy_owner,
                                                           size_t busy_owner_len);
+esp_err_t solar_os_sessions_create_display_app(const solar_os_app_t *app,
+                                               const char *target_name,
+                                               int argc,
+                                               char **argv,
+                                               uint8_t *session_id,
+                                               char *busy_owner,
+                                               size_t busy_owner_len);
+esp_err_t solar_os_sessions_focus_display(const char *target_name);
+bool solar_os_sessions_input_focus(char *target_name, size_t target_name_len);
 bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *session_id);
 bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
                                               const solar_os_event_t *event);

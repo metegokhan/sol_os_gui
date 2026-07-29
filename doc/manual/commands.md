@@ -207,6 +207,8 @@ runtime-only.
 | `session` | `session list` | List display app sessions, display shell sessions, and port shell sessions. |
 | `session` | `session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]` | Start a shell session on a byte-stream port. |
 | `session` | `session create shell <display-target>` | Attach a shell session to a ready display target such as `lcd0`. |
+| `session` | `session create <app> <display-target> [args...]` | Start a foreground application as the active session on a named display. |
+| `session` | `session focus [display-target]` | Show or assign the display that receives BLE keyboard and local board-control input. |
 | `session` | `session fg <id>` or `session switch <id>` | Resume a display app or display shell session. |
 | `session` | `session close <id>` | Close a display app or display shell session, or stop a port shell session. |
 | `session` | `session background` | Print the current foreground/background-session note. |
@@ -257,6 +259,8 @@ Common job examples:
 session create shell cdc0
 session create shell uart0 --term vt100 --size 100x30
 session create shell lcd0
+session create files display0
+session focus display0
 job start log cdc0
 job start log file /.shell/log info
 job start bridge cdc0 uart0

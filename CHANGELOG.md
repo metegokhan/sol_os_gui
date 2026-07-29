@@ -4,6 +4,13 @@
 
 ## 4.x
 
+- **4.3.15** — 2026-07-29 — Added target-addressed foreground app creation
+  with `session create <app> <display-target> [args...]`. Local BLE keyboard,
+  board-button, joystick, and D-pad input now follows an explicit display focus
+  instead of the globally foreground session; `session focus [display-target]`
+  inspects or changes that assignment, and `Alt+Tab` cycles only sessions on
+  the focused display. Port shells retain their own input while launching apps
+  or display shells remotely.
 - **4.3.14** — 2026-07-29 — Gave the ESP32-S3-DevKitC-1-N16R8 two 6 MiB OTA
   slots and a nearly 4 MiB internal filesystem, replacing the 64 KiB shared
   layout so durable agent conversations and local files have practical space

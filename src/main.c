@@ -745,10 +745,10 @@ static void poll_key_button(void)
 #endif
 }
 
-static void dispatch_char_to_foreground(char ch)
+static void dispatch_char_to_input_focus(char ch)
 {
-    const solar_os_app_t *foreground_app = solar_os_sessions_foreground_app();
-    if (foreground_app == NULL || foreground_app->event == NULL) {
+    const solar_os_app_t *input_app = solar_os_sessions_input_app();
+    if (input_app == NULL || input_app->event == NULL) {
         return;
     }
 
@@ -760,9 +760,9 @@ static void dispatch_char_to_foreground(char ch)
     if ((uint8_t)ch == SOLAR_OS_KEY_APP_EXIT) {
         SOLAR_OS_LOGI(TAG,
                       "dispatch app-exit key to %s",
-                      foreground_app->name != NULL ? foreground_app->name : "?");
+                      input_app->name != NULL ? input_app->name : "?");
     }
-    solar_os_sessions_dispatch_foreground_event(&event);
+    (void)solar_os_sessions_dispatch_input_event(&event);
 }
 
 static void dispatch_input_chars(const char *chars, size_t count)
@@ -793,7 +793,7 @@ static void dispatch_input_chars(const char *chars, size_t count)
 
         if ((uint8_t)ch == SOLAR_OS_KEY_ALT_PREFIX) {
             if (alt_prefix_pending) {
-                dispatch_char_to_foreground((char)SOLAR_OS_KEY_ALT_PREFIX);
+                dispatch_char_to_input_focus((char)SOLAR_OS_KEY_ALT_PREFIX);
             }
             alt_prefix_pending = true;
             continue;
@@ -802,14 +802,14 @@ static void dispatch_input_chars(const char *chars, size_t count)
         if (alt_prefix_pending) {
             alt_prefix_pending = false;
             if (ch == '\t') {
-                solar_os_sessions_cycle_next();
+                (void)solar_os_sessions_cycle_input_focus();
                 process_app_requests();
                 continue;
             }
-            dispatch_char_to_foreground((char)SOLAR_OS_KEY_ALT_PREFIX);
+            dispatch_char_to_input_focus((char)SOLAR_OS_KEY_ALT_PREFIX);
         }
 
-        dispatch_char_to_foreground(ch);
+        dispatch_char_to_input_focus(ch);
         process_app_requests();
     }
 }
