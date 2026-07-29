@@ -134,6 +134,12 @@ starts with only three bootstrap tools:
   retaining the three bootstrap tools, so no provider turn advertises more
   than eight schemas.
 
+If a provider requests an installed, policy-allowed tool that was not selected
+for the current request, SolarOS advertises that tool's schema and asks the
+provider to retry. The first call is not executed and cannot bypass normal
+confirmation; this lets workflows such as `storage_write` followed by
+`script_run_file` recover without permanently advertising every tool.
+
 The package- and policy-gated tools discoverable through `tool_search` are:
 
 - `storage_list`: up to 16 file or directory entries for one path, including

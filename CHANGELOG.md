@@ -18,7 +18,9 @@
   resolve relative paths from the invoking shell directory, and tool failures
   show their concrete error name in the TUI. Clarified the exact
   `solaros_reference` argument shape for local models and stop advertising
-  tools after the first repeated read-only call.
+  tools after the first repeated read-only call. Known policy-allowed tools
+  requested outside the active schema set now activate for a schema-backed
+  retry instead of failing the workflow.
   (`bf4f600`, `6ed07f5`, `093ffac`)
 - **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
   in three flash or eight SD slots, with atomic checked records and explicit

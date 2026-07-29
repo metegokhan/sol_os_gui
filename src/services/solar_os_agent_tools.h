@@ -42,6 +42,13 @@ size_t solar_os_agent_tools_collect_discovered(
     solar_os_agent_tool_policy_t policy,
     solar_os_agent_tool_descriptor_t *descriptors,
     size_t capacity);
+size_t solar_os_agent_tools_activate(
+    const char *name,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t count,
+    size_t capacity);
 bool solar_os_agent_tools_is_discovery(const char *name);
 size_t solar_os_agent_tools_count(void);
 bool solar_os_agent_tools_get(size_t index, solar_os_agent_tool_info_t *info);

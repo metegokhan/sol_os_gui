@@ -3457,6 +3457,46 @@ size_t solar_os_agent_tools_collect_discovered(
     return count;
 }
 
+size_t solar_os_agent_tools_activate(
+    const char *name,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t count,
+    size_t capacity)
+{
+    if (name == NULL || name[0] == '\0' || descriptors == NULL ||
+        capacity == 0U || count > capacity) {
+        return count;
+    }
+    if (capacity > SOLAR_OS_AGENT_TOOL_ACTIVE_MAX) {
+        capacity = SOLAR_OS_AGENT_TOOL_ACTIVE_MAX;
+    }
+    if (count >= capacity) {
+        return count;
+    }
+    for (size_t i = 0U; i < count; i++) {
+        if (descriptors[i].name != NULL &&
+            strcmp(descriptors[i].name, name) == 0) {
+            return count;
+        }
+    }
+    for (size_t i = 0U; i < AGENT_TOOL_COUNT; i++) {
+        const agent_tool_definition_t *definition = &AGENT_TOOL_REGISTRY[i];
+        if (strcmp(definition->provider.name, name) != 0) {
+            continue;
+        }
+        if (!agent_tool_is_available(definition, request) ||
+            solar_os_agent_tools_policy_decision(policy, definition->risk) ==
+                SOLAR_OS_AGENT_TOOL_POLICY_DENY) {
+            return count;
+        }
+        descriptors[count++] = definition->provider;
+        return count;
+    }
+    return count;
+}
+
 bool solar_os_agent_tools_is_discovery(const char *name)
 {
     return name != NULL && strcmp(name, "tool_search") == 0;

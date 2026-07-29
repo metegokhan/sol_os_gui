@@ -693,9 +693,11 @@ static void agent_app_drain_events(solar_os_context_t *ctx)
             const char *outcome = event.success ? "complete" :
                 (strstr(event.text, "\"error\":\"tool denied\"") != NULL ?
                     "denied" :
-                    (strstr(event.text,
-                            "\"error\":\"duplicate tool call\"") != NULL ?
-                        "skipped" : "failed"));
+                    (strstr(event.text, "\"error\":\"tool activated\"") != NULL ?
+                        "activated" :
+                        (strstr(event.text,
+                                "\"error\":\"duplicate tool call\"") != NULL ?
+                            "skipped" : "failed")));
             const char *error = strstr(event.text, "\"error\":\"");
             if (!event.success && strcmp(outcome, "failed") == 0 &&
                 error != NULL) {

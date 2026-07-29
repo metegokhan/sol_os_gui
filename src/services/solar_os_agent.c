@@ -853,6 +853,20 @@ static esp_err_t agent_inactive_tool_result(char *result, size_t result_len)
         ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
+static esp_err_t agent_activated_tool_result(char *result, size_t result_len)
+{
+    if (result == NULL || result_len == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"ok\":false,\"error\":\"tool activated\","
+        "\"recovery\":\"retry the same tool call using its advertised schema\"}");
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
 static esp_err_t agent_duplicate_tool_result(char *result, size_t result_len)
 {
     if (result == NULL || result_len == 0U) {
@@ -1113,6 +1127,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          false);
         solar_os_agent_tool_info_t tool_info;
         const bool active =
+            turn.tools != NULL &&
             agent_tool_is_active(run->provider_result.tool_name,
                                  tool_descriptors,
                                  tool_count);
@@ -1128,8 +1143,31 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
             agent_tool_signature_seen(run, tool_signature);
         bool allowed = false;
         bool denied = false;
+        bool activated = false;
         bool tool_succeeded = false;
-        if (!active || !known) {
+        if (!active && known && turn.tools != NULL) {
+            const size_t activated_count =
+                solar_os_agent_tools_activate(
+                    run->provider_result.tool_name,
+                    request,
+                    tool_policy,
+                    tool_descriptors,
+                    tool_count,
+                    SOLAR_OS_AGENT_TOOL_ACTIVE_MAX);
+            activated = activated_count > tool_count;
+            tool_count = activated_count;
+            turn.tool_count = tool_count;
+            if (activated) {
+                err = agent_activated_tool_result(
+                    tool_result,
+                    SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+            } else {
+                agent_note_tool_result(false, ESP_ERR_NOT_SUPPORTED);
+                err = agent_inactive_tool_result(
+                    tool_result,
+                    SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+            }
+        } else if (!active || !known) {
             agent_note_tool_result(false, ESP_ERR_NOT_SUPPORTED);
             err = agent_inactive_tool_result(
                 tool_result,
@@ -1202,9 +1240,10 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         agent_append_tool_summary(run,
                                   run->provider_result.tool_name,
                                   denied ? "denied" :
-                                      (duplicate ? "skipped" :
-                                          (tool_succeeded ?
-                                              "complete" : "failed")));
+                                      (activated ? "activated" :
+                                          (duplicate ? "skipped" :
+                                              (tool_succeeded ?
+                                                  "complete" : "failed"))));
         strlcpy(run->tool_call_id,
                 run->provider_result.tool_call_id,
                 sizeof(run->tool_call_id));
