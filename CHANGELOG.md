@@ -4,6 +4,12 @@
 
 ## 4.x
 
+- **4.3.19** — 2026-07-29 — Completed shell argument autocomplete across
+  applications, commands, and job startup: app flags and values, filesystem
+  operands, GPIO/logic inputs, manual references, and live conversation,
+  inbox, expansion-device, port, display, stream, and job identifiers are now
+  suggested where applicable. Added the previously omitted `gpio release`
+  subcommand.
 - **4.3.18** — 2026-07-29 — Extended `setterm palette normal|inverted` to the
   shared graphics palette so graphic apps reverse black, white, and dithered
   shades without framebuffer rewriting or controller inversion. Headless port
