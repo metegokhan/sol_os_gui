@@ -99,6 +99,54 @@ static bool playground_url_valid(const char *url)
     return true;
 }
 
+static esp_err_t playground_normalize_source(const char *url,
+                                             char *normalized,
+                                             size_t normalized_len)
+{
+    static const char github_prefix[] = "https://github.com/";
+    if (normalized == NULL || normalized_len == 0U ||
+        !playground_url_valid(url)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (strncmp(url, github_prefix, strlen(github_prefix)) == 0) {
+        const char *repository = url + strlen(github_prefix);
+        const char *separator = strchr(repository, '/');
+        if (separator != NULL && separator != repository &&
+            memchr(repository, '?', (size_t)(separator - repository)) == NULL &&
+            memchr(repository, '#', (size_t)(separator - repository)) == NULL) {
+            const char *name = separator + 1U;
+            size_t name_len = strlen(name);
+            if (name_len > 0U && name[name_len - 1U] == '/') {
+                name_len--;
+            }
+            if (name_len > 4U &&
+                strncmp(name + name_len - 4U, ".git", 4U) == 0) {
+                name_len -= 4U;
+            }
+            if (name_len > 0U &&
+                memchr(name, '/', name_len) == NULL &&
+                memchr(name, '?', name_len) == NULL &&
+                memchr(name, '#', name_len) == NULL) {
+                const int written = snprintf(
+                    normalized,
+                    normalized_len,
+                    "https://raw.githubusercontent.com/%.*s/%.*s/"
+                    "main/dist/catalog.json",
+                    (int)(separator - repository),
+                    repository,
+                    (int)name_len,
+                    name);
+                return written >= 0 && (size_t)written < normalized_len ?
+                    ESP_OK : ESP_ERR_INVALID_SIZE;
+            }
+        }
+    }
+
+    return strlcpy(normalized, url, normalized_len) < normalized_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
 static bool playground_id_valid(const char *id)
 {
     if (id == NULL || id[0] == '\0') {
@@ -935,16 +983,20 @@ esp_err_t solar_os_playground_init(void)
     }
     portEXIT_CRITICAL(&playground_lock);
 
+    char stored_source[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX] =
+        SOLAR_OS_PLAYGROUND_DEFAULT_SOURCE;
     char source[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX] =
         SOLAR_OS_PLAYGROUND_DEFAULT_SOURCE;
     nvs_handle_t nvs = 0;
     if (nvs_open(PLAYGROUND_NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
-        size_t source_len = sizeof(source);
+        size_t source_len = sizeof(stored_source);
         if (nvs_get_str(nvs,
                         PLAYGROUND_NVS_SOURCE_KEY,
-                        source,
+                        stored_source,
                         &source_len) != ESP_OK ||
-            !playground_url_valid(source)) {
+            playground_normalize_source(stored_source,
+                                        source,
+                                        sizeof(source)) != ESP_OK) {
             strlcpy(source, SOLAR_OS_PLAYGROUND_DEFAULT_SOURCE, sizeof(source));
         }
         nvs_close(nvs);
@@ -969,22 +1021,23 @@ void solar_os_playground_get_source(char *url, size_t url_len)
 
 esp_err_t solar_os_playground_set_source(const char *url)
 {
-    if (!playground_url_valid(url)) {
-        return ESP_ERR_INVALID_ARG;
+    char normalized[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX];
+    esp_err_t err = playground_normalize_source(
+        url, normalized, sizeof(normalized));
+    if (err != ESP_OK) {
+        return err;
     }
     nvs_handle_t nvs = 0;
-    esp_err_t err = nvs_open(PLAYGROUND_NVS_NAMESPACE,
-                             NVS_READWRITE,
-                             &nvs);
+    err = nvs_open(PLAYGROUND_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (err == ESP_OK) {
-        err = nvs_set_str(nvs, PLAYGROUND_NVS_SOURCE_KEY, url);
+        err = nvs_set_str(nvs, PLAYGROUND_NVS_SOURCE_KEY, normalized);
     }
     if (err == ESP_OK) {
         err = nvs_commit(nvs);
     }
     if (err == ESP_OK) {
         portENTER_CRITICAL(&playground_lock);
-        strlcpy(playground_source, url, sizeof(playground_source));
+        strlcpy(playground_source, normalized, sizeof(playground_source));
         playground_catalog_ready = false;
         playground_source_generation++;
         playground_initialized = true;

@@ -520,7 +520,7 @@ Usage:
 ```text
 playground
 playground refresh
-playground source [catalog-url|reset]
+playground source [repository-or-catalog-url|reset]
 ```
 
 Press `/` to search, `Enter` to open an application, and use the actions shown

@@ -759,7 +759,7 @@ static bool playground_handle_source_command(solar_os_context_t *ctx)
                                  err == ESP_OK ? "saved" : esp_err_to_name(err));
     } else {
         solar_os_shell_io_writeln(
-            io, "usage: playground source [catalog-url|reset]");
+            io, "usage: playground source [repository-or-catalog-url|reset]");
     }
     solar_os_shell_io_flush(io);
     solar_os_context_request_exit(ctx);

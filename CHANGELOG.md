@@ -11,7 +11,8 @@
   the selected runtime. Added source selection in NVS, staged replacement,
   shell autocomplete, a package-aware manual entry, and the initial
   `solar_os_playground` repository contract with deterministic catalog/archive
-  generation and Python/Lua examples.
+  generation and Python/Lua examples. GitHub repository source URLs are
+  normalized to their generated catalog, including values saved by 4.4.0.
 - **4.3.20** — 2026-07-29 — Added an ASCII character-set mode for port-shell
   TUIs used through legacy serial terminals. `setterm charset ascii` and
   `session create shell ... --charset ascii` now replace Unicode box drawing,
