@@ -1487,7 +1487,8 @@ static bool switch_detached_display_session(solar_os_session_entry_t *current,
 static void dispatch_session_event(solar_os_session_entry_t *session,
                                    const solar_os_event_t *event)
 {
-    if (session == NULL || !session->used || session->app == NULL ||
+    if (session == NULL || !session->used || session->suspended ||
+        session->app == NULL ||
         session->app->event == NULL || event == NULL) {
         return;
     }
@@ -1906,24 +1907,34 @@ void solar_os_sessions_dispatch_tick(uint32_t now_ms)
         .type = SOLAR_OS_EVENT_TICK,
         .data.tick_ms = now_ms,
     };
+    solar_os_session_context_snapshot_t previous = {0};
+    session_context_capture(&previous);
 
     for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
         solar_os_session_entry_t *session = &session_state.sessions[i];
         if (!session->used || session->app == NULL ||
+            session->suspended ||
             session == session_state.foreground_session) {
             continue;
         }
         dispatch_session_event(session, &event);
-        if (session->used &&
-            !session->suspended &&
-            session->display_target[0] != '\0') {
-            (void)process_addressed_session_requests(session);
-            session_draw_terminal_if_needed(session);
-        } else if (session->used) {
-            process_inactive_session_requests(session);
+        if (session->used) {
+            /*
+             * A throttled tick returns before dispatch_session_event() prepares
+             * the session context. Requests and terminal drawing must still be
+             * scoped to this session, never to the previously dispatched one.
+             */
+            session_prepare_context(session);
+            if (!session->suspended && session->display_target[0] != '\0') {
+                (void)process_addressed_session_requests(session);
+                session_draw_terminal_if_needed(session);
+            } else {
+                process_inactive_session_requests(session);
+            }
         }
+        session_context_restore(&previous);
     }
-    restore_foreground_context();
+    session_context_restore(&previous);
 
     if (session_state.foreground_session != NULL) {
         dispatch_session_event(session_state.foreground_session, &event);
