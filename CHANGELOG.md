@@ -4,6 +4,14 @@
 
 ## 4.x
 
+- **4.4.0** — 2026-07-29 — Added Playground, a native foldable catalog browser
+  for community Python and Lua applications. Users can search one configurable
+  repository, inspect compatibility and installation state, verify and install
+  hashed application archives to flash or SD, update or remove them, and launch
+  the selected runtime. Added source selection in NVS, staged replacement,
+  shell autocomplete, a package-aware manual entry, and the initial
+  `solar_os_playground` repository contract with deterministic catalog/archive
+  generation and Python/Lua examples.
 - **4.3.20** — 2026-07-29 — Added an ASCII character-set mode for port-shell
   TUIs used through legacy serial terminals. `setterm charset ascii` and
   `session create shell ... --charset ascii` now replace Unicode box drawing,

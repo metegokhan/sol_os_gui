@@ -510,6 +510,27 @@ Controls:
 - `Space` pauses/resumes live mode.
 - `q`, `Esc`, or app-exit key exits.
 
+## playground
+
+Browse the configured community catalog as a foldable category tree, search
+applications, and download, update, remove, or run Python and Lua scripts.
+
+Usage:
+
+```text
+playground
+playground refresh
+playground source [catalog-url|reset]
+```
+
+Press `/` to search, `Enter` to open an application, and use the actions shown
+in the bottom bar. Downloads are verified by size and SHA-256 and installed
+under `/.solar/playground/`; SD can be selected when mounted. Community scripts
+run with the normal permissions of their runtime and are not sandboxed.
+
+See [Playground](playground.md) for controls, storage layout, source selection,
+and the trust model.
+
 ## python
 
 Embedded MicroPython runtime. It can run an interactive REPL, `.py` scripts, or
