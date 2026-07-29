@@ -12,7 +12,10 @@
   closure of display sessions remain unchanged. Port-session metadata and
   control queues prefer PSRAM and add no task stack per suspended app. SolarOS
   refuses to close the final interactive shell, and closing the current port
-  shell no longer redraws a stale prompt before disconnecting.
+  shell no longer redraws a stale prompt before disconnecting. Closing a
+  detached display application now restores a valid base context before its
+  parent resumes, preventing a freed terminal from being drawn and rebooting
+  the device.
 - **4.4.0** — 2026-07-29 — Added Playground, a native foldable catalog browser
   for community Python and Lua applications. Users can search one configurable
   repository, inspect compatibility and installation state, verify and install

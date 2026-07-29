@@ -316,6 +316,9 @@ static void restore_foreground_context(void)
 {
     if (session_state.foreground_session != NULL) {
         session_prepare_context(session_state.foreground_session);
+    } else {
+        /* A detached close may have just freed the current session terminal. */
+        session_restore_base_context();
     }
 }
 
