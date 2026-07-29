@@ -122,7 +122,8 @@ starts with only three bootstrap tools:
   RAM blocks, and free PSRAM.
 - `solaros_reference`: search the same package-aware registry exposed to users
   by `man -k` and `man TOPIC`, returning compact authoritative API and system
-  contracts by exact language and task. Every result includes mandatory
+  contracts. It accepts exactly one `query` field combining the language and
+  task, such as `{"query":"lua gfx drawing"}`. Every result includes mandatory
   SolarOS coding guidance: use documented constants rather than guessed
   strings or numbers, discover hardware names, respect package gates, and
   preserve cleanup patterns. Graphics matches include copyable Python and Lua

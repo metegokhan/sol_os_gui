@@ -16,7 +16,9 @@
   duplicate read-only tool loops, and accepted full-size streamed tool
   arguments from local OpenAI-compatible providers. Agent storage tools now
   resolve relative paths from the invoking shell directory, and tool failures
-  show their concrete error name in the TUI.
+  show their concrete error name in the TUI. Clarified the exact
+  `solaros_reference` argument shape for local models and stop advertising
+  tools after the first repeated read-only call.
   (`bf4f600`, `6ed07f5`, `093ffac`)
 - **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
   in three flash or eight SD slots, with atomic checked records and explicit

@@ -32,7 +32,7 @@
 #define AGENT_TOOL_CONTEXT_MAX 4096U
 #define AGENT_TOOL_CONTEXT_RESULT_MAX 1536U
 #define AGENT_TOOL_SIGNATURE_MAX 8U
-#define AGENT_DUPLICATE_TOOL_LIMIT 2U
+#define AGENT_DUPLICATE_TOOL_LIMIT 1U
 
 typedef struct {
     solar_os_http_request_t *request;

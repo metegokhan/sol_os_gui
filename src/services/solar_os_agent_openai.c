@@ -26,10 +26,13 @@
     "using a storage, display, hardware, GPIO, bus, network, sensor, or "      \
     "script tool that is not visible, call tool_search with the exact task. " \
     "Before writing or running Python or Lua that uses SolarOS APIs, call "  \
-    "solaros_reference with the exact language and task. Treat its guidance " \
+    "solaros_reference with exactly one argument shaped "                    \
+    "{\\\"query\\\":\\\"lua gfx drawing\\\"}, combining the language and " \
+    "task in that query. Treat its guidance "                                \
     "and matched contracts as mandatory. Use documented symbols and "        \
     "constants exactly; never replace them with guessed strings or numbers. " \
-    "If the contract is insufficient, query again instead of guessing. "     \
+    "Make one comprehensive reference query; query again only for a "         \
+    "distinctly missing API instead of guessing. "                            \
     "Never invent API names, device names, display targets, bus names, or "   \
     "GPIOs. Use only values supplied by the user or verified through SolarOS "\
     "APIs. For nontrivial existing files, use storage_search and "             \

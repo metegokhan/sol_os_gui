@@ -484,9 +484,11 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .name = "solaros_reference",
             .description =
                 "Search the authoritative installed SolarOS Python and Lua API "
-                "contracts and mandatory coding guidance. Query the exact "
-                "language and task before writing or running code, and follow "
-                "returned constants, patterns, targets, and capability "
+                "contracts and mandatory coding guidance. Pass exactly one "
+                "field named query that combines the language and task, for "
+                "example {\"query\":\"lua gfx drawing\"}. Make one "
+                "comprehensive query before writing or running code, and "
+                "follow returned constants, patterns, targets, and capability "
                 "constraints exactly.",
             .parameters_json = AGENT_TOOL_SCHEMA_REFERENCE,
             .strict = true,
