@@ -25,7 +25,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [cat command](commands.md) — Print a small text file.
 - [cd command](commands.md) — Change current shell directory.
 - [clear command](commands.md) — Clear the active shell terminal.
-- [close command](commands.md) — Close a display app or display shell session, or stop a port shell session.
+- [close command](commands.md) — Close an app or shell session while preserving the final interactive shell.
 - [commands command](commands.md) — List built-in shell commands.
 - [cp command](commands.md) — Copy a file or matched set.
 - [daq command](commands.md) — Print DAQ usage.

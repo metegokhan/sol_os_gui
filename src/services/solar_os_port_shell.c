@@ -1343,6 +1343,19 @@ bool solar_os_port_shell_is_session_id(uint8_t session_id)
     return found;
 }
 
+bool solar_os_port_shell_context_owns_session(const solar_os_context_t *ctx,
+                                              uint8_t session_id)
+{
+    portENTER_CRITICAL(&port_shells_lock);
+    const port_shell_state_t *owner =
+        port_shell_by_id_locked(session_id);
+    const port_shell_state_t *caller =
+        port_shell_for_context_locked(ctx);
+    const bool matches = owner != NULL && owner == caller;
+    portEXIT_CRITICAL(&port_shells_lock);
+    return matches;
+}
+
 bool solar_os_port_shell_is_app_session_id(uint8_t session_id)
 {
     const uint8_t app_limit =

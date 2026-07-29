@@ -57,11 +57,11 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `clear` | `clear` | Clear the active shell terminal. |
 | `watch` | `watch [-n seconds] <command> [args...]` | Repeat another shell command until `Esc`, `q`, or the app-exit key is pressed. |
 | `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
-| `exit` | `exit` | Close the current UART, USB CDC, or telnet shell. The display shell remains active. |
+| `exit` | `exit` | Close the current UART, USB CDC, or telnet shell when another interactive shell remains. |
 | `reboot` | `reboot` | Restart the board. |
 | `sessions` | `sessions` | List display app sessions, display shell sessions, and port shell sessions. |
 | `fg` | `fg [session-id]` | Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app. |
-| `close` | `close <session-id>` | Close a display app, display shell, or retained port app, or stop a port shell session. |
+| `close` | `close <session-id>` | Close a display app, display shell, or retained port app, or stop a port shell session. The final interactive shell cannot be closed. |
 | `inbox` | `inbox` | Open the universal incoming-message browser. |
 | `inbox` | `inbox status` | Show universal incoming-message counts and storage status. |
 | `inbox` | `inbox list [all\|unread]` | List newest messages first. |

@@ -2517,6 +2517,10 @@ static esp_err_t session_close_internal(uint8_t session_id,
         reject_current_shell) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (session->app == solar_os_shell_app() &&
+        solar_os_sessions_shell_count() <= 1U) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
 
     const bool closed =
         session != session_state.foreground_session &&
@@ -2546,6 +2550,9 @@ static void session_print_close_result(solar_os_shell_io_t *io,
     } else if (result == ESP_ERR_INVALID_STATE) {
         solar_os_shell_io_writeln(io,
                                   "close: cannot close the current shell from itself");
+    } else if (result == ESP_ERR_NOT_ALLOWED) {
+        solar_os_shell_io_writeln(io,
+                                  "close: cannot close the last shell");
     } else {
         solar_os_shell_io_printf(io, "close: failed: %u\n", (unsigned)session_id);
     }
@@ -2600,19 +2607,14 @@ esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *i
         return err;
     }
     if (solar_os_port_shell_is_session_id(session_id)) {
-        const esp_err_t err = solar_os_port_shell_stop(session_id);
-        if (io != NULL) {
-            if (err == ESP_OK) {
-                solar_os_shell_io_printf(io,
-                                         "closed session %u\n",
-                                         (unsigned)session_id);
-            } else {
-                solar_os_shell_io_printf(io,
-                                         "close: failed: %s\n",
-                                         esp_err_to_name(err));
-            }
-            solar_os_shell_io_flush(io);
+        if (solar_os_sessions_shell_count() <= 1U) {
+            session_print_close_result(io,
+                                       session_id,
+                                       ESP_ERR_NOT_ALLOWED);
+            return ESP_ERR_NOT_ALLOWED;
         }
+        const esp_err_t err = solar_os_port_shell_stop(session_id);
+        session_print_close_result(io, session_id, err);
         return err;
     }
 
@@ -2625,6 +2627,19 @@ size_t solar_os_sessions_active_count(void)
 
     for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
         if (session_state.sessions[i].used && session_state.sessions[i].app != NULL) {
+            count++;
+        }
+    }
+    return count;
+}
+
+size_t solar_os_sessions_shell_count(void)
+{
+    size_t count = solar_os_port_shell_session_count();
+
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        if (session_state.sessions[i].used &&
+            session_state.sessions[i].app == solar_os_shell_app()) {
             count++;
         }
     }

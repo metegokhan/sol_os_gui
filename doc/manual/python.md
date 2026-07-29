@@ -758,7 +758,8 @@ Session functions create and close foreground shell/app sessions.
 
 - `create_shell(port[, term[, cols, rows[, charset]]])`: create a port shell session and return its numeric session id.
 - `create_shell(port, term="auto", cols=80, rows=24, charset="utf8")`: keyword form for the same call. Use `charset="ascii"` for legacy terminals.
-- `close(session_id)`: close a display/app session or stop a port shell session.
+- `close(session_id)`: close a display/app session or stop a port shell session;
+  closing the final interactive shell is refused.
 
 Manual port shell sessions created from scripts do not run `/.shell/startup`.
 

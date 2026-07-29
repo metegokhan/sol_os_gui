@@ -5513,6 +5513,10 @@ static void cmd_exit(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_shell_io_writeln(io, "exit: cannot close the display shell");
         return;
     }
+    if (solar_os_sessions_shell_count() <= 1U) {
+        solar_os_shell_io_writeln(io, "exit: cannot close the last shell");
+        return;
+    }
 
     solar_os_context_request_exit(ctx);
     shell_session(ctx)->builtin_suppressed_prompt = true;
@@ -5708,7 +5712,13 @@ static void session_request_fg(solar_os_context_t *ctx, uint8_t session_id)
 
 static void session_request_close(solar_os_context_t *ctx, uint8_t session_id)
 {
-    (void)solar_os_sessions_close_any(session_id, terminal(ctx));
+    const bool closes_calling_port =
+        solar_os_port_shell_context_owns_session(ctx, session_id);
+    const esp_err_t err =
+        solar_os_sessions_close_any(session_id, terminal(ctx));
+    if (closes_calling_port && err == ESP_OK) {
+        shell_session(ctx)->builtin_suppressed_prompt = true;
+    }
 }
 
 static void session_create_display_shell(solar_os_context_t *ctx, const char *target_name)

@@ -37,6 +37,9 @@ Applications currently remain single-instance across the device. If an app is
 already retained on another display or port, SolarOS reports its session owner
 instead of creating a second copy.
 
+SolarOS always keeps at least one interactive shell. `exit`, `close`, and
+`session close` refuse to close the final remaining display or port shell.
+
 ## Create another shell
 
 ```text

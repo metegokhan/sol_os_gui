@@ -10,7 +10,9 @@
   close commands include port-owned applications. Child launches now suspend
   and return to Files or Playground correctly. Cross-shell creation, focus, and
   closure of display sessions remain unchanged. Port-session metadata and
-  control queues prefer PSRAM and add no task stack per suspended app.
+  control queues prefer PSRAM and add no task stack per suspended app. SolarOS
+  refuses to close the final interactive shell, and closing the current port
+  shell no longer redraws a stale prompt before disconnecting.
 - **4.4.0** — 2026-07-29 — Added Playground, a native foldable catalog browser
   for community Python and Lua applications. Users can search one configurable
   repository, inspect compatibility and installation state, verify and install

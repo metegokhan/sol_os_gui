@@ -75,5 +75,6 @@ esp_err_t solar_os_sessions_close_display(const char *target_name);
 esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_t *io);
 esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *io);
 size_t solar_os_sessions_active_count(void);
+size_t solar_os_sessions_shell_count(void);
 bool solar_os_sessions_get_active_id(size_t index, uint8_t *session_id);
 void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user);
