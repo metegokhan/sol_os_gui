@@ -190,9 +190,12 @@ the display shell it prints guidance to set the profile from a port shell.
 Display layout settings (`orientation`, `font`, `textsize`, and `palette`) apply
 to the current display and its app sessions. Settings on the primary display
 are persistent; settings on secondary or virtual displays such as `web0` are
-runtime-only. `palette` redraws terminal content with logical black and white
-exchanged; it remains independent of hardware inversion modes exposed by
-`display mode`.
+runtime-only. `palette` exchanges logical black and white in terminal content
+and in the shared graphics palette; dithered shades are reversed as well. It
+remains independent of hardware inversion modes exposed by `display mode`, and
+does not rewrite an existing framebuffer. On a headless board, a port shell can
+set or query the persistent palette before an expansion-display session exists;
+subsequently created terminal and graphic sessions inherit it.
 
 ## Apps And Jobs
 

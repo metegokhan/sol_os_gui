@@ -1499,7 +1499,11 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_printf(
                 term,
                 "palette: %s\n",
-                solar_os_terminal_palette_inverted(display) ? "inverted" : "normal");
+                (display != NULL ?
+                     solar_os_terminal_palette_inverted(display) :
+                     solar_os_terminal_palette_preference_inverted()) ?
+                    "inverted" :
+                    "normal");
             solar_os_shell_io_writeln(term, "values: normal inverted");
             return;
         }

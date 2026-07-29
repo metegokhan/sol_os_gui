@@ -6,6 +6,7 @@
 
 #include "solar_os_app_registry.h"
 #include "solar_os_display.h"
+#include "solar_os_gfx_internal.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_port_shell.h"
@@ -586,6 +587,24 @@ static bool session_terminal_setting_is_persistent(const solar_os_session_entry_
         session_effective_gfx(session) == session_state.default_gfx;
 }
 
+static void session_set_gfx_palette_inverted(const solar_os_session_entry_t *session,
+                                             bool inverted)
+{
+    solar_os_gfx_set_palette_inverted(session_effective_gfx(session), inverted);
+
+    char target_name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
+    if (session != NULL && session->display_target[0] != '\0') {
+        strlcpy(target_name, session->display_target, sizeof(target_name));
+    } else {
+        (void)solar_os_display_target_name_for_u8g2(session_state.display_u8g2,
+                                                    target_name,
+                                                    sizeof(target_name));
+    }
+    if (target_name[0] != '\0') {
+        (void)solar_os_display_set_palette_inverted(target_name, inverted);
+    }
+}
+
 static uint16_t session_terminal_orientation_for_u8g2(const u8g2_t *u8g2)
 {
     if (u8g2 != NULL) {
@@ -703,6 +722,9 @@ static esp_err_t session_ensure_terminal(solar_os_session_entry_t *session)
     session->terminal = session_terminal;
     session->owns_terminal = true;
     session->io = session_io;
+    session_set_gfx_palette_inverted(
+        session,
+        solar_os_terminal_palette_inverted(session_terminal));
     return ESP_OK;
 }
 
@@ -1616,6 +1638,9 @@ esp_err_t solar_os_sessions_init(solar_os_context_t *ctx,
     session_state.terminal_fn = terminal_fn;
     session_state.overlay_fn = overlay_fn;
     session_state.user = user;
+    session_set_gfx_palette_inverted(
+        NULL,
+        solar_os_terminal_palette_inverted(shell_terminal));
     session_default_input_focus_for_u8g2(display_u8g2);
     if (ctx != NULL) {
         solar_os_context_set_session_list_handler(ctx, solar_os_sessions_print_list, NULL);
@@ -1628,6 +1653,9 @@ void solar_os_sessions_set_display(solar_os_terminal_t *shell_terminal, u8g2_t *
     session_state.shell_terminal = shell_terminal;
     session_state.display_u8g2 = display_u8g2;
     session_state.default_gfx = solar_os_context_gfx(session_state.ctx);
+    session_set_gfx_palette_inverted(
+        NULL,
+        solar_os_terminal_palette_inverted(shell_terminal));
     session_default_input_focus_for_u8g2(display_u8g2);
     if (session_state.sessions[0].used &&
         session_state.sessions[0].app == solar_os_shell_app()) {
@@ -1770,6 +1798,10 @@ esp_err_t solar_os_sessions_set_terminal_text_size(solar_os_terminal_t *terminal
 esp_err_t solar_os_sessions_set_terminal_palette_inverted(solar_os_terminal_t *terminal,
                                                           bool inverted)
 {
+    if (terminal == NULL) {
+        return solar_os_terminal_set_palette_preference(inverted);
+    }
+
     solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
     const esp_err_t err = session_terminal_setting_is_persistent(owner) ?
         solar_os_terminal_set_palette_inverted(terminal, inverted) :
@@ -1777,6 +1809,7 @@ esp_err_t solar_os_sessions_set_terminal_palette_inverted(solar_os_terminal_t *t
     if (err == ESP_ERR_INVALID_ARG) {
         return err;
     }
+    session_set_gfx_palette_inverted(owner, inverted);
 
     if (owner != NULL) {
         for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
@@ -2206,6 +2239,9 @@ static esp_err_t create_display_shell(const char *target_name,
 
     session->terminal = terminal;
     session->owns_terminal = true;
+    session_set_gfx_palette_inverted(
+        session,
+        solar_os_terminal_palette_inverted(terminal));
     session_update_title(session);
 
     if (session_id != NULL) {
