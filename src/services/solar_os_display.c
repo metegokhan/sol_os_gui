@@ -37,6 +37,7 @@ typedef struct {
     solar_os_display_rotation_t export_rotation;
     bool export_enabled;
     bool export_publishing;
+    bool palette_inverted;
 #if SOLAR_OS_BOARD_HAS_DISPLAY
     solar_os_board_display_t *board_display;
 #endif
@@ -272,6 +273,7 @@ static void display_init_slot_gfx(display_target_slot_t *slot)
 
     solar_os_gfx_init(&slot->gfx, slot->target.u8g2);
     solar_os_gfx_set_black_is_one(&slot->gfx, slot->target.black_is_one);
+    solar_os_gfx_set_palette_inverted(&slot->gfx, slot->palette_inverted);
 }
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
@@ -627,6 +629,26 @@ esp_err_t solar_os_display_set_brightness(uint8_t percent)
     ret = display_save_brightness(percent);
     return ret;
 #endif
+}
+
+esp_err_t solar_os_display_set_palette_inverted(const char *name, bool inverted)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    display_target_slot_t *slot = &display_targets[slot_index];
+    slot->palette_inverted = inverted;
+    solar_os_gfx_set_palette_inverted(&slot->gfx, inverted);
+    portEXIT_CRITICAL(&display_targets_lock);
+    return ESP_OK;
 }
 
 esp_err_t solar_os_display_get_controller_mode(const char *name,

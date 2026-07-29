@@ -4,6 +4,9 @@
 
 ## 4.x
 
+- **4.3.18** — 2026-07-29 — Extended `setterm palette normal|inverted` to the
+  shared graphics palette so graphic apps reverse black, white, and dithered
+  shades without framebuffer rewriting or controller inversion.
 - **4.3.17** — 2026-07-29 — Added a persistent `setterm palette
   normal|inverted` setting that reverses terminal black and white independently
   of display-controller inversion modes.

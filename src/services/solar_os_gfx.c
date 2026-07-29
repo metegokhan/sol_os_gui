@@ -94,7 +94,10 @@ static bool gfx_color_uses_dither(solar_os_gfx_color_t color)
 
 static uint8_t gfx_apply_polarity(const solar_os_gfx_t *gfx, uint8_t white_bit)
 {
-    return gfx != NULL && gfx->black_is_one ? (uint8_t)!white_bit : white_bit;
+    return gfx != NULL &&
+        (gfx->black_is_one != gfx->palette_inverted) ?
+        (uint8_t)!white_bit :
+        white_bit;
 }
 
 static uint8_t gfx_binary_draw_color(const solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
@@ -259,6 +262,19 @@ void solar_os_gfx_set_black_is_one(solar_os_gfx_t *gfx, bool black_is_one)
     }
 
     gfx->black_is_one = black_is_one;
+}
+
+void solar_os_gfx_set_palette_inverted(solar_os_gfx_t *gfx, bool inverted)
+{
+    if (gfx == NULL) {
+        return;
+    }
+    if (gfx->palette_inverted == inverted) {
+        return;
+    }
+
+    gfx->palette_inverted = inverted;
+    gfx->dirty = true;
 }
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
