@@ -4,6 +4,27 @@
 
 ## 4.x
 
+- **4.4.1** — 2026-07-29 — Added resumable application sessions to UART, USB
+  CDC, and network shells. `Ctrl+Z` suspends a resumable port application,
+  `fg [id]` restores it on its owning terminal, and the global session list and
+  close commands include port-owned applications. Child launches now suspend
+  and return to Files or Playground correctly. Cross-shell creation, focus, and
+  closure of display sessions remain unchanged. Port-session metadata and
+  control queues prefer PSRAM and add no task stack per suspended app. SolarOS
+  refuses to close the final interactive shell, and closing the current port
+  shell no longer redraws a stale prompt before disconnecting. Closing a
+  detached display application now restores a valid base context before its
+  parent resumes, preventing a freed terminal from being drawn and rebooting
+  the device.
+- **4.4.0** — 2026-07-29 — Added Playground, a native foldable catalog browser
+  for community Python and Lua applications. Users can search one configurable
+  repository, inspect compatibility and installation state, verify and install
+  hashed application archives to flash or SD, update or remove them, and launch
+  the selected runtime. Added source selection in NVS, staged replacement,
+  shell autocomplete, a package-aware manual entry, and the initial
+  `solar_os_playground` repository contract with deterministic catalog/archive
+  generation and Python/Lua examples. GitHub repository source URLs are
+  normalized to their generated catalog, including values saved by 4.4.0.
 - **4.3.20** — 2026-07-29 — Added an ASCII character-set mode for port-shell
   TUIs used through legacy serial terminals. `setterm charset ascii` and
   `session create shell ... --charset ascii` now replace Unicode box drawing,

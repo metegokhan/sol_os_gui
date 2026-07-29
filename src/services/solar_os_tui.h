@@ -32,6 +32,7 @@ typedef struct {
     uint8_t saved_attr;
     bool saved_cursor_visible;
     bool cursor_visible;
+    uint32_t screen_generation;
     uint32_t *front_codepoints;
     uint32_t *back_codepoints;
     uint8_t *front_attrs;

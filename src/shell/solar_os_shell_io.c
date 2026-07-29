@@ -591,6 +591,7 @@ esp_err_t solar_os_shell_io_clear(solar_os_shell_io_t *io)
     }
 
     if (io->kind == SOLAR_OS_SHELL_IO_KIND_TERMINAL) {
+        io->screen_generation++;
         io->cursor_row = 0;
         io->cursor_col = 0;
         solar_os_terminal_clear(io->terminal);
@@ -600,6 +601,7 @@ esp_err_t solar_os_shell_io_clear(solar_os_shell_io_t *io)
         if (!shell_io_port_supports_ansi_controls(io)) {
             return ESP_OK;
         }
+        io->screen_generation++;
         io->cursor_row = 0;
         io->cursor_col = 0;
         return shell_io_port_write_bytes(io, "\x1b[2J\x1b[H", strlen("\x1b[2J\x1b[H"));
@@ -781,6 +783,11 @@ bool solar_os_shell_io_cursor_visible(const solar_os_shell_io_t *io)
         return solar_os_terminal_cursor_visible(io->terminal);
     }
     return io->cursor_visible;
+}
+
+uint32_t solar_os_shell_io_screen_generation(const solar_os_shell_io_t *io)
+{
+    return io != NULL ? io->screen_generation : 0U;
 }
 
 esp_err_t solar_os_shell_io_clear_line_from(solar_os_shell_io_t *io, size_t row, size_t col)

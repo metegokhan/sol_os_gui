@@ -291,7 +291,8 @@ Script-created port shells do not run `/.shell/startup`.
 
 - `create_shell(port[, term[, cols, rows[, charset]]])`: create a port shell and return its numeric session id.
 - `create_shell(port, {term="auto", cols=80, rows=24, charset="utf8"})`: table-options form for the same call. Use `charset="ascii"` for legacy terminals.
-- `close(session_id)`: close a display/app session or stop a port shell session.
+- `close(session_id)`: close a display/app session or stop a port shell session;
+  closing the final interactive shell is refused.
 
 Example:
 

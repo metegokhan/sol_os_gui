@@ -10,8 +10,9 @@ packages_any = []
 # Foreground sessions and applications
 
 A session is a foreground application or shell attached to a display or byte
-stream. Sessions let you switch away from an application and return without
-discarding its state.
+stream. Each display or port has one active view, but can retain several
+suspended applications. Sessions let you switch away and return without
+discarding their state.
 
 ## Inspect and switch
 
@@ -24,6 +25,20 @@ session close 3
 `Alt+Tab` switches between sessions on the locally focused display. `session
 fg` explicitly foregrounds its session and moves local input focus to that
 session's display. Closing an application returns to that display's shell.
+
+On UART, USB CDC, Telnet, and other port shells, press `Ctrl+Z` to suspend a
+resumable foreground application and return to the prompt. Run `fg` to restore
+the most recently suspended application on that port, or `fg ID` to restore a
+specific port-owned session. `Ctrl+]` still closes the current application.
+Port sessions never migrate: a command from another shell can foreground or
+close one, but it changes the application shown on the owning port.
+
+Applications currently remain single-instance across the device. If an app is
+already retained on another display or port, SolarOS reports its session owner
+instead of creating a second copy.
+
+SolarOS always keeps at least one interactive shell. `exit`, `close`, and
+`session close` refuse to close the final remaining display or port shell.
 
 ## Create another shell
 
@@ -57,6 +72,17 @@ The invoking port shell immediately returns to its own prompt. The new app
 receives input belonging to its display; serial input remains with the serial
 shell. App arguments use the invoking shell's current directory for the same
 path-aware apps as a direct launch.
+
+This cross-shell display control remains available while a port shell retains
+its own applications. `session close ID` can close either kind of session.
+
+## Child applications
+
+Foreground applications can temporarily open another app on the same terminal.
+Files uses this for Reader, Less, Edit, and View; Playground uses it to run an
+installed Python or Lua application. The parent is suspended while the child is
+active. Closing the child resumes the parent. Suspending the child with
+`Ctrl+Z` returns to the shell and retains both sessions for later `fg`.
 
 ## Local input focus
 

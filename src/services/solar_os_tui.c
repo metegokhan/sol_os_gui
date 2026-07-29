@@ -563,6 +563,8 @@ esp_err_t solar_os_tui_begin(solar_os_tui_t *tui, solar_os_context_t *ctx)
     tui->cursor_col = tui->draw_col;
     tui->saved_cursor_visible = solar_os_shell_io_cursor_visible(tui->io);
     tui->cursor_visible = tui->saved_cursor_visible;
+    tui->screen_generation =
+        solar_os_shell_io_screen_generation(tui->io);
     return tui_valid(tui) ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
@@ -682,6 +684,12 @@ static esp_err_t tui_refresh_diff(solar_os_tui_t *tui)
     }
     if (!tui_diff_active(tui)) {
         return ESP_ERR_INVALID_STATE;
+    }
+    const uint32_t screen_generation =
+        solar_os_shell_io_screen_generation(tui->io);
+    if (tui->screen_generation != screen_generation) {
+        tui_mark_shadow_invalid(tui);
+        tui->screen_generation = screen_generation;
     }
 
     const size_t cells = (size_t)tui->diff_cols * (size_t)tui->diff_rows;

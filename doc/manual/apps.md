@@ -17,6 +17,8 @@ Exit behavior:
 
 - Display shell: `CTRL+ALT+DEL` exits foreground apps.
 - Port shells: `Ctrl+]` exits foreground apps.
+- Port shells: `Ctrl+Z` suspends a resumable app and returns to the prompt;
+  `fg` restores the most recently suspended app.
 - `Alt+Tab` switches between resumable foreground sessions on display builds.
 
 ## agent
@@ -509,6 +511,27 @@ Controls:
 - `a` or `r` resets the view.
 - `Space` pauses/resumes live mode.
 - `q`, `Esc`, or app-exit key exits.
+
+## playground
+
+Browse the configured community catalog as a foldable category tree, search
+applications, and download, update, remove, or run Python and Lua scripts.
+
+Usage:
+
+```text
+playground
+playground refresh
+playground source [repository-or-catalog-url|reset]
+```
+
+Press `/` to search, `Enter` to open an application, and use the actions shown
+in the bottom bar. Downloads are verified by size and SHA-256 and installed
+under `/.solar/playground/`; SD can be selected when mounted. Community scripts
+run with the normal permissions of their runtime and are not sandboxed.
+
+See [Playground](playground.md) for controls, storage layout, source selection,
+and the trust model.
 
 ## python
 
