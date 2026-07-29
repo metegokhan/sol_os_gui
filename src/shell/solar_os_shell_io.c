@@ -613,12 +613,13 @@ esp_err_t solar_os_shell_io_put_utf8_byte(solar_os_shell_io_t *io, uint8_t byte)
     }
 
     if (io->kind == SOLAR_OS_SHELL_IO_KIND_PORT) {
-        const char ch = (char)byte;
-        const esp_err_t err = shell_io_port_write_bytes(io, &ch, 1);
-        if (err == ESP_OK) {
-            shell_io_track_char(io, ch);
-        }
-        return err;
+        /*
+         * Streamed text reaches this function one byte at a time.  Keep port
+         * newline handling identical to the regular character path so VT100
+         * terminals receive CRLF instead of a bare LF (which preserves the
+         * current column and produces staircase-shaped output).
+         */
+        return solar_os_shell_io_put_char(io, (char)byte);
     }
 
     return ESP_ERR_INVALID_STATE;
