@@ -1230,10 +1230,11 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
                 char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
                 uint8_t session_id = 0;
                 const esp_err_t err =
-                    solar_os_sessions_create_display_shell(argv[3],
-                                                           &session_id,
-                                                           busy_owner,
-                                                           sizeof(busy_owner));
+                    solar_os_sessions_create_detached_display_shell(
+                        argv[3],
+                        &session_id,
+                        busy_owner,
+                        sizeof(busy_owner));
                 if (err == ESP_OK) {
                     solar_os_shell_io_printf(term,
                                              "job shell moved to sessions; session %u created: shell on %s\n",

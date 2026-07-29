@@ -78,12 +78,18 @@ typedef struct {
 } shell_command_t;
 
 typedef struct {
+    char path[SHELL_PATH_MAX];
+    char scp_paths[2][SHELL_PATH_MAX];
+} shell_app_launch_storage_t;
+
+typedef struct {
     const char * const *path;
     size_t path_count;
     const char * const *values;
     size_t value_count;
     const char *required_prefix;
     bool complete_commands;
+    bool complete_apps;
     bool complete_jobs;
     bool complete_manual_pages;
     bool complete_display_session_ids;
@@ -158,6 +164,13 @@ static bool shell_execute_line(solar_os_context_t *ctx,
                                bool add_history,
                                const char *source,
                                size_t line_number);
+static bool shell_prepare_app_launch_args(
+    solar_os_context_t *ctx,
+    const solar_os_app_registry_entry_t *app,
+    int argc,
+    char **argv,
+    char **launch_argv,
+    shell_app_launch_storage_t *storage);
 
 static const shell_command_t shell_builtin_commands[] = {
     {"help", "browse or refresh the SolarOS manual", solar_os_shell_cmd_help},
@@ -425,6 +438,7 @@ static const char * const session_subcommands[] = {
     "foreground",
     "switch",
     "close",
+    "focus",
     "background",
     "bg",
 };
@@ -950,6 +964,11 @@ static const char * const path_job_stop[] = {"job", "stop"};
 static const char * const path_session[] = {"session"};
 static const char * const path_session_create[] = {"session", "create"};
 static const char * const path_session_create_shell[] = {"session", "create", "shell"};
+static const char * const path_session_create_app[] = {
+    "session",
+    "create",
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_session_create_shell_target[] = {
     "session",
     "create",
@@ -974,6 +993,7 @@ static const char * const path_session_fg[] = {"session", "fg"};
 static const char * const path_session_foreground[] = {"session", "foreground"};
 static const char * const path_session_switch[] = {"session", "switch"};
 static const char * const path_session_close[] = {"session", "close"};
+static const char * const path_session_focus[] = {"session", "focus"};
 static const char * const path_stream[] = {"stream"};
 static const char * const path_stream_status[] = {"stream", "status"};
 static const char * const path_daq[] = {"daq"};
@@ -1288,6 +1308,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_commands = true, \
     }
+#define SHELL_COMPLETION_APPS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_apps = true, \
+    }
 #define SHELL_COMPLETION_JOBS(path_array) \
     { \
         .path = path_array, \
@@ -1520,8 +1546,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_JOBS(path_job_stop),
     SHELL_COMPLETION_STATIC(path_session, session_subcommands),
     SHELL_COMPLETION_STATIC(path_session_create, session_create_values),
+    SHELL_COMPLETION_APPS(path_session_create),
     SHELL_COMPLETION_PORTS(path_session_create_shell),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_session_create_shell),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_session_create_app),
     SHELL_COMPLETION_OPTIONS(path_session_create_shell_target, session_shell_options),
     SHELL_COMPLETION_STATIC(path_session_create_shell_term, session_shell_term_values),
     SHELL_COMPLETION_STATIC(path_session_create_shell_size, session_shell_size_values),
@@ -1529,6 +1557,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_session_foreground),
     SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_session_switch),
     SHELL_COMPLETION_SESSION_IDS(path_session_close),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_session_focus),
     SHELL_COMPLETION_STATIC(path_stream, stream_subcommands),
     SHELL_COMPLETION_STREAMS(path_stream_status),
     SHELL_COMPLETION_STATIC(path_daq, daq_subcommands),
@@ -3572,6 +3601,18 @@ static void shell_completion_emit_commands(shell_completion_match_t *state)
     (void)shell_for_each_alias(shell_completion_alias_emit_callback, state);
 }
 
+static void shell_completion_emit_apps(shell_completion_match_t *state)
+{
+    for (size_t i = 0; i < solar_os_app_registry_count(); i++) {
+        const solar_os_app_registry_entry_t *app = solar_os_app_registry_get(i);
+        if (app != NULL &&
+            app->name != NULL &&
+            (app->capabilities & SOLAR_OS_APP_CAP_DISPLAY) != 0) {
+            shell_completion_emit(state, app->name);
+        }
+    }
+}
+
 static void shell_completion_emit_jobs(shell_completion_match_t *state)
 {
     for (size_t i = 0; i < solar_os_job_registry_count(); i++) {
@@ -4715,6 +4756,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         if (rule->complete_commands) {
             shell_completion_emit_commands(state);
         }
+        if (rule->complete_apps) {
+            shell_completion_emit_apps(state);
+        }
         if (rule->complete_jobs) {
             shell_completion_emit_jobs(state);
         }
@@ -5212,9 +5256,11 @@ static void session_print_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  session list");
     solar_os_shell_io_writeln(io, "  session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
     solar_os_shell_io_writeln(io, "  session create shell <display-target>");
+    solar_os_shell_io_writeln(io, "  session create <app> <display-target> [args...]");
     solar_os_shell_io_writeln(io, "  session fg <session-id>");
     solar_os_shell_io_writeln(io, "  session switch <session-id>");
     solar_os_shell_io_writeln(io, "  session close <session-id>");
+    solar_os_shell_io_writeln(io, "  session focus [display-target]");
 }
 
 static void session_request_fg(solar_os_context_t *ctx, uint8_t session_id)
@@ -5244,10 +5290,10 @@ static void session_create_display_shell(solar_os_context_t *ctx, const char *ta
     uint8_t session_id = 0;
 
     const esp_err_t err =
-        solar_os_sessions_create_display_shell(target_name,
-                                               &session_id,
-                                               busy_owner,
-                                               sizeof(busy_owner));
+        solar_os_sessions_create_detached_display_shell(target_name,
+                                                        &session_id,
+                                                        busy_owner,
+                                                        sizeof(busy_owner));
     if (err == ESP_OK) {
         if (caller_is_port) {
             solar_os_shell_io_printf(caller_io,
@@ -5269,6 +5315,124 @@ static void session_create_display_shell(solar_os_context_t *ctx, const char *ta
         solar_os_shell_io_printf(caller_io,
                                  "session create failed: display target not found: %s\n",
                                  target_name);
+    } else {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: %s\n",
+                                 esp_err_to_name(err));
+    }
+}
+
+static void session_create_display_app(solar_os_context_t *ctx,
+                                       int argc,
+                                       char **argv)
+{
+    solar_os_shell_io_t *caller_io = terminal(ctx);
+    const solar_os_app_registry_entry_t *app =
+        solar_os_app_registry_find(argv[2]);
+    if (app == NULL || app->app == NULL) {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: app not found: %s\n",
+                                 argv[2]);
+        return;
+    }
+    if ((app->capabilities & SOLAR_OS_APP_CAP_DISPLAY) == 0) {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: %s is not a display app\n",
+                                 app->name);
+        return;
+    }
+
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(argv[3], &target)) {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: display target not found: %s\n",
+                                 argv[3]);
+        return;
+    }
+
+    const int app_argc = argc - 3;
+    if (app_argc > SOLAR_OS_APP_ARG_MAX) {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: too many app arguments (max %u)\n",
+                                 (unsigned)(SOLAR_OS_APP_ARG_MAX - 1));
+        return;
+    }
+
+    char *app_argv[SOLAR_OS_APP_ARG_MAX] = {0};
+    app_argv[0] = argv[2];
+    for (int i = 4; i < argc; i++) {
+        app_argv[i - 3] = argv[i];
+    }
+    char *launch_argv[SOLAR_OS_APP_ARG_MAX] = {0};
+    shell_app_launch_storage_t launch_storage = {0};
+    if (!shell_prepare_app_launch_args(ctx,
+                                       app,
+                                       app_argc,
+                                       app_argv,
+                                       launch_argv,
+                                       &launch_storage)) {
+        return;
+    }
+
+    const bool caller_is_port =
+        solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT;
+    if (!caller_is_port &&
+        solar_os_sessions_context_uses_display(ctx, target.name)) {
+        const esp_err_t request_err =
+            solar_os_context_request_launch_ex(ctx,
+                                               app->app,
+                                               app_argc,
+                                               launch_argv,
+                                               SOLAR_OS_LAUNCH_CHILD_RETURN);
+        if (request_err == ESP_OK) {
+            shell_session(ctx)->builtin_suppressed_prompt = true;
+            shell_session(ctx)->prompt_on_resume = true;
+            return;
+        }
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: %s\n",
+                                 esp_err_to_name(request_err));
+        return;
+    }
+
+    char busy_owner[SOLAR_OS_APP_OWNER_MAX];
+    uint8_t session_id = 0;
+    const esp_err_t err =
+        solar_os_sessions_create_display_app(app->app,
+                                             target.name,
+                                             app_argc,
+                                             launch_argv,
+                                             &session_id,
+                                             busy_owner,
+                                             sizeof(busy_owner));
+    if (err == ESP_OK) {
+        if (caller_is_port) {
+            solar_os_shell_io_printf(caller_io,
+                                     "session %u created: %s on %s\n",
+                                     (unsigned)session_id,
+                                     app->name,
+                                     target.name);
+        } else if (solar_os_sessions_foreground_app() == app->app) {
+            shell_session(ctx)->builtin_suppressed_prompt = true;
+        } else {
+            solar_os_shell_io_printf(caller_io,
+                                     "session %u created: %s on %s\n",
+                                     (unsigned)session_id,
+                                     app->name,
+                                     target.name);
+        }
+        return;
+    }
+
+    if (err == ESP_ERR_INVALID_STATE && busy_owner[0] != '\0') {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: %s already running on %s\n",
+                                 app->name,
+                                 busy_owner);
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: %s is not ready\n",
+                                 target.name);
     } else {
         solar_os_shell_io_printf(caller_io,
                                  "session create failed: %s\n",
@@ -5301,10 +5465,13 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "create") == 0) {
         solar_os_port_shell_options_t options;
-        if (argc < 4 || strcmp(argv[2], "shell") != 0) {
-            solar_os_shell_io_writeln(
-                io,
-                "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
+        if (argc < 4) {
+            session_print_usage(io);
+            return;
+        }
+
+        if (strcmp(argv[2], "shell") != 0) {
+            session_create_display_app(ctx, argc, argv);
             return;
         }
 
@@ -5338,6 +5505,46 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(io,
                                      "session create failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    if (strcmp(argv[1], "focus") == 0) {
+        if (argc == 2) {
+            char target_name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+            if (solar_os_sessions_input_focus(target_name,
+                                              sizeof(target_name))) {
+                solar_os_shell_io_printf(io,
+                                         "session input focus: %s\n",
+                                         target_name);
+            } else {
+                solar_os_shell_io_writeln(io, "session input focus: none");
+            }
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_io_writeln(io,
+                                      "usage: session focus [display-target]");
+            return;
+        }
+
+        const esp_err_t err = solar_os_sessions_focus_display(argv[2]);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(io,
+                                     "session input focus: %s\n",
+                                     argv[2]);
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            solar_os_shell_io_printf(io,
+                                     "session focus failed: display target not found: %s\n",
+                                     argv[2]);
+        } else if (err == ESP_ERR_INVALID_STATE) {
+            solar_os_shell_io_printf(io,
+                                     "session focus failed: no active session on %s\n",
+                                     argv[2]);
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "session focus failed: %s\n",
                                      esp_err_to_name(err));
         }
         return;
@@ -5479,6 +5686,67 @@ static bool shell_prepare_scp_launch_args(solar_os_context_t *ctx,
     return true;
 }
 
+static bool shell_prepare_app_launch_args(
+    solar_os_context_t *ctx,
+    const solar_os_app_registry_entry_t *app,
+    int argc,
+    char **argv,
+    char **launch_argv,
+    shell_app_launch_storage_t *storage)
+{
+    if (ctx == NULL ||
+        app == NULL ||
+        app->name == NULL ||
+        argc < 1 ||
+        argv == NULL ||
+        launch_argv == NULL ||
+        storage == NULL) {
+        return false;
+    }
+
+    for (int i = 0; i < argc; i++) {
+        launch_argv[i] = argv[i];
+    }
+
+    if (argc >= 2 &&
+        (strcmp(app->name, "edit") == 0 ||
+         strcmp(app->name, "less") == 0 ||
+         strcmp(app->name, "notes") == 0 ||
+         strcmp(app->name, "reader") == 0 ||
+         strcmp(app->name, "sheet") == 0)) {
+        if (!solar_os_shell_resolve_path_for_command(ctx,
+                                                     terminal(ctx),
+                                                     app->name,
+                                                     argv[1],
+                                                     storage->path,
+                                                     sizeof(storage->path))) {
+            return false;
+        }
+        launch_argv[1] = storage->path;
+    } else if (strcmp(app->name, "plot") == 0 &&
+               argc >= 3 &&
+               (strcmp(argv[1], "-f") == 0 ||
+                strcmp(argv[1], "--file") == 0)) {
+        if (!solar_os_shell_resolve_path_for_command(ctx,
+                                                     terminal(ctx),
+                                                     app->name,
+                                                     argv[2],
+                                                     storage->path,
+                                                     sizeof(storage->path))) {
+            return false;
+        }
+        launch_argv[2] = storage->path;
+    } else if (strcmp(app->name, "scp") == 0) {
+        return shell_prepare_scp_launch_args(ctx,
+                                             argc,
+                                             argv,
+                                             launch_argv,
+                                             storage->scp_paths);
+    }
+
+    return true;
+}
+
 static bool shell_execute_line(solar_os_context_t *ctx,
                                const char *line,
                                bool add_history,
@@ -5511,8 +5779,7 @@ static bool shell_execute_line(solar_os_context_t *ctx,
     const solar_os_app_registry_entry_t *app = solar_os_app_registry_find(argv[0]);
     if (app != NULL) {
         char *launch_argv[SHELL_ARG_MAX];
-        char resolved_path[SHELL_PATH_MAX];
-        char resolved_scp_paths[2][SHELL_PATH_MAX];
+        shell_app_launch_storage_t launch_storage = {0};
 
         if (shell_session(ctx)->watch_executing) {
             solar_os_shell_io_printf(terminal(ctx),
@@ -5537,45 +5804,13 @@ static bool shell_execute_line(solar_os_context_t *ctx,
             return true;
         }
 
-        for (int i = 0; i < argc; i++) {
-            launch_argv[i] = argv[i];
-        }
-
-        if (argc >= 2 &&
-            (strcmp(app->name, "edit") == 0 ||
-             strcmp(app->name, "less") == 0 ||
-             strcmp(app->name, "notes") == 0 ||
-             strcmp(app->name, "reader") == 0 ||
-             strcmp(app->name, "sheet") == 0)) {
-            if (!solar_os_shell_resolve_path_for_command(ctx,
-                                                         terminal(ctx),
-                                                         app->name,
-                                                         argv[1],
-                                                         resolved_path,
-                                                         sizeof(resolved_path))) {
-                return true;
-            }
-            launch_argv[1] = resolved_path;
-        } else if (strcmp(app->name, "plot") == 0 &&
-                   argc >= 3 &&
-                   (strcmp(argv[1], "-f") == 0 || strcmp(argv[1], "--file") == 0)) {
-            if (!solar_os_shell_resolve_path_for_command(ctx,
-                                                         terminal(ctx),
-                                                         app->name,
-                                                         argv[2],
-                                                         resolved_path,
-                                                         sizeof(resolved_path))) {
-                return true;
-            }
-            launch_argv[2] = resolved_path;
-        } else if (strcmp(app->name, "scp") == 0) {
-            if (!shell_prepare_scp_launch_args(ctx,
-                                               argc,
-                                               argv,
-                                               launch_argv,
-                                               resolved_scp_paths)) {
-                return true;
-            }
+        if (!shell_prepare_app_launch_args(ctx,
+                                           app,
+                                           argc,
+                                           argv,
+                                           launch_argv,
+                                           &launch_storage)) {
+            return true;
         }
 
         const esp_err_t err = solar_os_context_request_launch(ctx, app->app, argc, launch_argv);
