@@ -79,16 +79,23 @@ typedef struct {
     bool graphics_active;
 } solar_os_session_context_snapshot_t;
 
+typedef enum {
+    SOLAR_OS_SESSION_OPERATION_CREATE_DISPLAY_APP = 0,
+    SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION,
+} solar_os_session_operation_type_t;
+
 typedef struct {
+    solar_os_session_operation_type_t type;
     const solar_os_app_t *app;
     const char *target_name;
     int argc;
     char **argv;
+    uint8_t close_session_id;
     SemaphoreHandle_t complete;
     esp_err_t result;
     uint8_t session_id;
     char busy_owner[SOLAR_OS_APP_OWNER_MAX];
-} solar_os_session_create_request_t;
+} solar_os_session_operation_request_t;
 
 static solar_os_session_state_t session_state;
 static portMUX_TYPE input_focus_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -104,6 +111,8 @@ static esp_err_t session_create_display_app_internal(
     uint8_t *session_id,
     char *busy_owner,
     size_t busy_owner_len);
+static esp_err_t session_close_internal(uint8_t session_id,
+                                        bool reject_current_shell);
 
 static const char *app_display_name(const solar_os_app_t *app)
 {
@@ -1591,7 +1600,7 @@ esp_err_t solar_os_sessions_init(solar_os_context_t *ctx,
     if (session_operation_queue == NULL) {
         session_operation_queue =
             solar_os_queue_create(SOLAR_OS_SESSION_OPERATION_QUEUE_LEN,
-                                  sizeof(solar_os_session_create_request_t *));
+                                  sizeof(solar_os_session_operation_request_t *));
         if (session_operation_queue == NULL) {
             return ESP_ERR_NO_MEM;
         }
@@ -1958,19 +1967,30 @@ static void session_process_operation_requests(void)
         return;
     }
 
-    solar_os_session_create_request_t *request = NULL;
+    solar_os_session_operation_request_t *request = NULL;
     while (xQueueReceive(session_operation_queue, &request, 0) == pdTRUE) {
         if (request == NULL) {
             continue;
         }
-        request->result =
-            session_create_display_app_internal(request->app,
-                                                request->target_name,
-                                                request->argc,
-                                                request->argv,
-                                                &request->session_id,
-                                                request->busy_owner,
-                                                sizeof(request->busy_owner));
+        switch (request->type) {
+        case SOLAR_OS_SESSION_OPERATION_CREATE_DISPLAY_APP:
+            request->result =
+                session_create_display_app_internal(request->app,
+                                                    request->target_name,
+                                                    request->argc,
+                                                    request->argv,
+                                                    &request->session_id,
+                                                    request->busy_owner,
+                                                    sizeof(request->busy_owner));
+            break;
+        case SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION:
+            request->result =
+                session_close_internal(request->close_session_id, false);
+            break;
+        default:
+            request->result = ESP_ERR_INVALID_ARG;
+            break;
+        }
         xSemaphoreGive(request->complete);
     }
 }
@@ -2363,7 +2383,8 @@ esp_err_t solar_os_sessions_create_display_app(const solar_os_app_t *app,
      * task remains blocked until the scheduler has copied the arguments and
      * completed the operation, so no additional request buffer is required.
      */
-    solar_os_session_create_request_t request = {
+    solar_os_session_operation_request_t request = {
+        .type = SOLAR_OS_SESSION_OPERATION_CREATE_DISPLAY_APP,
         .app = app,
         .target_name = target_name,
         .argc = argc,
@@ -2374,7 +2395,7 @@ esp_err_t solar_os_sessions_create_display_app(const solar_os_app_t *app,
         return ESP_ERR_NO_MEM;
     }
 
-    solar_os_session_create_request_t *queued_request = &request;
+    solar_os_session_operation_request_t *queued_request = &request;
     if (xQueueSend(session_operation_queue,
                    &queued_request,
                    pdMS_TO_TICKS(1000)) != pdTRUE) {
@@ -2423,23 +2444,15 @@ esp_err_t solar_os_sessions_close_display(const char *target_name)
     return found ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_t *io)
+static esp_err_t session_close_internal(uint8_t session_id,
+                                        bool reject_current_shell)
 {
     solar_os_session_entry_t *session = session_by_id(session_id);
     if (!session_is_closable(session)) {
-        if (io != NULL) {
-            solar_os_shell_io_printf(io,
-                                     "close: no such closable session: %u\n",
-                                     (unsigned)session_id);
-            solar_os_shell_io_flush(io);
-        }
         return ESP_ERR_NOT_FOUND;
     }
     if (session->app == solar_os_shell_app() &&
-        io != NULL &&
-        io == session_shell_io(session)) {
-        solar_os_shell_io_writeln(io, "close: cannot close the current shell from itself");
-        solar_os_shell_io_flush(io);
+        reject_current_shell) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -2450,18 +2463,70 @@ esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_
             close_detached_session_and_resume(session) :
             close_session(session, true);
     if (!closed) {
-        if (io != NULL) {
-            solar_os_shell_io_printf(io, "close: failed: %u\n", (unsigned)session_id);
-            solar_os_shell_io_flush(io);
-        }
         return ESP_FAIL;
     }
-
-    if (io != NULL) {
-        solar_os_shell_io_printf(io, "closed session %u\n", (unsigned)session_id);
-        solar_os_shell_io_flush(io);
-    }
     return ESP_OK;
+}
+
+static void session_print_close_result(solar_os_shell_io_t *io,
+                                       uint8_t session_id,
+                                       esp_err_t result)
+{
+    if (io == NULL) {
+        return;
+    }
+    if (result == ESP_OK) {
+        solar_os_shell_io_printf(io, "closed session %u\n", (unsigned)session_id);
+    } else if (result == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(io,
+                                 "close: no such closable session: %u\n",
+                                 (unsigned)session_id);
+    } else if (result == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_writeln(io,
+                                  "close: cannot close the current shell from itself");
+    } else {
+        solar_os_shell_io_printf(io, "close: failed: %u\n", (unsigned)session_id);
+    }
+    solar_os_shell_io_flush(io);
+}
+
+esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_t *io)
+{
+    esp_err_t result = ESP_OK;
+    if (xTaskGetCurrentTaskHandle() == session_scheduler_task) {
+        solar_os_session_entry_t *session = session_by_id(session_id);
+        const bool reject_current_shell =
+            session != NULL &&
+            session->app == solar_os_shell_app() &&
+            io != NULL &&
+            io == session_shell_io(session);
+        result = session_close_internal(session_id, reject_current_shell);
+    } else if (session_operation_queue == NULL) {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        solar_os_session_operation_request_t request = {
+            .type = SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION,
+            .close_session_id = session_id,
+            .complete = xSemaphoreCreateBinary(),
+        };
+        if (request.complete == NULL) {
+            result = ESP_ERR_NO_MEM;
+        } else {
+            solar_os_session_operation_request_t *queued_request = &request;
+            if (xQueueSend(session_operation_queue,
+                           &queued_request,
+                           pdMS_TO_TICKS(1000)) != pdTRUE) {
+                result = ESP_ERR_TIMEOUT;
+            } else {
+                (void)xSemaphoreTake(request.complete, portMAX_DELAY);
+                result = request.result;
+            }
+            vSemaphoreDelete(request.complete);
+        }
+    }
+
+    session_print_close_result(io, session_id, result);
+    return result;
 }
 
 esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *io)
