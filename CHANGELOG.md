@@ -4,6 +4,10 @@
 
 ## 4.x
 
+- **4.4.2** — 2026-07-29 — Reduced SD-card boot time by trusting the signed
+  active manual catalog instead of reopening and hashing every previously
+  verified Markdown page. Manual downloads and updates still verify the
+  signature, archive, page sizes, and page hashes before activation.
 - **4.4.1** — 2026-07-29 — Added resumable application sessions to UART, USB
   CDC, and network shells. `Ctrl+Z` suspends a resumable port application,
   `fg [id]` restores it on its owning terminal, and the global session list and
