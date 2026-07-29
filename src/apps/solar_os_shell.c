@@ -155,6 +155,7 @@ static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_watch(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_exit(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sessions(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_session(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_fg(solar_os_context_t *ctx, int argc, char **argv);
@@ -308,6 +309,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"zip", "create ZIP archives", solar_os_shell_cmd_zip},
     {"unzip", "list or extract ZIP archives", solar_os_shell_cmd_unzip},
 #endif
+    {"exit", "close this port shell", cmd_exit},
     {"reboot", "restart the board", cmd_reboot},
 };
 
@@ -5127,6 +5129,21 @@ static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_flush(term);
     vTaskDelay(pdMS_TO_TICKS(100));
     solar_os_context_reboot(ctx, "restarting");
+}
+
+static void cmd_exit(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *io = terminal(ctx);
+
+    (void)argc;
+    (void)argv;
+    if (solar_os_shell_io_kind(io) != SOLAR_OS_SHELL_IO_KIND_PORT) {
+        solar_os_shell_io_writeln(io, "exit: cannot close the display shell");
+        return;
+    }
+
+    solar_os_context_request_exit(ctx);
+    shell_session(ctx)->builtin_suppressed_prompt = true;
 }
 
 static bool parse_session_id(const char *text, uint8_t *session_id)
