@@ -21,7 +21,8 @@
   installed application IDs directly from the loaded catalog without a second
   RAM cache. `playground run` now resolves the entry in the shell and launches
   Python or Lua directly instead of creating an intermediate Playground
-  session.
+  session. Opening the Playground TUI no longer refreshes an unavailable
+  catalog automatically, so merely opening it never requires Wi-Fi.
 - **4.4.0** — 2026-07-29 — Added Playground, a native foldable catalog browser
   for community Python and Lua applications. Users can search one configurable
   repository, inspect compatibility and installation state, verify and install

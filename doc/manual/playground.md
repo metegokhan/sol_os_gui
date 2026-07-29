@@ -37,6 +37,10 @@ application IDs for both `install` and `run` without keeping a second ID list
 in memory. These commands use the cached catalog; run `playground refresh`
 first if no catalog is available.
 
+Opening the Playground TUI never accesses the network automatically. It shows
+the catalog already loaded during the current boot, if any. Press `r` or run
+`playground refresh` when you explicitly want to download the current catalog.
+
 Application markers:
 
 - `[ ]` is available but not installed.

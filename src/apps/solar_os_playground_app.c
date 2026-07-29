@@ -987,12 +987,15 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
     }
     playground.tui_active = true;
     (void)solar_os_tui_enable_diff(&playground.tui, true);
-    playground_render();
-    if (force_refresh || !solar_os_playground_catalog_available()) {
+    if (force_refresh) {
         (void)playground_start_operation(
             PLAYGROUND_OPERATION_REFRESH, NULL, SOLAR_OS_PLAYGROUND_TARGET_AUTO);
-        playground_render();
+    } else if (!solar_os_playground_catalog_available()) {
+        strlcpy(playground.status,
+                "catalog not loaded - press r to refresh",
+                sizeof(playground.status));
     }
+    playground_render();
     return ESP_OK;
 }
 
