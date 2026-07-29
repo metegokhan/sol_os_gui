@@ -3950,7 +3950,7 @@ static void shell_completion_emit_playground_apps(
     const size_t count = solar_os_playground_app_count();
     for (size_t i = 0U; i < count; i++) {
         char id[SOLAR_OS_PLAYGROUND_ID_MAX];
-        if (solar_os_playground_get_app_id(i, id, sizeof(id))) {
+        if (solar_os_playground_get_installed_app_id(i, id, sizeof(id))) {
             shell_completion_emit(state, id);
         }
     }
@@ -6267,6 +6267,84 @@ static bool shell_prepare_app_launch_args(
     return true;
 }
 
+#if SOLAR_OS_PACKAGE_APP_PLAYGROUND
+static bool shell_launch_playground_script(solar_os_context_t *ctx,
+                                           int argc,
+                                           char **argv)
+{
+    solar_os_shell_io_t *io = terminal(ctx);
+    if (argc != 3) {
+        solar_os_shell_io_writeln(io, "usage: playground run APP-ID");
+        return true;
+    }
+    if (shell_session(ctx)->watch_executing) {
+        solar_os_shell_io_writeln(
+            io, "watch: cannot launch foreground app: playground run");
+        return true;
+    }
+    if (solar_os_playground_init() != ESP_OK ||
+        !solar_os_playground_catalog_available()) {
+        solar_os_shell_io_writeln(
+            io, "playground: catalog unavailable; run playground refresh");
+        return true;
+    }
+
+    solar_os_playground_app_info_t script;
+    if (!solar_os_playground_find_app(argv[2], NULL, &script)) {
+        solar_os_shell_io_printf(
+            io, "playground: application not found: %s\n", argv[2]);
+        return true;
+    }
+    char path[SOLAR_OS_APP_ARG_LEN];
+    const esp_err_t path_err =
+        solar_os_playground_entry_path(&script, path, sizeof(path));
+    if (path_err != ESP_OK) {
+        solar_os_shell_io_printf(
+            io, "playground: cannot run %s: not installed\n", argv[2]);
+        return true;
+    }
+
+    const char *runtime_name =
+        solar_os_playground_runtime_name(script.runtime);
+    const solar_os_app_registry_entry_t *runtime =
+        solar_os_app_registry_find(runtime_name);
+    if (runtime == NULL || runtime->app == NULL) {
+        solar_os_shell_io_printf(
+            io, "playground: runtime is unavailable: %s\n", runtime_name);
+        return true;
+    }
+    if (solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT &&
+        (runtime->capabilities & SOLAR_OS_APP_CAP_PORT) == 0) {
+        solar_os_shell_io_printf(
+            io, "%s: display-only app; use the display shell\n", runtime_name);
+        return true;
+    }
+
+    char owner[SOLAR_OS_APP_OWNER_MAX];
+    if (solar_os_app_registry_owner(runtime->app, owner, sizeof(owner))) {
+        solar_os_shell_io_printf(io,
+                                 "%s: already running on %s\n",
+                                 runtime_name,
+                                 owner[0] != '\0' ? owner : "another session");
+        return true;
+    }
+
+    char *launch_argv[] = {(char *)runtime_name, path};
+    const esp_err_t err =
+        solar_os_context_request_launch(ctx, runtime->app, 2, launch_argv);
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(io,
+                                 "playground: launch failed: %s\n",
+                                 esp_err_to_name(err));
+        return true;
+    }
+    shell_session(ctx)->prompt_on_resume = true;
+    shell_session(ctx)->clear_on_resume =
+        (runtime->app->flags & SOLAR_OS_APP_FLAG_RESUMABLE) == 0;
+    return false;
+}
+#endif
+
 static bool shell_execute_line(solar_os_context_t *ctx,
                                const char *line,
                                bool add_history,
@@ -6295,6 +6373,14 @@ static bool shell_execute_line(solar_os_context_t *ctx,
             return should_prompt;
         }
     }
+
+#if SOLAR_OS_PACKAGE_APP_PLAYGROUND
+    if (argc >= 2 &&
+        strcmp(argv[0], "playground") == 0 &&
+        strcmp(argv[1], "run") == 0) {
+        return shell_launch_playground_script(ctx, argc, argv);
+    }
+#endif
 
     const solar_os_app_registry_entry_t *app = solar_os_app_registry_find(argv[0]);
     if (app != NULL) {

@@ -91,9 +91,9 @@ bool solar_os_playground_get_category(size_t index,
 size_t solar_os_playground_app_count(void);
 bool solar_os_playground_get_app(size_t index,
                                  solar_os_playground_app_info_t *app);
-bool solar_os_playground_get_app_id(size_t index,
-                                    char *id,
-                                    size_t id_len);
+bool solar_os_playground_get_installed_app_id(size_t index,
+                                              char *id,
+                                              size_t id_len);
 bool solar_os_playground_find_app(const char *id,
                                   size_t *index,
                                   solar_os_playground_app_info_t *app);

@@ -30,11 +30,12 @@ descriptions, authors, tags, and categories.
 The same operations are available directly from the shell. `search` prints
 matching catalog IDs, runtimes, names, and installation markers. `install`
 downloads and verifies one ID to the automatically selected filesystem, or to
-the explicit `flash` or `sd` target. `run` replaces Playground with an
-installed application's Python or Lua runtime. After the catalog is loaded,
-Tab completes its application IDs for both `install` and `run` without keeping
-a second ID list in memory. These commands use the cached catalog; run
-`playground refresh` first if no catalog is available.
+the explicit `flash` or `sd` target. `run` resolves the installed entry in the
+shell and launches its Python or Lua runtime directly; it does not create a
+Playground session. After the catalog is loaded, Tab completes installed
+application IDs for both `install` and `run` without keeping a second ID list
+in memory. These commands use the cached catalog; run `playground refresh`
+first if no catalog is available.
 
 Application markers:
 

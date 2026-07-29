@@ -782,9 +782,10 @@ static esp_err_t playground_mount_for_target(
     return ESP_ERR_INVALID_STATE;
 }
 
-static esp_err_t playground_app_root(
+static esp_err_t playground_app_root_fields(
     const char *mount,
-    const solar_os_playground_app_info_t *app,
+    solar_os_playground_runtime_t runtime_kind,
+    const char *app_id,
     char *root,
     size_t root_len,
     bool create)
@@ -811,7 +812,7 @@ static esp_err_t playground_app_root(
     if (err == ESP_OK) {
         err = solar_os_storage_join_path(
             playground,
-            solar_os_playground_runtime_name(app->runtime),
+            solar_os_playground_runtime_name(runtime_kind),
             runtime,
             sizeof(runtime));
     }
@@ -820,18 +821,37 @@ static esp_err_t playground_app_root(
     }
     if (err == ESP_OK) {
         err = solar_os_storage_join_path(runtime,
-                                         app->id,
+                                         app_id,
                                          root,
                                          root_len);
     }
     return err;
 }
 
-static bool playground_find_installed_root(
+static esp_err_t playground_app_root(
+    const char *mount,
     const solar_os_playground_app_info_t *app,
+    char *root,
+    size_t root_len,
+    bool create)
+{
+    if (app == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return playground_app_root_fields(
+        mount, app->runtime, app->id, root, root_len, create);
+}
+
+static bool playground_find_installed_root_fields(
+    solar_os_playground_runtime_t runtime,
+    const char *id,
+    const char *entry_name,
     char *root,
     size_t root_len)
 {
+    if (id == NULL || entry_name == NULL) {
+        return false;
+    }
     const size_t count = solar_os_storage_mount_count();
     for (int pass = 0; pass < 2; pass++) {
         const solar_os_storage_mount_type_t wanted =
@@ -841,17 +861,18 @@ static bool playground_find_installed_root(
             solar_os_storage_mount_info_t info;
             if (!solar_os_storage_get_mount(i, &info) ||
                 info.type != wanted ||
-                playground_app_root(info.mount_point,
-                                    app,
-                                    root,
-                                    root_len,
-                                    false) != ESP_OK) {
+                playground_app_root_fields(info.mount_point,
+                                           runtime,
+                                           id,
+                                           root,
+                                           root_len,
+                                           false) != ESP_OK) {
                 continue;
             }
             char entry[SOLAR_OS_STORAGE_PATH_MAX];
             struct stat st;
             if (solar_os_storage_join_path(root,
-                                           app->entry,
+                                           entry_name,
                                            entry,
                                            sizeof(entry)) == ESP_OK &&
                 stat(entry, &st) == 0 && S_ISREG(st.st_mode)) {
@@ -860,6 +881,16 @@ static bool playground_find_installed_root(
         }
     }
     return false;
+}
+
+static bool playground_find_installed_root(
+    const solar_os_playground_app_info_t *app,
+    char *root,
+    size_t root_len)
+{
+    return app != NULL &&
+        playground_find_installed_root_fields(
+            app->runtime, app->id, app->entry, root, root_len);
 }
 
 static esp_err_t playground_read_installed_version(
@@ -1219,20 +1250,36 @@ bool solar_os_playground_get_app(size_t index,
     return found;
 }
 
-bool solar_os_playground_get_app_id(size_t index,
-                                    char *id,
-                                    size_t id_len)
+bool solar_os_playground_get_installed_app_id(size_t index,
+                                              char *id,
+                                              size_t id_len)
 {
     if (id == NULL || id_len == 0U) {
         return false;
     }
     id[0] = '\0';
+    char catalog_id[SOLAR_OS_PLAYGROUND_ID_MAX];
+    char entry[SOLAR_OS_PLAYGROUND_ENTRY_MAX];
+    solar_os_playground_runtime_t runtime =
+        SOLAR_OS_PLAYGROUND_RUNTIME_PYTHON;
     portENTER_CRITICAL(&playground_lock);
     const bool found = playground_catalog_ready &&
-        index < playground_catalog->app_count &&
-        strlcpy(id, playground_catalog->apps[index].id, id_len) < id_len;
+        index < playground_catalog->app_count;
+    if (found) {
+        const solar_os_playground_app_info_t *app =
+            &playground_catalog->apps[index];
+        strlcpy(catalog_id, app->id, sizeof(catalog_id));
+        strlcpy(entry, app->entry, sizeof(entry));
+        runtime = app->runtime;
+    }
     portEXIT_CRITICAL(&playground_lock);
-    return found;
+    if (!found) {
+        return false;
+    }
+    char root[SOLAR_OS_STORAGE_PATH_MAX];
+    return playground_find_installed_root_fields(
+               runtime, catalog_id, entry, root, sizeof(root)) &&
+        strlcpy(id, catalog_id, id_len) < id_len;
 }
 
 bool solar_os_playground_find_app(const char *id,
