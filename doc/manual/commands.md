@@ -175,6 +175,7 @@ setterm
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [12|14|16|18|20]
+setterm palette [normal|inverted]
 setterm brightness [0..100]
 setterm backlight [0..100]
 setterm profile [vt100|ansi|dumb]
@@ -186,10 +187,12 @@ setterm otaurl [url]
 
 `setterm profile` is runtime-only and applies to the current port shell. From
 the display shell it prints guidance to set the profile from a port shell.
-Display layout settings (`orientation`, `font`, and `textsize`) apply to the
-current display and its app sessions. Settings on the primary display are
-persistent; settings on secondary or virtual displays such as `web0` are
-runtime-only.
+Display layout settings (`orientation`, `font`, `textsize`, and `palette`) apply
+to the current display and its app sessions. Settings on the primary display
+are persistent; settings on secondary or virtual displays such as `web0` are
+runtime-only. `palette` redraws terminal content with logical black and white
+exchanged; it remains independent of hardware inversion modes exposed by
+`display mode`.
 
 ## Apps And Jobs
 
@@ -562,7 +565,9 @@ this driver-specific mode surface: `power=<auto|hpm|lpm>` selects automatic
 idle switching or a forced power mode, `inverted=<on|off>` selects panel
 inversion, `lpm-hz=<0.25|0.5|1|2|4|8>` changes the controller's LPM frame-rate
 field, and `hpm-hz=<16|25.5|32|51>` changes the controller's HPM frame-rate
-field. These driver values are stored in NVS when changed.
+field. These driver values are stored in NVS when changed. The ST7305
+`inverted=` setting controls panel polarity and remains independent of the
+terminal palette selected with `setterm palette`.
 On the CrowPanel SSD1683 path, `refresh=auto` uses a full waveform for the first
 changed frame and after every 19 fast updates, while unchanged frames are
 skipped. `refresh=fast` forces the faster waveform and `refresh=full` forces the

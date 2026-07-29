@@ -73,6 +73,10 @@ void solar_os_terminal_get_status_bar(const solar_os_terminal_t *terminal,
 void solar_os_terminal_set_footer(solar_os_terminal_t *terminal,
                                   const char *text);
 void solar_os_terminal_set_black_is_one(solar_os_terminal_t *terminal, bool black_is_one);
+bool solar_os_terminal_palette_inverted(const solar_os_terminal_t *terminal);
+esp_err_t solar_os_terminal_set_palette_inverted(solar_os_terminal_t *terminal, bool inverted);
+esp_err_t solar_os_terminal_set_palette_inverted_transient(solar_os_terminal_t *terminal,
+                                                           bool inverted);
 size_t solar_os_terminal_cursor_row(const solar_os_terminal_t *terminal);
 size_t solar_os_terminal_cursor_col(const solar_os_terminal_t *terminal);
 size_t solar_os_terminal_rows(const solar_os_terminal_t *terminal);

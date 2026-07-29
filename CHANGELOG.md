@@ -4,6 +4,9 @@
 
 ## 4.x
 
+- **4.3.17** — 2026-07-29 — Added a persistent `setterm palette
+  normal|inverted` setting that reverses terminal black and white independently
+  of display-controller inversion modes.
 - **4.3.16** — 2026-07-29 — Added `exit` to close the current UART, USB CDC, or
   telnet shell cleanly while leaving the built-in display shell active.
 - **4.3.15** — 2026-07-29 — Added target-addressed foreground app creation

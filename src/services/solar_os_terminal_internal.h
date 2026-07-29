@@ -48,6 +48,7 @@ struct solar_os_terminal {
     bool underline_enabled;
     bool inverse_enabled;
     bool black_is_one;
+    bool palette_inverted;
     uint8_t char_width;
     uint8_t line_height;
     uint8_t baseline_offset;
