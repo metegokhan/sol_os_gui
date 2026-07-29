@@ -606,7 +606,8 @@ static esp_err_t docs_verify_catalog_files(
 }
 
 static esp_err_t docs_verify_revision(const char *revision,
-                                      docs_catalog_t *verified)
+                                      docs_catalog_t *verified,
+                                      bool verify_files)
 {
     char base[SOLAR_OS_STORAGE_PATH_MAX];
     char path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -645,7 +646,7 @@ static esp_err_t docs_verify_revision(const char *revision,
     const solar_os_json_value_t *pages =
         document != NULL ?
             solar_os_json_object_get(solar_os_json_root(document), "pages") : NULL;
-    if (err == ESP_OK) {
+    if (err == ESP_OK && verify_files) {
         err = docs_verify_catalog_files(base, pages, info.page_count);
     }
     if (err == ESP_OK && verified != NULL) {
@@ -772,14 +773,16 @@ esp_err_t solar_os_docs_init(void)
     char revision[SOLAR_OS_DOCS_REVISION_MAX];
     esp_err_t err = docs_read_active_revision(revision);
     docs_catalog_t info;
+    /* Updates verify every page before activation. At boot, revalidate only
+     * the signed catalog so slow removable storage does not delay the shell. */
     if (err == ESP_OK) {
-        err = docs_verify_revision(revision, &info);
+        err = docs_verify_revision(revision, &info, false);
     }
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         const esp_err_t backup_err =
             docs_read_revision_pointer(DOCS_ACTIVE_BACKUP, revision);
         if (backup_err == ESP_OK) {
-            err = docs_verify_revision(revision, &info);
+            err = docs_verify_revision(revision, &info, false);
         }
     }
     if (err == ESP_OK) {
@@ -1019,7 +1022,7 @@ esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
     struct stat final_stat;
     if (err == ESP_OK && stat(final_path, &final_stat) == 0) {
         if (S_ISDIR(final_stat.st_mode)) {
-            err = docs_verify_revision(info.revision, NULL);
+            err = docs_verify_revision(info.revision, NULL, true);
         } else {
             err = ESP_ERR_INVALID_STATE;
         }
