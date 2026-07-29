@@ -1342,6 +1342,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm orientation [0|90|180|270]");
     solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
     solar_os_shell_io_writeln(term, "  setterm textsize [12|14|16|18|20]");
+    solar_os_shell_io_writeln(term, "  setterm palette [normal|inverted]");
     solar_os_shell_io_writeln(term, "  setterm brightness [0..100]");
     solar_os_shell_io_writeln(term, "  setterm profile [vt100|ansi|dumb]");
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -1490,6 +1491,29 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 
         const esp_err_t err = solar_os_sessions_set_terminal_text_size(display, text_size);
         setterm_print_save_result(term, "textsize", argv[2], err);
+        return;
+    }
+
+    if (strcmp(argv[1], "palette") == 0) {
+        if (argc == 2) {
+            solar_os_shell_io_printf(
+                term,
+                "palette: %s\n",
+                solar_os_terminal_palette_inverted(display) ? "inverted" : "normal");
+            solar_os_shell_io_writeln(term, "values: normal inverted");
+            return;
+        }
+        if (argc != 3 ||
+            (strcmp(argv[2], "normal") != 0 && strcmp(argv[2], "inverted") != 0)) {
+            solar_os_shell_io_writeln(term,
+                                      "usage: setterm palette [normal|inverted]");
+            return;
+        }
+
+        const bool inverted = strcmp(argv[2], "inverted") == 0;
+        const esp_err_t err =
+            solar_os_sessions_set_terminal_palette_inverted(display, inverted);
+        setterm_print_save_result(term, "palette", argv[2], err);
         return;
     }
 

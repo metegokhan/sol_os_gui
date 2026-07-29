@@ -333,6 +333,7 @@ static const char * const setterm_subcommands[] = {
     "orientation",
     "font",
     "textsize",
+    "palette",
     "brightness",
     "backlight",
     "profile",
@@ -349,6 +350,7 @@ static const char * const setterm_subcommands[] = {
 static const char * const setterm_orientation_values[] = {"0", "90", "180", "270"};
 static const char * const setterm_font_values[] = {"mono", "compact"};
 static const char * const setterm_textsize_values[] = {"12", "14", "16", "18", "20"};
+static const char * const setterm_palette_values[] = {"normal", "inverted"};
 static const char * const setterm_brightness_values[] = {"0", "25", "50", "75", "100"};
 static const char * const setterm_profile_values[] = {"vt100", "ansi", "dumb"};
 static const char * const setterm_keyboard_values[] = {"us", "de"};
@@ -874,6 +876,7 @@ static const char * const path_setterm[] = {"setterm"};
 static const char * const path_setterm_orientation[] = {"setterm", "orientation"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
 static const char * const path_setterm_textsize[] = {"setterm", "textsize"};
+static const char * const path_setterm_palette[] = {"setterm", "palette"};
 static const char * const path_setterm_brightness[] = {"setterm", "brightness"};
 static const char * const path_setterm_backlight[] = {"setterm", "backlight"};
 static const char * const path_setterm_profile[] = {"setterm", "profile"};
@@ -1493,6 +1496,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_orientation, setterm_orientation_values),
     SHELL_COMPLETION_STATIC(path_setterm_font, setterm_font_values),
     SHELL_COMPLETION_STATIC(path_setterm_textsize, setterm_textsize_values),
+    SHELL_COMPLETION_STATIC(path_setterm_palette, setterm_palette_values),
     SHELL_COMPLETION_STATIC(path_setterm_brightness, setterm_brightness_values),
     SHELL_COMPLETION_STATIC(path_setterm_backlight, setterm_brightness_values),
     SHELL_COMPLETION_STATIC(path_setterm_profile, setterm_profile_values),

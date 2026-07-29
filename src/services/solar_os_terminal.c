@@ -21,6 +21,7 @@
 #define TERM_NVS_ORIENTATION_KEY "orientation"
 #define TERM_NVS_FONT_KEY "font"
 #define TERM_NVS_TEXT_SIZE_KEY "textsize"
+#define TERM_NVS_PALETTE_KEY "palette"
 
 #ifndef SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION
 #define SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION 0
@@ -442,6 +443,11 @@ static void terminal_load_settings(solar_os_terminal_t *terminal)
         value < sizeof(terminal_text_sizes) / sizeof(terminal_text_sizes[0]) &&
         terminal_text_sizes[value].name != NULL) {
         terminal->text_size = (solar_os_terminal_text_size_t)value;
+    }
+
+    ret = nvs_get_u16(nvs, TERM_NVS_PALETTE_KEY, &value);
+    if (ret == ESP_OK && value <= 1) {
+        terminal->palette_inverted = value != 0;
     }
 
     nvs_close(nvs);
@@ -892,6 +898,37 @@ void solar_os_terminal_set_black_is_one(solar_os_terminal_t *terminal, bool blac
 
     terminal->black_is_one = black_is_one;
     terminal->dirty = true;
+}
+
+bool solar_os_terminal_palette_inverted(const solar_os_terminal_t *terminal)
+{
+    return terminal != NULL && terminal->palette_inverted;
+}
+
+esp_err_t solar_os_terminal_set_palette_inverted(solar_os_terminal_t *terminal, bool inverted)
+{
+    if (terminal == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (terminal->palette_inverted == inverted) {
+        return ESP_OK;
+    }
+
+    terminal->palette_inverted = inverted;
+    terminal->dirty = true;
+    return terminal_save_u16(TERM_NVS_PALETTE_KEY, inverted ? 1 : 0);
+}
+
+esp_err_t solar_os_terminal_set_palette_inverted_transient(solar_os_terminal_t *terminal,
+                                                           bool inverted)
+{
+    if (terminal == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    terminal->palette_inverted = inverted;
+    terminal->dirty = true;
+    return ESP_OK;
 }
 
 void solar_os_terminal_clear(solar_os_terminal_t *terminal)
@@ -1863,7 +1900,10 @@ static bool terminal_draw_block_cell(u8g2_t *u8g2,
 
 static uint8_t terminal_apply_polarity(const solar_os_terminal_t *terminal, uint8_t white_bit)
 {
-    return terminal != NULL && terminal->black_is_one ? (uint8_t)!white_bit : white_bit;
+    return terminal != NULL &&
+        (terminal->black_is_one != terminal->palette_inverted) ?
+        (uint8_t)!white_bit :
+        white_bit;
 }
 
 static void terminal_set_draw_color(const solar_os_terminal_t *terminal,
