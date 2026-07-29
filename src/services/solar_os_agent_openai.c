@@ -35,7 +35,9 @@
     "APIs. For nontrivial existing files, use storage_search and "             \
     "storage_read_range, then apply storage_patch with the returned SHA-256. " \
     "Run the saved program with script_run_file and use its structured error " \
-    "before editing again. Before writing graphics code for an attached "      \
+    "before editing again. Never claim that a file was saved or changed, or "  \
+    "that a script ran, unless the corresponding tool returned success in "   \
+    "the current turn. Before writing graphics code for an attached "          \
     "display, activate "                                                       \
     "display tools with tool_search, call display_list, and use only a "       \
     "returned ready target. Keep answers concise."

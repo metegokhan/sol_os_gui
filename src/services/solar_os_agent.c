@@ -627,9 +627,9 @@ static esp_err_t agent_capture_event(const solar_os_agent_event_t *event,
 
 static void agent_append_tool_summary(agent_run_turn_state_t *run,
                                       const char *tool_name,
-                                      bool allowed)
+                                      const char *outcome)
 {
-    if (run == NULL || tool_name == NULL ||
+    if (run == NULL || tool_name == NULL || outcome == NULL ||
         run->tool_summary_len >= sizeof(run->tool_summary) - 1U) {
         return;
     }
@@ -639,7 +639,7 @@ static void agent_append_tool_summary(agent_run_turn_state_t *run,
         "%s%s: %s",
         run->tool_summary_len == 0 ? "" : "\n",
         tool_name,
-        allowed ? "complete" : "denied");
+        outcome);
     if (written > 0) {
         const size_t available =
             sizeof(run->tool_summary) - run->tool_summary_len;
@@ -726,6 +726,36 @@ static esp_err_t agent_denied_tool_result(
         "\"policy\":\"%s\",\"risk\":\"%s\"}",
         solar_os_agent_tool_policy_name(policy),
         solar_os_agent_tool_risk_name(info->risk));
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static esp_err_t agent_failed_tool_result(esp_err_t tool_error,
+                                          char *result,
+                                          size_t result_len)
+{
+    if (result == NULL || result_len == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"ok\":false,\"error\":\"%s\",\"recoverable\":true}",
+        esp_err_to_name(tool_error));
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static esp_err_t agent_inactive_tool_result(char *result, size_t result_len)
+{
+    if (result == NULL || result_len == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"ok\":false,\"error\":\"tool not active\","
+        "\"recovery\":\"call tool_search with the exact task\"}");
     return written >= 0 && (size_t)written < result_len ?
         ESP_OK : ESP_ERR_INVALID_SIZE;
 }
@@ -943,54 +973,59 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          run->provider_result.tool_name,
                          false);
         solar_os_agent_tool_info_t tool_info;
-        if (!agent_tool_is_active(run->provider_result.tool_name,
-                                  tool_descriptors,
-                                  tool_count) ||
-            !agent_tool_info_by_name(run->provider_result.tool_name,
-                                     &tool_info)) {
-            err = ESP_ERR_NOT_SUPPORTED;
-            (void)agent_emit(request,
-                             SOLAR_OS_AGENT_EVENT_ERROR,
-                             "tool is not available",
-                             run->provider_result.tool_name,
-                             false);
-            break;
-        }
+        const bool active =
+            agent_tool_is_active(run->provider_result.tool_name,
+                                 tool_descriptors,
+                                 tool_count);
+        const bool known =
+            agent_tool_info_by_name(run->provider_result.tool_name,
+                                    &tool_info);
         bool allowed = false;
-        err = agent_authorize_tool(request,
-                                   tool_policy,
-                                   &tool_info,
-                                   run->provider_result.tool_arguments,
-                                   &allowed);
-        if (err != ESP_OK) {
-            break;
-        }
-        if (!allowed) {
-            err = agent_denied_tool_result(&tool_info,
-                                           tool_policy,
-                                           tool_result,
-                                           SOLAR_OS_AGENT_TOOL_RESULT_MAX);
-            agent_note_tool_result(true, err);
+        bool denied = false;
+        bool tool_succeeded = false;
+        if (!active || !known) {
+            agent_note_tool_result(false, ESP_ERR_NOT_SUPPORTED);
+            err = agent_inactive_tool_result(
+                tool_result,
+                SOLAR_OS_AGENT_TOOL_RESULT_MAX);
         } else {
-            err = solar_os_agent_tools_execute(run->provider_result.tool_name,
-                                               run->provider_result.tool_arguments,
-                                               request,
-                                               tool_policy,
-                                               true,
-                                               tool_result,
-                                               SOLAR_OS_AGENT_TOOL_RESULT_MAX);
-            agent_note_tool_result(false, err);
+            err = agent_authorize_tool(request,
+                                       tool_policy,
+                                       &tool_info,
+                                       run->provider_result.tool_arguments,
+                                       &allowed);
+            if (err != ESP_OK) {
+                break;
+            }
+            if (!allowed) {
+                denied = true;
+                err = agent_denied_tool_result(
+                    &tool_info,
+                    tool_policy,
+                    tool_result,
+                    SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+                agent_note_tool_result(true, err);
+            } else {
+                const esp_err_t tool_error =
+                    solar_os_agent_tools_execute(
+                        run->provider_result.tool_name,
+                        run->provider_result.tool_arguments,
+                        request,
+                        tool_policy,
+                        true,
+                        tool_result,
+                        SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+                agent_note_tool_result(false, tool_error);
+                tool_succeeded = tool_error == ESP_OK;
+                err = tool_succeeded ?
+                    ESP_OK :
+                    agent_failed_tool_result(
+                        tool_error,
+                        tool_result,
+                        SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+            }
         }
         if (err != ESP_OK) {
-            (void)agent_emit(request,
-                             SOLAR_OS_AGENT_EVENT_ERROR,
-                             err == ESP_ERR_NOT_SUPPORTED ?
-                                 "tool is not available" :
-                                 (err == ESP_ERR_NOT_ALLOWED ?
-                                     "tool denied by policy" :
-                                     "tool execution failed"),
-                             run->provider_result.tool_name,
-                             false);
             break;
         }
         if (solar_os_agent_tools_is_discovery(
@@ -1007,10 +1042,11 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                          SOLAR_OS_AGENT_EVENT_TOOL_RESULT,
                          tool_result,
                          run->provider_result.tool_name,
-                         allowed);
+                         tool_succeeded);
         agent_append_tool_summary(run,
                                   run->provider_result.tool_name,
-                                  allowed);
+                                  denied ? "denied" :
+                                      (tool_succeeded ? "complete" : "failed"));
         strlcpy(run->tool_call_id,
                 run->provider_result.tool_call_id,
                 sizeof(run->tool_call_id));

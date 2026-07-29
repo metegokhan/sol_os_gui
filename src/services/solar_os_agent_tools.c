@@ -63,6 +63,7 @@
 #define AGENT_TOOL_SEARCH_QUERY_MAX 159U
 #define AGENT_TOOL_SEARCH_MATCH_MAX \
     (SOLAR_OS_AGENT_TOOL_ACTIVE_MAX - 3U)
+#define AGENT_TOOL_PROMPT_MATCH_MAX 2U
 #define AGENT_TOOL_SEARCH_TOKEN_MAX 31U
 #define AGENT_TOOL_JOB_NAME_MAX 32U
 
@@ -3349,7 +3350,7 @@ solar_os_agent_tool_policy_decision_t solar_os_agent_tools_policy_decision(
     }
 }
 
-size_t solar_os_agent_tools_collect(
+static size_t agent_tool_collect_bootstrap(
     const solar_os_agent_request_t *request,
     solar_os_agent_tool_policy_t policy,
     solar_os_agent_tool_descriptor_t *descriptors,
@@ -3375,6 +3376,41 @@ size_t solar_os_agent_tools_collect(
     return count;
 }
 
+size_t solar_os_agent_tools_collect(
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t capacity)
+{
+    if (descriptors == NULL || capacity == 0U) {
+        return 0U;
+    }
+    if (capacity > SOLAR_OS_AGENT_TOOL_ACTIVE_MAX) {
+        capacity = SOLAR_OS_AGENT_TOOL_ACTIVE_MAX;
+    }
+    size_t count =
+        agent_tool_collect_bootstrap(request, policy, descriptors, capacity);
+
+    if (request != NULL && request->prompt != NULL &&
+        request->prompt[0] != '\0' && count < capacity) {
+        agent_tool_search_match_t matches[AGENT_TOOL_PROMPT_MATCH_MAX] = {0};
+        size_t match_capacity = capacity - count;
+        if (match_capacity > AGENT_TOOL_PROMPT_MATCH_MAX) {
+            match_capacity = AGENT_TOOL_PROMPT_MATCH_MAX;
+        }
+        const size_t match_count =
+            agent_tool_search_matches(request->prompt,
+                                      request,
+                                      policy,
+                                      matches,
+                                      match_capacity);
+        for (size_t i = 0U; i < match_count; i++) {
+            descriptors[count++] = matches[i].definition->provider;
+        }
+    }
+    return count;
+}
+
 size_t solar_os_agent_tools_collect_discovered(
     const char *arguments,
     const solar_os_agent_request_t *request,
@@ -3388,33 +3424,38 @@ size_t solar_os_agent_tools_collect_discovered(
     if (capacity > SOLAR_OS_AGENT_TOOL_ACTIVE_MAX) {
         capacity = SOLAR_OS_AGENT_TOOL_ACTIVE_MAX;
     }
-    const size_t bootstrap_count =
-        solar_os_agent_tools_collect(request,
+    size_t count =
+        agent_tool_collect_bootstrap(request,
                                      policy,
                                      descriptors,
                                      capacity);
     char query[AGENT_TOOL_SEARCH_QUERY_MAX + 1U];
     if (agent_tool_parse_query(arguments, query, sizeof(query)) != ESP_OK ||
-        bootstrap_count >= capacity) {
-        return bootstrap_count;
+        count >= capacity) {
+        return count;
     }
 
     agent_tool_search_match_t matches[AGENT_TOOL_SEARCH_MATCH_MAX] = {0};
-    size_t match_capacity = capacity - bootstrap_count;
-    if (match_capacity > AGENT_TOOL_SEARCH_MATCH_MAX) {
-        match_capacity = AGENT_TOOL_SEARCH_MATCH_MAX;
-    }
     const size_t match_count =
         agent_tool_search_matches(query,
                                   request,
                                   policy,
                                   matches,
-                                  match_capacity);
+                                  AGENT_TOOL_SEARCH_MATCH_MAX);
     for (size_t i = 0U; i < match_count; i++) {
-        descriptors[bootstrap_count + i] =
-            matches[i].definition->provider;
+        bool duplicate = false;
+        for (size_t j = 0U; j < count; j++) {
+            if (strcmp(descriptors[j].name,
+                       matches[i].definition->provider.name) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate && count < capacity) {
+            descriptors[count++] = matches[i].definition->provider;
+        }
     }
-    return bootstrap_count + match_count;
+    return count;
 }
 
 bool solar_os_agent_tools_is_discovery(const char *name)

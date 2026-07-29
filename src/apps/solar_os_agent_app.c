@@ -681,13 +681,17 @@ static void agent_app_drain_events(solar_os_context_t *ctx)
             agent_app_newline_printf(io, "tool %s\n", event.tool_name);
             agent_app.text_segment_started = false;
             break;
-        case SOLAR_OS_AGENT_EVENT_TOOL_RESULT:
+        case SOLAR_OS_AGENT_EVENT_TOOL_RESULT: {
+            const char *outcome = event.success ? "complete" :
+                (strstr(event.text, "\"error\":\"tool denied\"") != NULL ?
+                    "denied" : "failed");
             agent_app_printf(io,
                              "tool %s %s\n",
                              event.tool_name,
-                             event.success ? "complete" : "denied");
+                             outcome);
             agent_app.text_segment_started = false;
             break;
+        }
         case SOLAR_OS_AGENT_EVENT_TOOL_CONFIRMATION:
             if (event.tool_name[0] != '\0') {
                 solar_os_shell_io_newline(io);
