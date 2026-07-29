@@ -33,6 +33,7 @@
 #define AGENT_TOOL_CONTEXT_RESULT_MAX 1536U
 #define AGENT_TOOL_SIGNATURE_MAX 8U
 #define AGENT_DUPLICATE_TOOL_LIMIT 1U
+#define AGENT_EMPTY_RESPONSE_RETRY_MAX 1U
 
 typedef struct {
     solar_os_http_request_t *request;
@@ -1076,18 +1077,43 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     for (uint32_t turn_index = 0;
          turn_index <= (uint32_t)max_tools;
          turn_index++) {
-        memset(&run->provider_result, 0, sizeof(run->provider_result));
-        run->provider_result.http_status = -1;
-        err = solar_os_agent_openai_provider.run_turn(&config,
-                                                       &turn,
-                                                       agent_capture_event,
-                                                       &run->capture,
-                                                       &run->provider_result);
-        portENTER_CRITICAL(&agent_lock);
-        agent.last_http_status = run->provider_result.http_status;
-        agent.last_duration_ms += run->provider_result.duration_ms;
-        agent.last_bytes_received += run->provider_result.bytes_received;
-        portEXIT_CRITICAL(&agent_lock);
+        const size_t assistant_before = run->capture.assistant_len;
+        uint8_t empty_retries = 0U;
+        do {
+            memset(&run->provider_result, 0, sizeof(run->provider_result));
+            run->provider_result.http_status = -1;
+            err = solar_os_agent_openai_provider.run_turn(
+                &config,
+                &turn,
+                agent_capture_event,
+                &run->capture,
+                &run->provider_result);
+            portENTER_CRITICAL(&agent_lock);
+            agent.last_http_status = run->provider_result.http_status;
+            agent.last_duration_ms += run->provider_result.duration_ms;
+            agent.last_bytes_received += run->provider_result.bytes_received;
+            portEXIT_CRITICAL(&agent_lock);
+            if (err != ESP_OK || run->provider_result.tool_call ||
+                run->capture.assistant_len > assistant_before) {
+                break;
+            }
+            if (resume_mode != SOLAR_OS_AGENT_PROVIDER_RESUME_LOCAL_HISTORY ||
+                empty_retries >= AGENT_EMPTY_RESPONSE_RETRY_MAX) {
+                err = ESP_ERR_INVALID_RESPONSE;
+                (void)agent_emit(request,
+                                 SOLAR_OS_AGENT_EVENT_ERROR,
+                                 "provider returned an empty response",
+                                 NULL,
+                                 false);
+                break;
+            }
+            empty_retries++;
+            (void)agent_emit(request,
+                             SOLAR_OS_AGENT_EVENT_STATUS,
+                             "empty response, retrying",
+                             NULL,
+                             false);
+        } while (true);
         if (err != ESP_OK) {
             break;
         }

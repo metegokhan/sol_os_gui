@@ -20,7 +20,9 @@
   `solaros_reference` argument shape for local models and stop advertising
   tools after the first repeated read-only call. Known policy-allowed tools
   requested outside the active schema set now activate for a schema-backed
-  retry instead of failing the workflow.
+  retry instead of failing the workflow. Added exact-path `storage_stat`
+  inspection so file-existence questions do not misuse content search, and
+  retry one empty stateless-provider turn instead of silently ending it.
   (`bf4f600`, `6ed07f5`, `093ffac`)
 - **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
   in three flash or eight SD slots, with atomic checked records and explicit

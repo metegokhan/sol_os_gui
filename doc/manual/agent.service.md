@@ -109,7 +109,10 @@ as structured runner status.
 The adapter requests server-sent streaming events and emits provider-neutral
 events for text deltas, usage, tool calls, errors, and completion. Cancellation
 uses the shared HTTP client's cross-task cancellation path. TLS certificate
-validation uses the firmware certificate bundle.
+validation uses the firmware certificate bundle. A stateless local provider
+turn that contains neither text nor a tool call is retried once; a second empty
+turn is reported as an invalid response instead of silently returning to the
+prompt.
 
 ## Typed tools
 
@@ -144,6 +147,9 @@ The package- and policy-gated tools discoverable through `tool_search` are:
 
 - `storage_list`: up to 16 file or directory entries for one path, including
   type and size. Results report when the output was truncated.
+- `storage_stat`: check one exact relative or absolute path and return whether
+  it exists, its resolved path, type, and size. Use this for file-existence
+  questions.
 - `storage_read`: read up to 3072 bytes from a text-file path. This is a
   sensitive read and requires confirmation under the default policy.
 - `storage_write`: create or replace a text-file path with up to 3072 bytes.
@@ -152,9 +158,10 @@ The package- and policy-gated tools discoverable through `tool_search` are:
   paths retain their normal SolarOS storage semantics.
   All storage content and editing tools reject paths below `.ssh`, so the agent
   cannot inspect or replace the device's SSH identity files.
-- `storage_search`: search one file or a bounded directory tree for text,
-  returning paths, line numbers, and excerpts. It scans at most 32 paths,
-  64 KiB, and 12 matches per call.
+- `storage_search`: search file contents under one file or a bounded directory
+  tree, returning paths, line numbers, and excerpts. It does not search file
+  names or test exact-path existence. It scans at most 32 paths, 64 KiB, and
+  12 matches per call.
 - `storage_read_range`: read up to 2048 bytes at a byte offset and return the
   complete file's SHA-256, next offset, and end-of-file state.
 - `storage_patch`: apply up to eight ascending, non-overlapping byte-offset

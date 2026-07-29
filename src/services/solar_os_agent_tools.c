@@ -141,6 +141,11 @@
     "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}," \
     "\"entries\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
     "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_STORAGE_STAT \
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}," \
+    "\"exists\":{\"type\":\"boolean\"},\"type\":{\"type\":\"string\"}," \
+    "\"size_bytes\":{\"type\":\"integer\"}},\"required\":[\"path\",\"exists\"," \
+    "\"type\",\"size_bytes\"],\"additionalProperties\":false}"
 #define AGENT_TOOL_OUTPUT_STORAGE_READ \
     "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}," \
     "\"path\":{\"type\":\"string\"},\"size_bytes\":{\"type\":\"integer\"}," \
@@ -317,6 +322,10 @@ static esp_err_t agent_tool_search(const char *arguments,
                                    char *result,
                                    size_t result_len);
 static esp_err_t agent_tool_storage_list(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len);
+static esp_err_t agent_tool_storage_stat(const char *arguments,
                                          const solar_os_agent_request_t *request,
                                          char *result,
                                          size_t result_len);
@@ -524,7 +533,8 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .description =
                 "List up to 16 entries in one SolarOS storage directory. "
                 "Relative paths use the invoking shell directory. This reads "
-                "names, types, and sizes only.",
+                "names, types, and sizes only; use storage_stat to check one "
+                "exact path.",
             .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_LIST,
             .strict = true,
         },
@@ -535,6 +545,26 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
         .available = agent_tool_storage_available,
         .execute = agent_tool_storage_list,
+    },
+    {
+        .provider = {
+            .name = "storage_stat",
+            .description =
+                "Check whether one exact SolarOS path exists and return its "
+                "resolved path, type, and size. Relative paths use the "
+                "invoking shell directory. Use this for file-existence "
+                "questions; it does not search file contents.",
+            .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_LIST,
+            .strict = true,
+        },
+        .domain = "storage",
+        .search_terms =
+            "see exists existence locate exact filename path stat metadata size",
+        .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_STAT,
+        .required_capability = "storage",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .available = agent_tool_storage_available,
+        .execute = agent_tool_storage_stat,
     },
     {
         .provider = {
@@ -576,9 +606,10 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .provider = {
             .name = "storage_search",
             .description =
-                "Search bounded text under one file or directory and return "
-                "matching paths, line numbers, and excerpts. Relative paths "
-                "use the invoking shell directory.",
+                "Search file contents under one file or directory and return "
+                "matching paths, line numbers, and excerpts. This does not "
+                "search file names or test whether an exact path exists. "
+                "Relative paths use the invoking shell directory.",
             .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_SEARCH,
             .strict = true,
         },
@@ -1523,6 +1554,57 @@ static esp_err_t agent_tool_storage_list(const char *arguments,
                                        truncated ? "true" : "false");
     }
     return err;
+}
+
+static esp_err_t agent_tool_storage_stat(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len)
+{
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    err = agent_tool_storage_path(root, request, path, sizeof(path));
+    solar_os_json_free(doc);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    struct stat status;
+    errno = 0;
+    const bool exists = stat(path, &status) == 0;
+    if (!exists && errno != ENOENT && errno != ENOTDIR) {
+        return ESP_FAIL;
+    }
+    const char *type = !exists ? "missing" :
+        (S_ISREG(status.st_mode) ? "file" :
+            (S_ISDIR(status.st_mode) ? "directory" : "other"));
+    const uint64_t size =
+        exists && status.st_size > 0 ? (uint64_t)status.st_size : 0U;
+
+    char escaped_path[AGENT_TOOL_JSON_SCRATCH_MAX];
+    err = solar_os_json_escape_string(path,
+                                      escaped_path,
+                                      sizeof(escaped_path));
+    if (err != ESP_OK) {
+        return err;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"path\":\"%s\",\"exists\":%s,\"type\":\"%s\","
+        "\"size_bytes\":%" PRIu64 "}",
+        escaped_path,
+        exists ? "true" : "false",
+        type,
+        size);
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
 static esp_err_t agent_tool_storage_read(const char *arguments,
