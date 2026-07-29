@@ -5374,6 +5374,27 @@ static void session_create_display_app(solar_os_context_t *ctx,
         return;
     }
 
+    const bool caller_is_port =
+        solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT;
+    if (!caller_is_port &&
+        solar_os_sessions_context_uses_display(ctx, target.name)) {
+        const esp_err_t request_err =
+            solar_os_context_request_launch_ex(ctx,
+                                               app->app,
+                                               app_argc,
+                                               launch_argv,
+                                               SOLAR_OS_LAUNCH_CHILD_RETURN);
+        if (request_err == ESP_OK) {
+            shell_session(ctx)->builtin_suppressed_prompt = true;
+            shell_session(ctx)->prompt_on_resume = true;
+            return;
+        }
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: %s\n",
+                                 esp_err_to_name(request_err));
+        return;
+    }
+
     char busy_owner[SOLAR_OS_APP_OWNER_MAX];
     uint8_t session_id = 0;
     const esp_err_t err =
@@ -5385,8 +5406,7 @@ static void session_create_display_app(solar_os_context_t *ctx,
                                              busy_owner,
                                              sizeof(busy_owner));
     if (err == ESP_OK) {
-        if (solar_os_shell_io_kind(shell_io(ctx)) ==
-            SOLAR_OS_SHELL_IO_KIND_PORT) {
+        if (caller_is_port) {
             solar_os_shell_io_printf(caller_io,
                                      "session %u created: %s on %s\n",
                                      (unsigned)session_id,

@@ -9,14 +9,19 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_port_shell.h"
+#include "solar_os_queue.h"
 #include "solar_os_scheduler.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_terminal_internal.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #define SOLAR_OS_SESSION_MAX 8
 #define SOLAR_OS_SESSION_TITLE_MAX 48
+#define SOLAR_OS_SESSION_OPERATION_QUEUE_LEN 2
 
 static const char *TAG = "solar_os_sessions";
 
@@ -74,10 +79,31 @@ typedef struct {
     bool graphics_active;
 } solar_os_session_context_snapshot_t;
 
+typedef struct {
+    const solar_os_app_t *app;
+    const char *target_name;
+    int argc;
+    char **argv;
+    SemaphoreHandle_t complete;
+    esp_err_t result;
+    uint8_t session_id;
+    char busy_owner[SOLAR_OS_APP_OWNER_MAX];
+} solar_os_session_create_request_t;
+
 static solar_os_session_state_t session_state;
 static portMUX_TYPE input_focus_lock = portMUX_INITIALIZER_UNLOCKED;
+static QueueHandle_t session_operation_queue;
+static TaskHandle_t session_scheduler_task;
 
 static solar_os_session_entry_t *session_active_for_display(const char *target_name);
+static esp_err_t session_create_display_app_internal(
+    const solar_os_app_t *app,
+    const char *target_name,
+    int argc,
+    char **argv,
+    uint8_t *session_id,
+    char *busy_owner,
+    size_t busy_owner_len);
 
 static const char *app_display_name(const solar_os_app_t *app)
 {
@@ -1562,7 +1588,17 @@ esp_err_t solar_os_sessions_init(solar_os_context_t *ctx,
                                  solar_os_sessions_overlay_fn overlay_fn,
                                  void *user)
 {
+    if (session_operation_queue == NULL) {
+        session_operation_queue =
+            solar_os_queue_create(SOLAR_OS_SESSION_OPERATION_QUEUE_LEN,
+                                  sizeof(solar_os_session_create_request_t *));
+        if (session_operation_queue == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     memset(&session_state, 0, sizeof(session_state));
+    session_scheduler_task = xTaskGetCurrentTaskHandle();
     session_state.ctx = ctx;
     session_state.shell_terminal = shell_terminal;
     session_state.current_terminal = shell_terminal;
@@ -1753,6 +1789,21 @@ bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *sess
     return true;
 }
 
+bool solar_os_sessions_context_uses_display(solar_os_context_t *ctx,
+                                            const char *target_name)
+{
+    if (ctx == NULL || target_name == NULL || target_name[0] == '\0') {
+        return false;
+    }
+
+    solar_os_display_target_t target;
+    solar_os_terminal_t *terminal = solar_os_context_terminal(ctx);
+    return terminal != NULL &&
+        solar_os_display_find_target(target_name, &target) &&
+        target.u8g2 != NULL &&
+        terminal->u8g2 == target.u8g2;
+}
+
 esp_err_t solar_os_sessions_focus_display(const char *target_name)
 {
     if (target_name == NULL || target_name[0] == '\0') {
@@ -1901,12 +1952,37 @@ bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
     return true;
 }
 
+static void session_process_operation_requests(void)
+{
+    if (session_operation_queue == NULL) {
+        return;
+    }
+
+    solar_os_session_create_request_t *request = NULL;
+    while (xQueueReceive(session_operation_queue, &request, 0) == pdTRUE) {
+        if (request == NULL) {
+            continue;
+        }
+        request->result =
+            session_create_display_app_internal(request->app,
+                                                request->target_name,
+                                                request->argc,
+                                                request->argv,
+                                                &request->session_id,
+                                                request->busy_owner,
+                                                sizeof(request->busy_owner));
+        xSemaphoreGive(request->complete);
+    }
+}
+
 void solar_os_sessions_dispatch_tick(uint32_t now_ms)
 {
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_TICK,
         .data.tick_ms = now_ms,
     };
+    session_process_operation_requests();
+
     solar_os_session_context_snapshot_t previous = {0};
     session_context_capture(&previous);
 
@@ -2153,13 +2229,14 @@ static esp_err_t session_set_context_args(int argc, char **argv)
     return ESP_OK;
 }
 
-esp_err_t solar_os_sessions_create_display_app(const solar_os_app_t *app,
-                                               const char *target_name,
-                                               int argc,
-                                               char **argv,
-                                               uint8_t *session_id,
-                                               char *busy_owner,
-                                               size_t busy_owner_len)
+static esp_err_t session_create_display_app_internal(
+    const solar_os_app_t *app,
+    const char *target_name,
+    int argc,
+    char **argv,
+    uint8_t *session_id,
+    char *busy_owner,
+    size_t busy_owner_len)
 {
     if (session_id != NULL) {
         *session_id = 0;
@@ -2258,6 +2335,63 @@ esp_err_t solar_os_sessions_create_display_app(const solar_os_app_t *app,
         *session_id = session->id;
     }
     return ESP_OK;
+}
+
+esp_err_t solar_os_sessions_create_display_app(const solar_os_app_t *app,
+                                               const char *target_name,
+                                               int argc,
+                                               char **argv,
+                                               uint8_t *session_id,
+                                               char *busy_owner,
+                                               size_t busy_owner_len)
+{
+    if (xTaskGetCurrentTaskHandle() == session_scheduler_task) {
+        return session_create_display_app_internal(app,
+                                                   target_name,
+                                                   argc,
+                                                   argv,
+                                                   session_id,
+                                                   busy_owner,
+                                                   busy_owner_len);
+    }
+    if (session_operation_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /*
+     * The request and argument storage belong to the calling shell task. That
+     * task remains blocked until the scheduler has copied the arguments and
+     * completed the operation, so no additional request buffer is required.
+     */
+    solar_os_session_create_request_t request = {
+        .app = app,
+        .target_name = target_name,
+        .argc = argc,
+        .argv = argv,
+        .complete = xSemaphoreCreateBinary(),
+    };
+    if (request.complete == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    solar_os_session_create_request_t *queued_request = &request;
+    if (xQueueSend(session_operation_queue,
+                   &queued_request,
+                   pdMS_TO_TICKS(1000)) != pdTRUE) {
+        vSemaphoreDelete(request.complete);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    (void)xSemaphoreTake(request.complete, portMAX_DELAY);
+    const esp_err_t result = request.result;
+    if (session_id != NULL) {
+        *session_id = request.session_id;
+    }
+    if (busy_owner != NULL && busy_owner_len > 0) {
+        strlcpy(busy_owner, request.busy_owner, busy_owner_len);
+    }
+    vSemaphoreDelete(request.complete);
+    return result;
 }
 
 esp_err_t solar_os_sessions_close_display(const char *target_name)

@@ -13,6 +13,9 @@
   or display shells remotely. Suspended sessions no longer receive ticks or
   leak their terminal context into another app on the same display, preventing
   an auto-started display app and its backing shell from alternately rendering.
+  Remote display-session creation now runs on the main scheduler rather than a
+  telnet or port-shell task, preventing concurrent framebuffer and panel access
+  from corrupting the built-in display.
 - **4.3.14** — 2026-07-29 — Gave the ESP32-S3-DevKitC-1-N16R8 two 6 MiB OTA
   slots and a nearly 4 MiB internal filesystem, replacing the 64 KiB shared
   layout so durable agent conversations and local files have practical space
