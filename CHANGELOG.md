@@ -4,6 +4,30 @@
 
 ## 4.x
 
+- **4.3.14** — 2026-07-29 — Gave the ESP32-S3-DevKitC-1-N16R8 two 6 MiB OTA
+  slots and a nearly 4 MiB internal filesystem, replacing the 64 KiB shared
+  layout so durable agent conversations and local files have practical space
+  without an SD card. Fixed streamed agent responses in VT100 port shells by
+  emitting CRLF newlines instead of staircase-producing bare line feeds. Made
+  local-model tool use more reliable by exposing prompt-relevant operations,
+  forbidding unverified success claims in the agent instructions, and feeding
+  recoverable tool failures back to the model instead of aborting the request.
+  Preserved prior tool results across stateless Chat Completions turns, stopped
+  duplicate read-only tool loops, and accepted full-size streamed tool
+  arguments from local OpenAI-compatible providers. Agent storage tools now
+  resolve relative paths from the invoking shell directory, and tool failures
+  show their concrete error name in the TUI. Clarified the exact
+  `solaros_reference` argument shape for local models and stop advertising
+  tools after the first repeated read-only call. Known policy-allowed tools
+  requested outside the active schema set now activate for a schema-backed
+  retry instead of failing the workflow. Added exact-path `storage_stat`
+  inspection so file-existence questions do not misuse content search, and
+  retry one empty stateless-provider turn instead of silently ending it.
+  Restricted on-demand activation to declared workflow dependencies and made
+  the distinction between exact-path metadata and content search explicit;
+  path-like prompts now select `storage_stat` deterministically before fuzzy
+  tool matching.
+  (`bf4f600`, `6ed07f5`, `093ffac`)
 - **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
   in three flash or eight SD slots, with atomic checked records and explicit
   new/list/resume/delete operations,

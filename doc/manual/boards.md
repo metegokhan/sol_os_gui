@@ -581,6 +581,14 @@ and also enables expansion GPIO, ADC, PWM, I2C, and SPI. The default I2C bus is
 GPIO8 SDA and GPIO9 SCL. The default SPI bus is FSPI on GPIO12 SCK, GPIO13
 MISO, and GPIO11 MOSI, with chip-select slots on GPIO10, GPIO5, GPIO6, and
 GPIO7.
+The N16R8 target uses `partitions_16mb_devkit.csv`: each OTA application slot
+is 0x600000 bytes and the internal FAT filesystem partition is 0x3F0000 bytes.
+The larger local volume supports durable agent conversations and normal file
+workflows without an SD card. Moving an existing device from the old shared
+layout relocates and reformats its internal filesystem on first boot, so copy
+needed files off the device before flashing. The transition requires a serial
+flash because OTA does not replace the installed partition table; NVS
+configuration remains in the unchanged NVS partition.
 The board also permits runtime routing on the spare SPI3 host. Static `spi0`
 remains the usual choice; the runtime host is useful for isolated experiments
 on another set of routable expansion pins.

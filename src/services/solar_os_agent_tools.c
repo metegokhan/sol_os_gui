@@ -63,6 +63,7 @@
 #define AGENT_TOOL_SEARCH_QUERY_MAX 159U
 #define AGENT_TOOL_SEARCH_MATCH_MAX \
     (SOLAR_OS_AGENT_TOOL_ACTIVE_MAX - 3U)
+#define AGENT_TOOL_PROMPT_MATCH_MAX 2U
 #define AGENT_TOOL_SEARCH_TOKEN_MAX 31U
 #define AGENT_TOOL_JOB_NAME_MAX 32U
 
@@ -140,6 +141,11 @@
     "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}," \
     "\"entries\":{\"type\":\"array\"},\"truncated\":{\"type\":\"boolean\"}}," \
     "\"additionalProperties\":false}"
+#define AGENT_TOOL_OUTPUT_STORAGE_STAT \
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}," \
+    "\"exists\":{\"type\":\"boolean\"},\"type\":{\"type\":\"string\"}," \
+    "\"size_bytes\":{\"type\":\"integer\"}},\"required\":[\"path\",\"exists\"," \
+    "\"type\",\"size_bytes\"],\"additionalProperties\":false}"
 #define AGENT_TOOL_OUTPUT_STORAGE_READ \
     "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}," \
     "\"path\":{\"type\":\"string\"},\"size_bytes\":{\"type\":\"integer\"}," \
@@ -281,6 +287,7 @@ typedef struct {
     solar_os_agent_tool_risk_t risk;
     uint32_t required_script_language;
     bool bootstrap;
+    bool activate_on_demand;
     agent_tool_available_fn available;
     agent_tool_execute_fn execute;
 } agent_tool_definition_t;
@@ -316,6 +323,10 @@ static esp_err_t agent_tool_search(const char *arguments,
                                    char *result,
                                    size_t result_len);
 static esp_err_t agent_tool_storage_list(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len);
+static esp_err_t agent_tool_storage_stat(const char *arguments,
                                          const solar_os_agent_request_t *request,
                                          char *result,
                                          size_t result_len);
@@ -483,9 +494,11 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .name = "solaros_reference",
             .description =
                 "Search the authoritative installed SolarOS Python and Lua API "
-                "contracts and mandatory coding guidance. Query the exact "
-                "language and task before writing or running code, and follow "
-                "returned constants, patterns, targets, and capability "
+                "contracts and mandatory coding guidance. Pass exactly one "
+                "field named query that combines the language and task, for "
+                "example {\"query\":\"lua gfx drawing\"}. Make one "
+                "comprehensive query before writing or running code, and "
+                "follow returned constants, patterns, targets, and capability "
                 "constraints exactly.",
             .parameters_json = AGENT_TOOL_SCHEMA_REFERENCE,
             .strict = true,
@@ -519,8 +532,10 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .provider = {
             .name = "storage_list",
             .description =
-                "List up to 16 entries in one absolute SolarOS storage "
-                "directory. This reads names, types, and sizes only.",
+                "List up to 16 entries in one SolarOS storage directory. "
+                "Relative paths use the invoking shell directory. This reads "
+                "names, types, and sizes only; use storage_stat to check one "
+                "exact path.",
             .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_LIST,
             .strict = true,
         },
@@ -534,10 +549,31 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
     },
     {
         .provider = {
+            .name = "storage_stat",
+            .description =
+                "Check whether one exact SolarOS path exists and return its "
+                "resolved path, type, and size. Relative paths use the "
+                "invoking shell directory. Use this for file-existence "
+                "questions; it does not search file contents.",
+            .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_LIST,
+            .strict = true,
+        },
+        .domain = "storage",
+        .search_terms =
+            "see exists existence locate exact filename path stat metadata size",
+        .output_schema_json = AGENT_TOOL_OUTPUT_STORAGE_STAT,
+        .required_capability = "storage",
+        .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
+        .available = agent_tool_storage_available,
+        .execute = agent_tool_storage_stat,
+    },
+    {
+        .provider = {
             .name = "storage_read",
             .description =
-                "Read one absolute SolarOS text file, except files below "
-                ".ssh. The result is bounded and reports truncation.",
+                "Read one SolarOS text file, except files below .ssh. "
+                "Relative paths use the invoking shell directory. The result "
+                "is bounded and reports truncation.",
             .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_READ,
             .strict = true,
         },
@@ -553,8 +589,9 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .provider = {
             .name = "storage_write",
             .description =
-                "Replace or create one absolute SolarOS text file "
-                "with up to 3072 bytes, except files below .ssh.",
+                "Replace or create one SolarOS text file with up to 3072 "
+                "bytes, except files below .ssh. Relative paths use the "
+                "invoking shell directory.",
             .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_WRITE,
             .strict = true,
         },
@@ -570,8 +607,10 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .provider = {
             .name = "storage_search",
             .description =
-                "Search bounded text under one absolute file or directory and "
-                "return matching paths, line numbers, and excerpts.",
+                "Search file contents under one file or directory and return "
+                "matching paths, line numbers, and excerpts. This does not "
+                "search file names or test whether an exact path exists. "
+                "Relative paths use the invoking shell directory.",
             .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_SEARCH,
             .strict = true,
         },
@@ -588,8 +627,9 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .provider = {
             .name = "storage_read_range",
             .description =
-                "Read a bounded byte range from one absolute text file and "
-                "return its complete-file SHA-256 for conflict-safe editing.",
+                "Read a bounded byte range from one text file and return its "
+                "complete-file SHA-256 for conflict-safe editing. Relative "
+                "paths use the invoking shell directory.",
             .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_READ_RANGE,
             .strict = true,
         },
@@ -607,9 +647,10 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
             .name = "storage_patch",
             .description =
                 "Apply ascending non-overlapping byte-offset edits to one "
-                "absolute text file using its expected SHA-256 version. Stale "
-                "edits return a recoverable conflict and replacement retains "
-                "a rollback copy until the new path is installed.",
+                "text file using its expected SHA-256 version. Relative paths "
+                "use the invoking shell directory. Stale edits return a "
+                "recoverable conflict and replacement retains a rollback "
+                "copy until the new path is installed.",
             .parameters_json = AGENT_TOOL_SCHEMA_STORAGE_PATCH,
             .strict = true,
         },
@@ -819,6 +860,7 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .risk = SOLAR_OS_AGENT_TOOL_RISK_DISRUPTIVE,
         .required_script_language =
             SOLAR_OS_AGENT_SCRIPT_PYTHON | SOLAR_OS_AGENT_SCRIPT_LUA,
+        .activate_on_demand = true,
         .available = agent_tool_script_file_available,
         .execute = agent_tool_script_run_file,
     },
@@ -895,6 +937,59 @@ static bool agent_tool_query_has_name(const char *query, const char *name)
         if (before_boundary && after_boundary) {
             return true;
         }
+    }
+    return false;
+}
+
+static bool agent_tool_prompt_has_path(const char *prompt)
+{
+    if (prompt == NULL) {
+        return false;
+    }
+    for (const unsigned char *cursor = (const unsigned char *)prompt;
+         *cursor != '\0';
+         cursor++) {
+        if (*cursor == '/') {
+            return true;
+        }
+        if (*cursor == '.' && cursor > (const unsigned char *)prompt &&
+            isalnum(cursor[-1]) && isalnum(cursor[1])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool agent_tool_append_named(
+    const char *name,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t *count,
+    size_t capacity)
+{
+    if (name == NULL || descriptors == NULL || count == NULL ||
+        *count >= capacity) {
+        return false;
+    }
+    for (size_t i = 0U; i < *count; i++) {
+        if (descriptors[i].name != NULL &&
+            strcmp(descriptors[i].name, name) == 0) {
+            return true;
+        }
+    }
+    for (size_t i = 0U; i < AGENT_TOOL_COUNT; i++) {
+        const agent_tool_definition_t *definition = &AGENT_TOOL_REGISTRY[i];
+        if (strcmp(definition->provider.name, name) != 0) {
+            continue;
+        }
+        if (!agent_tool_is_available(definition, request) ||
+            solar_os_agent_tools_policy_decision(policy, definition->risk) ==
+                SOLAR_OS_AGENT_TOOL_POLICY_DENY) {
+            return false;
+        }
+        descriptors[(*count)++] = definition->provider;
+        return true;
     }
     return false;
 }
@@ -1163,6 +1258,7 @@ static bool agent_tool_path_has_segment(const char *path,
 
 static esp_err_t agent_tool_storage_path(
     const solar_os_json_value_t *root,
+    const solar_os_agent_request_t *request,
     char *path,
     size_t path_len)
 {
@@ -1172,10 +1268,14 @@ static esp_err_t agent_tool_storage_path(
     esp_err_t err = solar_os_json_get_string(path_value,
                                               requested,
                                               sizeof(requested));
-    if (err != ESP_OK || requested[0] != '/') {
-        return ESP_ERR_INVALID_ARG;
+    if (err != ESP_OK || requested[0] == '\0') {
+        return err != ESP_OK ? err : ESP_ERR_INVALID_ARG;
     }
-    err = solar_os_storage_resolve_path(requested, path, path_len);
+    err = solar_os_storage_resolve_path_at(
+        request != NULL ? request->storage_cwd : NULL,
+        requested,
+        path,
+        path_len);
     if (err == ESP_OK && agent_tool_path_has_segment(path, ".ssh")) {
         return ESP_ERR_NOT_ALLOWED;
     }
@@ -1406,7 +1506,6 @@ static esp_err_t agent_tool_storage_list(const char *arguments,
                                          char *result,
                                          size_t result_len)
 {
-    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -1414,16 +1513,8 @@ static esp_err_t agent_tool_storage_list(const char *arguments,
         return err;
     }
 
-    char requested[SOLAR_OS_STORAGE_PATH_MAX];
-    const solar_os_json_value_t *path_value =
-        solar_os_json_object_get(root, "path");
-    err = solar_os_json_get_string(path_value, requested, sizeof(requested));
-    if (err != ESP_OK || requested[0] != '/') {
-        solar_os_json_free(doc);
-        return ESP_ERR_INVALID_ARG;
-    }
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    err = solar_os_storage_resolve_path(requested, path, sizeof(path));
+    err = agent_tool_storage_path(root, request, path, sizeof(path));
     solar_os_json_free(doc);
     if (err != ESP_OK) {
         return err;
@@ -1520,12 +1611,11 @@ static esp_err_t agent_tool_storage_list(const char *arguments,
     return err;
 }
 
-static esp_err_t agent_tool_storage_read(const char *arguments,
+static esp_err_t agent_tool_storage_stat(const char *arguments,
                                          const solar_os_agent_request_t *request,
                                          char *result,
                                          size_t result_len)
 {
-    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -1534,7 +1624,58 @@ static esp_err_t agent_tool_storage_read(const char *arguments,
     }
 
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    err = agent_tool_storage_path(root, path, sizeof(path));
+    err = agent_tool_storage_path(root, request, path, sizeof(path));
+    solar_os_json_free(doc);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    struct stat status;
+    errno = 0;
+    const bool exists = stat(path, &status) == 0;
+    if (!exists && errno != ENOENT && errno != ENOTDIR) {
+        return ESP_FAIL;
+    }
+    const char *type = !exists ? "missing" :
+        (S_ISREG(status.st_mode) ? "file" :
+            (S_ISDIR(status.st_mode) ? "directory" : "other"));
+    const uint64_t size =
+        exists && status.st_size > 0 ? (uint64_t)status.st_size : 0U;
+
+    char escaped_path[AGENT_TOOL_JSON_SCRATCH_MAX];
+    err = solar_os_json_escape_string(path,
+                                      escaped_path,
+                                      sizeof(escaped_path));
+    if (err != ESP_OK) {
+        return err;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"path\":\"%s\",\"exists\":%s,\"type\":\"%s\","
+        "\"size_bytes\":%" PRIu64 "}",
+        escaped_path,
+        exists ? "true" : "false",
+        type,
+        size);
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static esp_err_t agent_tool_storage_read(const char *arguments,
+                                         const solar_os_agent_request_t *request,
+                                         char *result,
+                                         size_t result_len)
+{
+    solar_os_json_doc_t *doc = NULL;
+    const solar_os_json_value_t *root = NULL;
+    esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    err = agent_tool_storage_path(root, request, path, sizeof(path));
     solar_os_json_free(doc);
     if (err != ESP_OK) {
         return err;
@@ -1606,7 +1747,6 @@ static esp_err_t agent_tool_storage_write(const char *arguments,
                                           char *result,
                                           size_t result_len)
 {
-    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -1615,7 +1755,7 @@ static esp_err_t agent_tool_storage_write(const char *arguments,
     }
 
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    err = agent_tool_storage_path(root, path, sizeof(path));
+    err = agent_tool_storage_path(root, request, path, sizeof(path));
     char *content = solar_os_memory_calloc(
         1,
         AGENT_TOOL_STORAGE_CONTENT_MAX + 1U,
@@ -1684,7 +1824,6 @@ static esp_err_t agent_tool_storage_search(
     char *result,
     size_t result_len)
 {
-    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -1694,7 +1833,7 @@ static esp_err_t agent_tool_storage_search(
 
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char query[65];
-    err = agent_tool_storage_path(root, path, sizeof(path));
+    err = agent_tool_storage_path(root, request, path, sizeof(path));
     if (err == ESP_OK) {
         err = solar_os_json_get_string(
             solar_os_json_object_get(root, "query"),
@@ -1909,7 +2048,6 @@ static esp_err_t agent_tool_storage_read_range(
     char *result,
     size_t result_len)
 {
-    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -1920,7 +2058,7 @@ static esp_err_t agent_tool_storage_read_range(
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     uint32_t offset = 0U;
     uint32_t requested_length = 0U;
-    err = agent_tool_storage_path(root, path, sizeof(path));
+    err = agent_tool_storage_path(root, request, path, sizeof(path));
     if (err == ESP_OK) {
         err = solar_os_json_get_uint32(
             solar_os_json_object_get(root, "offset"),
@@ -2021,7 +2159,6 @@ static esp_err_t agent_tool_storage_patch(
     char *result,
     size_t result_len)
 {
-    (void)request;
     solar_os_json_doc_t *doc = NULL;
     const solar_os_json_value_t *root = NULL;
     esp_err_t err = agent_tool_parse_object(arguments, &doc, &root);
@@ -2031,7 +2168,7 @@ static esp_err_t agent_tool_storage_patch(
 
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char expected_sha256[SOLAR_OS_CRYPTO_SHA256_HEX_LEN];
-    err = agent_tool_storage_path(root, path, sizeof(path));
+    err = agent_tool_storage_path(root, request, path, sizeof(path));
     if (err == ESP_OK) {
         err = solar_os_json_get_string(
             solar_os_json_object_get(root, "expected_sha256"),
@@ -3272,7 +3409,7 @@ static esp_err_t agent_tool_script_run_file(
         language_name,
         sizeof(language_name));
     if (err == ESP_OK) {
-        err = agent_tool_storage_path(root, path, sizeof(path));
+        err = agent_tool_storage_path(root, request, path, sizeof(path));
     }
     solar_os_agent_script_language_t language = 0U;
     if (err == ESP_OK && strcmp(language_name, "python") == 0) {
@@ -3349,7 +3486,7 @@ solar_os_agent_tool_policy_decision_t solar_os_agent_tools_policy_decision(
     }
 }
 
-size_t solar_os_agent_tools_collect(
+static size_t agent_tool_collect_bootstrap(
     const solar_os_agent_request_t *request,
     solar_os_agent_tool_policy_t policy,
     solar_os_agent_tool_descriptor_t *descriptors,
@@ -3375,6 +3512,55 @@ size_t solar_os_agent_tools_collect(
     return count;
 }
 
+size_t solar_os_agent_tools_collect(
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t capacity)
+{
+    if (descriptors == NULL || capacity == 0U) {
+        return 0U;
+    }
+    if (capacity > SOLAR_OS_AGENT_TOOL_ACTIVE_MAX) {
+        capacity = SOLAR_OS_AGENT_TOOL_ACTIVE_MAX;
+    }
+    size_t count =
+        agent_tool_collect_bootstrap(request, policy, descriptors, capacity);
+
+    if (request != NULL && request->prompt != NULL &&
+        request->prompt[0] != '\0' && count < capacity) {
+        if (agent_tool_prompt_has_path(request->prompt)) {
+            (void)agent_tool_append_named("storage_stat",
+                                          request,
+                                          policy,
+                                          descriptors,
+                                          &count,
+                                          capacity);
+        }
+        agent_tool_search_match_t matches[AGENT_TOOL_PROMPT_MATCH_MAX] = {0};
+        size_t match_capacity = capacity - count;
+        if (match_capacity > AGENT_TOOL_PROMPT_MATCH_MAX) {
+            match_capacity = AGENT_TOOL_PROMPT_MATCH_MAX;
+        }
+        const size_t match_count =
+            agent_tool_search_matches(request->prompt,
+                                      request,
+                                      policy,
+                                      matches,
+                                      match_capacity);
+        for (size_t i = 0U; i < match_count; i++) {
+            (void)agent_tool_append_named(
+                matches[i].definition->provider.name,
+                request,
+                policy,
+                descriptors,
+                &count,
+                capacity);
+        }
+    }
+    return count;
+}
+
 size_t solar_os_agent_tools_collect_discovered(
     const char *arguments,
     const solar_os_agent_request_t *request,
@@ -3388,33 +3574,79 @@ size_t solar_os_agent_tools_collect_discovered(
     if (capacity > SOLAR_OS_AGENT_TOOL_ACTIVE_MAX) {
         capacity = SOLAR_OS_AGENT_TOOL_ACTIVE_MAX;
     }
-    const size_t bootstrap_count =
-        solar_os_agent_tools_collect(request,
+    size_t count =
+        agent_tool_collect_bootstrap(request,
                                      policy,
                                      descriptors,
                                      capacity);
     char query[AGENT_TOOL_SEARCH_QUERY_MAX + 1U];
     if (agent_tool_parse_query(arguments, query, sizeof(query)) != ESP_OK ||
-        bootstrap_count >= capacity) {
-        return bootstrap_count;
+        count >= capacity) {
+        return count;
     }
 
     agent_tool_search_match_t matches[AGENT_TOOL_SEARCH_MATCH_MAX] = {0};
-    size_t match_capacity = capacity - bootstrap_count;
-    if (match_capacity > AGENT_TOOL_SEARCH_MATCH_MAX) {
-        match_capacity = AGENT_TOOL_SEARCH_MATCH_MAX;
-    }
     const size_t match_count =
         agent_tool_search_matches(query,
                                   request,
                                   policy,
                                   matches,
-                                  match_capacity);
+                                  AGENT_TOOL_SEARCH_MATCH_MAX);
     for (size_t i = 0U; i < match_count; i++) {
-        descriptors[bootstrap_count + i] =
-            matches[i].definition->provider;
+        bool duplicate = false;
+        for (size_t j = 0U; j < count; j++) {
+            if (strcmp(descriptors[j].name,
+                       matches[i].definition->provider.name) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate && count < capacity) {
+            descriptors[count++] = matches[i].definition->provider;
+        }
     }
-    return bootstrap_count + match_count;
+    return count;
+}
+
+size_t solar_os_agent_tools_activate(
+    const char *name,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t count,
+    size_t capacity)
+{
+    if (name == NULL || name[0] == '\0' || descriptors == NULL ||
+        capacity == 0U || count > capacity) {
+        return count;
+    }
+    if (capacity > SOLAR_OS_AGENT_TOOL_ACTIVE_MAX) {
+        capacity = SOLAR_OS_AGENT_TOOL_ACTIVE_MAX;
+    }
+    if (count >= capacity) {
+        return count;
+    }
+    for (size_t i = 0U; i < count; i++) {
+        if (descriptors[i].name != NULL &&
+            strcmp(descriptors[i].name, name) == 0) {
+            return count;
+        }
+    }
+    for (size_t i = 0U; i < AGENT_TOOL_COUNT; i++) {
+        const agent_tool_definition_t *definition = &AGENT_TOOL_REGISTRY[i];
+        if (strcmp(definition->provider.name, name) != 0) {
+            continue;
+        }
+        if (!definition->activate_on_demand ||
+            !agent_tool_is_available(definition, request) ||
+            solar_os_agent_tools_policy_decision(policy, definition->risk) ==
+                SOLAR_OS_AGENT_TOOL_POLICY_DENY) {
+            return count;
+        }
+        descriptors[count++] = definition->provider;
+        return count;
+    }
+    return count;
 }
 
 bool solar_os_agent_tools_is_discovery(const char *name)

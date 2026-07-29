@@ -26,16 +26,25 @@
     "using a storage, display, hardware, GPIO, bus, network, sensor, or "      \
     "script tool that is not visible, call tool_search with the exact task. " \
     "Before writing or running Python or Lua that uses SolarOS APIs, call "  \
-    "solaros_reference with the exact language and task. Treat its guidance " \
+    "solaros_reference with exactly one argument shaped "                    \
+    "{\\\"query\\\":\\\"lua gfx drawing\\\"}, combining the language and " \
+    "task in that query. Treat its guidance "                                \
     "and matched contracts as mandatory. Use documented symbols and "        \
     "constants exactly; never replace them with guessed strings or numbers. " \
-    "If the contract is insufficient, query again instead of guessing. "     \
+    "Make one comprehensive reference query; query again only for a "         \
+    "distinctly missing API instead of guessing. "                            \
     "Never invent API names, device names, display targets, bus names, or "   \
     "GPIOs. Use only values supplied by the user or verified through SolarOS "\
-    "APIs. For nontrivial existing files, use storage_search and "             \
+    "APIs. Use storage_stat for exact path existence or metadata; "            \
+    "storage_search searches file contents only. For nontrivial existing "     \
+    "files, use storage_search and "                                            \
     "storage_read_range, then apply storage_patch with the returned SHA-256. " \
     "Run the saved program with script_run_file and use its structured error " \
-    "before editing again. Before writing graphics code for an attached "      \
+    "before editing again. Never claim that a file was saved or changed, or "  \
+    "that a script ran, unless the corresponding tool returned success in "   \
+    "the current turn. Do not repeat a read-only tool with the same arguments; "\
+    "use its earlier result and continue the task. Before writing graphics "   \
+    "code for an attached "                                                    \
     "display, activate "                                                       \
     "display tools with tool_search, call display_list, and use only a "       \
     "returned ready target. Keep answers concise."
@@ -116,6 +125,28 @@ static esp_err_t agent_openai_append(char *buffer,
     return ESP_OK;
 }
 
+static esp_err_t agent_openai_append_json_string(
+    const solar_os_json_value_t *root,
+    const char *path,
+    char *buffer,
+    size_t capacity)
+{
+    if (root == NULL || path == NULL || buffer == NULL || capacity == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const solar_os_json_value_t *value = solar_os_json_path_get(root, path);
+    if (value == NULL) {
+        return ESP_OK;
+    }
+    const size_t used = strlen(buffer);
+    if (used >= capacity) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return solar_os_json_get_string(value,
+                                    buffer + used,
+                                    capacity - used);
+}
+
 static esp_err_t agent_openai_parse_usage(agent_openai_stream_t *stream,
                                           const solar_os_json_value_t *root)
 {
@@ -158,36 +189,30 @@ static esp_err_t agent_openai_parse_tool_delta(agent_openai_stream_t *stream,
         return ESP_ERR_INVALID_RESPONSE;
     }
 
-    char fragment[256];
-    if (solar_os_json_get_path_string(call, "id", fragment, sizeof(fragment)) == ESP_OK) {
-        const esp_err_t err = agent_openai_append(stream->result->tool_call_id,
-                                                  sizeof(stream->result->tool_call_id),
-                                                  fragment);
-        if (err != ESP_OK) {
-            return err;
-        }
+    esp_err_t err =
+        agent_openai_append_json_string(
+            call,
+            "id",
+            stream->result->tool_call_id,
+            sizeof(stream->result->tool_call_id));
+    if (err != ESP_OK) {
+        return err;
     }
-    if (solar_os_json_get_path_string(call,
-                                      "function.name",
-                                      fragment,
-                                      sizeof(fragment)) == ESP_OK) {
-        const esp_err_t err = agent_openai_append(stream->result->tool_name,
-                                                  sizeof(stream->result->tool_name),
-                                                  fragment);
-        if (err != ESP_OK) {
-            return err;
-        }
+    err = agent_openai_append_json_string(
+        call,
+        "function.name",
+        stream->result->tool_name,
+        sizeof(stream->result->tool_name));
+    if (err != ESP_OK) {
+        return err;
     }
-    if (solar_os_json_get_path_string(call,
-                                      "function.arguments",
-                                      fragment,
-                                      sizeof(fragment)) == ESP_OK) {
-        const esp_err_t err = agent_openai_append(stream->result->tool_arguments,
-                                                  sizeof(stream->result->tool_arguments),
-                                                  fragment);
-        if (err != ESP_OK) {
-            return err;
-        }
+    err = agent_openai_append_json_string(
+        call,
+        "function.arguments",
+        stream->result->tool_arguments,
+        sizeof(stream->result->tool_arguments));
+    if (err != ESP_OK) {
+        return err;
     }
     stream->result->tool_call = true;
     return ESP_OK;
@@ -720,6 +745,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
     char *tool_name = NULL;
     char *arguments = NULL;
     char *tool_result = NULL;
+    char *tool_context = NULL;
     char *previous_response_id = NULL;
     char *reasoning_effort = NULL;
     char *tools = NULL;
@@ -743,6 +769,13 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
     }
     if (err == ESP_OK && turn->continuation) {
         err = agent_openai_escape(turn->tool_result, &tool_result, "agent.tool-result");
+    }
+    if (err == ESP_OK && turn->continuation &&
+        api == AGENT_OPENAI_API_CHAT_COMPLETIONS) {
+        err = agent_openai_escape(
+            turn->tool_context != NULL ? turn->tool_context : "",
+            &tool_context,
+            "agent.tool-context");
     }
     if (err == ESP_OK && api == AGENT_OPENAI_API_RESPONSES &&
         (turn->continuation ||
@@ -862,6 +895,8 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             "{\"role\":\"system\",\"content\":\"" AGENT_OPENAI_INSTRUCTIONS "\"}"
             "%s,"
             "{\"role\":\"user\",\"content\":\"%s\"},"
+            "{\"role\":\"system\",\"content\":\"Earlier tool results in this "
+            "request:\\n%s\"},"
             "{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"%s\","
             "\"type\":\"function\",\"function\":{\"name\":\"%s\","
             "\"arguments\":\"%s\"}}]},"
@@ -871,6 +906,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             reasoning_compat,
             history,
             prompt,
+            tool_context,
             call_id,
             tool_name,
             arguments,
@@ -893,6 +929,7 @@ cleanup:
     solar_os_memory_free(tool_name);
     solar_os_memory_free(arguments);
     solar_os_memory_free(tool_result);
+    solar_os_memory_free(tool_context);
     solar_os_memory_free(previous_response_id);
     solar_os_memory_free(reasoning_effort);
     solar_os_memory_free(tools);

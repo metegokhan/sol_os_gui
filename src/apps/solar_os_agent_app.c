@@ -19,6 +19,7 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_queue.h"
+#include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_script_runner.h"
 #include "solar_os_storage.h"
@@ -478,12 +479,19 @@ static void agent_app_task(void *arg)
     (void)arg;
     if (agent_app.mode == AGENT_APP_MODE_CHAT ||
         agent_app.mode == AGENT_APP_MODE_ASK) {
+        char storage_cwd[SOLAR_OS_STORAGE_PATH_MAX] = {0};
+        (void)solar_os_shell_resolve_path(agent_app.ctx,
+                                          ".",
+                                          storage_cwd,
+                                          sizeof(storage_cwd));
         const solar_os_agent_request_t request = {
             .prompt = agent_app.prompt,
             .conversation_id =
                 agent_app.mode == AGENT_APP_MODE_CHAT &&
                         agent_app.conversation_id[0] != '\0' ?
                     agent_app.conversation_id : NULL,
+            .storage_cwd =
+                storage_cwd[0] != '\0' ? storage_cwd : NULL,
             .next_conversation_id =
                 agent_app.mode == AGENT_APP_MODE_CHAT ?
                     agent_app.conversation_id : NULL,
@@ -681,13 +689,36 @@ static void agent_app_drain_events(solar_os_context_t *ctx)
             agent_app_newline_printf(io, "tool %s\n", event.tool_name);
             agent_app.text_segment_started = false;
             break;
-        case SOLAR_OS_AGENT_EVENT_TOOL_RESULT:
-            agent_app_printf(io,
-                             "tool %s %s\n",
-                             event.tool_name,
-                             event.success ? "complete" : "denied");
+        case SOLAR_OS_AGENT_EVENT_TOOL_RESULT: {
+            const char *outcome = event.success ? "complete" :
+                (strstr(event.text, "\"error\":\"tool denied\"") != NULL ?
+                    "denied" :
+                    (strstr(event.text, "\"error\":\"tool activated\"") != NULL ?
+                        "activated" :
+                        (strstr(event.text,
+                                "\"error\":\"duplicate tool call\"") != NULL ?
+                            "skipped" : "failed")));
+            const char *error = strstr(event.text, "\"error\":\"");
+            if (!event.success && strcmp(outcome, "failed") == 0 &&
+                error != NULL) {
+                error += strlen("\"error\":\"");
+                const char *error_end = strchr(error, '"');
+                const int error_len = error_end != NULL ?
+                    (int)(error_end - error) : (int)strlen(error);
+                agent_app_printf(io,
+                                 "tool %s failed: %.*s\n",
+                                 event.tool_name,
+                                 error_len,
+                                 error);
+            } else {
+                agent_app_printf(io,
+                                 "tool %s %s\n",
+                                 event.tool_name,
+                                 outcome);
+            }
             agent_app.text_segment_started = false;
             break;
+        }
         case SOLAR_OS_AGENT_EVENT_TOOL_CONFIRMATION:
             if (event.tool_name[0] != '\0') {
                 solar_os_shell_io_newline(io);
