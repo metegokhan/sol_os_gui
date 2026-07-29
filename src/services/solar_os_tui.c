@@ -170,6 +170,64 @@ static size_t tui_encode_utf8(uint32_t codepoint, char out[4])
     return 1;
 }
 
+static uint32_t tui_ascii_fallback(uint32_t codepoint)
+{
+    if (codepoint <= 0x7fU) {
+        return codepoint;
+    }
+
+    switch (codepoint) {
+    case 0x2190U:
+        return '<';
+    case 0x2191U:
+        return '^';
+    case 0x2192U:
+        return '>';
+    case 0x2193U:
+        return 'v';
+    case 0x2013U:
+    case 0x2014U:
+        return '-';
+    case 0x2022U:
+        return '*';
+    case 0x2026U:
+        return '.';
+    default:
+        break;
+    }
+
+    if (codepoint == 0x2500U || codepoint == 0x2501U ||
+        (codepoint >= 0x2504U && codepoint <= 0x2505U) ||
+        (codepoint >= 0x2508U && codepoint <= 0x2509U) ||
+        (codepoint >= 0x254cU && codepoint <= 0x254fU) ||
+        codepoint == 0x2550U) {
+        return '-';
+    }
+    if (codepoint == 0x2502U || codepoint == 0x2503U ||
+        (codepoint >= 0x2506U && codepoint <= 0x2507U) ||
+        (codepoint >= 0x250aU && codepoint <= 0x250bU) ||
+        codepoint == 0x2551U) {
+        return '|';
+    }
+    if (codepoint >= 0x2500U && codepoint <= 0x257fU) {
+        return '+';
+    }
+    if (codepoint >= 0x2580U && codepoint <= 0x259fU) {
+        return '#';
+    }
+    return '?';
+}
+
+static uint32_t tui_output_codepoint(const solar_os_tui_t *tui, uint32_t codepoint)
+{
+    if (tui_valid(tui) &&
+        solar_os_shell_io_kind(tui->io) == SOLAR_OS_SHELL_IO_KIND_PORT &&
+        solar_os_shell_io_charset(tui->io) == SOLAR_OS_SHELL_CHARSET_ASCII) {
+        return tui_ascii_fallback(codepoint);
+    }
+    return codepoint;
+}
+
 static void tui_free_diff_buffers(solar_os_tui_t *tui)
 {
     if (tui == NULL) {
@@ -433,6 +491,7 @@ static esp_err_t tui_write_codepoint(solar_os_tui_t *tui, uint32_t codepoint)
         return ESP_OK;
     }
 
+    codepoint = tui_output_codepoint(tui, codepoint);
     char bytes[4];
     const size_t len = tui_encode_utf8(codepoint, bytes);
     const esp_err_t err = solar_os_shell_io_write_raw(tui->io, bytes, len);
@@ -459,7 +518,24 @@ static esp_err_t tui_write_text(solar_os_tui_t *tui, const char *text)
         return ESP_OK;
     }
 
-    return solar_os_shell_io_write(tui->io, text);
+    if (solar_os_shell_io_charset(tui->io) == SOLAR_OS_SHELL_CHARSET_UTF8) {
+        return solar_os_shell_io_write(tui->io, text);
+    }
+
+    const char *p = text;
+    while (*p != '\0') {
+        uint32_t codepoint = 0;
+        const size_t consumed = tui_decode_utf8_char(p, &codepoint);
+        if (consumed == 0) {
+            return ESP_FAIL;
+        }
+        const esp_err_t err = tui_write_codepoint(tui, codepoint);
+        if (err != ESP_OK) {
+            return err;
+        }
+        p += consumed;
+    }
+    return ESP_OK;
 }
 
 esp_err_t solar_os_tui_begin(solar_os_tui_t *tui, solar_os_context_t *ctx)
@@ -576,6 +652,7 @@ static esp_err_t tui_emit_attr(solar_os_tui_t *tui, uint8_t attr)
 
 static esp_err_t tui_emit_codepoint(solar_os_tui_t *tui, uint32_t codepoint)
 {
+    codepoint = tui_output_codepoint(tui, codepoint);
     char bytes[4];
     const size_t len = tui_encode_utf8(codepoint, bytes);
     const esp_err_t err = solar_os_shell_io_write_raw(tui->io, bytes, len);

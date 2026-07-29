@@ -347,6 +347,7 @@ static const char * const setterm_subcommands[] = {
     "brightness",
     "backlight",
     "profile",
+    "charset",
     "keyboard",
     "keymap",
     "keyrate",
@@ -363,6 +364,7 @@ static const char * const setterm_textsize_values[] = {"12", "14", "16", "18", "
 static const char * const setterm_palette_values[] = {"normal", "inverted"};
 static const char * const setterm_brightness_values[] = {"0", "25", "50", "75", "100"};
 static const char * const setterm_profile_values[] = {"vt100", "ansi", "dumb"};
+static const char * const setterm_charset_values[] = {"utf8", "ascii"};
 static const char * const setterm_keyboard_values[] = {"us", "de"};
 static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};
@@ -458,8 +460,9 @@ static const char * const session_subcommands[] = {
 };
 
 static const char * const session_create_values[] = {"shell"};
-static const char * const session_shell_options[] = {"--term", "--size"};
+static const char * const session_shell_options[] = {"--term", "--charset", "--size"};
 static const char * const session_shell_term_values[] = {"auto", "vt100", "ansi", "dumb"};
+static const char * const session_shell_charset_values[] = {"utf8", "ascii"};
 static const char * const session_shell_size_values[] = {"80x24", "100x30", "132x43"};
 
 static const char * const job_log_values[] = {"file"};
@@ -965,6 +968,7 @@ static const char * const path_setterm_palette[] = {"setterm", "palette"};
 static const char * const path_setterm_brightness[] = {"setterm", "brightness"};
 static const char * const path_setterm_backlight[] = {"setterm", "backlight"};
 static const char * const path_setterm_profile[] = {"setterm", "profile"};
+static const char * const path_setterm_charset[] = {"setterm", "charset"};
 static const char * const path_setterm_keyboard[] = {"setterm", "keyboard"};
 static const char * const path_setterm_keymap[] = {"setterm", "keymap"};
 static const char * const path_setterm_keyrate[] = {"setterm", "keyrate"};
@@ -1121,6 +1125,13 @@ static const char * const path_session_create_shell_size[] = {
     "shell",
     SHELL_COMPLETION_ANY,
     "--size",
+};
+static const char * const path_session_create_shell_charset[] = {
+    "session",
+    "create",
+    "shell",
+    SHELL_COMPLETION_ANY,
+    "--charset",
 };
 static const char * const path_session_fg[] = {"session", "fg"};
 static const char * const path_session_foreground[] = {"session", "foreground"};
@@ -1684,6 +1695,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_brightness, setterm_brightness_values),
     SHELL_COMPLETION_STATIC(path_setterm_backlight, setterm_brightness_values),
     SHELL_COMPLETION_STATIC(path_setterm_profile, setterm_profile_values),
+    SHELL_COMPLETION_STATIC(path_setterm_charset, setterm_charset_values),
     SHELL_COMPLETION_STATIC(path_setterm_keyboard, setterm_keyboard_values),
     SHELL_COMPLETION_STATIC(path_setterm_keymap, setterm_keyboard_values),
     SHELL_COMPLETION_STATIC(path_setterm_keyrate, setterm_keyrate_values),
@@ -1756,6 +1768,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_DISPLAY_TARGETS(path_session_create_app),
     SHELL_COMPLETION_OPTIONS(path_session_create_shell_target, session_shell_options),
     SHELL_COMPLETION_STATIC(path_session_create_shell_term, session_shell_term_values),
+    SHELL_COMPLETION_STATIC(path_session_create_shell_charset, session_shell_charset_values),
     SHELL_COMPLETION_STATIC(path_session_create_shell_size, session_shell_size_values),
     SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_session_fg),
     SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_session_foreground),
@@ -5552,12 +5565,14 @@ static bool parse_port_shell_options(int argc,
 
     *options = (solar_os_port_shell_options_t){
         .terminal_profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+        .charset = SOLAR_OS_SHELL_CHARSET_UTF8,
         .cols = 0,
         .rows = 0,
     };
 
     for (int i = first; i < argc; i++) {
         const char *term_arg = NULL;
+        const char *charset_arg = NULL;
         const char *size_arg = NULL;
 
         if (strcmp(argv[i], "--term") == 0) {
@@ -5567,6 +5582,13 @@ static bool parse_port_shell_options(int argc,
             term_arg = argv[++i];
         } else if (strncmp(argv[i], "--term=", 7) == 0) {
             term_arg = argv[i] + 7;
+        } else if (strcmp(argv[i], "--charset") == 0) {
+            if (i + 1 >= argc) {
+                return false;
+            }
+            charset_arg = argv[++i];
+        } else if (strncmp(argv[i], "--charset=", 10) == 0) {
+            charset_arg = argv[i] + 10;
         } else if (strcmp(argv[i], "--size") == 0) {
             if (i + 1 >= argc) {
                 return false;
@@ -5580,6 +5602,10 @@ static bool parse_port_shell_options(int argc,
 
         if (term_arg != NULL &&
             !solar_os_shell_parse_terminal_profile(term_arg, &options->terminal_profile)) {
+            return false;
+        }
+        if (charset_arg != NULL &&
+            !solar_os_shell_parse_charset(charset_arg, &options->charset)) {
             return false;
         }
         if (size_arg != NULL && !parse_port_shell_size(size_arg, &options->cols, &options->rows)) {
@@ -5611,7 +5637,7 @@ static void session_print_usage(solar_os_shell_io_t *io)
 {
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  session list");
-    solar_os_shell_io_writeln(io, "  session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
+    solar_os_shell_io_writeln(io, "  session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]");
     solar_os_shell_io_writeln(io, "  session create shell <display-target>");
     solar_os_shell_io_writeln(io, "  session create <app> <display-target> [args...]");
     solar_os_shell_io_writeln(io, "  session fg <session-id>");
@@ -5846,7 +5872,7 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
         if (!parse_port_shell_options(argc, argv, 4, &options)) {
             solar_os_shell_io_writeln(
                 io,
-                "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
+                "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]");
             return;
         }
 
@@ -5855,10 +5881,11 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_port_shell_start_with_options(ctx, argv[3], &options, false, &session_id);
         if (err == ESP_OK) {
             solar_os_shell_io_printf(io,
-                                     "session %u created: shell on %s term=%s\n",
+                                     "session %u created: shell on %s term=%s charset=%s\n",
                                      (unsigned)session_id,
                                      argv[3],
-                                     solar_os_shell_terminal_profile_name(options.terminal_profile));
+                                     solar_os_shell_terminal_profile_name(options.terminal_profile),
+                                     solar_os_shell_charset_name(options.charset));
         } else {
             solar_os_shell_io_printf(io,
                                      "session create failed: %s\n",

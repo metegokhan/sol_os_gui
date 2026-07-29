@@ -179,14 +179,19 @@ setterm palette [normal|inverted]
 setterm brightness [0..100]
 setterm backlight [0..100]
 setterm profile [vt100|ansi|dumb]
+setterm charset [utf8|ascii]
 setterm keyboard [us|de]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm timezone [UTC|Europe/Berlin|POSIX-TZ]
 setterm otaurl [url]
 ```
 
-`setterm profile` is runtime-only and applies to the current port shell. From
-the display shell it prints guidance to set the profile from a port shell.
+`setterm profile` and `setterm charset` are runtime-only and apply to the
+current port shell. From the display shell they print guidance to configure
+them from a port shell. `profile` controls terminal escape sequences;
+`charset` controls TUI glyph output. The default `utf8` mode uses Unicode box
+drawing. Select `ascii` for DOS and other legacy serial terminals; TUI borders,
+blocks, arrows, and punctuation are replaced with readable ASCII characters.
 Display layout settings (`orientation`, `font`, `textsize`, and `palette`) apply
 to the current display and its app sessions. Settings on the primary display
 are persistent; settings on secondary or virtual displays such as `web0` are
@@ -213,7 +218,7 @@ subsequently created terminal and graphic sessions inherit it.
 | `job` | `job start <name> [args...]` | Start or restart a job. |
 | `job` | `job stop <name>` | Stop a job. |
 | `session` | `session list` | List display app sessions, display shell sessions, and port shell sessions. |
-| `session` | `session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]` | Start a shell session on a byte-stream port. |
+| `session` | `session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]` | Start a shell session on a byte-stream port. |
 | `session` | `session create shell <display-target>` | Attach a shell session to a ready display target such as `lcd0`. |
 | `session` | `session create <app> <display-target> [args...]` | Start a foreground application as the active session on a named display. |
 | `session` | `session focus [display-target]` | Show or assign the display that receives BLE keyboard and local board-control input. |
@@ -225,8 +230,10 @@ Port shells default to `--term auto`. Auto mode sends a terminal Device
 Attributes probe; a recognizable response enables VT100-style cursor controls
 and a size probe, while no response falls back to a dumb line-oriented shell.
 Use `--term vt100` or `--term ansi` to force escape-sequence output,
-`--term dumb` for plain text, and `--size COLSxROWS` to set the terminal dimensions
-without probing.
+`--term dumb` for plain text, and `--size COLSxROWS` to set the terminal
+dimensions without probing. Character encoding is independent of that profile:
+port shells default to `--charset utf8`; use `--charset ascii` when a legacy
+terminal displays Unicode TUI glyphs as unrelated code-page characters.
 
 `jobs` prints a compact table that fits the built-in display terminal:
 
@@ -265,7 +272,7 @@ Common job examples:
 
 ```text
 session create shell cdc0
-session create shell uart0 --term vt100 --size 100x30
+session create shell uart0 --term ansi --charset ascii --size 80x25
 session create shell lcd0
 session create files display0
 session focus display0

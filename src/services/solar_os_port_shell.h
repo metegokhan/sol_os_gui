@@ -12,6 +12,7 @@
 
 typedef struct {
     solar_os_shell_terminal_profile_t terminal_profile;
+    solar_os_shell_charset_t charset;
     uint16_t cols;
     uint16_t rows;
 } solar_os_port_shell_options_t;
