@@ -535,7 +535,8 @@ run with the normal permissions of their runtime and are not sandboxed.
 
 The shell subcommands use the cached catalog: `search` prints matches,
 `install` downloads and verifies an application by ID, and `run` launches an
-installed ID through its declared Python or Lua runtime. Run `playground
+installed ID through its declared Python or Lua runtime. Tab completes cached
+catalog IDs after `playground install` and `playground run`. Run `playground
 refresh` first if the catalog is unavailable. At the top-level catalog tree,
 `Esc`, `q`, and the app-exit key exit Playground.
 

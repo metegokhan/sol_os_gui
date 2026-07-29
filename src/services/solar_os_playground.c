@@ -1219,6 +1219,22 @@ bool solar_os_playground_get_app(size_t index,
     return found;
 }
 
+bool solar_os_playground_get_app_id(size_t index,
+                                    char *id,
+                                    size_t id_len)
+{
+    if (id == NULL || id_len == 0U) {
+        return false;
+    }
+    id[0] = '\0';
+    portENTER_CRITICAL(&playground_lock);
+    const bool found = playground_catalog_ready &&
+        index < playground_catalog->app_count &&
+        strlcpy(id, playground_catalog->apps[index].id, id_len) < id_len;
+    portEXIT_CRITICAL(&playground_lock);
+    return found;
+}
+
 bool solar_os_playground_find_app(const char *id,
                                   size_t *index,
                                   solar_os_playground_app_info_t *app)

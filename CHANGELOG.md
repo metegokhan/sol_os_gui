@@ -17,7 +17,8 @@
   parent resumes, preventing a freed terminal from being drawn and rebooting
   the device. Playground now exits its top-level TUI with `Esc` and provides
   shell-usable `search`, `install`, and `run` subcommands with matching
-  autocomplete and manual coverage.
+  autocomplete and manual coverage. Install and run autocomplete streams
+  application IDs directly from the loaded catalog without a second RAM cache.
 - **4.4.0** — 2026-07-29 — Added Playground, a native foldable catalog browser
   for community Python and Lua applications. Users can search one configurable
   repository, inspect compatibility and installation state, verify and install

@@ -41,6 +41,9 @@
 #include "solar_os_memory.h"
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
+#if SOLAR_OS_PACKAGE_APP_PLAYGROUND
+#include "solar_os_playground.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
 #include "solar_os_radio.h"
 #endif
@@ -101,6 +104,7 @@ typedef struct {
     bool complete_manual_references;
     bool complete_agent_conversations;
     bool complete_inbox_ids;
+    bool complete_playground_apps;
     bool complete_expansion_devices;
     bool complete_display_session_ids;
     bool complete_session_ids;
@@ -949,6 +953,8 @@ static const char * const path_telnet[] = {"telnet"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
 static const char * const path_playground[] = {"playground"};
+static const char * const path_playground_install[] = {"playground", "install"};
+static const char * const path_playground_run[] = {"playground", "run"};
 static const char * const path_playground_source[] = {"playground", "source"};
 static const char * const path_playground_install_target[] = {
     "playground",
@@ -1497,6 +1503,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_inbox_ids = true, \
     }
+#define SHELL_COMPLETION_PLAYGROUND_APPS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_playground_apps = true, \
+    }
 #define SHELL_COMPLETION_EXPANSION_DEVICES(path_array) \
     { \
         .path = path_array, \
@@ -1685,6 +1697,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
     SHELL_COMPLETION_STATIC(path_playground, playground_subcommands),
+    SHELL_COMPLETION_PLAYGROUND_APPS(path_playground_install),
+    SHELL_COMPLETION_PLAYGROUND_APPS(path_playground_run),
     SHELL_COMPLETION_STATIC(path_playground_source, playground_source_values),
     SHELL_COMPLETION_STATIC(path_playground_install_target, playground_target_values),
 #endif
@@ -2015,6 +2029,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #undef SHELL_COMPLETION_JOBS
 #undef SHELL_COMPLETION_EXPANSION_DEVICES
 #undef SHELL_COMPLETION_INBOX_IDS
+#undef SHELL_COMPLETION_PLAYGROUND_APPS
 #undef SHELL_COMPLETION_AGENT_CONVERSATIONS
 #undef SHELL_COMPLETION_COMMANDS
 #undef SHELL_COMPLETION_OPTIONS
@@ -3928,6 +3943,22 @@ static void shell_completion_emit_inbox_ids(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_playground_apps(
+    shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_APP_PLAYGROUND
+    const size_t count = solar_os_playground_app_count();
+    for (size_t i = 0U; i < count; i++) {
+        char id[SOLAR_OS_PLAYGROUND_ID_MAX];
+        if (solar_os_playground_get_app_id(i, id, sizeof(id))) {
+            shell_completion_emit(state, id);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_expansion_devices(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
@@ -5138,6 +5169,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_inbox_ids) {
             shell_completion_emit_inbox_ids(state);
+        }
+        if (rule->complete_playground_apps) {
+            shell_completion_emit_playground_apps(state);
         }
         if (rule->complete_expansion_devices) {
             shell_completion_emit_expansion_devices(state);
