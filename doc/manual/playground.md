@@ -21,11 +21,14 @@ playground
 playground search QUERY...
 playground install APP-ID [auto|flash|sd]
 playground run APP-ID
+playground reload
+playground refresh
 ```
 
-The first opening downloads the catalog. Press `r` in the tree, or run
-`playground refresh`, to fetch it again. Press `/` to search names,
-descriptions, authors, tags, and categories.
+Opening the TUI loads the saved local catalog without accessing the network.
+Press `r` in the tree, or run `playground refresh`, to download and save the
+current catalog. Run `playground reload` to explicitly reload the saved copy.
+Press `/` to search names, descriptions, authors, tags, and categories.
 
 The same operations are available directly from the shell. `search` prints
 matching catalog IDs, runtimes, names, and installation markers. `install`
@@ -34,12 +37,11 @@ the explicit `flash` or `sd` target. `run` resolves the installed entry in the
 shell and launches its Python or Lua runtime directly; it does not create a
 Playground session. After the catalog is loaded, Tab completes installed
 application IDs for both `install` and `run` without keeping a second ID list
-in memory. These commands use the cached catalog; run `playground refresh`
-first if no catalog is available.
+in memory. These commands use the loaded local catalog.
 
 Opening the Playground TUI never accesses the network automatically. It shows
-the catalog already loaded during the current boot, if any. Press `r` or run
-`playground refresh` when you explicitly want to download the current catalog.
+the catalog saved by the last successful refresh. Press `r` or run `playground
+refresh` when you explicitly want to download the current catalog.
 
 Application markers:
 
@@ -53,11 +55,18 @@ Select an application and press `Enter` or `Right` for details. From there,
 it after confirmation. When an SD card is mounted, downloads ask whether to
 use flash or SD; otherwise they use flash.
 
-Installed files live below:
+The saved catalog always lives on internal flash:
 
 ```text
-/.solar/playground/python/APP-ID/
-/.solar/playground/lua/APP-ID/
+<flash>/.solar/playground/catalog.json
+<flash>/.solar/playground/catalog.source
+```
+
+Installed files live on the selected filesystem:
+
+```text
+<filesystem>/.solar/playground/python/APP-ID/
+<filesystem>/.solar/playground/lua/APP-ID/
 ```
 
 SD installations take precedence when the same application also exists in
@@ -102,7 +111,8 @@ applications whose maintainers you trust.
 
 Run `playground` to browse the configured catalog. Use `/` to search, `Enter`
 for details, `d` to download, `r` to run, and `Delete` to remove. Refresh with
-`r` in the tree or `playground refresh`. Use `playground source [URL|reset]`
-to inspect or change the catalog. Packages are hash-checked but scripts are not
+`r` in the tree or `playground refresh`; use `playground reload` to load the
+saved catalog without a network request. Use `playground source [URL|reset]` to
+inspect or change the catalog. Packages are hash-checked but scripts are not
 sandboxed. Shell automation can use `playground search QUERY`, `playground
 install ID [auto|flash|sd]`, and `playground run ID`.

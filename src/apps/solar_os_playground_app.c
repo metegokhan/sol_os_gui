@@ -804,6 +804,26 @@ static void playground_command_finish(solar_os_context_t *ctx)
     solar_os_context_request_exit(ctx);
 }
 
+static bool playground_handle_reload_command(solar_os_context_t *ctx)
+{
+    const int argc = solar_os_context_argc(ctx);
+    if (argc < 2 || strcmp(solar_os_context_argv(ctx, 1), "reload") != 0) {
+        return false;
+    }
+    solar_os_shell_io_t *io = playground_io(ctx);
+    if (argc != 2) {
+        solar_os_shell_io_writeln(io, "usage: playground reload");
+    } else {
+        const esp_err_t err = solar_os_playground_reload();
+        solar_os_shell_io_printf(
+            io,
+            "playground: %s\n",
+            err == ESP_OK ? "local catalog loaded" : esp_err_to_name(err));
+    }
+    playground_command_finish(ctx);
+    return true;
+}
+
 static bool playground_catalog_required(solar_os_context_t *ctx)
 {
     if (solar_os_playground_catalog_available()) {
@@ -958,7 +978,8 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
     if (playground_handle_source_command(ctx)) {
         return ESP_OK;
     }
-    if (playground_handle_search_command(ctx) ||
+    if (playground_handle_reload_command(ctx) ||
+        playground_handle_search_command(ctx) ||
         playground_handle_install_command(ctx)) {
         return ESP_OK;
     }
@@ -969,12 +990,16 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
         solar_os_shell_io_t *io = playground_io(ctx);
         solar_os_shell_io_writeln(
             io,
-            "usage: playground [refresh|search QUERY|install ID [target]|"
+            "usage: playground [refresh|reload|search QUERY|install ID [target]|"
             "run ID|source [url|reset]]");
         solar_os_context_request_exit(ctx);
         return ESP_OK;
     }
 
+    esp_err_t reload_err = ESP_OK;
+    if (!force_refresh) {
+        reload_err = solar_os_playground_reload();
+    }
     playground_collapse_all_but_first_populated();
     esp_err_t err = solar_os_tui_begin(&playground.tui, ctx);
     if (err != ESP_OK) {
@@ -991,9 +1016,10 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
         (void)playground_start_operation(
             PLAYGROUND_OPERATION_REFRESH, NULL, SOLAR_OS_PLAYGROUND_TARGET_AUTO);
     } else if (!solar_os_playground_catalog_available()) {
-        strlcpy(playground.status,
-                "catalog not loaded - press r to refresh",
-                sizeof(playground.status));
+        snprintf(playground.status,
+                 sizeof(playground.status),
+                 "local catalog unavailable (%s) - press r to refresh",
+                 esp_err_to_name(reload_err));
     }
     playground_render();
     return ESP_OK;

@@ -899,6 +899,7 @@ static const char * const telnet_options[] = {"-r"};
 static const char * const playground_subcommands[] = {
     "install",
     "refresh",
+    "reload",
     "run",
     "search",
     "source",

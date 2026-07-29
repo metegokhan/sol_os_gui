@@ -525,6 +525,7 @@ playground search QUERY...
 playground install APP-ID [auto|flash|sd]
 playground run APP-ID
 playground refresh
+playground reload
 playground source [repository-or-catalog-url|reset]
 ```
 
@@ -533,13 +534,14 @@ in the bottom bar. Downloads are verified by size and SHA-256 and installed
 under `/.solar/playground/`; SD can be selected when mounted. Community scripts
 run with the normal permissions of their runtime and are not sandboxed.
 
-The shell subcommands use the cached catalog: `search` prints matches,
+The shell subcommands use the local catalog: `refresh` downloads and saves it,
+`reload` loads that saved copy without network access, `search` prints matches,
 `install` downloads and verifies an application by ID, and `run` launches an
 installed ID directly through its declared Python or Lua runtime without
 creating a Playground session. Tab completes installed catalog IDs after
-`playground install` and `playground run`. Run `playground refresh` first if
-the catalog is unavailable. At the top-level catalog tree, `Esc`, `q`, and the
-app-exit key exit Playground.
+`playground install` and `playground run`. Opening the TUI reloads the saved
+catalog automatically and does not refresh it. At the top-level catalog tree,
+`Esc`, `q`, and the app-exit key exit Playground.
 
 See [Playground](playground.md) for controls, storage layout, source selection,
 and the trust model.
