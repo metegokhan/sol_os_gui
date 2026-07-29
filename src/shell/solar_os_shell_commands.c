@@ -145,12 +145,14 @@ static bool parse_port_shell_options(int argc,
 
     *options = (solar_os_port_shell_options_t){
         .terminal_profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+        .charset = SOLAR_OS_SHELL_CHARSET_UTF8,
         .cols = 0,
         .rows = 0,
     };
 
     for (int i = first; i < argc; i++) {
         const char *term_arg = NULL;
+        const char *charset_arg = NULL;
         const char *size_arg = NULL;
 
         if (strcmp(argv[i], "--term") == 0) {
@@ -160,6 +162,13 @@ static bool parse_port_shell_options(int argc,
             term_arg = argv[++i];
         } else if (strncmp(argv[i], "--term=", 7) == 0) {
             term_arg = argv[i] + 7;
+        } else if (strcmp(argv[i], "--charset") == 0) {
+            if (i + 1 >= argc) {
+                return false;
+            }
+            charset_arg = argv[++i];
+        } else if (strncmp(argv[i], "--charset=", 10) == 0) {
+            charset_arg = argv[i] + 10;
         } else if (strcmp(argv[i], "--size") == 0) {
             if (i + 1 >= argc) {
                 return false;
@@ -173,6 +182,10 @@ static bool parse_port_shell_options(int argc,
 
         if (term_arg != NULL &&
             !solar_os_shell_parse_terminal_profile(term_arg, &options->terminal_profile)) {
+            return false;
+        }
+        if (charset_arg != NULL &&
+            !solar_os_shell_parse_charset(charset_arg, &options->charset)) {
             return false;
         }
         if (size_arg != NULL && !parse_port_shell_size(size_arg, &options->cols, &options->rows)) {
@@ -1257,7 +1270,7 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
             if (argc < 4 || !parse_port_shell_options(argc, argv, 4, &options)) {
                 solar_os_shell_io_writeln(
                     term,
-                    "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
+                    "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]");
                 return;
             }
             uint8_t session_id = 0;
@@ -1265,10 +1278,11 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
                 solar_os_port_shell_start_with_options(ctx, argv[3], &options, false, &session_id);
             if (err == ESP_OK) {
                 solar_os_shell_io_printf(term,
-                                         "job shell moved to sessions; session %u created: shell on %s term=%s\n",
+                                         "job shell moved to sessions; session %u created: shell on %s term=%s charset=%s\n",
                                          (unsigned)session_id,
                                          argv[3],
-                                         solar_os_shell_terminal_profile_name(options.terminal_profile));
+                                         solar_os_shell_terminal_profile_name(options.terminal_profile),
+                                         solar_os_shell_charset_name(options.charset));
             } else {
                 solar_os_shell_io_printf(term,
                                          "session create failed: %s\n",
@@ -1345,6 +1359,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm palette [normal|inverted]");
     solar_os_shell_io_writeln(term, "  setterm brightness [0..100]");
     solar_os_shell_io_writeln(term, "  setterm profile [vt100|ansi|dumb]");
+    solar_os_shell_io_writeln(term, "  setterm charset [utf8|ascii]");
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     solar_os_shell_io_writeln(term, "  setterm keyboard [us|de]");
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
@@ -1590,6 +1605,39 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_shell_io_printf(term,
                                  "profile: %s\n",
                                  solar_os_shell_terminal_profile_name(profile));
+        return;
+    }
+
+    if (strcmp(argv[1], "charset") == 0) {
+        if (solar_os_shell_io_kind(term) != SOLAR_OS_SHELL_IO_KIND_PORT) {
+            solar_os_shell_io_writeln(term,
+                                      "charset: set character set on a port shell to utf8 or ascii");
+            return;
+        }
+
+        if (argc == 2) {
+            solar_os_shell_io_printf(
+                term,
+                "charset: %s\n",
+                solar_os_shell_charset_name(solar_os_shell_io_charset(term)));
+            solar_os_shell_io_writeln(term, "values: utf8 ascii");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_io_writeln(term, "usage: setterm charset [utf8|ascii]");
+            return;
+        }
+
+        solar_os_shell_charset_t charset;
+        if (!solar_os_shell_parse_charset(argv[2], &charset)) {
+            solar_os_shell_io_writeln(term, "charset values: utf8 ascii");
+            return;
+        }
+
+        solar_os_shell_io_set_charset(term, charset);
+        solar_os_shell_io_printf(term,
+                                 "charset: %s\n",
+                                 solar_os_shell_charset_name(charset));
         return;
     }
 

@@ -132,6 +132,12 @@ static bool port_shell_terminal_profile_is_valid(solar_os_shell_terminal_profile
     }
 }
 
+static bool port_shell_charset_is_valid(solar_os_shell_charset_t charset)
+{
+    return charset == SOLAR_OS_SHELL_CHARSET_UTF8 ||
+        charset == SOLAR_OS_SHELL_CHARSET_ASCII;
+}
+
 static bool port_shell_parse_da_report(const uint8_t *data, size_t len)
 {
     if (data == NULL) {
@@ -825,6 +831,7 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
     solar_os_shell_session_t *session = NULL;
     solar_os_shell_terminal_profile_t requested_profile =
         SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO;
+    solar_os_shell_charset_t charset = SOLAR_OS_SHELL_CHARSET_UTF8;
     bool configured_size = false;
     uint16_t cols = PORT_SHELL_DEFAULT_COLS;
     uint16_t rows = PORT_SHELL_DEFAULT_ROWS;
@@ -835,6 +842,10 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
     if (options != NULL) {
         requested_profile = options->terminal_profile;
         if (!port_shell_terminal_profile_is_valid(requested_profile)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        charset = options->charset;
+        if (!port_shell_charset_is_valid(charset)) {
             return ESP_ERR_INVALID_ARG;
         }
         if (options->cols != 0 || options->rows != 0) {
@@ -896,6 +907,7 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
                                            requested_profile == SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO ?
                                                SOLAR_OS_SHELL_TERMINAL_PROFILE_VT100 :
                                                requested_profile);
+    solar_os_shell_io_set_charset(solar_os_shell_session_io(session), charset);
 
     portENTER_CRITICAL(&port_shells_lock);
     if (state->generation != generation || !state->used || state->stop_requested) {

@@ -289,8 +289,8 @@ its memory region. Job control is available through `start(name[, args])` and
 `solaros.sessions` creates manual port shell sessions and closes sessions by id.
 Script-created port shells do not run `/.shell/startup`.
 
-- `create_shell(port[, term[, cols, rows]])`: create a port shell and return its numeric session id.
-- `create_shell(port, {term="auto", cols=80, rows=24})`: table-options form for the same call.
+- `create_shell(port[, term[, cols, rows[, charset]]])`: create a port shell and return its numeric session id.
+- `create_shell(port, {term="auto", cols=80, rows=24, charset="utf8"})`: table-options form for the same call. Use `charset="ascii"` for legacy terminals.
 - `close(session_id)`: close a display/app session or stop a port shell session.
 
 Example:
@@ -302,7 +302,9 @@ pcall(function()
     solaros.jobs.stop("slip")
 end)
 
-local sid = solaros.sessions.create_shell("uart0", {term = "auto"})
+local sid = solaros.sessions.create_shell(
+    "uart0", {term = "ansi", cols = 80, rows = 25, charset = "ascii"}
+)
 -- later:
 solaros.sessions.close(sid)
 solaros.jobs.start("slip", {"uart0", "115200"})

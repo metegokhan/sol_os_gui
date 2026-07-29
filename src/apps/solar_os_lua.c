@@ -3264,6 +3264,18 @@ static solar_os_shell_terminal_profile_t solua_terminal_profile_from_arg(lua_Sta
     return profile;
 }
 
+static solar_os_shell_charset_t solua_charset_from_arg(lua_State *L, int index)
+{
+    solar_os_shell_charset_t charset = SOLAR_OS_SHELL_CHARSET_UTF8;
+    if (lua_isnoneornil(L, index)) {
+        return charset;
+    }
+    if (!solar_os_shell_parse_charset(luaL_checkstring(L, index), &charset)) {
+        luaL_error(L, "expected character set utf8 or ascii");
+    }
+    return charset;
+}
+
 static void solua_apply_session_options_table(lua_State *L,
                                               int index,
                                               solar_os_port_shell_options_t *options)
@@ -3271,6 +3283,12 @@ static void solua_apply_session_options_table(lua_State *L,
     lua_getfield(L, index, "term");
     if (!lua_isnil(L, -1)) {
         options->terminal_profile = solua_terminal_profile_from_arg(L, -1);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "charset");
+    if (!lua_isnil(L, -1)) {
+        options->charset = solua_charset_from_arg(L, -1);
     }
     lua_pop(L, 1);
 
@@ -3294,12 +3312,15 @@ static int solua_sessions_create_shell(lua_State *L)
     }
 
     const int argc = lua_gettop(L);
-    if (argc < 1 || argc > 4) {
-        return luaL_error(L, "usage: solaros.sessions.create_shell(port[, term[, cols, rows]])");
+    if (argc < 1 || argc > 5) {
+        return luaL_error(
+            L,
+            "usage: solaros.sessions.create_shell(port[, term[, cols, rows[, charset]]])");
     }
 
     solar_os_port_shell_options_t options = {
         .terminal_profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+        .charset = SOLAR_OS_SHELL_CHARSET_UTF8,
         .cols = 0,
         .rows = 0,
     };
@@ -3320,6 +3341,9 @@ static int solua_sessions_create_shell(lua_State *L)
     }
     if (argc >= 4 && !lua_isnoneornil(L, 4)) {
         options.rows = solua_check_u16_size(L, 4);
+    }
+    if (argc >= 5 && !lua_isnoneornil(L, 5)) {
+        options.charset = solua_charset_from_arg(L, 5);
     }
 
     uint8_t session_id = 0;

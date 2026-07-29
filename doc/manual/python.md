@@ -756,8 +756,8 @@ solaros.jobs.stop("ntp-sync")
 
 Session functions create and close foreground shell/app sessions.
 
-- `create_shell(port[, term[, cols, rows]])`: create a port shell session and return its numeric session id.
-- `create_shell(port, term="auto", cols=80, rows=24)`: keyword form for the same call.
+- `create_shell(port[, term[, cols, rows[, charset]]])`: create a port shell session and return its numeric session id.
+- `create_shell(port, term="auto", cols=80, rows=24, charset="utf8")`: keyword form for the same call. Use `charset="ascii"` for legacy terminals.
 - `close(session_id)`: close a display/app session or stop a port shell session.
 
 Manual port shell sessions created from scripts do not run `/.shell/startup`.
@@ -772,7 +772,9 @@ try:
 except OSError:
     pass
 
-sid = solaros.sessions.create_shell("uart0", term="auto")
+sid = solaros.sessions.create_shell(
+    "uart0", term="ansi", cols=80, rows=25, charset="ascii"
+)
 # later:
 solaros.sessions.close(sid)
 solaros.jobs.start("slip", ["uart0", "115200"])

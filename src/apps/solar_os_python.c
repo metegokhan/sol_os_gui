@@ -3423,7 +3423,8 @@ static mp_obj_t python_kw_value(mp_map_t *kw_args, const char *name)
 static void python_check_known_kwargs(mp_map_t *kw_args,
                                       const char *first,
                                       const char *second,
-                                      const char *third)
+                                      const char *third,
+                                      const char *fourth)
 {
     if (kw_args == NULL || kw_args->used == 0) {
         return;
@@ -3436,7 +3437,8 @@ static void python_check_known_kwargs(mp_map_t *kw_args,
         const char *key = mp_obj_str_get_str(kw_args->table[i].key);
         if ((first != NULL && strcmp(key, first) == 0) ||
             (second != NULL && strcmp(key, second) == 0) ||
-            (third != NULL && strcmp(key, third) == 0)) {
+            (third != NULL && strcmp(key, third) == 0) ||
+            (fourth != NULL && strcmp(key, fourth) == 0)) {
             continue;
         }
         mp_raise_msg_varg(&mp_type_TypeError,
@@ -3457,18 +3459,31 @@ static solar_os_shell_terminal_profile_t python_terminal_profile_from_obj(mp_obj
     return profile;
 }
 
+static solar_os_shell_charset_t python_charset_from_obj(mp_obj_t obj)
+{
+    solar_os_shell_charset_t charset = SOLAR_OS_SHELL_CHARSET_UTF8;
+    if (obj == MP_OBJ_NULL || obj == mp_const_none) {
+        return charset;
+    }
+    if (!solar_os_shell_parse_charset(mp_obj_str_get_str(obj), &charset)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected character set utf8 or ascii"));
+    }
+    return charset;
+}
+
 static mp_obj_t solaros_sessions_create_shell(size_t n_args,
                                               const mp_obj_t *args,
                                               mp_map_t *kw_args)
 {
-    mp_arg_check_num(n_args, kw_args != NULL ? kw_args->used : 0, 1, 4, true);
-    python_check_known_kwargs(kw_args, "term", "cols", "rows");
+    mp_arg_check_num(n_args, kw_args != NULL ? kw_args->used : 0, 1, 5, true);
+    python_check_known_kwargs(kw_args, "term", "cols", "rows", "charset");
     if (python_app.ctx == NULL) {
         python_raise_esp(ESP_ERR_INVALID_STATE);
     }
 
     solar_os_port_shell_options_t options = {
         .terminal_profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+        .charset = SOLAR_OS_SHELL_CHARSET_UTF8,
         .cols = 0,
         .rows = 0,
     };
@@ -3483,6 +3498,9 @@ static mp_obj_t solaros_sessions_create_shell(size_t n_args,
     if (n_args >= 4 && args[3] != mp_const_none) {
         options.rows = python_u16_from_size(python_size_from_obj(args[3]));
     }
+    if (n_args >= 5 && args[4] != mp_const_none) {
+        options.charset = python_charset_from_obj(args[4]);
+    }
 
     mp_obj_t value = python_kw_value(kw_args, "term");
     if (value != MP_OBJ_NULL) {
@@ -3495,6 +3513,10 @@ static mp_obj_t solaros_sessions_create_shell(size_t n_args,
     value = python_kw_value(kw_args, "rows");
     if (value != MP_OBJ_NULL && value != mp_const_none) {
         options.rows = python_u16_from_size(python_size_from_obj(value));
+    }
+    value = python_kw_value(kw_args, "charset");
+    if (value != MP_OBJ_NULL) {
+        options.charset = python_charset_from_obj(value);
     }
 
     uint8_t session_id = 0;

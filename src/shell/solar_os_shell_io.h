@@ -22,6 +22,11 @@ typedef enum {
     SOLAR_OS_SHELL_TERMINAL_PROFILE_VT100,
 } solar_os_shell_terminal_profile_t;
 
+typedef enum {
+    SOLAR_OS_SHELL_CHARSET_UTF8,
+    SOLAR_OS_SHELL_CHARSET_ASCII,
+} solar_os_shell_charset_t;
+
 struct solar_os_shell_io {
     solar_os_shell_io_kind_t kind;
     solar_os_shell_terminal_profile_t terminal_profile;
@@ -38,6 +43,7 @@ struct solar_os_shell_io {
     bool inverse;
     bool cursor_visible;
     bool footer_enabled;
+    bool ascii_only;
 };
 
 void solar_os_shell_io_init_terminal(solar_os_shell_io_t *io, solar_os_terminal_t *terminal);
@@ -54,6 +60,10 @@ bool solar_os_shell_parse_terminal_profile(const char *name,
 void solar_os_shell_io_set_terminal_profile(solar_os_shell_io_t *io,
                                             solar_os_shell_terminal_profile_t profile);
 solar_os_shell_terminal_profile_t solar_os_shell_io_terminal_profile(const solar_os_shell_io_t *io);
+const char *solar_os_shell_charset_name(solar_os_shell_charset_t charset);
+bool solar_os_shell_parse_charset(const char *name, solar_os_shell_charset_t *charset);
+void solar_os_shell_io_set_charset(solar_os_shell_io_t *io, solar_os_shell_charset_t charset);
+solar_os_shell_charset_t solar_os_shell_io_charset(const solar_os_shell_io_t *io);
 bool solar_os_shell_io_is_cursor_addressable(const solar_os_shell_io_t *io);
 const char *solar_os_shell_io_app_exit_key(const solar_os_shell_io_t *io);
 esp_err_t solar_os_shell_io_write(solar_os_shell_io_t *io, const char *text);

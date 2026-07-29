@@ -4,6 +4,12 @@
 
 ## 4.x
 
+- **4.3.20** — 2026-07-29 — Added an ASCII character-set mode for port-shell
+  TUIs used through legacy serial terminals. `setterm charset ascii` and
+  `session create shell ... --charset ascii` now replace Unicode box drawing,
+  blocks, arrows, and punctuation with readable ASCII while leaving display
+  sessions and UTF-8 terminals unchanged. Added matching autocomplete and
+  Python/Lua session options.
 - **4.3.19** — 2026-07-29 — Completed shell argument autocomplete across
   applications, commands, and job startup: app flags and values, filesystem
   operands, GPIO/logic inputs, manual references, and live conversation,

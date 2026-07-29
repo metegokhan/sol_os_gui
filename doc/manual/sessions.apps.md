@@ -29,7 +29,7 @@ session's display. Closing an application returns to that display's shell.
 
 ```text
 session create shell cdc0 --term auto
-session create shell uart0 --term vt100 --size 100x30
+session create shell uart0 --term ansi --charset ascii --size 80x25
 session create shell lcd0
 ```
 
@@ -37,6 +37,12 @@ Use `port list` or `display list` to discover real targets first. A manually
 created port session does not rerun `/.shell/startup`. A display shell is
 created on its target without changing local input focus; use `session focus`
 when the BLE keyboard or board controls should move to it.
+
+Terminal control and character encoding are separate. `--term` selects cursor
+and screen-control behavior. Port shells use `--charset utf8` by default; add
+`--charset ascii` for DOS or another legacy terminal so TUI line art and
+symbols are rendered with ASCII fallbacks. The setting does not change
+framebuffer display sessions.
 
 ## Start an app on a display
 
@@ -69,7 +75,8 @@ the display being controlled.
 
 ## Quick reference
 
-solaros.sessions.create_shell(port, optional term, cols, rows) returns a
-session id; close(id) closes it. Script-created port shells do not run
-/.shell/startup. solaros.apps.list() and find(name) inspect registered
-foreground apps.
+solaros.sessions.create_shell(port, optional term, cols, rows, charset) returns
+a session id; close(id) closes it. The Lua options table and Python keyword
+form also accept `charset="utf8"` or `charset="ascii"`. Script-created port
+shells do not run /.shell/startup. solaros.apps.list() and find(name) inspect
+registered foreground apps.

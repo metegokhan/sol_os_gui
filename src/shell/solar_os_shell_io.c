@@ -276,6 +276,51 @@ solar_os_shell_terminal_profile_t solar_os_shell_io_terminal_profile(const solar
     return io != NULL ? io->terminal_profile : SOLAR_OS_SHELL_TERMINAL_PROFILE_DUMB;
 }
 
+const char *solar_os_shell_charset_name(solar_os_shell_charset_t charset)
+{
+    switch (charset) {
+    case SOLAR_OS_SHELL_CHARSET_UTF8:
+        return "utf8";
+    case SOLAR_OS_SHELL_CHARSET_ASCII:
+        return "ascii";
+    default:
+        return "unknown";
+    }
+}
+
+bool solar_os_shell_parse_charset(const char *name, solar_os_shell_charset_t *charset)
+{
+    if (name == NULL || charset == NULL) {
+        return false;
+    }
+    if (strcmp(name, "utf8") == 0 || strcmp(name, "utf-8") == 0) {
+        *charset = SOLAR_OS_SHELL_CHARSET_UTF8;
+        return true;
+    }
+    if (strcmp(name, "ascii") == 0) {
+        *charset = SOLAR_OS_SHELL_CHARSET_ASCII;
+        return true;
+    }
+    return false;
+}
+
+void solar_os_shell_io_set_charset(solar_os_shell_io_t *io, solar_os_shell_charset_t charset)
+{
+    if (io == NULL ||
+        (charset != SOLAR_OS_SHELL_CHARSET_UTF8 &&
+         charset != SOLAR_OS_SHELL_CHARSET_ASCII)) {
+        return;
+    }
+    io->ascii_only = charset == SOLAR_OS_SHELL_CHARSET_ASCII;
+}
+
+solar_os_shell_charset_t solar_os_shell_io_charset(const solar_os_shell_io_t *io)
+{
+    return io != NULL && io->ascii_only ?
+        SOLAR_OS_SHELL_CHARSET_ASCII :
+        SOLAR_OS_SHELL_CHARSET_UTF8;
+}
+
 bool solar_os_shell_io_is_cursor_addressable(const solar_os_shell_io_t *io)
 {
     if (io == NULL) {
