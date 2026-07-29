@@ -448,6 +448,12 @@ static void port_shell_process_requests(port_shell_state_t *state)
     if (solar_os_context_take_exit_request(&state->ctx)) {
         if (port_shell_foreground_app(state) != NULL) {
             port_shell_return_to_shell(state);
+        } else {
+            portENTER_CRITICAL(&port_shells_lock);
+            if (state->used) {
+                state->stop_requested = true;
+            }
+            portEXIT_CRITICAL(&port_shells_lock);
         }
         return;
     }

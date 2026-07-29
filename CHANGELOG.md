@@ -4,6 +4,8 @@
 
 ## 4.x
 
+- **4.3.16** — 2026-07-29 — Added `exit` to close the current UART, USB CDC, or
+  telnet shell cleanly while leaving the built-in display shell active.
 - **4.3.15** — 2026-07-29 — Added target-addressed foreground app creation
   with `session create <app> <display-target> [args...]`. Local BLE keyboard,
   board-button, joystick, and D-pad input now follows an explicit display focus
