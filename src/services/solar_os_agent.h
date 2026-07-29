@@ -79,6 +79,8 @@ typedef struct {
     const char *prompt;
     /* SolarOS-local durable conversation ID, not a provider response ID. */
     const char *conversation_id;
+    /* Shell directory used to resolve relative storage-tool paths. */
+    const char *storage_cwd;
     char *next_conversation_id;
     size_t next_conversation_id_len;
     solar_os_agent_event_fn event_handler;

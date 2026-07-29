@@ -14,7 +14,9 @@
   recoverable tool failures back to the model instead of aborting the request.
   Preserved prior tool results across stateless Chat Completions turns, stopped
   duplicate read-only tool loops, and accepted full-size streamed tool
-  arguments from local OpenAI-compatible providers.
+  arguments from local OpenAI-compatible providers. Agent storage tools now
+  resolve relative paths from the invoking shell directory, and tool failures
+  show their concrete error name in the TUI.
   (`bf4f600`, `6ed07f5`, `093ffac`)
 - **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
   in three flash or eight SD slots, with atomic checked records and explicit

@@ -135,12 +135,14 @@ starts with only three bootstrap tools:
 
 The package- and policy-gated tools discoverable through `tool_search` are:
 
-- `storage_list`: up to 16 file or directory entries for one absolute path,
-  including type and size. Results report when the output was truncated.
-- `storage_read`: read up to 3072 bytes from an absolute text-file path. This
-  is a sensitive read and requires confirmation under the default policy.
-- `storage_write`: create or replace an absolute text-file path with up to
-  3072 bytes. This is mutating and requires confirmation by default.
+- `storage_list`: up to 16 file or directory entries for one path, including
+  type and size. Results report when the output was truncated.
+- `storage_read`: read up to 3072 bytes from a text-file path. This is a
+  sensitive read and requires confirmation under the default policy.
+- `storage_write`: create or replace a text-file path with up to 3072 bytes.
+  This is mutating and requires confirmation by default.
+  Relative storage paths use the invoking shell's current directory; absolute
+  paths retain their normal SolarOS storage semantics.
   All storage content and editing tools reject paths below `.ssh`, so the agent
   cannot inspect or replace the device's SSH identity files.
 - `storage_search`: search one file or a bounded directory tree for text,
