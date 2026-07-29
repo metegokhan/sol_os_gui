@@ -8,8 +8,11 @@
   slots and a nearly 4 MiB internal filesystem, replacing the 64 KiB shared
   layout so durable agent conversations and local files have practical space
   without an SD card. Fixed streamed agent responses in VT100 port shells by
-  emitting CRLF newlines instead of staircase-producing bare line feeds.
-  (`bf4f600`, `6ed07f5`)
+  emitting CRLF newlines instead of staircase-producing bare line feeds. Made
+  local-model tool use more reliable by exposing prompt-relevant operations,
+  forbidding unverified success claims in the agent instructions, and feeding
+  recoverable tool failures back to the model instead of aborting the request.
+  (`bf4f600`, `6ed07f5`, `093ffac`)
 - **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
   in three flash or eight SD slots, with atomic checked records and explicit
   new/list/resume/delete operations,
