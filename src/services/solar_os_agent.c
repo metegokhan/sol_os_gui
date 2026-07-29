@@ -29,6 +29,10 @@
 #define AGENT_DEFAULT_TOOL_POLICY SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM
 #define AGENT_ASSISTANT_CAPTURE_MAX (16U * 1024U)
 #define AGENT_TOOL_SUMMARY_MAX 768U
+#define AGENT_TOOL_CONTEXT_MAX 4096U
+#define AGENT_TOOL_CONTEXT_RESULT_MAX 1536U
+#define AGENT_TOOL_SIGNATURE_MAX 8U
+#define AGENT_DUPLICATE_TOOL_LIMIT 2U
 
 typedef struct {
     solar_os_http_request_t *request;
@@ -51,6 +55,9 @@ typedef struct {
     char previous_response_id[SOLAR_OS_AGENT_RESPONSE_ID_MAX];
     char tool_summary[AGENT_TOOL_SUMMARY_MAX];
     size_t tool_summary_len;
+    uint32_t completed_tool_signatures[AGENT_TOOL_SIGNATURE_MAX];
+    uint8_t completed_tool_signature_count;
+    uint8_t duplicate_tool_calls;
     agent_event_capture_t capture;
 } agent_run_turn_state_t;
 
@@ -648,6 +655,92 @@ static void agent_append_tool_summary(agent_run_turn_state_t *run,
     }
 }
 
+static void agent_append_tool_context(char *context,
+                                      size_t capacity,
+                                      size_t *context_len,
+                                      const char *tool_name,
+                                      const char *tool_result)
+{
+    if (context == NULL || capacity == 0U || context_len == NULL ||
+        tool_name == NULL || tool_result == NULL || *context_len >= capacity) {
+        return;
+    }
+    const int prefix = snprintf(
+        context + *context_len,
+        capacity - *context_len,
+        "%s%s returned:\n",
+        *context_len == 0U ? "" : "\n",
+        tool_name);
+    if (prefix < 0 || (size_t)prefix >= capacity - *context_len) {
+        return;
+    }
+    *context_len += (size_t)prefix;
+
+    size_t copy = strlen(tool_result);
+    if (copy > AGENT_TOOL_CONTEXT_RESULT_MAX) {
+        copy = AGENT_TOOL_CONTEXT_RESULT_MAX;
+    }
+    const size_t available = capacity - *context_len;
+    if (copy + 2U > available) {
+        copy = available > 2U ? available - 2U : 0U;
+    }
+    if (copy > 0U) {
+        memcpy(context + *context_len, tool_result, copy);
+        *context_len += copy;
+    }
+    if (*context_len + 1U < capacity) {
+        context[(*context_len)++] = '\n';
+        context[*context_len] = '\0';
+    }
+}
+
+static uint32_t agent_tool_call_signature(const char *tool_name,
+                                          const char *arguments)
+{
+    uint32_t hash = 2166136261U;
+    const char *parts[] = {
+        tool_name != NULL ? tool_name : "",
+        arguments != NULL ? arguments : "",
+    };
+    for (size_t part = 0U; part < sizeof(parts) / sizeof(parts[0]); part++) {
+        for (const unsigned char *cursor =
+                 (const unsigned char *)parts[part];
+             *cursor != '\0';
+             cursor++) {
+            hash ^= *cursor;
+            hash *= 16777619U;
+        }
+        hash ^= 0xffU;
+        hash *= 16777619U;
+    }
+    return hash;
+}
+
+static bool agent_tool_signature_seen(const agent_run_turn_state_t *run,
+                                      uint32_t signature)
+{
+    if (run == NULL) {
+        return false;
+    }
+    for (uint8_t i = 0U; i < run->completed_tool_signature_count; i++) {
+        if (run->completed_tool_signatures[i] == signature) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void agent_record_tool_signature(agent_run_turn_state_t *run,
+                                        uint32_t signature)
+{
+    if (run == NULL ||
+        run->completed_tool_signature_count >= AGENT_TOOL_SIGNATURE_MAX) {
+        return;
+    }
+    run->completed_tool_signatures[run->completed_tool_signature_count++] =
+        signature;
+}
+
 static bool agent_tool_info_by_name(const char *name,
                                     solar_os_agent_tool_info_t *info)
 {
@@ -756,6 +849,20 @@ static esp_err_t agent_inactive_tool_result(char *result, size_t result_len)
         result_len,
         "{\"ok\":false,\"error\":\"tool not active\","
         "\"recovery\":\"call tool_search with the exact task\"}");
+    return written >= 0 && (size_t)written < result_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static esp_err_t agent_duplicate_tool_result(char *result, size_t result_len)
+{
+    if (result == NULL || result_len == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int written = snprintf(
+        result,
+        result_len,
+        "{\"ok\":false,\"error\":\"duplicate tool call\","
+        "\"recovery\":\"use the earlier result and finish the task\"}");
     return written >= 0 && (size_t)written < result_len ?
         ESP_OK : ESP_ERR_INVALID_SIZE;
 }
@@ -915,6 +1022,30 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
             return err;
         }
     }
+    char *tool_context = NULL;
+    size_t tool_context_len = 0U;
+    if (resume_mode == SOLAR_OS_AGENT_PROVIDER_RESUME_LOCAL_HISTORY) {
+        tool_context = solar_os_memory_calloc(
+            1U,
+            AGENT_TOOL_CONTEXT_MAX,
+            SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+            "agent.tool-context");
+        if (tool_context == NULL) {
+            err = ESP_ERR_NO_MEM;
+            solar_os_agent_conversation_free_history(&history);
+            agent_finish_request(err, NULL);
+            (void)agent_emit(request,
+                             SOLAR_OS_AGENT_EVENT_DONE,
+                             esp_err_to_name(err),
+                             NULL,
+                             false);
+            solar_os_memory_free(assistant);
+            solar_os_memory_free(tool_result);
+            solar_os_memory_free(run);
+            memset(config.api_key, 0, sizeof(config.api_key));
+            return err;
+        }
+    }
     solar_os_agent_provider_turn_t turn = {
         .prompt = request->prompt,
         .history = history.messages,
@@ -925,6 +1056,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                 history.provider_response_id : NULL,
         .tools = tool_descriptors,
         .tool_count = tool_count,
+        .tool_context = tool_context,
     };
 
     for (uint32_t turn_index = 0;
@@ -948,6 +1080,13 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         if (!run->provider_result.tool_call) {
             err = ESP_OK;
             break;
+        }
+        if (tool_context != NULL && run->tool_name[0] != '\0') {
+            agent_append_tool_context(tool_context,
+                                      AGENT_TOOL_CONTEXT_MAX,
+                                      &tool_context_len,
+                                      run->tool_name,
+                                      tool_result);
         }
         if (turn_index >= (uint32_t)max_tools) {
             char limit_message[64];
@@ -980,12 +1119,24 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         const bool known =
             agent_tool_info_by_name(run->provider_result.tool_name,
                                     &tool_info);
+        const uint32_t tool_signature =
+            agent_tool_call_signature(run->provider_result.tool_name,
+                                      run->provider_result.tool_arguments);
+        const bool duplicate =
+            active && known &&
+            tool_info.risk == SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY &&
+            agent_tool_signature_seen(run, tool_signature);
         bool allowed = false;
         bool denied = false;
         bool tool_succeeded = false;
         if (!active || !known) {
             agent_note_tool_result(false, ESP_ERR_NOT_SUPPORTED);
             err = agent_inactive_tool_result(
+                tool_result,
+                SOLAR_OS_AGENT_TOOL_RESULT_MAX);
+        } else if (duplicate) {
+            run->duplicate_tool_calls++;
+            err = agent_duplicate_tool_result(
                 tool_result,
                 SOLAR_OS_AGENT_TOOL_RESULT_MAX);
         } else {
@@ -1017,6 +1168,10 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                         SOLAR_OS_AGENT_TOOL_RESULT_MAX);
                 agent_note_tool_result(false, tool_error);
                 tool_succeeded = tool_error == ESP_OK;
+                if (tool_succeeded &&
+                    tool_info.risk == SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY) {
+                    agent_record_tool_signature(run, tool_signature);
+                }
                 err = tool_succeeded ?
                     ESP_OK :
                     agent_failed_tool_result(
@@ -1028,7 +1183,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         if (err != ESP_OK) {
             break;
         }
-        if (solar_os_agent_tools_is_discovery(
+        if (tool_succeeded &&
+            solar_os_agent_tools_is_discovery(
                 run->provider_result.tool_name)) {
             tool_count = solar_os_agent_tools_collect_discovered(
                 run->provider_result.tool_arguments,
@@ -1046,7 +1202,9 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         agent_append_tool_summary(run,
                                   run->provider_result.tool_name,
                                   denied ? "denied" :
-                                      (tool_succeeded ? "complete" : "failed"));
+                                      (duplicate ? "skipped" :
+                                          (tool_succeeded ?
+                                              "complete" : "failed")));
         strlcpy(run->tool_call_id,
                 run->provider_result.tool_call_id,
                 sizeof(run->tool_call_id));
@@ -1065,7 +1223,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         turn.tool_name = run->tool_name;
         turn.tool_arguments = run->tool_arguments;
         turn.tool_result = tool_result;
-        if (turn_index + 1U >= (uint32_t)max_tools) {
+        if (turn_index + 1U >= (uint32_t)max_tools ||
+            run->duplicate_tool_calls >= AGENT_DUPLICATE_TOOL_LIMIT) {
             turn.tools = NULL;
             turn.tool_count = 0U;
         }
@@ -1101,6 +1260,10 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     }
     const int last_http_status = run->provider_result.http_status;
     solar_os_agent_conversation_free_history(&history);
+    if (tool_context != NULL) {
+        memset(tool_context, 0, AGENT_TOOL_CONTEXT_MAX);
+        solar_os_memory_free(tool_context);
+    }
     memset(assistant, 0, AGENT_ASSISTANT_CAPTURE_MAX + 1U);
     solar_os_memory_free(assistant);
     memset(tool_result, 0, SOLAR_OS_AGENT_TOOL_RESULT_MAX);

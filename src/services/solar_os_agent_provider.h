@@ -51,6 +51,7 @@ typedef struct {
     const char *tool_name;
     const char *tool_arguments;
     const char *tool_result;
+    const char *tool_context;
 } solar_os_agent_provider_turn_t;
 
 typedef struct {
