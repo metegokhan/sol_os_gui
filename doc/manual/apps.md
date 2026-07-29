@@ -17,6 +17,8 @@ Exit behavior:
 
 - Display shell: `CTRL+ALT+DEL` exits foreground apps.
 - Port shells: `Ctrl+]` exits foreground apps.
+- Port shells: `Ctrl+Z` suspends a resumable app and returns to the prompt;
+  `fg` restores the most recently suspended app.
 - `Alt+Tab` switches between resumable foreground sessions on display builds.
 
 ## agent

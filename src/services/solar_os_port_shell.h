@@ -9,6 +9,7 @@
 #include "solar_os_shell_io.h"
 
 #define SOLAR_OS_PORT_SHELL_SESSION_ID_BASE 16
+#define SOLAR_OS_PORT_APP_SESSION_ID_BASE 32
 
 typedef struct {
     solar_os_shell_terminal_profile_t terminal_profile;
@@ -32,6 +33,18 @@ esp_err_t solar_os_port_shell_set_dimensions(uint8_t session_id,
                                              uint16_t cols,
                                              uint16_t rows);
 bool solar_os_port_shell_is_session_id(uint8_t session_id);
+bool solar_os_port_shell_is_app_session_id(uint8_t session_id);
+bool solar_os_port_shell_context_owns_app_session(
+    const solar_os_context_t *ctx,
+    uint8_t session_id);
+esp_err_t solar_os_port_shell_foreground_app_session(
+    solar_os_context_t *caller,
+    uint8_t session_id);
+esp_err_t solar_os_port_shell_foreground_last_app(solar_os_context_t *caller,
+                                                  uint8_t *session_id);
+esp_err_t solar_os_port_shell_close_app_session(uint8_t session_id);
 size_t solar_os_port_shell_session_count(void);
 bool solar_os_port_shell_get_session_id(size_t index, uint8_t *session_id);
+size_t solar_os_port_shell_app_session_count(void);
+bool solar_os_port_shell_get_app_session_id(size_t index, uint8_t *session_id);
 void solar_os_port_shell_print_list(solar_os_shell_io_t *io);

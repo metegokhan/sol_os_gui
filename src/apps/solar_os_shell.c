@@ -4008,10 +4008,17 @@ static void shell_completion_emit_session_ids(shell_completion_match_t *state)
 {
     shell_completion_emit_display_session_ids(state);
 
-    const size_t count = solar_os_port_shell_session_count();
-    for (size_t i = 0; i < count; i++) {
+    const size_t shell_count = solar_os_port_shell_session_count();
+    for (size_t i = 0; i < shell_count; i++) {
         uint8_t session_id = 0;
         if (solar_os_port_shell_get_session_id(i, &session_id)) {
+            shell_completion_emit_session_id(state, session_id);
+        }
+    }
+    const size_t app_count = solar_os_port_shell_app_session_count();
+    for (size_t i = 0; i < app_count; i++) {
+        uint8_t session_id = 0;
+        if (solar_os_port_shell_get_app_session_id(i, &session_id)) {
             shell_completion_emit_session_id(state, session_id);
         }
     }
@@ -5652,14 +5659,42 @@ static void session_print_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]");
     solar_os_shell_io_writeln(io, "  session create shell <display-target>");
     solar_os_shell_io_writeln(io, "  session create <app> <display-target> [args...]");
-    solar_os_shell_io_writeln(io, "  session fg <session-id>");
-    solar_os_shell_io_writeln(io, "  session switch <session-id>");
+    solar_os_shell_io_writeln(io, "  session fg [session-id]");
+    solar_os_shell_io_writeln(io, "  session switch [session-id]");
     solar_os_shell_io_writeln(io, "  session close <session-id>");
     solar_os_shell_io_writeln(io, "  session focus [display-target]");
 }
 
 static void session_request_fg(solar_os_context_t *ctx, uint8_t session_id)
 {
+    if (solar_os_port_shell_is_app_session_id(session_id)) {
+        const bool local =
+            solar_os_port_shell_context_owns_app_session(ctx, session_id);
+        const esp_err_t err =
+            solar_os_port_shell_foreground_app_session(ctx, session_id);
+        if (err == ESP_OK) {
+            if (local) {
+                shell_session(ctx)->builtin_suppressed_prompt = true;
+            } else {
+                solar_os_shell_io_printf(terminal(ctx),
+                                         "foregrounded session %u on its port\n",
+                                         (unsigned)session_id);
+            }
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            solar_os_shell_io_printf(terminal(ctx),
+                                     "fg: no such port app session: %u\n",
+                                     (unsigned)session_id);
+        } else if (err == ESP_ERR_NOT_SUPPORTED) {
+            solar_os_shell_io_writeln(
+                terminal(ctx),
+                "fg: the active port application cannot be suspended");
+        } else {
+            solar_os_shell_io_printf(terminal(ctx),
+                                     "fg: failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
     if (solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT) {
         solar_os_shell_io_writeln(terminal(ctx),
                                   "fg: display sessions are only available on the display shell");
@@ -5949,8 +5984,23 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
     if (strcmp(argv[1], "fg") == 0 || strcmp(argv[1], "foreground") == 0 ||
         strcmp(argv[1], "switch") == 0) {
         uint8_t session_id = 0;
+        if (argc == 2 &&
+            solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT) {
+            const esp_err_t err =
+                solar_os_port_shell_foreground_last_app(ctx, &session_id);
+            if (err == ESP_OK) {
+                shell_session(ctx)->builtin_suppressed_prompt = true;
+                return;
+            }
+            solar_os_shell_io_writeln(
+                io,
+                err == ESP_ERR_NOT_FOUND ?
+                    "fg: no suspended application" :
+                    "fg: unavailable");
+            return;
+        }
         if (argc != 3 || !parse_session_id(argv[2], &session_id)) {
-            solar_os_shell_io_writeln(io, "usage: session fg <session-id>");
+            solar_os_shell_io_writeln(io, "usage: session fg [session-id]");
             return;
         }
         if (solar_os_port_shell_is_session_id(session_id)) {
@@ -5972,7 +6022,9 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (strcmp(argv[1], "background") == 0 || strcmp(argv[1], "bg") == 0) {
-        solar_os_shell_io_writeln(io, "session background: foreground apps are suspended with Alt+Tab or fg/switch");
+        solar_os_shell_io_writeln(
+            io,
+            "session background: use Ctrl+Z on a port shell or Alt+Tab on a display");
         return;
     }
 
@@ -5983,8 +6035,23 @@ static void cmd_fg(solar_os_context_t *ctx, int argc, char **argv)
 {
     uint8_t session_id = 0;
 
+    if (argc == 1 &&
+        solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT) {
+        const esp_err_t err =
+            solar_os_port_shell_foreground_last_app(ctx, &session_id);
+        if (err == ESP_OK) {
+            shell_session(ctx)->builtin_suppressed_prompt = true;
+        } else {
+            solar_os_shell_io_writeln(
+                terminal(ctx),
+                err == ESP_ERR_NOT_FOUND ?
+                    "fg: no suspended application" :
+                    "fg: unavailable");
+        }
+        return;
+    }
     if (argc != 2 || !parse_session_id(argv[1], &session_id)) {
-        solar_os_shell_io_writeln(terminal(ctx), "usage: fg <session-id>");
+        solar_os_shell_io_writeln(terminal(ctx), "usage: fg [session-id]");
         return;
     }
 

@@ -4,6 +4,13 @@
 
 ## 4.x
 
+- **4.4.1** — 2026-07-29 — Added resumable application sessions to UART, USB
+  CDC, and network shells. `Ctrl+Z` suspends a resumable port application,
+  `fg [id]` restores it on its owning terminal, and the global session list and
+  close commands include port-owned applications. Child launches now suspend
+  and return to Files or Playground correctly. Cross-shell creation, focus, and
+  closure of display sessions remain unchanged. Port-session metadata and
+  control queues prefer PSRAM and add no task stack per suspended app.
 - **4.4.0** — 2026-07-29 — Added Playground, a native foldable catalog browser
   for community Python and Lua applications. Users can search one configurable
   repository, inspect compatibility and installation state, verify and install

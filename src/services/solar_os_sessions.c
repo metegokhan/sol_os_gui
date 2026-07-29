@@ -2593,6 +2593,12 @@ esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_
 
 esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *io)
 {
+    if (solar_os_port_shell_is_app_session_id(session_id)) {
+        const esp_err_t err =
+            solar_os_port_shell_close_app_session(session_id);
+        session_print_close_result(io, session_id, err);
+        return err;
+    }
     if (solar_os_port_shell_is_session_id(session_id)) {
         const esp_err_t err = solar_os_port_shell_stop(session_id);
         if (io != NULL) {
@@ -2655,7 +2661,8 @@ void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user)
         return;
     }
 
-    solar_os_shell_io_writeln(io, "ID  TITLE        APP      STATE     TIME");
+    solar_os_shell_io_writeln(io,
+                              "ID  TITLE        APP      STATE     OWNER    TIME");
     for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
         solar_os_session_entry_t *session = &session_state.sessions[i];
         if (!session->used || session->app == NULL) {
@@ -2665,15 +2672,19 @@ void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user)
         const char *state = session == session_state.foreground_session ? "active" :
             session->suspended ? "suspended" :
             session->display_target[0] != '\0' ? "detached" : "ready";
+        const char *owner =
+            session->display_target[0] != '\0' ?
+                session->display_target : "display";
         if (session->app->event != NULL) {
             solar_os_shell_io_printf(io,
-                                     "%-3u %-12.12s %-8.8s %-9.9s "
+                                     "%-3u %-12.12s %-8.8s %-9.9s %-8.8s "
                                      "%" PRIu32 "/%" PRIu32 "ms %" PRIu32
                                      "/%" PRIu32 "us n=%" PRIu32 " !%" PRIu32 "\n",
                                      (unsigned)session->id,
                                      session->title,
                                      app_display_name(session->app),
                                      state,
+                                     owner,
                                      session->tick_stats.interval_ms,
                                      session->tick_stats.deadline_ms,
                                      session->tick_stats.last_duration_us,
@@ -2682,11 +2693,12 @@ void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user)
                                      session->tick_stats.deadline_miss_count);
         } else {
             solar_os_shell_io_printf(io,
-                                     "%-3u %-12.12s %-8.8s %-9.9s -\n",
+                                     "%-3u %-12.12s %-8.8s %-9.9s %-8.8s -\n",
                                      (unsigned)session->id,
                                      session->title,
                                      app_display_name(session->app),
-                                     state);
+                                     state,
+                                     owner);
         }
     }
     solar_os_port_shell_print_list(io);

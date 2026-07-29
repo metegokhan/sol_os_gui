@@ -60,8 +60,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `exit` | `exit` | Close the current UART, USB CDC, or telnet shell. The display shell remains active. |
 | `reboot` | `reboot` | Restart the board. |
 | `sessions` | `sessions` | List display app sessions, display shell sessions, and port shell sessions. |
-| `fg` | `fg <session-id>` | Resume a display app or display shell session. |
-| `close` | `close <session-id>` | Close a display app or display shell session, or stop a port shell session. |
+| `fg` | `fg [session-id]` | Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app. |
+| `close` | `close <session-id>` | Close a display app, display shell, or retained port app, or stop a port shell session. |
 | `inbox` | `inbox` | Open the universal incoming-message browser. |
 | `inbox` | `inbox status` | Show universal incoming-message counts and storage status. |
 | `inbox` | `inbox list [all\|unread]` | List newest messages first. |
@@ -217,14 +217,14 @@ subsequently created terminal and graphic sessions inherit it.
 | `job` | `job status [name]` | Show one job or all jobs. |
 | `job` | `job start <name> [args...]` | Start or restart a job. |
 | `job` | `job stop <name>` | Stop a job. |
-| `session` | `session list` | List display app sessions, display shell sessions, and port shell sessions. |
+| `session` | `session list` | List display sessions, port shells, and retained port-owned application sessions with their owner. |
 | `session` | `session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]` | Start a shell session on a byte-stream port. |
 | `session` | `session create shell <display-target>` | Attach a shell session to a ready display target such as `lcd0`. |
 | `session` | `session create <app> <display-target> [args...]` | Start a foreground application as the active session on a named display. |
 | `session` | `session focus [display-target]` | Show or assign the display that receives BLE keyboard and local board-control input. |
-| `session` | `session fg <id>` or `session switch <id>` | Resume a display app or display shell session. |
-| `session` | `session close <id>` | Close a display app or display shell session, or stop a port shell session. |
-| `session` | `session background` | Print the current foreground/background-session note. |
+| `session` | `session fg [id]` or `session switch [id]` | Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port's last suspended app. |
+| `session` | `session close <id>` | Close a display app, display shell, port-owned app, or port shell session. |
+| `session` | `session background` | Explain the foreground/background controls. |
 
 Port shells default to `--term auto`. Auto mode sends a terminal Device
 Attributes probe; a recognizable response enables VT100-style cursor controls
