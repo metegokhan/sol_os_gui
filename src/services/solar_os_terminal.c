@@ -418,6 +418,24 @@ static esp_err_t terminal_save_u16(const char *key, uint16_t value)
     return ret;
 }
 
+bool solar_os_terminal_palette_preference_inverted(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open(TERM_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
+        return false;
+    }
+
+    uint16_t value = 0;
+    const esp_err_t err = nvs_get_u16(nvs, TERM_NVS_PALETTE_KEY, &value);
+    nvs_close(nvs);
+    return err == ESP_OK && value == 1;
+}
+
+esp_err_t solar_os_terminal_set_palette_preference(bool inverted)
+{
+    return terminal_save_u16(TERM_NVS_PALETTE_KEY, inverted ? 1 : 0);
+}
+
 static void terminal_load_settings(solar_os_terminal_t *terminal)
 {
     nvs_handle_t nvs;
@@ -910,13 +928,12 @@ esp_err_t solar_os_terminal_set_palette_inverted(solar_os_terminal_t *terminal, 
     if (terminal == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (terminal->palette_inverted == inverted) {
-        return ESP_OK;
+    if (terminal->palette_inverted != inverted) {
+        terminal->palette_inverted = inverted;
+        terminal->dirty = true;
     }
 
-    terminal->palette_inverted = inverted;
-    terminal->dirty = true;
-    return terminal_save_u16(TERM_NVS_PALETTE_KEY, inverted ? 1 : 0);
+    return solar_os_terminal_set_palette_preference(inverted);
 }
 
 esp_err_t solar_os_terminal_set_palette_inverted_transient(solar_os_terminal_t *terminal,

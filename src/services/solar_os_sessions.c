@@ -1798,6 +1798,10 @@ esp_err_t solar_os_sessions_set_terminal_text_size(solar_os_terminal_t *terminal
 esp_err_t solar_os_sessions_set_terminal_palette_inverted(solar_os_terminal_t *terminal,
                                                           bool inverted)
 {
+    if (terminal == NULL) {
+        return solar_os_terminal_set_palette_preference(inverted);
+    }
+
     solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
     const esp_err_t err = session_terminal_setting_is_persistent(owner) ?
         solar_os_terminal_set_palette_inverted(terminal, inverted) :

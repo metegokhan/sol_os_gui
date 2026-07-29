@@ -193,7 +193,9 @@ are persistent; settings on secondary or virtual displays such as `web0` are
 runtime-only. `palette` exchanges logical black and white in terminal content
 and in the shared graphics palette; dithered shades are reversed as well. It
 remains independent of hardware inversion modes exposed by `display mode`, and
-does not rewrite an existing framebuffer.
+does not rewrite an existing framebuffer. On a headless board, a port shell can
+set or query the persistent palette before an expansion-display session exists;
+subsequently created terminal and graphic sessions inherit it.
 
 ## Apps And Jobs
 
