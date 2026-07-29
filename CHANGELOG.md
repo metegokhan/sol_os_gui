@@ -7,7 +7,9 @@
 - **4.3.14** — 2026-07-29 — Gave the ESP32-S3-DevKitC-1-N16R8 two 6 MiB OTA
   slots and a nearly 4 MiB internal filesystem, replacing the 64 KiB shared
   layout so durable agent conversations and local files have practical space
-  without an SD card. (`bf4f600`)
+  without an SD card. Fixed streamed agent responses in VT100 port shells by
+  emitting CRLF newlines instead of staircase-producing bare line feeds.
+  (`bf4f600`, `6ed07f5`)
 - **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
   in three flash or eight SD slots, with atomic checked records and explicit
   new/list/resume/delete operations,
