@@ -137,19 +137,21 @@ starts with only three bootstrap tools:
   retaining the three bootstrap tools, so no provider turn advertises more
   than eight schemas.
 
-If a provider requests an installed, policy-allowed tool that was not selected
-for the current request, SolarOS advertises that tool's schema and asks the
-provider to retry. The first call is not executed and cannot bypass normal
-confirmation; this lets workflows such as `storage_write` followed by
-`script_run_file` recover without permanently advertising every tool.
+Selected workflow dependencies such as `script_run_file` may activate on
+demand when they were not selected for the current request. SolarOS advertises
+the schema and asks the provider to retry. The first call is not executed and
+cannot bypass normal confirmation. Other inactive tools still require
+`tool_search`, preventing a model from activating an unsuitable operation by
+guessing its name.
 
 The package- and policy-gated tools discoverable through `tool_search` are:
 
 - `storage_list`: up to 16 file or directory entries for one path, including
   type and size. Results report when the output was truncated.
 - `storage_stat`: check one exact relative or absolute path and return whether
-  it exists, its resolved path, type, and size. Use this for file-existence
-  questions.
+  it exists, its resolved path, type, and size. This is the required operation
+  for file-existence questions. Prompts containing a path-like token such as
+  `mandel.py` or `/config.lua` select this schema before fuzzy tool matching.
 - `storage_read`: read up to 3072 bytes from a text-file path. This is a
   sensitive read and requires confirmation under the default policy.
 - `storage_write`: create or replace a text-file path with up to 3072 bytes.

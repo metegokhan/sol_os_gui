@@ -23,6 +23,10 @@
   retry instead of failing the workflow. Added exact-path `storage_stat`
   inspection so file-existence questions do not misuse content search, and
   retry one empty stateless-provider turn instead of silently ending it.
+  Restricted on-demand activation to declared workflow dependencies and made
+  the distinction between exact-path metadata and content search explicit;
+  path-like prompts now select `storage_stat` deterministically before fuzzy
+  tool matching.
   (`bf4f600`, `6ed07f5`, `093ffac`)
 - **4.3.13** — 2026-07-28 — Added bounded durable native-agent conversations
   in three flash or eight SD slots, with atomic checked records and explicit

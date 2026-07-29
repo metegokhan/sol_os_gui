@@ -287,6 +287,7 @@ typedef struct {
     solar_os_agent_tool_risk_t risk;
     uint32_t required_script_language;
     bool bootstrap;
+    bool activate_on_demand;
     agent_tool_available_fn available;
     agent_tool_execute_fn execute;
 } agent_tool_definition_t;
@@ -859,6 +860,7 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .risk = SOLAR_OS_AGENT_TOOL_RISK_DISRUPTIVE,
         .required_script_language =
             SOLAR_OS_AGENT_SCRIPT_PYTHON | SOLAR_OS_AGENT_SCRIPT_LUA,
+        .activate_on_demand = true,
         .available = agent_tool_script_file_available,
         .execute = agent_tool_script_run_file,
     },
@@ -935,6 +937,59 @@ static bool agent_tool_query_has_name(const char *query, const char *name)
         if (before_boundary && after_boundary) {
             return true;
         }
+    }
+    return false;
+}
+
+static bool agent_tool_prompt_has_path(const char *prompt)
+{
+    if (prompt == NULL) {
+        return false;
+    }
+    for (const unsigned char *cursor = (const unsigned char *)prompt;
+         *cursor != '\0';
+         cursor++) {
+        if (*cursor == '/') {
+            return true;
+        }
+        if (*cursor == '.' && cursor > (const unsigned char *)prompt &&
+            isalnum(cursor[-1]) && isalnum(cursor[1])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool agent_tool_append_named(
+    const char *name,
+    const solar_os_agent_request_t *request,
+    solar_os_agent_tool_policy_t policy,
+    solar_os_agent_tool_descriptor_t *descriptors,
+    size_t *count,
+    size_t capacity)
+{
+    if (name == NULL || descriptors == NULL || count == NULL ||
+        *count >= capacity) {
+        return false;
+    }
+    for (size_t i = 0U; i < *count; i++) {
+        if (descriptors[i].name != NULL &&
+            strcmp(descriptors[i].name, name) == 0) {
+            return true;
+        }
+    }
+    for (size_t i = 0U; i < AGENT_TOOL_COUNT; i++) {
+        const agent_tool_definition_t *definition = &AGENT_TOOL_REGISTRY[i];
+        if (strcmp(definition->provider.name, name) != 0) {
+            continue;
+        }
+        if (!agent_tool_is_available(definition, request) ||
+            solar_os_agent_tools_policy_decision(policy, definition->risk) ==
+                SOLAR_OS_AGENT_TOOL_POLICY_DENY) {
+            return false;
+        }
+        descriptors[(*count)++] = definition->provider;
+        return true;
     }
     return false;
 }
@@ -3474,6 +3529,14 @@ size_t solar_os_agent_tools_collect(
 
     if (request != NULL && request->prompt != NULL &&
         request->prompt[0] != '\0' && count < capacity) {
+        if (agent_tool_prompt_has_path(request->prompt)) {
+            (void)agent_tool_append_named("storage_stat",
+                                          request,
+                                          policy,
+                                          descriptors,
+                                          &count,
+                                          capacity);
+        }
         agent_tool_search_match_t matches[AGENT_TOOL_PROMPT_MATCH_MAX] = {0};
         size_t match_capacity = capacity - count;
         if (match_capacity > AGENT_TOOL_PROMPT_MATCH_MAX) {
@@ -3486,7 +3549,13 @@ size_t solar_os_agent_tools_collect(
                                       matches,
                                       match_capacity);
         for (size_t i = 0U; i < match_count; i++) {
-            descriptors[count++] = matches[i].definition->provider;
+            (void)agent_tool_append_named(
+                matches[i].definition->provider.name,
+                request,
+                policy,
+                descriptors,
+                &count,
+                capacity);
         }
     }
     return count;
@@ -3568,7 +3637,8 @@ size_t solar_os_agent_tools_activate(
         if (strcmp(definition->provider.name, name) != 0) {
             continue;
         }
-        if (!agent_tool_is_available(definition, request) ||
+        if (!definition->activate_on_demand ||
+            !agent_tool_is_available(definition, request) ||
             solar_os_agent_tools_policy_decision(policy, definition->risk) ==
                 SOLAR_OS_AGENT_TOOL_POLICY_DENY) {
             return count;

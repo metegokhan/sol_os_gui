@@ -35,7 +35,9 @@
     "distinctly missing API instead of guessing. "                            \
     "Never invent API names, device names, display targets, bus names, or "   \
     "GPIOs. Use only values supplied by the user or verified through SolarOS "\
-    "APIs. For nontrivial existing files, use storage_search and "             \
+    "APIs. Use storage_stat for exact path existence or metadata; "            \
+    "storage_search searches file contents only. For nontrivial existing "     \
+    "files, use storage_search and "                                            \
     "storage_read_range, then apply storage_patch with the returned SHA-256. " \
     "Run the saved program with script_run_file and use its structured error " \
     "before editing again. Never claim that a file was saved or changed, or "  \
