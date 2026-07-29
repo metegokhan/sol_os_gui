@@ -630,7 +630,22 @@ static void playground_finish_operation(void)
                  "failed: %s",
                  esp_err_to_name(result));
     }
+    const playground_operation_t completed_operation = playground.operation;
     playground.operation = PLAYGROUND_OPERATION_NONE;
+    if (!playground.tui_active) {
+        solar_os_shell_io_t *io = playground_io(playground.ctx);
+        if (completed_operation == PLAYGROUND_OPERATION_INSTALL &&
+            result == ESP_OK) {
+            solar_os_shell_io_printf(io,
+                                     "playground: installed %s\n",
+                                     playground.operation_app.id);
+        } else {
+            solar_os_shell_io_printf(io, "playground: %s\n", playground.status);
+        }
+        solar_os_shell_io_flush(io);
+        solar_os_context_request_exit(playground.ctx);
+        return;
+    }
     playground_render();
 }
 
@@ -662,21 +677,25 @@ static void playground_page(bool down)
     playground.status[0] = '\0';
 }
 
-static bool playground_launch_selected(solar_os_context_t *ctx)
+static esp_err_t playground_launch_app(
+    solar_os_context_t *ctx,
+    const solar_os_playground_app_info_t *app,
+    solar_os_launch_policy_t policy)
 {
-    solar_os_playground_app_info_t app;
     char path[SOLAR_OS_APP_ARG_LEN];
-    if (!playground_selected_app(&app) ||
-        solar_os_playground_entry_path(&app, path, sizeof(path)) != ESP_OK) {
-        strlcpy(playground.status, "application is not installed", sizeof(playground.status));
-        return false;
+    if (app == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_playground_entry_path(app, path, sizeof(path));
+    if (err != ESP_OK) {
+        return err;
     }
     char app_name[SOLAR_OS_APP_ARG_LEN];
     char app_path[SOLAR_OS_APP_ARG_LEN];
     char *argv[] = {app_name, app_path};
     const solar_os_app_t *runtime = NULL;
     strlcpy(app_path, path, sizeof(app_path));
-    if (app.runtime == SOLAR_OS_PLAYGROUND_RUNTIME_PYTHON) {
+    if (app->runtime == SOLAR_OS_PLAYGROUND_RUNTIME_PYTHON) {
 #if SOLAR_OS_PACKAGE_APP_PYTHON
         runtime = &solar_os_python_app;
         strlcpy(app_name, "python", sizeof(app_name));
@@ -688,14 +707,28 @@ static bool playground_launch_selected(solar_os_context_t *ctx)
 #endif
     }
     if (runtime == NULL) {
-        strlcpy(playground.status, "runtime is not available", sizeof(playground.status));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    return solar_os_context_request_launch_ex(ctx, runtime, 2, argv, policy);
+}
+
+static bool playground_launch_selected(solar_os_context_t *ctx)
+{
+    solar_os_playground_app_info_t app;
+    if (!playground_selected_app(&app)) {
         return false;
     }
-    return solar_os_context_request_launch_ex(ctx,
-                                              runtime,
-                                              2,
-                                              argv,
-                                              SOLAR_OS_LAUNCH_CHILD_RETURN) == ESP_OK;
+    const esp_err_t err = playground_launch_app(
+        ctx, &app, SOLAR_OS_LAUNCH_CHILD_RETURN);
+    if (err != ESP_OK) {
+        strlcpy(playground.status,
+                err == ESP_ERR_NOT_FOUND ?
+                    "application is not installed" :
+                    "runtime is not available",
+                sizeof(playground.status));
+        return false;
+    }
+    return true;
 }
 
 static void playground_request_download(
@@ -766,12 +799,205 @@ static bool playground_handle_source_command(solar_os_context_t *ctx)
     return true;
 }
 
+static void playground_command_finish(solar_os_context_t *ctx)
+{
+    solar_os_shell_io_flush(playground_io(ctx));
+    solar_os_context_request_exit(ctx);
+}
+
+static bool playground_catalog_required(solar_os_context_t *ctx)
+{
+    if (solar_os_playground_catalog_available()) {
+        return true;
+    }
+    solar_os_shell_io_writeln(
+        playground_io(ctx),
+        "playground: catalog unavailable; run playground refresh");
+    playground_command_finish(ctx);
+    return false;
+}
+
+static bool playground_join_query(solar_os_context_t *ctx,
+                                  int first,
+                                  char *query,
+                                  size_t query_len)
+{
+    query[0] = '\0';
+    size_t used = 0U;
+    const int argc = solar_os_context_argc(ctx);
+    for (int i = first; i < argc; i++) {
+        const char *arg = solar_os_context_argv(ctx, i);
+        const size_t len = arg != NULL ? strlen(arg) : 0U;
+        const size_t separator = used > 0U ? 1U : 0U;
+        if (len == 0U || used + separator + len >= query_len) {
+            return false;
+        }
+        if (separator != 0U) {
+            query[used++] = ' ';
+        }
+        memcpy(query + used, arg, len);
+        used += len;
+        query[used] = '\0';
+    }
+    return used > 0U;
+}
+
+static bool playground_handle_search_command(solar_os_context_t *ctx)
+{
+    if (solar_os_context_argc(ctx) < 2 ||
+        strcmp(solar_os_context_argv(ctx, 1), "search") != 0) {
+        return false;
+    }
+    solar_os_shell_io_t *io = playground_io(ctx);
+    if (!playground_join_query(
+            ctx, 2, playground.search, sizeof(playground.search))) {
+        solar_os_shell_io_writeln(io, "usage: playground search QUERY...");
+        playground_command_finish(ctx);
+        return true;
+    }
+    if (!playground_catalog_required(ctx)) {
+        return true;
+    }
+
+    size_t matches = 0U;
+    const size_t count = solar_os_playground_app_count();
+    for (size_t i = 0U; i < count; i++) {
+        solar_os_playground_app_info_t app;
+        if (!solar_os_playground_get_app(i, &app) ||
+            !playground_app_matches(&app)) {
+            continue;
+        }
+        char marker[4];
+        playground_app_marker(&app, marker);
+        solar_os_shell_io_printf(io,
+                                 "%s %-31s %-6s %s\n",
+                                 marker,
+                                 app.id,
+                                 solar_os_playground_runtime_name(app.runtime),
+                                 app.name);
+        matches++;
+    }
+    if (matches == 0U) {
+        solar_os_shell_io_printf(
+            io, "playground: no matches for %s\n", playground.search);
+    }
+    playground_command_finish(ctx);
+    return true;
+}
+
+static bool playground_parse_target(const char *value,
+                                    solar_os_playground_target_t *target)
+{
+    if (target == NULL) {
+        return false;
+    }
+    if (value == NULL || strcmp(value, "auto") == 0) {
+        *target = SOLAR_OS_PLAYGROUND_TARGET_AUTO;
+        return true;
+    }
+    if (strcmp(value, "flash") == 0) {
+        *target = SOLAR_OS_PLAYGROUND_TARGET_FLASH;
+        return true;
+    }
+    if (strcmp(value, "sd") == 0) {
+        *target = SOLAR_OS_PLAYGROUND_TARGET_SD;
+        return true;
+    }
+    return false;
+}
+
+static bool playground_handle_install_command(solar_os_context_t *ctx)
+{
+    const int argc = solar_os_context_argc(ctx);
+    if (argc < 2 || strcmp(solar_os_context_argv(ctx, 1), "install") != 0) {
+        return false;
+    }
+    solar_os_shell_io_t *io = playground_io(ctx);
+    solar_os_playground_target_t target = SOLAR_OS_PLAYGROUND_TARGET_AUTO;
+    if ((argc != 3 && argc != 4) ||
+        !playground_parse_target(
+            argc == 4 ? solar_os_context_argv(ctx, 3) : NULL, &target)) {
+        solar_os_shell_io_writeln(
+            io, "usage: playground install ID [auto|flash|sd]");
+        playground_command_finish(ctx);
+        return true;
+    }
+    if (!playground_catalog_required(ctx)) {
+        return true;
+    }
+
+    solar_os_playground_app_info_t app;
+    const char *id = solar_os_context_argv(ctx, 2);
+    if (!solar_os_playground_find_app(id, NULL, &app)) {
+        solar_os_shell_io_printf(io, "playground: application not found: %s\n", id);
+        playground_command_finish(ctx);
+        return true;
+    }
+    if (!app.compatible) {
+        solar_os_shell_io_printf(
+            io, "playground: %s is unavailable: %s\n", id, app.incompatibility);
+        playground_command_finish(ctx);
+        return true;
+    }
+
+    solar_os_shell_io_printf(io, "playground: installing %s\n", id);
+    solar_os_shell_io_flush(io);
+    if (!playground_start_operation(PLAYGROUND_OPERATION_INSTALL, &app, target)) {
+        solar_os_shell_io_writeln(io, "playground: install worker could not start");
+        playground_command_finish(ctx);
+    }
+    return true;
+}
+
+static bool playground_handle_run_command(solar_os_context_t *ctx)
+{
+    const int argc = solar_os_context_argc(ctx);
+    if (argc < 2 || strcmp(solar_os_context_argv(ctx, 1), "run") != 0) {
+        return false;
+    }
+    solar_os_shell_io_t *io = playground_io(ctx);
+    if (argc != 3) {
+        solar_os_shell_io_writeln(io, "usage: playground run ID");
+        playground_command_finish(ctx);
+        return true;
+    }
+    if (!playground_catalog_required(ctx)) {
+        return true;
+    }
+
+    const char *id = solar_os_context_argv(ctx, 2);
+    solar_os_playground_app_info_t app;
+    if (!solar_os_playground_find_app(id, NULL, &app)) {
+        solar_os_shell_io_printf(io, "playground: application not found: %s\n", id);
+        playground_command_finish(ctx);
+        return true;
+    }
+    const esp_err_t err =
+        playground_launch_app(ctx, &app, SOLAR_OS_LAUNCH_REPLACE);
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(io,
+                                 "playground: cannot run %s: %s\n",
+                                 id,
+                                 err == ESP_ERR_NOT_FOUND ?
+                                     "not installed" : esp_err_to_name(err));
+        playground_command_finish(ctx);
+    }
+    return true;
+}
+
 static esp_err_t playground_start(solar_os_context_t *ctx)
 {
     if (solar_os_playground_init() != ESP_OK) {
         return ESP_FAIL;
     }
+    memset(&playground, 0, sizeof(playground));
+    playground.ctx = ctx;
     if (playground_handle_source_command(ctx)) {
+        return ESP_OK;
+    }
+    if (playground_handle_search_command(ctx) ||
+        playground_handle_install_command(ctx) ||
+        playground_handle_run_command(ctx)) {
         return ESP_OK;
     }
     const bool force_refresh =
@@ -779,13 +1005,14 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
         strcmp(solar_os_context_argv(ctx, 1), "refresh") == 0;
     if (solar_os_context_argc(ctx) > 1 && !force_refresh) {
         solar_os_shell_io_t *io = playground_io(ctx);
-        solar_os_shell_io_writeln(io, "usage: playground [refresh|source [url|reset]]");
+        solar_os_shell_io_writeln(
+            io,
+            "usage: playground [refresh|search QUERY|install ID [target]|"
+            "run ID|source [url|reset]]");
         solar_os_context_request_exit(ctx);
         return ESP_OK;
     }
 
-    memset(&playground, 0, sizeof(playground));
-    playground.ctx = ctx;
     playground_collapse_all_but_first_populated();
     esp_err_t err = solar_os_tui_begin(&playground.tui, ctx);
     if (err != ESP_OK) {
@@ -922,7 +1149,8 @@ static bool playground_event(solar_os_context_t *ctx,
         return true;
     }
     if (ch == SOLAR_OS_KEY_APP_EXIT ||
-        (!playground.details && (ch == 'q' || ch == 'Q'))) {
+        (!playground.details &&
+         (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q'))) {
         solar_os_context_request_exit(ctx);
         return true;
     }

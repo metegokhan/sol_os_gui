@@ -18,11 +18,21 @@ Start the browser:
 
 ```text
 playground
+playground search QUERY...
+playground install APP-ID [auto|flash|sd]
+playground run APP-ID
 ```
 
 The first opening downloads the catalog. Press `r` in the tree, or run
 `playground refresh`, to fetch it again. Press `/` to search names,
 descriptions, authors, tags, and categories.
+
+The same operations are available directly from the shell. `search` prints
+matching catalog IDs, runtimes, names, and installation markers. `install`
+downloads and verifies one ID to the automatically selected filesystem, or to
+the explicit `flash` or `sd` target. `run` replaces Playground with an
+installed application's Python or Lua runtime. These commands use the cached
+catalog; run `playground refresh` first if no catalog is available.
 
 Application markers:
 
@@ -78,7 +88,8 @@ applications whose maintainers you trust.
 - `r`: refresh in the tree, or run from details.
 - `d`: download or update from details.
 - `Delete`: remove from details.
-- `Esc`, `q`, or the app-exit key: go back or exit.
+- `Esc`: cancel or go back in nested views; exit from the catalog tree.
+- `q` or the app-exit key: exit.
 
 ## Quick reference
 
@@ -86,4 +97,5 @@ Run `playground` to browse the configured catalog. Use `/` to search, `Enter`
 for details, `d` to download, `r` to run, and `Delete` to remove. Refresh with
 `r` in the tree or `playground refresh`. Use `playground source [URL|reset]`
 to inspect or change the catalog. Packages are hash-checked but scripts are not
-sandboxed.
+sandboxed. Shell automation can use `playground search QUERY`, `playground
+install ID [auto|flash|sd]`, and `playground run ID`.

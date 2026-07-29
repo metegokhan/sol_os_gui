@@ -15,7 +15,9 @@
   shell no longer redraws a stale prompt before disconnecting. Closing a
   detached display application now restores a valid base context before its
   parent resumes, preventing a freed terminal from being drawn and rebooting
-  the device.
+  the device. Playground now exits its top-level TUI with `Esc` and provides
+  shell-usable `search`, `install`, and `run` subcommands with matching
+  autocomplete and manual coverage.
 - **4.4.0** — 2026-07-29 — Added Playground, a native foldable catalog browser
   for community Python and Lua applications. Users can search one configurable
   repository, inspect compatibility and installation state, verify and install

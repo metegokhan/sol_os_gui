@@ -892,8 +892,15 @@ static const char * const scp_port_values[] = {"22", "2222"};
 static const char * const telnet_options[] = {"-r"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
-static const char * const playground_subcommands[] = {"refresh", "source"};
+static const char * const playground_subcommands[] = {
+    "install",
+    "refresh",
+    "run",
+    "search",
+    "source",
+};
 static const char * const playground_source_values[] = {"reset"};
+static const char * const playground_target_values[] = {"auto", "flash", "sd"};
 #endif
 #if SOLAR_OS_PACKAGE_MEDIA
 static const char * const view_options[] = {"-fit", "-actual"};
@@ -943,6 +950,11 @@ static const char * const path_telnet[] = {"telnet"};
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
 static const char * const path_playground[] = {"playground"};
 static const char * const path_playground_source[] = {"playground", "source"};
+static const char * const path_playground_install_target[] = {
+    "playground",
+    "install",
+    SHELL_COMPLETION_ANY,
+};
 #endif
 static const char * const path_zip[] = {"zip"};
 static const char * const path_zip_after_archive[] = {"zip", SHELL_COMPLETION_ANY};
@@ -1674,6 +1686,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
     SHELL_COMPLETION_STATIC(path_playground, playground_subcommands),
     SHELL_COMPLETION_STATIC(path_playground_source, playground_source_values),
+    SHELL_COMPLETION_STATIC(path_playground_install_target, playground_target_values),
 #endif
     SHELL_COMPLETION_OPTIONS(path_zip, zip_options),
     SHELL_COMPLETION_PATH(path_zip_after_archive, false),

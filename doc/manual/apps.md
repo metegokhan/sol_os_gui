@@ -521,6 +521,9 @@ Usage:
 
 ```text
 playground
+playground search QUERY...
+playground install APP-ID [auto|flash|sd]
+playground run APP-ID
 playground refresh
 playground source [repository-or-catalog-url|reset]
 ```
@@ -529,6 +532,12 @@ Press `/` to search, `Enter` to open an application, and use the actions shown
 in the bottom bar. Downloads are verified by size and SHA-256 and installed
 under `/.solar/playground/`; SD can be selected when mounted. Community scripts
 run with the normal permissions of their runtime and are not sandboxed.
+
+The shell subcommands use the cached catalog: `search` prints matches,
+`install` downloads and verifies an application by ID, and `run` launches an
+installed ID through its declared Python or Lua runtime. Run `playground
+refresh` first if the catalog is unavailable. At the top-level catalog tree,
+`Esc`, `q`, and the app-exit key exit Playground.
 
 See [Playground](playground.md) for controls, storage layout, source selection,
 and the trust model.
