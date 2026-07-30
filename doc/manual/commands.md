@@ -68,6 +68,15 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `inbox` | `inbox read <id>` | Print one message and mark it read. |
 | `inbox` | `inbox clear` | Remove every message. |
 | `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
+| `contacts` | `contacts` | Open the searchable provider-neutral contact browser. |
+| `contacts` | `contacts status` | Show contact, endpoint, persistence, PSRAM, and opaque-credential counts. |
+| `contacts` | `contacts list [all\|discovered\|trusted\|blocked]` | List contacts, optionally filtered by endpoint trust. |
+| `contacts` | `contacts show <contact-id>` | Show a contact and its bounded provider endpoints. |
+| `contacts` | `contacts rename <contact-id> <name>` | Change the local contact display name. |
+| `contacts` | `contacts trust <contact-id> [endpoint-id]` | Trust one endpoint or every endpoint on a contact. |
+| `contacts` | `contacts block <contact-id> [endpoint-id]` | Block one endpoint or every endpoint on a contact. |
+| `contacts` | `contacts remove <contact-id>` | Remove a contact and all its endpoints. |
+| `contacts` | `contacts link <target-contact-id> <source-contact-id>` | Move the source endpoints into the target and remove the source contact. |
 | `email` | `email` | Open the receive-only email app. |
 | `email` | `email status` | Show saved account, local message counts, and last sync error. |
 | `email` | `email configure <imaps://host[:port]> <user> <password> [mailbox]` | Save an IMAPS account; the default mailbox is `INBOX`. |

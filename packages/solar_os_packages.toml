@@ -47,9 +47,12 @@ members = [
 members = [
   "service_ota",
   "service_docs",
+  "service_contacts",
+  "service_credentials",
   "core_fs_commands",
   "app_docs",
   "app_inbox",
+  "app_contacts",
   "app_com",
   "app_edit",
   "app_less",
@@ -254,6 +257,18 @@ sources = ["shell/solar_os_shell_hardware.c"]
 label = "service.inbox"
 sources = ["services/solar_os_inbox.c"]
 requires = ["esp_timer", "heap"]
+
+[packages.service_contacts]
+label = "service.contacts"
+sources = ["services/solar_os_contacts.c"]
+requires = ["esp_timer", "heap"]
+capabilities = ["psram"]
+
+[packages.service_credentials]
+label = "service.credentials"
+sources = ["services/solar_os_credentials.c"]
+requires = ["heap", "nvs_flash"]
+capabilities = ["psram"]
 
 [packages.core_fs_commands]
 label = "core.fs-commands"
@@ -655,6 +670,15 @@ sources = [
   "apps/solar_os_inbox_app.c",
   "shell/solar_os_shell_inbox.c",
 ]
+
+[packages.app_contacts]
+label = "app.contacts"
+depends = ["service_contacts", "service_credentials"]
+sources = [
+  "apps/solar_os_contacts.c",
+  "shell/solar_os_shell_contacts.c",
+]
+capabilities = ["psram"]
 
 [packages.app_view]
 label = "app.view"

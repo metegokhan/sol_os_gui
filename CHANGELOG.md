@@ -5,6 +5,12 @@
 - Defined the provider-neutral SolarOS messaging contract and fixed public
   identifiers, trust, conversation, delivery, capability, and security types
   shared by the gateway and planned MeshCore provider.
+- Added PSRAM-backed Contacts and Credentials services. Contacts provides 64
+  contacts, 80 independently trusted provider endpoints, bounded live
+  snapshots, safe linking and eviction, a sub-24-KiB dual-copy CRC store,
+  shell commands with live ID completion, and a searchable resumable TUI.
+  Credentials stores twelve opaque versioned NVS records without exposing
+  secret material through public listings or scripting surfaces.
 - Added an RFM95W expansion driver with LoRa, FSK, GFSK, MSK, GMSK, and OOK
   operation through the common `radio` service. LoRa supports packet
   transmit/receive and RSSI/SNR reporting; the FSK/OOK modem supports packet

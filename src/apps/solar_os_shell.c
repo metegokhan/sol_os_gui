@@ -34,6 +34,9 @@
 #if SOLAR_OS_PACKAGE_APP_INBOX
 #include "solar_os_inbox.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_CONTACTS
+#include "solar_os_contacts.h"
+#endif
 #include "solar_os_job_registry.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
@@ -107,6 +110,8 @@ typedef struct {
     bool complete_manual_references;
     bool complete_agent_conversations;
     bool complete_inbox_ids;
+    bool complete_contact_ids;
+    bool complete_endpoint_ids;
     bool complete_playground_apps;
     bool complete_expansion_devices;
     bool complete_display_session_ids;
@@ -231,6 +236,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_INBOX
     {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
+#endif
+#if SOLAR_OS_PACKAGE_APP_CONTACTS
+    {"contacts", "browse and manage contacts", solar_os_shell_cmd_contacts},
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     {"email", "IMAP email client", solar_os_shell_cmd_email},
@@ -706,6 +714,24 @@ static const char * const on_off_values[] = {"on", "off"};
 static const char * const inbox_subcommands[] = {"status", "list", "read", "clear", "post"};
 static const char * const inbox_list_values[] = {"all", "unread"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_CONTACTS
+static const char * const contacts_subcommands[] = {
+    "status",
+    "list",
+    "show",
+    "rename",
+    "trust",
+    "block",
+    "remove",
+    "link",
+};
+static const char * const contacts_list_values[] = {
+    "all",
+    "discovered",
+    "trusted",
+    "blocked",
+};
+#endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const email_subcommands[] = {"status", "configure", "sync", "forget"};
 #endif
@@ -1051,6 +1077,25 @@ static const char * const path_display_mode_target[] = {"display", "mode", SHELL
 static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
 static const char * const path_inbox_read[] = {"inbox", "read"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_CONTACTS
+static const char * const path_contacts[] = {"contacts"};
+static const char * const path_contacts_list[] = {"contacts", "list"};
+static const char * const path_contacts_show[] = {"contacts", "show"};
+static const char * const path_contacts_rename[] = {"contacts", "rename"};
+static const char * const path_contacts_trust[] = {"contacts", "trust"};
+static const char * const path_contacts_trust_endpoint[] = {
+    "contacts", "trust", SHELL_COMPLETION_ANY
+};
+static const char * const path_contacts_block[] = {"contacts", "block"};
+static const char * const path_contacts_block_endpoint[] = {
+    "contacts", "block", SHELL_COMPLETION_ANY
+};
+static const char * const path_contacts_remove[] = {"contacts", "remove"};
+static const char * const path_contacts_link[] = {"contacts", "link"};
+static const char * const path_contacts_link_source[] = {
+    "contacts", "link", SHELL_COMPLETION_ANY
+};
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const path_email[] = {"email"};
@@ -1592,6 +1637,18 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_inbox_ids = true, \
     }
+#define SHELL_COMPLETION_CONTACT_IDS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_contact_ids = true, \
+    }
+#define SHELL_COMPLETION_ENDPOINT_IDS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_endpoint_ids = true, \
+    }
 #define SHELL_COMPLETION_PLAYGROUND_APPS(path_array) \
     { \
         .path = path_array, \
@@ -2028,6 +2085,19 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_inbox, inbox_subcommands),
     SHELL_COMPLETION_STATIC(path_inbox_list, inbox_list_values),
     SHELL_COMPLETION_INBOX_IDS(path_inbox_read),
+#endif
+#if SOLAR_OS_PACKAGE_APP_CONTACTS
+    SHELL_COMPLETION_STATIC(path_contacts, contacts_subcommands),
+    SHELL_COMPLETION_STATIC(path_contacts_list, contacts_list_values),
+    SHELL_COMPLETION_CONTACT_IDS(path_contacts_show),
+    SHELL_COMPLETION_CONTACT_IDS(path_contacts_rename),
+    SHELL_COMPLETION_CONTACT_IDS(path_contacts_trust),
+    SHELL_COMPLETION_ENDPOINT_IDS(path_contacts_trust_endpoint),
+    SHELL_COMPLETION_CONTACT_IDS(path_contacts_block),
+    SHELL_COMPLETION_ENDPOINT_IDS(path_contacts_block_endpoint),
+    SHELL_COMPLETION_CONTACT_IDS(path_contacts_remove),
+    SHELL_COMPLETION_CONTACT_IDS(path_contacts_link),
+    SHELL_COMPLETION_CONTACT_IDS(path_contacts_link_source),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     SHELL_COMPLETION_STATIC(path_email, email_subcommands),
@@ -4082,6 +4152,61 @@ static void shell_completion_emit_inbox_ids(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_contact_ids(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_APP_CONTACTS
+    solar_os_contact_t *contacts =
+        solar_os_memory_calloc(SOLAR_OS_CONTACT_CAPACITY,
+                               sizeof(*contacts),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "shell.complete.contacts");
+    if (contacts == NULL) {
+        return;
+    }
+    size_t total = 0U;
+    const size_t count =
+        solar_os_contacts_snapshot(contacts,
+                                   SOLAR_OS_CONTACT_CAPACITY,
+                                   false,
+                                   SOLAR_OS_CONTACT_TRUST_DISCOVERED,
+                                   &total);
+    for (size_t index = 0U; index < count; index++) {
+        char id[16];
+        snprintf(id, sizeof(id), "%lu", (unsigned long)contacts[index].id);
+        shell_completion_emit(state, id);
+    }
+    solar_os_memory_free(contacts);
+#else
+    (void)state;
+#endif
+}
+
+static void shell_completion_emit_endpoint_ids(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_APP_CONTACTS
+    solar_os_endpoint_t *endpoints =
+        solar_os_memory_calloc(SOLAR_OS_ENDPOINT_CAPACITY,
+                               sizeof(*endpoints),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "shell.complete.endpoints");
+    if (endpoints == NULL) {
+        return;
+    }
+    const size_t count =
+        solar_os_contacts_endpoint_snapshot(SOLAR_OS_CONTACT_ID_NONE,
+                                            endpoints,
+                                            SOLAR_OS_ENDPOINT_CAPACITY);
+    for (size_t index = 0U; index < count; index++) {
+        char id[16];
+        snprintf(id, sizeof(id), "%lu", (unsigned long)endpoints[index].id);
+        shell_completion_emit(state, id);
+    }
+    solar_os_memory_free(endpoints);
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_playground_apps(
     shell_completion_match_t *state)
 {
@@ -5346,6 +5471,12 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_inbox_ids) {
             shell_completion_emit_inbox_ids(state);
+        }
+        if (rule->complete_contact_ids) {
+            shell_completion_emit_contact_ids(state);
+        }
+        if (rule->complete_endpoint_ids) {
+            shell_completion_emit_endpoint_ids(state);
         }
         if (rule->complete_playground_apps) {
             shell_completion_emit_playground_apps(state);

@@ -290,6 +290,48 @@ Controls:
 - File operations refresh both panes after completion.
 - App-exit key exits.
 
+## contacts
+
+Provider-neutral address book for gateway and MeshCore identities. Contacts can
+carry multiple provider endpoints while retaining trust independently for each
+endpoint. A signed MeshCore advert creates a `discovered` endpoint: the
+signature proves possession of the advertised key, not the human identity
+behind it.
+
+Open the searchable TUI:
+
+```text
+contacts
+```
+
+The list is grouped by trust and provider. Press `/` to search, `Enter` to view
+the selected endpoint addresses, capabilities, last-seen times, and bounded
+provider metadata summary, and `Esc` or `q` to leave.
+
+Use the shell surface for mutations:
+
+```text
+contacts status
+contacts list [all|discovered|trusted|blocked]
+contacts show CONTACT_ID
+contacts rename CONTACT_ID NAME
+contacts trust CONTACT_ID [ENDPOINT_ID]
+contacts block CONTACT_ID [ENDPOINT_ID]
+contacts remove CONTACT_ID
+contacts link TARGET_CONTACT_ID SOURCE_CONTACT_ID
+```
+
+Contact and endpoint identifiers autocomplete from live service snapshots.
+Linking moves the source endpoints to the target contact and removes the source
+record. When the 64-contact store is full, SolarOS may evict the oldest
+unpinned contact whose endpoints are all still discovered; trusted and blocked
+records are never automatically evicted.
+
+The versioned store is CRC checked, uses two alternating headers and data
+copies, remains below 24 KiB, and normally lives at
+`/.contacts/contacts.bin`. If storage is unavailable, Contacts remains usable
+in volatile mode and `contacts status` reports the storage error.
+
 ## inbox
 
 Universal incoming-message browser for pages, chat notifications, mail, and
