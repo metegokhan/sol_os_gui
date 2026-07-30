@@ -23,6 +23,10 @@
   inbox, and restores the radio on stop. Added `link` send/receive/status
   commands, generation-checked and reference-counted radio ownership,
   autocomplete, and manual coverage.
+- Extended the `bridge` job to connect a bidirectional byte-stream port to an
+  active SolarOS Link. Serial chunks become MTU-bounded binary messages, Link
+  text/binary payloads return to the serial stream, and broadcast or
+  acknowledged-unicast destinations are supported without an unbounded buffer.
 
 ## 4.x
 

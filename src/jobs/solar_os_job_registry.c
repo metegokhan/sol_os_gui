@@ -55,7 +55,7 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
     {"batmon", "battery voltage trend monitor", &solar_os_batmon_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_BRIDGE
-    {"bridge", "raw bidirectional port bridge", &solar_os_bridge_job},
+    {"bridge", "bidirectional port and Link bridge", &solar_os_bridge_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_DAQ
     {"daq", "capture data streams to CSV", &solar_os_daq_job},

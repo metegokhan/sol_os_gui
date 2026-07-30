@@ -132,7 +132,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Background job reference](jobs.reference.md) — Configuration, ownership, and examples for every background job
 - [Background jobs](jobs.md) — Inspect and control bounded background workers
 - [batmon job](jobs.reference.md#batmon) — Battery monitor. It periodically samples battery voltage, maintains a smoothed trend, estimates power state, and can request light sleep when the configured minimum voltage is reached.
-- [bridge job](jobs.reference.md#bridge) — Raw bidirectional byte bridge between two byte-stream ports.
+- [bridge job](jobs.reference.md#bridge) — Bidirectional byte bridge between two ports or a port and SolarOS Link.
 - [chat-sync job](jobs.reference.md#chat-sync) — Background client synchronizer for the transport-neutral chat service. Start and stop it explicitly, using the same lifecycle as email-sync:
 - [chatd job](jobs.reference.md#chatd) — Local SolarOS chat gateway server. It is useful for testing the chat app or for small trusted local networks.
 - [daq job](jobs.reference.md#daq) — Data acquisition job. It captures scalar streams to timestamped CSV, or one byte stream directly to a raw file.

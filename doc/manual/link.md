@@ -119,6 +119,26 @@ The protocol CRC is present even when the transport also supplies a hardware
 CRC. This keeps integrity checking consistent across packet radio, serial,
 infrared, or future transports.
 
+## Serial byte bridge
+
+The existing `bridge` job can connect one bidirectional byte-stream port to an
+active Link:
+
+```text
+job start radio-link link0 radio0 lora-eu868
+job start bridge uart0 link0 broadcast
+```
+
+Serial input is sent as binary Link messages capped to the active payload MTU.
+Received text and binary payloads are written back to the serial stream without
+separators. Replace `broadcast` with a decimal or `0x` destination ID for
+acknowledged unicast. The bridge claims the serial port and consumes the Link
+receive queue until stopped.
+
+This is a bounded, best-effort stream adapter rather than Link fragmentation or
+flow control. Packet radio can be much slower than a serial producer, so
+sustained input can overrun the serial driver or the four-entry Link queue.
+
 ## Quick reference
 
 Start a packet-radio link with `job start radio-link link0 radio0

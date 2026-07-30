@@ -279,6 +279,7 @@ session focus display0
 job start log cdc0
 job start log file /.shell/log info
 job start bridge cdc0 uart0
+job start bridge uart0 link0 broadcast
 job start httpd /www
 job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once

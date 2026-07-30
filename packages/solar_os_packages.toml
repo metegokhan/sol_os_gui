@@ -803,6 +803,7 @@ capabilities = ["wifi"]
 
 [packages.job_bridge]
 label = "job.bridge"
+depends = ["service_link"]
 sources = ["jobs/solar_os_bridge_job.c"]
 
 [packages.job_log]
