@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Defined the provider-neutral SolarOS messaging contract and fixed public
+  identifiers, trust, conversation, delivery, capability, and security types
+  shared by the gateway and planned MeshCore provider.
 - Added an RFM95W expansion driver with LoRa, FSK, GFSK, MSK, GMSK, and OOK
   operation through the common `radio` service. LoRa supports packet
   transmit/receive and RSSI/SNR reporting; the FSK/OOK modem supports packet
