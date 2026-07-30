@@ -570,7 +570,7 @@ Controls:
 ## playground
 
 Browse the configured community catalog as a foldable category tree, search
-applications, and download, update, remove, or run Python and Lua scripts.
+applications, and install, update, uninstall, or run Python and Lua scripts.
 
 Usage:
 
@@ -586,11 +586,11 @@ playground storage [flash|sd]
 ```
 
 Press `/` to search, `Enter` to open an application, and use the actions shown
-in the bottom bar. Press `d` on an application in the catalog tree or details
-page to download it. Downloads are verified by size and SHA-256 and installed
-under `/.solar/playground/` on the permanently configured `flash` or `sd`
-storage. Community scripts run with the normal permissions of their runtime and
-are not sandboxed.
+in the bottom bar. Press `i` on an application in the catalog tree or details
+page to install it, and `u` to uninstall it after confirmation. Packages are
+verified by size and SHA-256 and installed under `/.solar/playground/` on the
+permanently configured `flash` or `sd` storage. Community scripts run with the
+normal permissions of their runtime and are not sandboxed.
 
 The shell subcommands use the local catalog: `refresh` downloads and saves it,
 `reload` loads that saved copy without network access, `search` prints matches,
@@ -603,7 +603,9 @@ catalog automatically and does not refresh it. At the top-level catalog tree,
 
 `playground storage` shows the persistent catalog and default application
 storage. Set it with `playground storage flash` or `playground storage sd`.
-Omitting the `install` target, or specifying `auto`, uses this setting.
+Without a saved preference, Playground selects SD when it is mounted and flash
+otherwise. Omitting the `install` target, or specifying `auto`, uses the
+selected setting.
 
 See [Playground](playground.md) for controls, storage layout, source selection,
 and the trust model.

@@ -44,7 +44,7 @@ typedef enum {
     PLAYGROUND_OPERATION_NONE,
     PLAYGROUND_OPERATION_REFRESH,
     PLAYGROUND_OPERATION_INSTALL,
-    PLAYGROUND_OPERATION_REMOVE,
+    PLAYGROUND_OPERATION_UNINSTALL,
 } playground_operation_t;
 
 typedef struct {
@@ -56,7 +56,7 @@ typedef struct {
     char search[PLAYGROUND_APP_SEARCH_MAX];
     bool searching;
     bool details;
-    bool remove_prompt;
+    bool uninstall_prompt;
     bool tui_active;
     bool busy;
     volatile bool stop_requested;
@@ -400,9 +400,9 @@ static void playground_render_tree(void)
 
     const char *footer = playground.status[0] != '\0' ?
         playground.status :
-        "/ search  Enter select  d download  r refresh  q quit";
-    if (playground.remove_prompt) {
-        footer = "Remove selected application? y/N";
+        "/ search  Enter select  [i]nstall  [u]ninstall  [r]efresh  [q]uit";
+    if (playground.uninstall_prompt) {
+        footer = "Uninstall selected application? y/N";
     }
     if (rows > 1U) {
         playground_write_cell(rows - 1U,
@@ -466,7 +466,7 @@ static void playground_render_details(void)
         } else {
             snprintf(line,
                      sizeof(line),
-                     "Download %u bytes",
+                     "Install size %u bytes",
                      (unsigned)app.size);
         }
         playground_write_cell(row++, 0U, cols, line, SOLAR_OS_TUI_ATTR_NORMAL);
@@ -476,10 +476,10 @@ static void playground_render_details(void)
     }
     const char *footer = playground.status[0] != '\0' ?
         playground.status :
-        (installed ? "r run  d update  Del remove  Esc back" :
-                     "d download  Esc back");
-    if (playground.remove_prompt) {
-        footer = "Remove selected application? y/N";
+        (installed ? "[r]un  [i]nstall  [u]ninstall  Esc back" :
+                     "[i]nstall  Esc back");
+    if (playground.uninstall_prompt) {
+        footer = "Uninstall selected application? y/N";
     }
     if (rows > 1U) {
         playground_write_cell(rows - 1U,
@@ -540,10 +540,10 @@ static void playground_operation_task(void *arg)
                                           playground_progress,
                                           NULL);
         break;
-    case PLAYGROUND_OPERATION_REMOVE:
-        err = solar_os_playground_remove(&playground.operation_app,
-                                         playground_progress,
-                                         NULL);
+    case PLAYGROUND_OPERATION_UNINSTALL:
+        err = solar_os_playground_uninstall(&playground.operation_app,
+                                            playground_progress,
+                                            NULL);
         break;
     default:
         break;
@@ -614,9 +614,9 @@ static void playground_finish_operation(void)
             playground.cursor = 0U;
             playground.top = 0U;
         } else if (playground.operation == PLAYGROUND_OPERATION_INSTALL) {
-            message = "download installed";
-        } else if (playground.operation == PLAYGROUND_OPERATION_REMOVE) {
-            message = "application removed";
+            message = "application installed";
+        } else if (playground.operation == PLAYGROUND_OPERATION_UNINSTALL) {
+            message = "application uninstalled";
         }
         strlcpy(playground.status, message, sizeof(playground.status));
     } else if (playground.stop_requested) {
@@ -727,7 +727,7 @@ static bool playground_launch_selected(solar_os_context_t *ctx)
     return true;
 }
 
-static void playground_request_download(
+static void playground_request_install(
     solar_os_playground_target_t target)
 {
     solar_os_playground_app_info_t app;
@@ -742,17 +742,25 @@ static void playground_request_download(
         PLAYGROUND_OPERATION_INSTALL, &app, target);
 }
 
-static void playground_begin_download(void)
+static void playground_begin_install(void)
+{
+    playground_request_install(SOLAR_OS_PLAYGROUND_TARGET_AUTO);
+}
+
+static void playground_begin_uninstall(void)
 {
     solar_os_playground_app_info_t app;
     if (!playground_selected_app(&app)) {
         return;
     }
-    if (!app.compatible) {
-        strlcpy(playground.status, app.incompatibility, sizeof(playground.status));
+    if (!solar_os_playground_is_installed(&app, NULL, 0U)) {
+        strlcpy(playground.status,
+                "application is not installed",
+                sizeof(playground.status));
         return;
     }
-    playground_request_download(SOLAR_OS_PLAYGROUND_TARGET_AUTO);
+    playground.uninstall_prompt = true;
+    playground.status[0] = '\0';
 }
 
 static bool playground_handle_source_command(solar_os_context_t *ctx)
@@ -1142,13 +1150,13 @@ static bool playground_event(solar_os_context_t *ctx,
         playground_render();
         return true;
     }
-    if (playground.remove_prompt) {
-        playground.remove_prompt = false;
+    if (playground.uninstall_prompt) {
+        playground.uninstall_prompt = false;
         if (ch == 'y' || ch == 'Y') {
             solar_os_playground_app_info_t app;
             if (playground_selected_app(&app)) {
                 (void)playground_start_operation(
-                    PLAYGROUND_OPERATION_REMOVE,
+                    PLAYGROUND_OPERATION_UNINSTALL,
                     &app,
                     SOLAR_OS_PLAYGROUND_TARGET_AUTO);
             }
@@ -1169,14 +1177,10 @@ static bool playground_event(solar_os_context_t *ctx,
         if (ch == SOLAR_OS_KEY_ESCAPE || ch == SOLAR_OS_KEY_LEFT ||
             ch == 'q' || ch == 'Q') {
             playground.details = false;
-        } else if (ch == 'd' || ch == 'D') {
-            playground_begin_download();
-        } else if (ch == SOLAR_OS_KEY_DELETE) {
-            solar_os_playground_app_info_t app;
-            if (playground_selected_app(&app) &&
-                solar_os_playground_is_installed(&app, NULL, 0U)) {
-                playground.remove_prompt = true;
-            }
+        } else if (ch == 'i' || ch == 'I') {
+            playground_begin_install();
+        } else if (ch == 'u' || ch == 'U') {
+            playground_begin_uninstall();
         } else if (ch == 'r' || ch == 'R') {
             if (playground_launch_selected(ctx)) {
                 return true;
@@ -1247,10 +1251,16 @@ static bool playground_event(solar_os_context_t *ctx,
             NULL,
             SOLAR_OS_PLAYGROUND_TARGET_AUTO);
         break;
-    case 'd':
-    case 'D':
+    case 'i':
+    case 'I':
         if (selected && node.kind == PLAYGROUND_NODE_APP) {
-            playground_begin_download();
+            playground_begin_install();
+        }
+        break;
+    case 'u':
+    case 'U':
+        if (selected && node.kind == PLAYGROUND_NODE_APP) {
+            playground_begin_uninstall();
         }
         break;
     default:

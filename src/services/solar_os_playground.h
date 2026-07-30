@@ -36,7 +36,7 @@ typedef enum {
     SOLAR_OS_PLAYGROUND_PROGRESS_PACKAGE,
     SOLAR_OS_PLAYGROUND_PROGRESS_VERIFY,
     SOLAR_OS_PLAYGROUND_PROGRESS_INSTALL,
-    SOLAR_OS_PLAYGROUND_PROGRESS_REMOVE,
+    SOLAR_OS_PLAYGROUND_PROGRESS_UNINSTALL,
     SOLAR_OS_PLAYGROUND_PROGRESS_DONE,
 } solar_os_playground_progress_stage_t;
 
@@ -112,9 +112,10 @@ esp_err_t solar_os_playground_install(const solar_os_playground_app_info_t *app,
                                       volatile bool *cancel,
                                       solar_os_playground_progress_fn progress_fn,
                                       void *progress_user);
-esp_err_t solar_os_playground_remove(const solar_os_playground_app_info_t *app,
-                                     solar_os_playground_progress_fn progress_fn,
-                                     void *progress_user);
+esp_err_t solar_os_playground_uninstall(
+    const solar_os_playground_app_info_t *app,
+    solar_os_playground_progress_fn progress_fn,
+    void *progress_user);
 
 const char *solar_os_playground_runtime_name(solar_os_playground_runtime_t runtime);
 const char *solar_os_playground_target_name(solar_os_playground_target_t target);

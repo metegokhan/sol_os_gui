@@ -2,7 +2,7 @@
 id = "playground"
 title = "Playground"
 section = "app"
-summary = "Browse, download, remove, and run community Python and Lua applications"
+summary = "Browse, install, uninstall, and run community Python and Lua applications"
 aliases = ["community-apps"]
 keywords = "playground catalog python lua games utilities hacking download install run"
 packages_any = ["app_playground"]
@@ -52,13 +52,14 @@ Application markers:
 - `[U]` has an update available.
 - `[!]` cannot run on this board or firmware.
 
-Select an application and press `d` to download or update it directly from the
-catalog tree. Press `Enter` or `Right` for details; from there, `d` downloads
-or updates it, `r` runs an installed copy, and `Delete` removes it after
-confirmation.
+Select an application and press `i` to install or update it directly from the
+catalog tree. Press `u` to uninstall an installed application after
+confirmation. The same actions are available after pressing `Enter` or `Right`
+for details; `r` runs an installed copy.
 
-The catalog and default application downloads live on the persistent storage
-target. Internal flash is the default. Inspect or change the setting with:
+The catalog and default application installations live on the persistent
+storage target. Without a saved preference, Playground selects SD when it is
+mounted and flash otherwise. Inspect or change the setting with:
 
 ```text
 playground storage
@@ -84,7 +85,7 @@ SD installations take precedence when the same application also exists in
 flash. Changing the storage setting does not migrate an existing catalog or
 installed applications. Refresh the catalog after changing it. When `sd` is
 configured, the SD card must be mounted to load or refresh the catalog and to
-download applications.
+install applications.
 
 ## Sources and safety
 
@@ -116,15 +117,15 @@ applications whose maintainers you trust.
 - `Enter`, `Space`, `Left`, `Right`: fold categories or open details.
 - `/`: search the current catalog.
 - `r`: refresh in the tree, or run from details.
-- `d`: download or update the selected application from the tree or details.
-- `Delete`: remove from details.
+- `i`: install or update the selected application from the tree or details.
+- `u`: uninstall the selected application from the tree or details, after confirmation.
 - `Esc`: cancel or go back in nested views; exit from the catalog tree.
 - `q` or the app-exit key: exit.
 
 ## Quick reference
 
 Run `playground` to browse the configured catalog. Use `/` to search, `Enter`
-for details, `d` to download, `r` to run, and `Delete` to remove. Refresh with
+for details, `i` to install, `u` to uninstall, and `r` to run. Refresh with
 `r` in the tree or `playground refresh`; use `playground reload` to load the
 saved catalog without a network request. Use `playground source [URL|reset]` to
 inspect or change the catalog source, and `playground storage [flash|sd]` to

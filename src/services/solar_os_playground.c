@@ -1260,7 +1260,9 @@ esp_err_t solar_os_playground_init(void)
     char source[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX] =
         SOLAR_OS_PLAYGROUND_DEFAULT_SOURCE;
     solar_os_playground_target_t storage =
-        SOLAR_OS_PLAYGROUND_TARGET_FLASH;
+        solar_os_storage_sd_is_mounted() ?
+            SOLAR_OS_PLAYGROUND_TARGET_SD :
+            SOLAR_OS_PLAYGROUND_TARGET_FLASH;
     nvs_handle_t nvs = 0;
     if (nvs_open(PLAYGROUND_NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
         size_t source_len = sizeof(stored_source);
@@ -1911,7 +1913,7 @@ esp_err_t solar_os_playground_install(
     return err;
 }
 
-esp_err_t solar_os_playground_remove(
+esp_err_t solar_os_playground_uninstall(
     const solar_os_playground_app_info_t *app,
     solar_os_playground_progress_fn progress_fn,
     void *progress_user)
@@ -1924,7 +1926,7 @@ esp_err_t solar_os_playground_remove(
         return ESP_ERR_NOT_FOUND;
     }
     solar_os_playground_progress_t progress = {
-        .stage = SOLAR_OS_PLAYGROUND_PROGRESS_REMOVE,
+        .stage = SOLAR_OS_PLAYGROUND_PROGRESS_UNINSTALL,
     };
     playground_report(progress_fn, progress_user, &progress);
     const esp_err_t err = playground_remove_tree(root);
