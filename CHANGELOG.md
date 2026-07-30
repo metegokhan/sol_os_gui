@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Hardened MeshCore lifecycle transitions against concurrent starts and
+  configuration changes, made its internal peer cache follow Contacts
+  generations with blocked endpoints failing closed, compacted the Credentials
+  NVS blob to its active records for used-device headroom, tuned the measured
+  worker stack, added the RFM95 62.5-kHz LoRa mapping, bounded status rendering,
+  and added host two-node plus connected memory/stack/start-stop regression
+  coverage.
 - Added a pinned, audited MeshCore companion provider with Ed25519/ECDH direct
   messaging, ACK retries, shared-key groups, contact discovery and trust
   enforcement, a PSRAM-resident bounded core, an RFM95-compatible radio

@@ -11,7 +11,8 @@
 #define CREDENTIALS_NVS_NAMESPACE "credentials"
 #define CREDENTIALS_NVS_BLOB_KEY "records"
 #define CREDENTIALS_STORE_MAGIC 0x44455243UL
-#define CREDENTIALS_STORE_VERSION 1U
+#define CREDENTIALS_STORE_VERSION 2U
+#define CREDENTIALS_STORE_LEGACY_VERSION 1U
 
 typedef struct {
     bool active;
@@ -171,7 +172,14 @@ static solar_os_credential_id_t credentials_allocate_id_locked(void)
     return SOLAR_OS_CREDENTIAL_ID_NONE;
 }
 
-static void credentials_runtime_to_blob_locked(
+static size_t credentials_blob_size(size_t count)
+{
+    return offsetof(credentials_store_blob_t, records) +
+        count * sizeof(credentials_disk_record_t) +
+        sizeof(uint32_t);
+}
+
+static size_t credentials_runtime_to_blob_locked(
     credentials_store_blob_t *blob)
 {
     memset(blob, 0, sizeof(*blob));
@@ -181,12 +189,13 @@ static void credentials_runtime_to_blob_locked(
     blob->generation = credentials_store.generation;
     blob->next_id = credentials_store.next_id;
     blob->count = (uint16_t)credentials_store.count;
+    size_t written = 0U;
     for (size_t index = 0; index < SOLAR_OS_CREDENTIAL_CAPACITY; index++) {
         const credentials_slot_t *source = &credentials_store.records[index];
-        credentials_disk_record_t *target = &blob->records[index];
         if (!source->active) {
             continue;
         }
+        credentials_disk_record_t *target = &blob->records[written++];
         target->active = 1U;
         target->id = source->info.id;
         target->provider = (uint8_t)source->info.provider;
@@ -195,26 +204,40 @@ static void credentials_runtime_to_blob_locked(
         strlcpy(target->label, source->info.label, sizeof(target->label));
         memcpy(target->secret, source->secret, source->secret_len);
     }
-    blob->crc32 =
-        credentials_crc32(blob, offsetof(credentials_store_blob_t, crc32));
+    const size_t length = credentials_blob_size(written);
+    const uint32_t crc = credentials_crc32(blob, length - sizeof(crc));
+    memcpy((uint8_t *)blob + length - sizeof(crc), &crc, sizeof(crc));
+    return length;
 }
 
-static bool credentials_blob_valid(const credentials_store_blob_t *blob)
+static bool credentials_blob_valid(const credentials_store_blob_t *blob,
+                                   size_t length)
 {
+    const bool legacy =
+        blob->version == CREDENTIALS_STORE_LEGACY_VERSION;
+    const size_t expected =
+        legacy ? sizeof(*blob) : credentials_blob_size(blob->count);
+    uint32_t stored_crc = 0U;
+    if (length >= sizeof(stored_crc)) {
+        memcpy(&stored_crc,
+               (const uint8_t *)blob + length - sizeof(stored_crc),
+               sizeof(stored_crc));
+    }
     if (blob->magic != CREDENTIALS_STORE_MAGIC ||
-        blob->version != CREDENTIALS_STORE_VERSION ||
+        (blob->version != CREDENTIALS_STORE_VERSION && !legacy) ||
         blob->record_size != sizeof(credentials_disk_record_t) ||
         blob->generation == 0U ||
         blob->next_id == 0U ||
         blob->count > SOLAR_OS_CREDENTIAL_CAPACITY ||
-        blob->crc32 !=
-            credentials_crc32(blob,
-                              offsetof(credentials_store_blob_t, crc32))) {
+        length != expected ||
+        stored_crc != credentials_crc32(blob, length - sizeof(stored_crc))) {
         return false;
     }
 
     size_t count = 0U;
-    for (size_t index = 0; index < SOLAR_OS_CREDENTIAL_CAPACITY; index++) {
+    const size_t records =
+        legacy ? SOLAR_OS_CREDENTIAL_CAPACITY : blob->count;
+    for (size_t index = 0; index < records; index++) {
         const credentials_disk_record_t *record = &blob->records[index];
         if (record->active == 0U) {
             continue;
@@ -240,12 +263,17 @@ static void credentials_blob_to_runtime(
     memset(credentials_store.records,
            0,
            SOLAR_OS_CREDENTIAL_CAPACITY * sizeof(*credentials_store.records));
-    for (size_t index = 0; index < SOLAR_OS_CREDENTIAL_CAPACITY; index++) {
+    const size_t records =
+        blob->version == CREDENTIALS_STORE_LEGACY_VERSION ?
+            SOLAR_OS_CREDENTIAL_CAPACITY : blob->count;
+    size_t target_index = 0U;
+    for (size_t index = 0; index < records; index++) {
         const credentials_disk_record_t *source = &blob->records[index];
-        credentials_slot_t *target = &credentials_store.records[index];
         if (source->active == 0U) {
             continue;
         }
+        credentials_slot_t *target =
+            &credentials_store.records[target_index++];
         target->active = true;
         target->info.id = source->id;
         target->info.provider =
@@ -279,8 +307,7 @@ static esp_err_t credentials_load(void)
     if (error != ESP_OK) {
         return error;
     }
-    if (length != sizeof(*credentials_store.scratch) ||
-        !credentials_blob_valid(credentials_store.scratch)) {
+    if (!credentials_blob_valid(credentials_store.scratch, length)) {
         solar_os_credentials_wipe(credentials_store.scratch,
                                   sizeof(*credentials_store.scratch));
         return ESP_ERR_INVALID_CRC;
@@ -292,7 +319,8 @@ static esp_err_t credentials_load(void)
 }
 
 static esp_err_t credentials_write_blob(
-    const credentials_store_blob_t *blob)
+    const credentials_store_blob_t *blob,
+    size_t length)
 {
     nvs_handle_t nvs;
     esp_err_t error =
@@ -303,7 +331,7 @@ static esp_err_t credentials_write_blob(
     error = nvs_set_blob(nvs,
                          CREDENTIALS_NVS_BLOB_KEY,
                          blob,
-                         sizeof(*blob));
+                         length);
     if (error == ESP_OK) {
         error = nvs_commit(nvs);
     }
@@ -322,10 +350,11 @@ static esp_err_t credentials_persist_current(void)
     for (unsigned attempt = 0; attempt < 3U; attempt++) {
         credentials_lock();
         const uint32_t snapshot_generation = credentials_store.generation;
-        credentials_runtime_to_blob_locked(credentials_store.scratch);
+        const size_t length =
+            credentials_runtime_to_blob_locked(credentials_store.scratch);
         credentials_unlock();
 
-        error = credentials_write_blob(credentials_store.scratch);
+        error = credentials_write_blob(credentials_store.scratch, length);
         solar_os_credentials_wipe(credentials_store.scratch,
                                   sizeof(*credentials_store.scratch));
 

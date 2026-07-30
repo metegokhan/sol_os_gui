@@ -47,45 +47,58 @@ static void meshcore_status(solar_os_shell_io_t *io)
         meshcore_error(io, "status", error);
         return;
     }
+    solar_os_shell_io_printf(io,
+                             "MeshCore: %s\n",
+                             status.running ? "running" : "stopped");
+    solar_os_shell_io_printf(io,
+                             "Identity: %s, name: %s\n",
+                             status.identity_set ? "set" : "not set",
+                             status.name);
     solar_os_shell_io_printf(
         io,
-        "MeshCore: %s\n"
-        "Identity: %s, name: %s\n"
-        "Public key: %s\n"
-        "Radio: %s, profile: %s\n"
-        "Channels: %u, contacts loaded: %u\n"
-        "Packets: free %u/%u, tx %" PRIu32 ", rx %" PRIu32 "\n"
-        "Adverts: tx %" PRIu32 ", rx %" PRIu32
-        "; messages: direct %" PRIu32 ", group %" PRIu32 "\n"
-        "ACKs: %" PRIu32 ", retries: %" PRIu32
-        ", duplicates: direct %" PRIu32 ", flood %" PRIu32 "\n"
-        "Errors: send %" PRIu32 ", receive %" PRIu32
-        ", last %s\n"
-        "Context in PSRAM: %s, stack watermark: %" PRIu32 " bytes\n",
-        status.running ? "running" : "stopped",
-        status.identity_set ? "set" : "not set",
-        status.name,
+        "Public key: %s\n",
         status.public_key_hex[0] != '\0' ?
-            status.public_key_hex : "(none)",
-        status.running ? status.radio : "-",
-        status.running ? status.profile : "-",
-        (unsigned)status.channels,
-        (unsigned)status.contacts_loaded,
+            status.public_key_hex : "(none)");
+    solar_os_shell_io_printf(io,
+                             "Radio: %s, profile: %s\n",
+                             status.running ? status.radio : "-",
+                             status.running ? status.profile : "-");
+    solar_os_shell_io_printf(io,
+                             "Channels: %u, contacts loaded: %u\n",
+                             (unsigned)status.channels,
+                             (unsigned)status.contacts_loaded);
+    solar_os_shell_io_printf(
+        io,
+        "Packets: free %u/%u, tx %" PRIu32 ", rx %" PRIu32 "\n",
         (unsigned)status.packet_pool_free,
         (unsigned)SOLAR_OS_MESHCORE_PACKET_POOL_SIZE,
         status.transmitted,
-        status.received,
+        status.received);
+    solar_os_shell_io_printf(
+        io,
+        "Adverts: tx %" PRIu32 ", rx %" PRIu32
+        "; messages: direct %" PRIu32 ", group %" PRIu32 "\n",
         status.adverts_sent,
         status.adverts_received,
         status.direct_received,
-        status.group_received,
+        status.group_received);
+    solar_os_shell_io_printf(
+        io,
+        "ACKs: %" PRIu32 ", retries: %" PRIu32
+        ", duplicates: direct %" PRIu32 ", flood %" PRIu32 "\n",
         status.acknowledgements,
         status.retries,
         status.duplicate_direct,
-        status.duplicate_flood,
+        status.duplicate_flood);
+    solar_os_shell_io_printf(
+        io,
+        "Errors: send %" PRIu32 ", receive %" PRIu32 ", last %s\n",
         status.send_errors,
         status.receive_errors,
-        esp_err_to_name(status.last_error),
+        esp_err_to_name(status.last_error));
+    solar_os_shell_io_printf(
+        io,
+        "Context in PSRAM: %s, stack watermark: %" PRIu32 " bytes\n",
         status.context_in_psram ? "yes" : "no",
         status.stack_watermark_bytes);
 }

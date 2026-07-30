@@ -103,7 +103,8 @@ Inbox, logs, autocomplete, agent tools, Python, or Lua.
 ## Implementation and limits
 
 The complete provider context and its 16-packet pool use external-required
-PSRAM. The worker begins with a 6144-byte internal stack. `meshcore status`
+PSRAM. Runtime measurement tuned the worker to a 7168-byte internal stack.
+`meshcore status`
 reports packet usage, traffic, retries, duplicate counts, whether the context
 is in PSRAM, and the measured minimum stack watermark. Firmware packages omit
 MeshCore unless the board has PSRAM and packet-radio expansion capability.
@@ -111,6 +112,21 @@ MeshCore unless the board has PSRAM and packet-radio expansion capability.
 SolarOS vendors the audited protocol subset from MeshCore commit
 `03b6ef4b0de98fc70b49ef10a6d0d61f8381fb7a`. Updates are explicit source
 reviews; firmware builds never download protocol code.
+
+## Runtime acceptance
+
+For a release check, capture `mem` before starting the worker, while it is
+running, and after stopping it. The running system must retain at least 64 KiB
+of free internal RAM. `meshcore status` must report `Context in PSRAM: yes` and
+a stack watermark of at least 1024 bytes after the worker has looped.
+
+Queue both advert forms, confirm that a second job cannot claim the same radio,
+then stop MeshCore and verify that the radio's prior configuration and state
+were restored. Repeat the start/status/stop cycle and compare the settled
+internal and PSRAM values; they must not fall on each cycle. The connected
+runtime test automates these lifecycle, ownership, and memory checks when an
+RFM95 is attached. Interoperability with another current MeshCore node remains
+the final direct/group over-the-air check when a second node is available.
 
 ## Quick reference
 
