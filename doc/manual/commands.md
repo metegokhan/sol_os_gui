@@ -59,6 +59,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
 | `exit` | `exit` | Close the current UART, USB CDC, or telnet shell when another interactive shell remains. |
 | `reboot` | `reboot` | Restart the board. |
+| `nvs` | `nvs status` | Show the default NVS partition size, entry usage, and namespace count. |
+| `nvs` | `nvs clear` | Erase all NVS-backed settings and reboot immediately. |
 | `sessions` | `sessions` | List display app sessions, display shell sessions, and port shell sessions. |
 | `fg` | `fg [session-id]` | Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app. |
 | `close` | `close <session-id>` | Close a display app, display shell, or retained port app, or stop a port shell session. The final interactive shell cannot be closed. |
@@ -90,6 +92,12 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `email` | `email forget` | Remove the saved account and local email list. |
 | `pocsag` | `pocsag status` | Show POCSAG receiver configuration, counters, correction statistics, and RSSI. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
+
+`nvs status` distinguishes raw free entries from entries currently available
+for new data; use the available count when diagnosing a failed NVS write. `nvs
+clear` erases the complete default NVS partition, including identity, Wi-Fi and
+BLE state, credentials, service settings, and radio profiles, then reboots.
+Files on SD or the internal FAT filesystem are not affected.
 
 Sessions are foreground application state plus shell instances attached to a
 display target or byte-stream port. Background services such as log followers,

@@ -67,6 +67,7 @@ void solar_os_shell_cmd_meshcore(solar_os_context_t *ctx,
 void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 void solar_os_shell_cmd_ntp(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_onewire(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_NET
