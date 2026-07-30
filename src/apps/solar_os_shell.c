@@ -47,6 +47,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
 #include "solar_os_radio.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+#include "solar_os_link.h"
+#endif
 #include "solar_os_ramfs.h"
 #include "solar_os_sessions.h"
 #include "solar_os_storage.h"
@@ -110,6 +113,9 @@ typedef struct {
     bool complete_session_ids;
     bool complete_ports;
     bool complete_radios;
+    bool complete_links;
+    bool complete_radio_profiles;
+    bool complete_user_radio_profiles;
     bool complete_ramfs_mounts;
     bool complete_storage_mountables;
     bool complete_storage_unmount_targets;
@@ -293,6 +299,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
     {"radio", "packet radio tools", solar_os_shell_cmd_radio},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+    {"link", "SolarOS Link messaging", solar_os_shell_cmd_link},
 #endif
 #if SOLAR_OS_PACKAGE_SYSTEM_SHELL
     {"date", "read or set local date", solar_os_shell_cmd_date},
@@ -566,6 +575,9 @@ static const char * const expansion_driver_values[] = {
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
     "rfm69",
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_RFM95
+    "rfm95",
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
     "pcd8544",
 #endif
@@ -579,16 +591,39 @@ static const char * const radio_subcommands[] = {
     "status",
     "list",
     "config",
+    "profile",
     "state",
     "send",
     "recv",
 };
+static const char * const radio_profile_subcommands[] = {
+    "list",
+    "show",
+    "apply",
+    "save",
+    "remove",
+};
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+static const char * const link_subcommands[] = {
+    "status",
+    "list",
+    "send",
+    "send-binary",
+    "receive",
+    "recv",
+};
+static const char * const link_destination_values[] = {"broadcast"};
+static const char * const radio_link_names[] = {"link0"};
+static const char * const radio_link_inbox_values[] = {"inbox=off", "inbox=on"};
+#endif
 static const char * const radio_config_fields[] = {
     "frequency",
     "modulation",
     "bitrate",
     "deviation",
     "bandwidth",
+    "sf",
+    "coding-rate",
     "power",
     "crc",
     "variable",
@@ -605,6 +640,12 @@ static const char * const radio_modulation_values[] = {
     "gmsk",
     "ook",
     "lora",
+};
+static const char * const radio_spreading_factor_values[] = {
+    "6", "7", "8", "9", "10", "11", "12",
+};
+static const char * const radio_coding_rate_values[] = {
+    "4/5", "4/6", "4/7", "4/8",
 };
 static const char * const radio_state_values[] = {
     "sleep",
@@ -1061,6 +1102,11 @@ static const char * const path_job_start_log_port[] = {"job", "start", "log", SH
 static const char * const path_job_start_log_file[] = {"job", "start", "log", "file"};
 static const char * const path_job_start_bridge[] = {"job", "start", "bridge"};
 static const char * const path_job_start_bridge_port[] = {"job", "start", "bridge", SHELL_COMPLETION_ANY};
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+static const char * const path_job_start_bridge_link[] = {
+    "job", "start", "bridge", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
+};
+#endif
 static const char * const path_job_start_httpd[] = {"job", "start", "httpd"};
 #if SOLAR_OS_PACKAGE_JOB_DISPLAYD
 static const char * const path_job_start_displayd[] = {"job", "start", "displayd"};
@@ -1105,6 +1151,21 @@ static const char * const path_pocsag_send_format[] = {
     "pocsag", "send", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
+};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_RADIO_LINK
+static const char * const path_job_start_radio_link[] = {
+    "job", "start", "radio-link"
+};
+static const char * const path_job_start_radio_link_name[] = {
+    "job", "start", "radio-link", SHELL_COMPLETION_ANY
+};
+static const char * const path_job_start_radio_link_radio[] = {
+    "job", "start", "radio-link", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
+};
+static const char * const path_job_start_radio_link_profile[] = {
+    "job", "start", "radio-link", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY
 };
 #endif
 static const char * const path_job_start_slip[] = {"job", "start", "slip"};
@@ -1425,10 +1486,37 @@ static const char * const path_radio_config_name[] = {"radio", "config", SHELL_C
 static const char * const path_radio_config_modulation[] = {"radio", "config", SHELL_COMPLETION_ANY, "modulation"};
 static const char * const path_radio_config_crc[] = {"radio", "config", SHELL_COMPLETION_ANY, "crc"};
 static const char * const path_radio_config_variable[] = {"radio", "config", SHELL_COMPLETION_ANY, "variable"};
+static const char * const path_radio_config_sf[] = {"radio", "config", SHELL_COMPLETION_ANY, "sf"};
+static const char * const path_radio_config_coding_rate[] = {"radio", "config", SHELL_COMPLETION_ANY, "coding-rate"};
+static const char * const path_radio_profile[] = {"radio", "profile"};
+static const char * const path_radio_profile_show[] = {"radio", "profile", "show"};
+static const char * const path_radio_profile_apply[] = {"radio", "profile", "apply"};
+static const char * const path_radio_profile_apply_radio[] = {
+    "radio", "profile", "apply", SHELL_COMPLETION_ANY
+};
+static const char * const path_radio_profile_save[] = {"radio", "profile", "save"};
+static const char * const path_radio_profile_save_radio[] = {
+    "radio", "profile", "save", SHELL_COMPLETION_ANY
+};
+static const char * const path_radio_profile_remove[] = {"radio", "profile", "remove"};
 static const char * const path_radio_state[] = {"radio", "state"};
 static const char * const path_radio_state_name[] = {"radio", "state", SHELL_COMPLETION_ANY};
 static const char * const path_radio_send[] = {"radio", "send"};
 static const char * const path_radio_recv[] = {"radio", "recv"};
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+static const char * const path_link[] = {"link"};
+static const char * const path_link_status[] = {"link", "status"};
+static const char * const path_link_send[] = {"link", "send"};
+static const char * const path_link_send_link[] = {
+    "link", "send", SHELL_COMPLETION_ANY
+};
+static const char * const path_link_send_binary[] = {"link", "send-binary"};
+static const char * const path_link_send_binary_link[] = {
+    "link", "send-binary", SHELL_COMPLETION_ANY
+};
+static const char * const path_link_receive[] = {"link", "receive"};
+static const char * const path_link_recv[] = {"link", "recv"};
+#endif
 static const char * const path_power[] = {"power"};
 static const char * const path_power_profile[] = {"power", "profile"};
 static const char * const path_power_idle[] = {"power", "idle"};
@@ -1554,6 +1642,24 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_radios = true, \
+    }
+#define SHELL_COMPLETION_LINKS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_links = true, \
+    }
+#define SHELL_COMPLETION_RADIO_PROFILES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_radio_profiles = true, \
+    }
+#define SHELL_COMPLETION_USER_RADIO_PROFILES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_user_radio_profiles = true, \
     }
 #define SHELL_COMPLETION_RAMFS_MOUNTS(path_array) \
     { \
@@ -1763,6 +1869,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PATH(path_job_start_log_file, false),
     SHELL_COMPLETION_PORTS(path_job_start_bridge),
     SHELL_COMPLETION_PORTS(path_job_start_bridge_port),
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+    SHELL_COMPLETION_LINKS(path_job_start_bridge_port),
+    SHELL_COMPLETION_STATIC(path_job_start_bridge_link,
+                            link_destination_values),
+#endif
     SHELL_COMPLETION_PATH(path_job_start_httpd, true),
 #if SOLAR_OS_PACKAGE_JOB_DISPLAYD
     SHELL_COMPLETION_DISPLAY_TARGETS(path_job_start_displayd),
@@ -1786,6 +1897,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_RADIOS(path_pocsag_send),
     SHELL_COMPLETION_STATIC(path_pocsag_send_message, pocsag_format_values),
     SHELL_COMPLETION_STATIC(path_pocsag_send_format, pocsag_polarity_values),
+#endif
+#if SOLAR_OS_PACKAGE_JOB_RADIO_LINK
+    SHELL_COMPLETION_STATIC(path_job_start_radio_link, radio_link_names),
+    SHELL_COMPLETION_RADIOS(path_job_start_radio_link_name),
+    SHELL_COMPLETION_RADIO_PROFILES(path_job_start_radio_link_radio),
+    SHELL_COMPLETION_STATIC(path_job_start_radio_link_profile,
+                            radio_link_inbox_values),
 #endif
     SHELL_COMPLETION_PORTS(path_job_start_slip),
 #if SOLAR_OS_PACKAGE_JOB_SLIP
@@ -1979,10 +2097,30 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_radio_config_modulation, radio_modulation_values),
     SHELL_COMPLETION_STATIC(path_radio_config_crc, on_off_values),
     SHELL_COMPLETION_STATIC(path_radio_config_variable, on_off_values),
+    SHELL_COMPLETION_STATIC(path_radio_config_sf, radio_spreading_factor_values),
+    SHELL_COMPLETION_STATIC(path_radio_config_coding_rate, radio_coding_rate_values),
+    SHELL_COMPLETION_STATIC(path_radio_profile, radio_profile_subcommands),
+    SHELL_COMPLETION_RADIO_PROFILES(path_radio_profile_show),
+    SHELL_COMPLETION_RADIOS(path_radio_profile_apply),
+    SHELL_COMPLETION_RADIO_PROFILES(path_radio_profile_apply_radio),
+    SHELL_COMPLETION_RADIOS(path_radio_profile_save),
+    SHELL_COMPLETION_USER_RADIO_PROFILES(path_radio_profile_save_radio),
+    SHELL_COMPLETION_USER_RADIO_PROFILES(path_radio_profile_remove),
     SHELL_COMPLETION_RADIOS(path_radio_state),
     SHELL_COMPLETION_STATIC(path_radio_state_name, radio_state_values),
     SHELL_COMPLETION_RADIOS(path_radio_send),
     SHELL_COMPLETION_RADIOS(path_radio_recv),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+    SHELL_COMPLETION_STATIC(path_link, link_subcommands),
+    SHELL_COMPLETION_LINKS(path_link_status),
+    SHELL_COMPLETION_LINKS(path_link_send),
+    SHELL_COMPLETION_STATIC(path_link_send_link, link_destination_values),
+    SHELL_COMPLETION_LINKS(path_link_send_binary),
+    SHELL_COMPLETION_STATIC(path_link_send_binary_link,
+                            link_destination_values),
+    SHELL_COMPLETION_LINKS(path_link_receive),
+    SHELL_COMPLETION_LINKS(path_link_recv),
 #endif
     SHELL_COMPLETION_STATIC(path_power, power_subcommands),
     SHELL_COMPLETION_STATIC(path_power_profile, power_profile_values),
@@ -4095,6 +4233,44 @@ static void shell_completion_emit_radios(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_links(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+    const size_t count = solar_os_link_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_link_status_t status;
+        if (solar_os_link_get(i, &status)) {
+            shell_completion_emit(state, status.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static void shell_completion_emit_radio_profiles(shell_completion_match_t *state,
+                                                 bool user_only)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+    solar_os_radio_profile_t profiles[SOLAR_OS_RADIO_PROFILE_MAX];
+    size_t count = 0;
+    if (solar_os_radio_profile_list(profiles,
+                                    SOLAR_OS_RADIO_PROFILE_MAX,
+                                    &count) != ESP_OK) {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        if (!user_only || !profiles[i].builtin) {
+            shell_completion_emit(state, profiles[i].name);
+        }
+    }
+#else
+    (void)state;
+    (void)user_only;
+#endif
+}
+
 static void shell_completion_emit_ramfs_mounts(shell_completion_match_t *state)
 {
     const size_t count = solar_os_ramfs_mount_count();
@@ -5194,6 +5370,15 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_radios) {
             shell_completion_emit_radios(state);
+        }
+        if (rule->complete_links) {
+            shell_completion_emit_links(state);
+        }
+        if (rule->complete_radio_profiles) {
+            shell_completion_emit_radio_profiles(state, false);
+        }
+        if (rule->complete_user_radio_profiles) {
+            shell_completion_emit_radio_profiles(state, true);
         }
         if (rule->complete_ramfs_mounts) {
             shell_completion_emit_ramfs_mounts(state);

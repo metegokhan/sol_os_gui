@@ -179,12 +179,14 @@ job start batmon 60
 
 ## bridge
 
-Raw bidirectional byte bridge between two byte-stream ports.
+Bidirectional byte bridge between two byte-stream ports, or between one
+byte-stream port and an active SolarOS Link instance.
 
 Usage:
 
 ```text
 job start bridge <port-a> <port-b>
+job start bridge <port> <link> [broadcast|destination-id]
 job stop bridge
 job status bridge
 ```
@@ -195,10 +197,38 @@ Example:
 job start bridge cdc0 uart0
 ```
 
+To expose a UART byte stream over a packet-radio Link:
+
+```text
+job start radio-link link0 radio0 lora-eu868
+job start bridge uart0 link0 broadcast
+```
+
+Use a decimal or `0x` 32-bit Link destination instead of `broadcast` for
+acknowledged unicast:
+
+```text
+job start bridge uart0 link0 0x12345678
+```
+
 Notes:
 
 - The two ports must be different.
 - Both ports are claimed by the bridge job until it stops.
+- In Link mode, the serial port is claimed while the already-running Link
+  instance remains active under its transport job.
+- Available serial bytes are emitted as binary Link messages, each capped at
+  the Link payload MTU. Received text and binary payloads are written to the
+  serial port without a separator, preserving byte-stream behavior.
+- `broadcast` is the default destination. Explicit destinations request normal
+  Link acknowledgements.
+- The bridge consumes the Link receive queue. Do not use `link receive` on the
+  same Link while the bridge is running.
+- Packet radio is usually much slower than UART. The bridge uses the existing
+  bounded Link queues and does not add an unbounded SRAM buffer; sustained
+  serial input can therefore overrun the port or produce Link queue drops.
+- If the Link disappears, the bridge releases its serial port and stops with
+  the Link error.
 - This is the clean base for USB-to-UART converter style workflows.
 
 ## chat-sync
@@ -637,6 +667,39 @@ Notes:
 - Sending supports messages spanning multiple batches and restores the radio's
   previous configuration afterward. A receiver job using the same half-duplex
   radio must be stopped first.
+
+## radio-link
+
+Packet-radio adapter for the transport-independent SolarOS Link service.
+
+Usage:
+
+```text
+job start radio-link <link> <radio> <profile> [inbox=off|on]
+job stop radio-link
+job status radio-link
+link status <link>
+```
+
+Example:
+
+```text
+job start radio-link link0 radio0 lora-eu868 inbox=on
+link send link0 broadcast "hello"
+link status link0
+```
+
+The job claims the radio, applies the complete named profile, creates the Link
+instance, transmits its queued frames, and continuously receives complete radio
+packets. The Link service validates its own CRC, suppresses duplicates, replies
+to requested unicast acknowledgements, and retains accepted messages in a
+bounded queue. `inbox=on` additionally publishes accepted text messages to the
+universal inbox; it is off by default.
+
+Stopping restores the radio configuration and state that existed before the
+job started. Mutating direct radio operations are rejected while the radio is
+owned by the job. See [link.md](link.md) for commands, frame layout, IDs,
+queue limits, transport MTUs, and version-one exclusions.
 
 ## slip
 

@@ -579,8 +579,8 @@ job, bridge jobs, or host-side tooling.
 The built-in `esp32_s3_devkitc1_n16r8` target keeps this headless shell model
 and also enables expansion GPIO, ADC, PWM, I2C, and SPI. The default I2C bus is
 GPIO8 SDA and GPIO9 SCL. The default SPI bus is FSPI on GPIO12 SCK, GPIO13
-MISO, and GPIO11 MOSI, with chip-select slots on GPIO10, GPIO5, GPIO6, and
-GPIO7.
+MISO, and GPIO11 MOSI, with chip-select slots on GPIO4, GPIO10, GPIO5, GPIO6,
+and GPIO7.
 The N16R8 target uses `partitions_16mb_devkit.csv`: each OTA application slot
 is 0x600000 bytes and the internal FAT filesystem partition is 0x3F0000 bytes.
 The larger local volume supports durable agent conversations and normal file
@@ -596,6 +596,8 @@ Auxiliary SPI displays can use that expansion SPI bus through expansion
 drivers. For example, a PCD8544 84x48 LCD module can attach as `lcd0` with
 `expansion attach pcd8544 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5` and
 then be exercised with `display test lcd0`.
+An RFM95W multimode radio wired with NSS on GPIO4 and reset on GPIO5 attaches
+with `expansion attach rfm95 radio0 spi=spi0 cs=gpio4 reset=gpio5`.
 Auxiliary I2C displays can use `i2c0` as well. A common 128x64 SSD1306 OLED at
 address `0x3c` can attach with
 `expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c`; use `display test oled0`

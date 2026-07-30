@@ -11,6 +11,12 @@
 #define SOLAR_OS_RADIO_SUMMARY_MAX 48
 #define SOLAR_OS_RADIO_SYNC_WORD_MAX 8
 #define SOLAR_OS_RADIO_PACKET_MAX 256
+#define SOLAR_OS_RADIO_PROFILE_NAME_MAX 24
+#define SOLAR_OS_RADIO_OWNER_MAX 24
+#define SOLAR_OS_RADIO_USER_PROFILE_MAX 8
+#define SOLAR_OS_RADIO_BUILTIN_PROFILE_COUNT 3
+#define SOLAR_OS_RADIO_PROFILE_MAX \
+    (SOLAR_OS_RADIO_BUILTIN_PROFILE_COUNT + SOLAR_OS_RADIO_USER_PROFILE_MAX)
 
 typedef uint32_t solar_os_radio_modulations_t;
 typedef uint32_t solar_os_radio_features_t;
@@ -55,6 +61,8 @@ typedef struct {
     uint32_t bitrate_bps;
     uint32_t deviation_hz;
     uint32_t rx_bandwidth_hz;
+    uint8_t spreading_factor;
+    uint8_t coding_rate_denominator;
     uint16_t preamble_len;
     uint8_t sync_word_len;
     uint8_t sync_word[SOLAR_OS_RADIO_SYNC_WORD_MAX];
@@ -123,7 +131,22 @@ typedef struct {
     solar_os_radio_modulations_t modulations;
     solar_os_radio_features_t features;
     size_t max_packet_len;
+    bool claimed;
+    char owner[SOLAR_OS_RADIO_OWNER_MAX];
 } solar_os_radio_info_t;
+
+typedef struct {
+    int index;
+    uint32_t token;
+} solar_os_radio_handle_t;
+
+#define SOLAR_OS_RADIO_HANDLE_INIT { .index = -1, .token = 0 }
+
+typedef struct {
+    char name[SOLAR_OS_RADIO_PROFILE_NAME_MAX];
+    bool builtin;
+    solar_os_radio_config_t config;
+} solar_os_radio_profile_t;
 
 esp_err_t solar_os_radio_init(void);
 esp_err_t solar_os_radio_register(const solar_os_radio_registration_t *registration);
@@ -133,6 +156,24 @@ size_t solar_os_radio_count(void);
 bool solar_os_radio_get(size_t index, solar_os_radio_info_t *info);
 esp_err_t solar_os_radio_get_info(const char *name, solar_os_radio_info_t *info);
 esp_err_t solar_os_radio_get_status(const char *name, solar_os_radio_status_t *status);
+
+esp_err_t solar_os_radio_claim(const char *name,
+                               const char *owner,
+                               solar_os_radio_handle_t *handle);
+esp_err_t solar_os_radio_release(solar_os_radio_handle_t *handle);
+bool solar_os_radio_handle_valid(const solar_os_radio_handle_t *handle);
+esp_err_t solar_os_radio_handle_get_status(const solar_os_radio_handle_t *handle,
+                                           solar_os_radio_status_t *status);
+esp_err_t solar_os_radio_handle_configure(const solar_os_radio_handle_t *handle,
+                                          const solar_os_radio_config_t *config);
+esp_err_t solar_os_radio_handle_set_state(const solar_os_radio_handle_t *handle,
+                                          solar_os_radio_state_t state);
+esp_err_t solar_os_radio_handle_send(const solar_os_radio_handle_t *handle,
+                                     const solar_os_radio_packet_t *packet,
+                                     uint32_t timeout_ms);
+esp_err_t solar_os_radio_handle_receive(const solar_os_radio_handle_t *handle,
+                                        solar_os_radio_packet_t *packet,
+                                        uint32_t timeout_ms);
 
 esp_err_t solar_os_radio_configure(const char *name, const solar_os_radio_config_t *config);
 esp_err_t solar_os_radio_set_state(const char *name, solar_os_radio_state_t state);
@@ -146,6 +187,20 @@ esp_err_t solar_os_radio_send_stream(const char *name,
 esp_err_t solar_os_radio_receive(const char *name,
                                  solar_os_radio_packet_t *packet,
                                  uint32_t timeout_ms);
+
+esp_err_t solar_os_radio_profile_list(solar_os_radio_profile_t *profiles,
+                                      size_t capacity,
+                                      size_t *count);
+esp_err_t solar_os_radio_profile_get(const char *profile_name,
+                                     solar_os_radio_profile_t *profile);
+esp_err_t solar_os_radio_profile_apply(const char *radio_name,
+                                       const char *profile_name);
+esp_err_t solar_os_radio_handle_profile_apply(
+    const solar_os_radio_handle_t *handle,
+    const char *profile_name);
+esp_err_t solar_os_radio_profile_save(const char *radio_name,
+                                      const char *profile_name);
+esp_err_t solar_os_radio_profile_remove(const char *profile_name);
 
 const char *solar_os_radio_modulation_name(solar_os_radio_modulation_t modulation);
 solar_os_radio_modulation_t solar_os_radio_modulation_from_name(const char *name);

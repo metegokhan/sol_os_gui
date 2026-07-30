@@ -279,6 +279,7 @@ session focus display0
 job start log cdc0
 job start log file /.shell/log info
 job start bridge cdc0 uart0
+job start bridge uart0 link0 broadcast
 job start httpd /www
 job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once
@@ -495,9 +496,19 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio status|list` | List packet radios registered by expansion drivers. |
 | `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |
 | `radio` | `radio config <name> [field value]` | Show or update common packet-radio configuration. |
+| `radio` | `radio profile list` | List immutable built-in and persistent user radio profiles. |
+| `radio` | `radio profile show <profile>` | Show every setting captured by one profile. |
+| `radio` | `radio profile apply <radio> <profile>` | Apply one complete profile to a radio, restoring the prior config if application fails. |
+| `radio` | `radio profile save <radio> <profile>` | Save or replace a user profile from the radio's complete current config. |
+| `radio` | `radio profile remove <profile>` | Remove a user profile. Built-in profiles are read-only. |
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
+| `link` | `link status\|list` | List active SolarOS Link instances and their queue/protocol counters. |
+| `link` | `link status <link>` | Show local ID, transport MTU, queues, acknowledgements, duplicates, CRC errors, and drops. |
+| `link` | `link send <link> <broadcast\|destination-id> <text>` | Queue a text message. Unicast requests an acknowledgement. |
+| `link` | `link send-binary <link> <broadcast\|destination-id> <byte...>` | Queue a binary message. |
+| `link` | `link receive <link> [timeout-ms]` | Remove and print one received message. |
 | `pocsag` | `pocsag status` | Show detailed status for the POCSAG background receiver. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 | `uart` | `uart [status [bus]]` | Show the default `uart0` or a selected named UART bus. |
@@ -595,6 +606,47 @@ radio config radio0 modulation gfsk
 radio send radio0 hello
 radio recv radio0 5000
 ```
+
+Profiles avoid partially reconfiguring one end while copying a list of fields.
+`lora-eu868`, `gfsk-eu868`, and `ook-eu868` are built in. Up to eight user
+profiles are stored as one versioned NVS record and consume no idle profile
+cache:
+
+```text
+radio profile list
+radio profile apply radio0 lora-eu868
+radio config radio0 sf 9
+radio profile save radio0 lora-sf9
+radio profile show lora-sf9
+radio profile remove lora-sf9
+```
+
+Like `radio config`, applying a profile leaves the radio in driver standby. If
+the driver rejects a setting, SolarOS attempts to restore the complete prior
+configuration and operating state. A profile does not bypass the driver's
+supported frequency, modulation, power, or packet-size checks. The operator
+remains responsible for regional frequency, transmit-power, and duty-cycle
+rules.
+
+RFM95W radios support FSK, GFSK, MSK, GMSK, OOK, and LoRa. LoRa additionally
+uses `bandwidth`, `sf`, and `coding-rate`. For an RFM95W using the common
+868 MHz profile:
+
+```text
+radio config radio0 frequency 868MHz
+radio config radio0 bandwidth 125000
+radio config radio0 sf 7
+radio config radio0 coding-rate 4/5
+```
+
+`variable=on` selects the normal explicit LoRa header. `variable=off` selects
+implicit-header mode and requires the configured `length` to match on both
+ends. SF6 requires implicit-header mode.
+
+FSK-family and OOK modes use `bitrate`, `deviation`, and a single-side
+`bandwidth`. MSK and GMSK derive deviation as one quarter of bitrate; GFSK and
+GMSK use Gaussian BT=1.0 shaping. RFM95W FSK/OOK packets contain at most 64
+payload bytes, while fixed length zero enables the unlimited FIFO-stream mode.
 
 The POCSAG job configures an attached packet radio for one paging channel,
 filters addresses to one RIC, corrects up to two bad bits per BCH codeword, and

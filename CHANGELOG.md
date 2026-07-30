@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- Added an RFM95W expansion driver with LoRa, FSK, GFSK, MSK, GMSK, and OOK
+  operation through the common `radio` service. LoRa supports packet
+  transmit/receive and RSSI/SNR reporting; the FSK/OOK modem supports packet
+  and unlimited FIFO-stream operation, RSSI, CRC, sync words, addressing, and
+  Gaussian shaping. The ESP32-S3 DevKitC `spi0` profile now accepts GPIO4 as a
+  chip-select, matching the documented RFM95W wiring with reset on GPIO5.
+- SPI buses now leave unused chip-select candidates available. An attached
+  device or one-shot transfer claims only its selected CS GPIO, allowing another
+  declared CS candidate to serve roles such as reset or data/command.
+- Added atomic radio profiles with built-in LoRa, GFSK, and OOK EU868 settings
+  plus eight persistent user profiles in a versioned NVS record. Profiles save
+  and apply the complete common radio configuration, attempt rollback after
+  driver rejection, and autocomplete without an idle SRAM cache.
+- Added transport-independent SolarOS Link v1 framing for text, binary, and
+  acknowledgement messages with stable 32-bit device IDs, broadcast delivery,
+  protocol CRC, bounded PSRAM-preferred queues, duplicate suppression, and ACK
+  tracking. The new `radio-link` job claims a packet radio, applies a named
+  profile, moves complete Link frames, optionally copies accepted text to the
+  inbox, and restores the radio on stop. Added `link` send/receive/status
+  commands, generation-checked and reference-counted radio ownership,
+  autocomplete, and manual coverage.
+- Extended the `bridge` job to connect a bidirectional byte-stream port to an
+  active SolarOS Link. Serial chunks become MTU-bounded binary messages, Link
+  text/binary payloads return to the serial stream, and broadcast or
+  acknowledged-unicast destinations are supported without an unbounded buffer.
+
 ## 4.x
 
 - **4.4.2** — 2026-07-29 — Reduced SD-card boot time by trusting the signed

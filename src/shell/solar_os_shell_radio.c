@@ -26,6 +26,11 @@ static void radio_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  radio status|list");
     solar_os_shell_io_writeln(term, "  radio status <name>");
     solar_os_shell_io_writeln(term, "  radio config <name> [field value]");
+    solar_os_shell_io_writeln(term, "  radio profile list");
+    solar_os_shell_io_writeln(term, "  radio profile show <profile>");
+    solar_os_shell_io_writeln(term, "  radio profile apply <radio> <profile>");
+    solar_os_shell_io_writeln(term, "  radio profile save <radio> <profile>");
+    solar_os_shell_io_writeln(term, "  radio profile remove <profile>");
     solar_os_shell_io_writeln(term, "  radio state <name> [sleep|standby|rx|tx]");
     solar_os_shell_io_writeln(term, "  radio send <name> <text|byte...>");
     solar_os_shell_io_writeln(term, "  radio recv <name> [timeout-ms]");
@@ -187,6 +192,22 @@ static bool parse_bool_arg(const char *text, bool *value)
     return false;
 }
 
+static bool parse_coding_rate_arg(const char *text, uint8_t *denominator)
+{
+    if (text == NULL || denominator == NULL) {
+        return false;
+    }
+    if (strncmp(text, "4/", 2) == 0) {
+        text += 2;
+    }
+    uint32_t value = 0;
+    if (!parse_u32_arg(text, 5, 8, &value)) {
+        return false;
+    }
+    *denominator = (uint8_t)value;
+    return true;
+}
+
 static bool token_has_hex_alpha(const char *text)
 {
     for (const char *p = text; p != NULL && *p != '\0'; p++) {
@@ -237,6 +258,9 @@ static void radio_print_error(solar_os_shell_io_t *term, const char *prefix, esp
     case ESP_ERR_TIMEOUT:
         solar_os_shell_io_printf(term, "%s: timeout\n", prefix);
         break;
+    case ESP_ERR_INVALID_STATE:
+        solar_os_shell_io_printf(term, "%s: radio is owned by a job\n", prefix);
+        break;
     default:
         solar_os_shell_io_printf(term, "%s failed: %s\n", prefix, esp_err_to_name(err));
         break;
@@ -257,6 +281,25 @@ static void radio_print_sync_word(solar_os_shell_io_t *term, const solar_os_radi
 
 static void radio_print_config(solar_os_shell_io_t *term, const solar_os_radio_config_t *config)
 {
+    if (config->modulation == SOLAR_OS_RADIO_MODULATION_LORA) {
+        solar_os_shell_io_printf(term,
+                                 "frequency=%" PRIu32 " modulation=lora bandwidth=%" PRIu32
+                                 " sf=%u coding-rate=4/%u power=%d crc=%s"
+                                 " preamble=%u variable=%s length=%u ",
+                                 config->frequency_hz,
+                                 config->rx_bandwidth_hz,
+                                 config->spreading_factor,
+                                 config->coding_rate_denominator,
+                                 config->tx_power_dbm,
+                                 config->crc_enabled ? "on" : "off",
+                                 config->preamble_len,
+                                 config->variable_length ? "on" : "off",
+                                 config->payload_length);
+        radio_print_sync_word(term, config);
+        solar_os_shell_io_put_char(term, '\n');
+        return;
+    }
+
     solar_os_shell_io_printf(term,
                              "frequency=%" PRIu32 " modulation=%s bitrate=%" PRIu32
                              " deviation=%" PRIu32 " bandwidth=%" PRIu32
@@ -304,6 +347,9 @@ static void radio_print_device(solar_os_shell_io_t *term, const solar_os_radio_i
         solar_os_shell_io_printf(term, " snr=%d", status.snr_db);
     }
     solar_os_shell_io_printf(term, " modulations=%s\n", modulations);
+    if (info->claimed) {
+        solar_os_shell_io_printf(term, "  owner: %s\n", info->owner);
+    }
 
     if (!verbose) {
         return;
@@ -448,6 +494,17 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
         config.rx_bandwidth_hz = u32;
+    } else if (strcmp(field, "sf") == 0) {
+        if (!parse_u32_arg(argv[4], 6, 12, &u32)) {
+            radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
+            return;
+        }
+        config.spreading_factor = (uint8_t)u32;
+    } else if (strcmp(field, "coding-rate") == 0) {
+        if (!parse_coding_rate_arg(argv[4], &config.coding_rate_denominator)) {
+            radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
+            return;
+        }
     } else if (strcmp(field, "power") == 0) {
         if (!parse_i32_arg(argv[4], -128, 127, &i32)) {
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
@@ -508,6 +565,120 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
     solar_os_shell_io_printf(term, "configured %s\n", argv[2]);
+}
+
+static void radio_profile_print_error(solar_os_shell_io_t *term,
+                                      const char *operation,
+                                      esp_err_t err)
+{
+    if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(term, "radio profile %s: radio or profile not found\n",
+                                 operation);
+    } else if (err == ESP_ERR_INVALID_STATE &&
+               (strcmp(operation, "remove") == 0 ||
+                strcmp(operation, "save") == 0)) {
+        solar_os_shell_io_printf(term,
+                                 "radio profile %s: built-in profiles are read-only\n",
+                                 operation);
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term,
+                                 "radio profile %s: radio is owned by a job\n",
+                                 operation);
+    } else if (err == ESP_ERR_NO_MEM) {
+        solar_os_shell_io_printf(term,
+                                 "radio profile %s: user profile limit reached\n",
+                                 operation);
+    } else {
+        radio_print_error(term, "radio profile", err);
+    }
+}
+
+static void radio_cmd_profile_list(solar_os_shell_io_t *term)
+{
+    solar_os_radio_profile_t profiles[SOLAR_OS_RADIO_PROFILE_MAX];
+    size_t count = 0;
+    const esp_err_t err =
+        solar_os_radio_profile_list(profiles, SOLAR_OS_RADIO_PROFILE_MAX, &count);
+    if (err != ESP_OK) {
+        radio_profile_print_error(term, "list", err);
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        solar_os_shell_io_printf(term,
+                                 "%s type=%s modulation=%s frequency=%" PRIu32 "\n",
+                                 profiles[i].name,
+                                 profiles[i].builtin ? "built-in" : "user",
+                                 solar_os_radio_modulation_name(
+                                     profiles[i].config.modulation),
+                                 profiles[i].config.frequency_hz);
+    }
+}
+
+static void radio_cmd_profile(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc == 3 && strcmp(argv[2], "list") == 0) {
+        radio_cmd_profile_list(term);
+        return;
+    }
+
+    if (argc == 4 && strcmp(argv[2], "show") == 0) {
+        solar_os_radio_profile_t profile;
+        const esp_err_t err = solar_os_radio_profile_get(argv[3], &profile);
+        if (err != ESP_OK) {
+            radio_profile_print_error(term, "show", err);
+            return;
+        }
+        solar_os_shell_io_printf(term,
+                                 "%s type=%s\n",
+                                 profile.name,
+                                 profile.builtin ? "built-in" : "user");
+        radio_print_config(term, &profile.config);
+        return;
+    }
+
+    if (argc == 5 && strcmp(argv[2], "apply") == 0) {
+        const esp_err_t err = solar_os_radio_profile_apply(argv[3], argv[4]);
+        if (err != ESP_OK) {
+            radio_profile_print_error(term, "apply", err);
+            return;
+        }
+        solar_os_shell_io_printf(term,
+                                 "applied profile %s to %s\n",
+                                 argv[4],
+                                 argv[3]);
+        return;
+    }
+
+    if (argc == 5 && strcmp(argv[2], "save") == 0) {
+        const esp_err_t err = solar_os_radio_profile_save(argv[3], argv[4]);
+        if (err != ESP_OK) {
+            radio_profile_print_error(term, "save", err);
+            return;
+        }
+        solar_os_shell_io_printf(term,
+                                 "saved profile %s from %s\n",
+                                 argv[4],
+                                 argv[3]);
+        return;
+    }
+
+    if (argc == 4 && strcmp(argv[2], "remove") == 0) {
+        const esp_err_t err = solar_os_radio_profile_remove(argv[3]);
+        if (err != ESP_OK) {
+            radio_profile_print_error(term, "remove", err);
+            return;
+        }
+        solar_os_shell_io_printf(term, "removed profile %s\n", argv[3]);
+        return;
+    }
+
+    solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  radio profile list");
+    solar_os_shell_io_writeln(term, "  radio profile show <profile>");
+    solar_os_shell_io_writeln(term, "  radio profile apply <radio> <profile>");
+    solar_os_shell_io_writeln(term, "  radio profile save <radio> <profile>");
+    solar_os_shell_io_writeln(term, "  radio profile remove <profile>");
 }
 
 static void radio_cmd_state(solar_os_shell_io_t *term, int argc, char **argv)
@@ -681,6 +852,10 @@ void solar_os_shell_cmd_radio(solar_os_context_t *ctx, int argc, char **argv)
     }
     if (strcmp(argv[1], "config") == 0) {
         radio_cmd_config(term, argc, argv);
+        return;
+    }
+    if (strcmp(argv[1], "profile") == 0) {
+        radio_cmd_profile(term, argc, argv);
         return;
     }
     if (strcmp(argv[1], "state") == 0) {

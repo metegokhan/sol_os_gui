@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers"]
-keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral"
+aliases = ["devices", "drivers", "rfm69", "rfm95", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral radio rfm69 rfm95 fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -37,6 +37,18 @@ expansion detach lcd0
 
 Detaching releases the resources. Do not invent a target name or copy bindings
 from a different board.
+
+An RFM95W wired to the ESP32-S3-DevKitC-1 `spi0` bus with NSS on GPIO4 and
+reset on GPIO5 attaches as a multimode packet radio:
+
+```text
+expansion attach rfm95 radio0 spi=spi0 cs=gpio4 reset=gpio5
+radio status radio0
+radio profile apply radio0 lora-eu868
+```
+
+Connect an antenna suitable for the module band before transmitting. See the
+expansion reference for the complete wiring and modulation configuration.
 
 ## Quick reference
 

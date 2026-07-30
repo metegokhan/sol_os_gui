@@ -62,7 +62,7 @@ voltage and current requirements before connecting it.
 | --- | --- | --- | --- |
 | Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. The SSD1683 stays on its dedicated internal SPI2 host. |
-| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
+| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO4/GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 
 I2C and SPI buses accept shared logical leases. UART and registered 1-Wire bus
@@ -135,10 +135,11 @@ Detaching the port that carries the current shell fails as busy, so the shell
 cannot disconnect itself accidentally.
 
 On a board with an approved available SPI host, create a bus before attaching the
-device. Creating the bus claims SCLK, MOSI, and optional MISO immediately. Each
-`cs=` option declares and reserves a chip-select pin for the lifetime of
-the attached bus. Devices and one-shot transfers additionally claim the
-logical chip-select slot, preventing two users from driving it concurrently:
+device. Creating the bus claims its controller, SCLK, MOSI, and optional MISO
+immediately. Each `cs=` option declares an allowed chip-select pin but leaves it
+available until a device or one-shot transfer selects it. That user claims both
+the GPIO and logical chip-select slot, preventing GPIO or SPI users from driving
+it concurrently:
 
 ```text
 expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio17
@@ -193,6 +194,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | --- | --- | --- | --- |
 | `manual` | Resource-only profile | Any valid bus, address, chip-select, GPIO, ADC, or PWM bindings | Claims resources without initializing hardware. |
 | `rfm69` | HopeRF RFM69 packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target for the `radio` command. |
+| `rfm95` | HopeRF RFM95W multimode radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers an FSK/GFSK/MSK/GMSK/OOK/LoRa target for the `radio` command. |
 | `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
@@ -226,6 +228,57 @@ display test lcd0
 
 Wire a module backlight according to the module board and use suitable current
 limiting when connecting it to 3V3.
+
+### RFM95W on ESP32-S3-DevKitC-1
+
+The RFM95W is a 3.3 V device. Connect an antenna suitable for the module band
+before transmitting.
+
+```text
+VCC -> 3V3        GND -> GND
+SCK -> GPIO12     MISO -> GPIO13
+MOSI -> GPIO11    NSS/CS -> GPIO4
+RESET -> GPIO5
+
+expansion attach rfm95 radio0 spi=spi0 cs=gpio4 reset=gpio5
+radio status radio0
+```
+
+The module and driver support FSK, GFSK, MSK, GMSK, OOK, and LoRa. The default
+LoRa profile is 868 MHz, 125 kHz bandwidth, SF7, coding rate 4/5,
+CRC enabled, explicit headers, sync word `0x12`, and 13 dBm transmit power.
+The matching built-in profile applies those settings as one operation:
+
+```text
+radio profile apply radio0 lora-eu868
+radio send radio0 "hello from SolarOS"
+radio recv radio0 5000
+```
+
+`gfsk-eu868` and `ook-eu868` are also built in. Change both ends of a link to
+the same profile before exchanging packets. A custom set of settings can be
+captured in one of eight persistent NVS user profiles:
+
+```text
+radio profile apply radio0 gfsk-eu868
+radio config radio0 bitrate 9600
+radio profile save radio0 gfsk-9600
+radio profile show gfsk-9600
+```
+
+Applying a profile leaves the radio in standby and rolls back the complete
+configuration and prior state if the driver rejects it. User profiles preserve
+every common radio setting, including addressing. Built-in profiles are read-only.
+Selecting MSK or GMSK sets the deviation to one quarter of the bitrate, giving
+the required modulation index of 0.5. GFSK and GMSK enable Gaussian shaping
+with BT=1.0.
+
+FSK-family and OOK packet payloads are limited to 64 bytes by the modem FIFO;
+LoRa payloads may contain up to 255 bytes. Fixed length zero selects the
+FSK/OOK unlimited FIFO-stream mode used by services such as POCSAG.
+
+The driver polls the radio status registers, so DIO0/IRQ is optional. An IRQ
+binding can still be reserved for future interrupt-driven operation.
 
 ### SSD1306 or SH1106 on Waveshare ESP32-S3-RLCD-4.2
 

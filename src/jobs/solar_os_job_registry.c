@@ -37,6 +37,9 @@
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 #include "solar_os_pocsag_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_RADIO_LINK
+#include "solar_os_radio_link_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_SLIP
 #include "solar_os_slip_job.h"
 #endif
@@ -52,7 +55,7 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
     {"batmon", "battery voltage trend monitor", &solar_os_batmon_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_BRIDGE
-    {"bridge", "raw bidirectional port bridge", &solar_os_bridge_job},
+    {"bridge", "bidirectional port and Link bridge", &solar_os_bridge_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_DAQ
     {"daq", "capture data streams to CSV", &solar_os_daq_job},
@@ -80,6 +83,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
     {"pocsag", "POCSAG pager receiver", &solar_os_pocsag_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_RADIO_LINK
+    {"radio-link", "SolarOS Link packet radio transport", &solar_os_radio_link_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_SLIP
     {"slip", "SLIP IPv4 gateway on a port", &solar_os_slip_job},
