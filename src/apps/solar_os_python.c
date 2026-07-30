@@ -30,7 +30,9 @@
 #include "py/runtime.h"
 #include "py/smallint.h"
 #include "solar_os_app_registry.h"
+#include "solar_os_contacts.h"
 #include "solar_os_memory.h"
+#include "solar_os_messaging.h"
 #include "solar_os_task.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
@@ -3447,6 +3449,233 @@ static void python_check_known_kwargs(mp_map_t *kw_args,
     }
 }
 
+static mp_obj_t python_contact_to_dict(const solar_os_contact_t *contact)
+{
+    mp_obj_t dict = mp_obj_new_dict(7);
+    python_dict_store_uint(dict, "id", contact->id);
+    python_dict_store_cstr(dict, "name", contact->display_name);
+    python_dict_store_uint(dict, "flags", contact->flags);
+    python_dict_store_cstr(dict,
+                           "trust",
+                           solar_os_contact_trust_name(
+                               contact->primary_trust));
+    python_dict_store_cstr(
+        dict,
+        "provider",
+        solar_os_messaging_provider_name(contact->primary_provider));
+    python_dict_store_uint(dict, "endpoint_count", contact->endpoint_count);
+    mp_obj_t endpoint_ids = mp_obj_new_list(0, NULL);
+    solar_os_endpoint_t *endpoints =
+        solar_os_memory_calloc(SOLAR_OS_ENDPOINT_CAPACITY,
+                               sizeof(*endpoints),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "python.contacts.endpoints");
+    if (endpoints != NULL) {
+        const size_t count =
+            solar_os_contacts_endpoint_snapshot(contact->id,
+                                                endpoints,
+                                                SOLAR_OS_ENDPOINT_CAPACITY);
+        for (size_t i = 0; i < count; i++) {
+            mp_obj_list_append(endpoint_ids,
+                               mp_obj_new_int_from_uint(endpoints[i].id));
+        }
+        solar_os_memory_free(endpoints);
+    }
+    mp_obj_dict_store(dict, python_key("endpoint_ids"), endpoint_ids);
+    return dict;
+}
+
+static mp_obj_t solaros_contacts_list(void)
+{
+    solar_os_contact_t *contacts =
+        solar_os_memory_calloc(SOLAR_OS_CONTACT_CAPACITY,
+                               sizeof(*contacts),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "python.contacts.list");
+    if (contacts == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+    const size_t count =
+        solar_os_contacts_snapshot(contacts,
+                                   SOLAR_OS_CONTACT_CAPACITY,
+                                   false,
+                                   SOLAR_OS_CONTACT_TRUST_DISCOVERED,
+                                   NULL);
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (size_t i = 0; i < count; i++) {
+        mp_obj_list_append(list, python_contact_to_dict(&contacts[i]));
+    }
+    solar_os_memory_free(contacts);
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_contacts_list_obj, solaros_contacts_list);
+
+static mp_obj_t solaros_contacts_get(mp_obj_t id_obj)
+{
+    solar_os_contact_t contact;
+    python_check_esp(
+        solar_os_contacts_get(python_u32_from_obj(id_obj), &contact));
+    return python_contact_to_dict(&contact);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_contacts_get_obj, solaros_contacts_get);
+
+static mp_obj_t python_conversation_to_dict(
+    const solar_os_messaging_conversation_t *conversation)
+{
+    mp_obj_t dict = mp_obj_new_dict(10);
+    python_dict_store_uint(dict, "id", conversation->id);
+    python_dict_store_cstr(
+        dict,
+        "provider",
+        solar_os_messaging_provider_name(conversation->provider));
+    python_dict_store_cstr(
+        dict,
+        "kind",
+        solar_os_conversation_kind_name(conversation->kind));
+    python_dict_store_cstr(dict, "title", conversation->title);
+    python_dict_store_uint(dict, "contact_id", conversation->contact_id);
+    python_dict_store_uint(dict, "endpoint_id", conversation->endpoint_id);
+    python_dict_store_uint(dict, "group_ref", conversation->group_ref);
+    python_dict_store_uint(dict, "unread", conversation->unread_count);
+    python_dict_store_u64(dict,
+                          "last_message_ms",
+                          conversation->last_message_ms);
+    python_dict_store_uint(dict,
+                           "security_flags",
+                           conversation->security_flags);
+    return dict;
+}
+
+static mp_obj_t solaros_messages_conversations(void)
+{
+    solar_os_messaging_conversation_t *conversations =
+        solar_os_memory_calloc(SOLAR_OS_MESSAGING_CONVERSATION_CAPACITY,
+                               sizeof(*conversations),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "python.messages.conversations");
+    if (conversations == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+    const size_t count = solar_os_messaging_conversation_snapshot(
+        conversations,
+        SOLAR_OS_MESSAGING_CONVERSATION_CAPACITY);
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (size_t i = 0; i < count; i++) {
+        mp_obj_list_append(
+            list,
+            python_conversation_to_dict(&conversations[i]));
+    }
+    solar_os_memory_free(conversations);
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_messages_conversations_obj,
+                          solaros_messages_conversations);
+
+typedef struct {
+    mp_obj_t list;
+} python_messages_list_context_t;
+
+static bool python_messages_list_visit(
+    const solar_os_messaging_message_t *message,
+    void *user)
+{
+    python_messages_list_context_t *context = user;
+    mp_obj_t dict = mp_obj_new_dict(11);
+    char key[17];
+    snprintf(key, sizeof(key), "%016" PRIx64, message->key);
+    python_dict_store_cstr(dict, "id", key);
+    python_dict_store_uint(dict,
+                           "conversation_id",
+                           message->conversation_id);
+    python_dict_store_cstr(
+        dict,
+        "direction",
+        message->direction == SOLAR_OS_MESSAGE_INBOUND ? "inbound" :
+                                                        "outbound");
+    python_dict_store_cstr(
+        dict,
+        "delivery",
+        solar_os_delivery_state_name(message->delivery));
+    python_dict_store_cstr(dict, "sender", message->sender);
+    python_dict_store_cstr(dict, "body", message->body);
+    python_dict_store_u64(dict, "timestamp_ms", message->timestamp_ms);
+    python_dict_store_uint(dict, "security_flags", message->security_flags);
+    python_dict_store_bool(dict, "unread", message->unread);
+    python_dict_store_bool(dict, "truncated", message->truncated);
+    python_dict_store_cstr(dict, "error", message->error);
+    mp_obj_list_append(context->list, dict);
+    return true;
+}
+
+static mp_obj_t solaros_messages_list(mp_obj_t conversation_id_obj)
+{
+    python_messages_list_context_t context = {
+        .list = mp_obj_new_list(0, NULL),
+    };
+    (void)solar_os_messaging_message_visit(
+        python_u32_from_obj(conversation_id_obj),
+        0,
+        python_messages_list_visit,
+        &context,
+        NULL);
+    return context.list;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_messages_list_obj, solaros_messages_list);
+
+static mp_obj_t solaros_messages_send(size_t n_args,
+                                      const mp_obj_t *args,
+                                      mp_map_t *kw_args)
+{
+    mp_arg_check_num(n_args,
+                     kw_args != NULL ? kw_args->used : 0,
+                     2,
+                     3,
+                     true);
+    python_check_known_kwargs(kw_args, "allow_untrusted", NULL, NULL, NULL);
+    bool allow_untrusted =
+        n_args >= 3 ? mp_obj_is_true(args[2]) : false;
+    const mp_obj_t keyword =
+        python_kw_value(kw_args, "allow_untrusted");
+    if (keyword != MP_OBJ_NULL) {
+        allow_untrusted = mp_obj_is_true(keyword);
+    }
+    solar_os_message_key_t key = 0;
+    python_check_esp(solar_os_messaging_send(
+        python_u32_from_obj(args[0]),
+        mp_obj_str_get_str(args[1]),
+        allow_untrusted,
+        &key));
+    char text[17];
+    snprintf(text, sizeof(text), "%016" PRIx64, key);
+    return mp_obj_new_str_from_cstr(text);
+}
+MP_DEFINE_CONST_FUN_OBJ_KW(solaros_messages_send_obj,
+                           2,
+                           solaros_messages_send);
+
+static mp_obj_t solaros_messages_mark_read(mp_obj_t conversation_id_obj)
+{
+    python_check_esp(solar_os_messaging_mark_read(
+        python_u32_from_obj(conversation_id_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_messages_mark_read_obj,
+                          solaros_messages_mark_read);
+
+static mp_obj_t solaros_messages_cancel(mp_obj_t message_id_obj)
+{
+    const char *text = mp_obj_str_get_str(message_id_obj);
+    char *end = NULL;
+    const unsigned long long key = strtoull(text, &end, 16);
+    if (end == text || *end != '\0' || key == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected hexadecimal message id"));
+    }
+    python_check_esp(solar_os_messaging_cancel((uint64_t)key));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_messages_cancel_obj,
+                          solaros_messages_cancel);
+
 static solar_os_shell_terminal_profile_t python_terminal_profile_from_obj(mp_obj_t obj)
 {
     solar_os_shell_terminal_profile_t profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO;
@@ -4415,6 +4644,32 @@ static void python_register_solaros_module(void)
     python_module_store(jobs, "status", MP_OBJ_FROM_PTR(&solaros_jobs_status_obj));
     python_module_store(jobs, "start", MP_OBJ_FROM_PTR(&solaros_jobs_start_obj));
     python_module_store(jobs, "stop", MP_OBJ_FROM_PTR(&solaros_jobs_stop_obj));
+
+    mp_obj_t contacts = python_new_submodule(module, "contacts");
+    python_module_store(contacts,
+                        "list",
+                        MP_OBJ_FROM_PTR(&solaros_contacts_list_obj));
+    python_module_store(contacts,
+                        "get",
+                        MP_OBJ_FROM_PTR(&solaros_contacts_get_obj));
+
+    mp_obj_t messages = python_new_submodule(module, "messages");
+    python_module_store(
+        messages,
+        "conversations",
+        MP_OBJ_FROM_PTR(&solaros_messages_conversations_obj));
+    python_module_store(messages,
+                        "list",
+                        MP_OBJ_FROM_PTR(&solaros_messages_list_obj));
+    python_module_store(messages,
+                        "send",
+                        MP_OBJ_FROM_PTR(&solaros_messages_send_obj));
+    python_module_store(messages,
+                        "mark_read",
+                        MP_OBJ_FROM_PTR(&solaros_messages_mark_read_obj));
+    python_module_store(messages,
+                        "cancel",
+                        MP_OBJ_FROM_PTR(&solaros_messages_cancel_obj));
 
     mp_obj_t sessions = python_new_submodule(module, "sessions");
     python_module_store(sessions,

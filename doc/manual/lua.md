@@ -66,10 +66,19 @@ service packages are not available on that board.
 - `solaros.jobs`: `list`, `count`, `status`, `start`, `stop`
 - `solaros.sessions`: `create_shell`, `close`
 - `solaros.apps`: `list`, `find`
+- `solaros.contacts`: `list`, `get` when provider-neutral messaging is compiled
+- `solaros.messages`: `conversations`, `list`, `send`, `mark_read`, `cancel` when provider-neutral messaging is compiled
 - `solaros.tui`: curses-like terminal drawing functions
 - `solaros.gfx`: foreground graphics drawing functions
 
 Lua strings are binary-safe, so byte-oriented APIs such as `uart.read`, `i2c.read_reg`, `clipboard.get`, and `mqtt.read().payload` return Lua strings.
+
+`solaros.messages.send(conversation_id, body[, allow_untrusted])` queues a
+message and returns its stable hexadecimal ID. `list()` also represents message
+IDs as hexadecimal strings, and `cancel(id)` accepts that representation.
+Blocked direct endpoints are always rejected; discovered endpoints require the
+optional boolean for that one send. `solaros.contacts` returns only contact
+summaries and endpoint IDs, never credentials or endpoint secret material.
 
 `solaros.onewire.scan(pin)` returns tables containing a 16-digit hexadecimal
 `address` and numeric `family` code. `solaros.onewire.xfer(pin, read_len[, data])`

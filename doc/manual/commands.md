@@ -77,6 +77,12 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `contacts` | `contacts block <contact-id> [endpoint-id]` | Block one endpoint or every endpoint on a contact. |
 | `contacts` | `contacts remove <contact-id>` | Remove a contact and all its endpoints. |
 | `contacts` | `contacts link <target-contact-id> <source-contact-id>` | Move the source endpoints into the target and remove the source contact. |
+| `messages` | `messages status` | Show bounded-store, persistence, drop, and live provider state. |
+| `messages` | `messages conversations` | List provider-neutral conversations and unread/security state. |
+| `messages` | `messages list <conversation-id>` | List retained messages and their stable hexadecimal IDs. |
+| `messages` | `messages send <conversation-id> <text> [--allow-untrusted]` | Queue an outbound message; discovered direct endpoints require the explicit flag. |
+| `messages` | `messages read <conversation-id>` | Mark a conversation and its linked Inbox entries read. |
+| `messages` | `messages cancel <message-id>` | Cancel a queued outbound message by the hexadecimal ID printed by `list` or `send`. |
 | `email` | `email` | Open the receive-only email app. |
 | `email` | `email status` | Show saved account, local message counts, and last sync error. |
 | `email` | `email configure <imaps://host[:port]> <user> <password> [mailbox]` | Save an IMAPS account; the default mailbox is `INBOX`. |

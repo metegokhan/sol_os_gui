@@ -49,10 +49,13 @@ members = [
   "service_docs",
   "service_contacts",
   "service_credentials",
+  "service_messaging",
+  "service_chat",
   "core_fs_commands",
   "app_docs",
   "app_inbox",
   "app_contacts",
+  "app_chat",
   "app_com",
   "app_edit",
   "app_less",
@@ -80,7 +83,6 @@ members = [
   "service_mqtt",
   "service_ssh",
   "service_mail",
-  "service_chat",
   "chat_transport_gateway",
   "service_http_client",
   "service_http_server",
@@ -89,7 +91,6 @@ members = [
   "app_curl",
   "app_telnet",
   "app_web",
-  "app_chat",
   "app_email",
   "job_httpd",
   "job_displayd",
@@ -106,7 +107,6 @@ triggers = [
   "app_curl",
   "app_telnet",
   "app_web",
-  "app_chat",
   "app_email",
   "job_httpd",
   "job_displayd",
@@ -334,7 +334,7 @@ capabilities = ["psram"]
 
 [packages.service_messaging]
 label = "service.messaging"
-depends = ["service_inbox"]
+depends = ["service_contacts", "service_inbox"]
 sources = [
   "services/solar_os_messaging.c",
 ]
@@ -650,9 +650,12 @@ capabilities = ["psram", "wifi", "gfx"]
 
 [packages.app_chat]
 label = "app.chat"
-depends = ["job_chat_sync"]
-sources = ["apps/solar_os_chat.c"]
-capabilities = ["psram", "wifi"]
+depends = ["service_chat"]
+sources = [
+  "apps/solar_os_chat.c",
+  "shell/solar_os_shell_messages.c",
+]
+capabilities = ["psram"]
 
 [packages.app_agent]
 label = "app.agent"
@@ -702,14 +705,14 @@ capabilities = ["gfx"]
 
 [packages.app_python]
 label = "app.python"
-depends = ["service_script_runner"]
+depends = ["service_messaging", "service_script_runner"]
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
 capabilities = ["psram"]
 
 [packages.app_lua]
 label = "app.lua"
-depends = ["service_script_runner"]
+depends = ["service_messaging", "service_script_runner"]
 sources = ["apps/solar_os_lua.c"]
 requires = ["lua"]
 capabilities = ["psram"]

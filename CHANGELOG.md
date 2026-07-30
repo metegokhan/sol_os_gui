@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Made Chat an offline-capable provider-neutral conversation client and added
+  live `messages` shell controls plus safe Contacts/Messages APIs for Python and
+  Lua. Direct messages now require an explicit second confirmation for
+  discovered endpoints and always reject blocked endpoints.
 - Extracted the provider-neutral Conversations/Messages owner from gateway Chat,
   with PSRAM-backed bounded rings, offline provider outboxes, normalized gateway
   delivery, Inbox projection, and fresh CRC-checked `/.messages/messages.bin`

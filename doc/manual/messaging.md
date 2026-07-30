@@ -44,8 +44,16 @@ and NVS encryption provisioning are outside this release.
 SSH keys, native-agent API keys, and existing provider tokens remain in their
 current stores and are not migrated automatically.
 
-See `contacts` for the TUI and mutation commands. See `chat` and `messages` for
-provider-neutral conversations once those packages are compiled.
+See `contacts` for the TUI and mutation commands. `chat` is the unified
+conversation UI and works without Wi-Fi; provider jobs connect transports when
+available. The `messages` shell API exposes the same bounded conversation
+store. Stable 64-bit message IDs are printed as hexadecimal strings so they
+survive shell and scripting runtimes without precision loss.
+
+Direct messages to a blocked endpoint are always rejected. A discovered
+endpoint requires an explicit second confirmation in Chat or
+`--allow-untrusted` in the shell. That opt-in applies only to the one send and
+does not change the endpoint's trust state.
 
 ## Quick reference
 
@@ -59,4 +67,10 @@ contacts trust CONTACT_ID [ENDPOINT_ID]
 contacts block CONTACT_ID [ENDPOINT_ID]
 contacts remove CONTACT_ID
 contacts link TARGET_CONTACT_ID SOURCE_CONTACT_ID
+messages status
+messages conversations
+messages list CONVERSATION_ID
+messages send CONVERSATION_ID TEXT [--allow-untrusted]
+messages read CONVERSATION_ID
+messages cancel MESSAGE_ID
 ```

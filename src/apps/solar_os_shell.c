@@ -240,6 +240,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
     {"contacts", "browse and manage contacts", solar_os_shell_cmd_contacts},
 #endif
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    {"messages", "inspect and send provider-neutral messages", solar_os_shell_cmd_messages},
+#endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     {"email", "IMAP email client", solar_os_shell_cmd_email},
 #endif
@@ -732,6 +735,16 @@ static const char * const contacts_list_values[] = {
     "blocked",
 };
 #endif
+#if SOLAR_OS_PACKAGE_APP_CHAT
+static const char * const messages_subcommands[] = {
+    "status",
+    "conversations",
+    "list",
+    "send",
+    "read",
+    "cancel",
+};
+#endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const email_subcommands[] = {"status", "configure", "sync", "forget"};
 #endif
@@ -1096,6 +1109,9 @@ static const char * const path_contacts_link[] = {"contacts", "link"};
 static const char * const path_contacts_link_source[] = {
     "contacts", "link", SHELL_COMPLETION_ANY
 };
+#endif
+#if SOLAR_OS_PACKAGE_APP_CHAT
+static const char * const path_messages[] = {"messages"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const path_email[] = {"email"};
@@ -2098,6 +2114,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_CONTACT_IDS(path_contacts_remove),
     SHELL_COMPLETION_CONTACT_IDS(path_contacts_link),
     SHELL_COMPLETION_CONTACT_IDS(path_contacts_link_source),
+#endif
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    SHELL_COMPLETION_STATIC(path_messages, messages_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     SHELL_COMPLETION_STATIC(path_email, email_subcommands),

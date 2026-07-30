@@ -124,8 +124,10 @@ Controls:
 
 ## chat
 
-Two-pane chat client. The left pane lists channels, the right pane shows
-conversation history, and the bottom line is the message/command input.
+Two-pane provider-neutral conversation client. The left pane lists gateway and
+radio conversations, the right pane shows bounded shared history, and the
+bottom line is the message/command input. It opens and remains useful offline;
+network or radio transport jobs connect independently.
 
 Usage:
 
@@ -139,8 +141,9 @@ messages and `chat-sync` consumes only gateway requests. Start it explicitly wit
 `job start chat-sync`, just like `email-sync`. Closing or suspending `chat` does
 not disconnect an already-running synchronizer. Incoming messages remain in the
 shared bounded messaging store and publish bounded notifications to the
-universal inbox; reopening the app replays retained gateway conversations. With
-SD storage, full messages are retained under `/.messages/messages.bin`. On
+universal inbox; reopening the app replays retained conversations from every
+provider. With SD storage, full messages are retained under
+`/.messages/messages.bin`. On
 internal flash, Chat
 restores the compact message copy already retained in `/.inbox/messages.bin`,
 so it consumes no second flash ring. Both backends deduplicate transport replays
@@ -152,10 +155,18 @@ and reconnects with exponential backoff while remaining in the running state.
 `/connect [url]` updates the saved gateway and enables synchronization.
 `/disconnect` pauses synchronization without stopping the job.
 
+Conversation rows show provider, unread, and security state. Outbound rows show
+queued/sending/sent/delivered/failed state. Use `/new CONTACT_ID` to open a
+direct conversation with the contact's preferred endpoint. Sending to a
+discovered endpoint asks for a second Enter confirmation; blocked endpoints
+cannot be messaged. Gateway room management commands apply only to a selected
+gateway room.
+
 In-app commands:
 
 ```text
 /help
+/new contact-id
 /join channel
 /leave [channel]
 /delete [channel]
@@ -167,7 +178,7 @@ In-app commands:
 
 Controls:
 
-- `Tab` changes focus between channel list, messages, and input.
+- `Tab` changes focus between conversation list, messages, and input.
 - `Up`/`Down` navigate the focused pane or input history.
 - `Enter` sends input or joins the selected channel.
 - `Page Up`/`Page Down` scroll messages.

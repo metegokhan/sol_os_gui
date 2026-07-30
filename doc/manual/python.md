@@ -50,6 +50,7 @@ Optional API groups follow these package gates:
 - `service.ble`: `solaros.ble`
 - `service.gpio`: `solaros.gpio` and `solaros.led`
 - `service.onewire`: `solaros.onewire`
+- `service.messaging`: `solaros.contacts` and `solaros.messages`
 - `service.adc`, `service.pwm`, `service.i2c`, `service.spi`, and
   `service.uart`: their matching submodules
 - `service.audio`, `service.battery`, and `service.sensors`: their matching
@@ -89,6 +90,24 @@ solaros.time.set_datetime({"year": 2026, "month": 6, "day": 19, "hour": 12, "min
 - `solaros.battery_status()`: shortcut for `solaros.battery.status()` when battery support is compiled.
 - `solaros.wifi_status()`: compact Wi-Fi status shortcut when Wi-Fi support is compiled.
 - `solaros.environment()`: shortcut for `solaros.sensors.environment()` when environmental sensor support is compiled.
+
+## `solaros.contacts` and `solaros.messages`
+
+Provider-neutral messaging builds expose:
+
+- `solaros.contacts.list()`: bounded contact summaries.
+- `solaros.contacts.get(contact_id)`: one contact with endpoint IDs, or `None`.
+- `solaros.messages.conversations()`: bounded conversation summaries.
+- `solaros.messages.list(conversation_id)`: retained messages.
+- `solaros.messages.send(conversation_id, body, allow_untrusted=False)`: queue
+  a message and return its stable hexadecimal ID.
+- `solaros.messages.mark_read(conversation_id)`: mark linked message state read.
+- `solaros.messages.cancel(message_id)`: cancel a queued message using the
+  hexadecimal string returned by `send()` or `list()`.
+
+Scripts cannot read credentials or endpoint secret material. Blocked direct
+endpoints are rejected, and discovered endpoints require
+`allow_untrusted=True` for that one send.
 
 ## `solaros.storage`
 

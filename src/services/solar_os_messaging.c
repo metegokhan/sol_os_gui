@@ -1,6 +1,7 @@
 #include "solar_os_messaging.h"
 
 #include <errno.h>
+#include <inttypes.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,6 +14,7 @@
 #include "solar_os_inbox.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_contacts.h"
 #include "solar_os_storage.h"
 
 #define MESSAGING_STORE_MAGIC 0x47534d53UL
@@ -1233,6 +1235,75 @@ esp_err_t solar_os_messaging_conversation_get(
     return index >= 0 ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
+esp_err_t solar_os_messaging_direct_open(
+    solar_os_contact_id_t contact_id,
+    solar_os_conversation_id_t *conversation_id)
+{
+    if (contact_id == 0 || conversation_id == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_contact_t contact;
+    esp_err_t error = solar_os_contacts_get(contact_id, &contact);
+    if (error != ESP_OK) {
+        return error;
+    }
+    solar_os_endpoint_t *endpoints =
+        solar_os_memory_calloc(SOLAR_OS_ENDPOINT_CAPACITY,
+                               sizeof(*endpoints),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "messages.direct.endpoints");
+    if (endpoints == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    const size_t count =
+        solar_os_contacts_endpoint_snapshot(contact_id,
+                                            endpoints,
+                                            SOLAR_OS_ENDPOINT_CAPACITY);
+    const solar_os_endpoint_t *selected = NULL;
+    for (size_t pass = 0; pass < 2 && selected == NULL; pass++) {
+        const solar_os_contact_trust_t desired =
+            pass == 0 ? SOLAR_OS_CONTACT_TRUST_TRUSTED :
+                        SOLAR_OS_CONTACT_TRUST_DISCOVERED;
+        for (size_t i = 0; i < count; i++) {
+            if (endpoints[i].trust == desired &&
+                (endpoints[i].capabilities & SOLAR_OS_ENDPOINT_CAP_DIRECT) != 0) {
+                selected = &endpoints[i];
+                break;
+            }
+        }
+    }
+    if (selected == NULL) {
+        solar_os_memory_free(endpoints);
+        return ESP_ERR_INVALID_STATE;
+    }
+    char provider_key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX];
+    snprintf(provider_key,
+             sizeof(provider_key),
+             "direct:%" PRIu32,
+             selected->id);
+    uint32_t security_flags = 0;
+    if (selected->provider == SOLAR_OS_MESSAGING_PROVIDER_MESHCORE) {
+        security_flags |= SOLAR_OS_SECURITY_ENCRYPTED |
+            SOLAR_OS_SECURITY_PEER_KEY_KNOWN;
+    }
+    if (selected->trust == SOLAR_OS_CONTACT_TRUST_TRUSTED) {
+        security_flags |= SOLAR_OS_SECURITY_PEER_TRUSTED;
+    }
+    const solar_os_messaging_conversation_upsert_t request = {
+        .provider = selected->provider,
+        .provider_key = provider_key,
+        .kind = SOLAR_OS_CONVERSATION_DIRECT,
+        .title = contact.display_name,
+        .contact_id = contact.id,
+        .endpoint_id = selected->id,
+        .security_flags = security_flags,
+    };
+    error = solar_os_messaging_conversation_upsert(&request,
+                                                   conversation_id);
+    solar_os_memory_free(endpoints);
+    return error;
+}
+
 size_t solar_os_messaging_conversation_snapshot(
     solar_os_messaging_conversation_t *conversations,
     size_t max_conversations)
@@ -1288,6 +1359,25 @@ esp_err_t solar_os_messaging_publish_inbound(
             *message_key = key;
         }
         return ESP_OK;
+    }
+    if (request->endpoint_id != 0) {
+        solar_os_endpoint_t endpoint;
+        messaging_unlock();
+        error = solar_os_contacts_get_endpoint(request->endpoint_id, &endpoint);
+        if (error != ESP_OK) {
+            return error;
+        }
+        if (endpoint.trust == SOLAR_OS_CONTACT_TRUST_BLOCKED) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        messaging_lock();
+        if (messaging_find_message_locked(key) != NULL) {
+            messaging_unlock();
+            if (message_key != NULL) {
+                *message_key = key;
+            }
+            return ESP_OK;
+        }
     }
     solar_os_messaging_conversation_upsert_t conversation_request = {
         .provider = request->provider,
@@ -1396,6 +1486,7 @@ esp_err_t solar_os_messaging_send(solar_os_conversation_id_t conversation_id,
     if (error != ESP_OK) {
         return error;
     }
+    solar_os_messaging_conversation_t conversation_snapshot;
     messaging_lock();
     const int conversation_index =
         messaging_conversation_id_index_locked(conversation_id);
@@ -1410,6 +1501,36 @@ esp_err_t solar_os_messaging_send(solar_os_conversation_id_t conversation_id,
     }
     solar_os_messaging_conversation_t *conversation =
         &messaging.conversations[conversation_index];
+    conversation_snapshot = *conversation;
+    messaging_unlock();
+    if (conversation_snapshot.kind == SOLAR_OS_CONVERSATION_DIRECT &&
+        conversation_snapshot.endpoint_id != 0) {
+        solar_os_endpoint_t endpoint;
+        error = solar_os_contacts_get_endpoint(
+            conversation_snapshot.endpoint_id,
+            &endpoint);
+        if (error != ESP_OK) {
+            return error;
+        }
+        if (endpoint.trust == SOLAR_OS_CONTACT_TRUST_BLOCKED ||
+            (endpoint.trust == SOLAR_OS_CONTACT_TRUST_DISCOVERED &&
+             !allow_untrusted)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+    messaging_lock();
+    const int current_conversation_index =
+        messaging_conversation_id_index_locked(conversation_id);
+    if (current_conversation_index < 0) {
+        messaging_unlock();
+        return ESP_ERR_NOT_FOUND;
+    }
+    conversation = &messaging.conversations[current_conversation_index];
+    if (messaging.outbox_count >= SOLAR_OS_MESSAGING_OUTBOX_CAPACITY) {
+        messaging.dropped_outbox++;
+        messaging_unlock();
+        return ESP_ERR_NO_MEM;
+    }
     const solar_os_message_key_t key =
         messaging_next_u64(&messaging.next_message_key);
     messaging_message_slot_t *slot =

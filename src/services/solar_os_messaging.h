@@ -163,6 +163,9 @@ esp_err_t solar_os_messaging_conversation_remove(
 esp_err_t solar_os_messaging_conversation_get(
     solar_os_conversation_id_t conversation_id,
     solar_os_messaging_conversation_t *conversation);
+esp_err_t solar_os_messaging_direct_open(
+    solar_os_contact_id_t contact_id,
+    solar_os_conversation_id_t *conversation_id);
 size_t solar_os_messaging_conversation_snapshot(
     solar_os_messaging_conversation_t *conversations,
     size_t max_conversations);
