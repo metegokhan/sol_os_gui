@@ -175,7 +175,10 @@ static void inbox_app_source_label(const solar_os_inbox_entry_t *entry,
         text[0] = '\0';
         return;
     }
-    if (strcmp(entry->source, "chat") == 0 && entry->topic[0] != '\0') {
+    if ((strcmp(entry->source, "chat") == 0 ||
+         strcmp(entry->source, "messages") == 0 ||
+         strcmp(entry->source, "meshcore") == 0) &&
+        entry->topic[0] != '\0') {
         snprintf(text, text_len, "%s/%s", entry->source, entry->topic);
     } else {
         strlcpy(text, entry->source, text_len);

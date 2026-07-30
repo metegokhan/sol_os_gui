@@ -6,14 +6,13 @@
 
 #include "esp_err.h"
 #include "solar_os_chat_protocol.h"
+#include "solar_os_messaging.h"
 
 #define SOLAR_OS_CHAT_ERROR_MAX 96
 #define SOLAR_OS_CHAT_STORE_CAPACITY 80
-#define SOLAR_OS_CHAT_MESSAGE_CAPACITY 64
+#define SOLAR_OS_CHAT_MESSAGE_CAPACITY SOLAR_OS_MESSAGING_MESSAGE_CAPACITY
 #define SOLAR_OS_CHAT_OUTBOX_CAPACITY 16
 #define SOLAR_OS_CHAT_CHANNEL_CAPACITY 32
-#define SOLAR_OS_CHAT_STORE_DIR ".chat"
-#define SOLAR_OS_CHAT_STORE_FILE "messages.bin"
 
 typedef enum {
     SOLAR_OS_CHAT_STATE_DISCONNECTED,
@@ -124,13 +123,11 @@ typedef struct {
 esp_err_t solar_os_chat_init(void);
 esp_err_t solar_os_chat_configure(const char *url,
                                   const char *token,
-                                  const char *user,
-                                  const char *device);
+                                  const char *user);
 /* Connect/disconnect set desired synchronization state; the sync job owns I/O. */
 esp_err_t solar_os_chat_connect(const char *url,
                                 const char *token,
-                                const char *user,
-                                const char *device);
+                                const char *user);
 esp_err_t solar_os_chat_disconnect(void);
 esp_err_t solar_os_chat_join(const char *channel);
 esp_err_t solar_os_chat_leave(const char *channel);

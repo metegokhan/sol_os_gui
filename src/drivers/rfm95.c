@@ -282,6 +282,9 @@ static bool rfm95_lora_bandwidth_bits(uint32_t bandwidth_hz, uint8_t *bits)
         return false;
     }
     switch (bandwidth_hz) {
+    case 62500:
+        *bits = 6;
+        return true;
     case 125000:
         *bits = 7;
         return true;

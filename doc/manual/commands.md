@@ -59,6 +59,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
 | `exit` | `exit` | Close the current UART, USB CDC, or telnet shell when another interactive shell remains. |
 | `reboot` | `reboot` | Restart the board. |
+| `nvs` | `nvs status` | Show the default NVS partition size, entry usage, and namespace count. |
+| `nvs` | `nvs clear` | Erase all NVS-backed settings and reboot immediately. |
 | `sessions` | `sessions` | List display app sessions, display shell sessions, and port shell sessions. |
 | `fg` | `fg [session-id]` | Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app. |
 | `close` | `close <session-id>` | Close a display app, display shell, or retained port app, or stop a port shell session. The final interactive shell cannot be closed. |
@@ -68,6 +70,21 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `inbox` | `inbox read <id>` | Print one message and mark it read. |
 | `inbox` | `inbox clear` | Remove every message. |
 | `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
+| `contacts` | `contacts` | Open the searchable provider-neutral contact browser. |
+| `contacts` | `contacts status` | Show contact, endpoint, persistence, PSRAM, and opaque-credential counts. |
+| `contacts` | `contacts list [all\|discovered\|trusted\|blocked]` | List contacts, optionally filtered by endpoint trust. |
+| `contacts` | `contacts show <contact-id>` | Show a contact and its bounded provider endpoints. |
+| `contacts` | `contacts rename <contact-id> <name>` | Change the local contact display name. |
+| `contacts` | `contacts trust <contact-id> [endpoint-id]` | Trust one endpoint or every endpoint on a contact. |
+| `contacts` | `contacts block <contact-id> [endpoint-id]` | Block one endpoint or every endpoint on a contact. |
+| `contacts` | `contacts remove <contact-id>` | Remove a contact and all its endpoints. |
+| `contacts` | `contacts link <target-contact-id> <source-contact-id>` | Move the source endpoints into the target and remove the source contact. |
+| `messages` | `messages status` | Show bounded-store, persistence, drop, and live provider state. |
+| `messages` | `messages conversations` | List provider-neutral conversations and unread/security state. |
+| `messages` | `messages list <conversation-id>` | List retained messages and their stable hexadecimal IDs. |
+| `messages` | `messages send <conversation-id> <text> [--allow-untrusted]` | Queue an outbound message; discovered direct endpoints require the explicit flag. |
+| `messages` | `messages read <conversation-id>` | Mark a conversation and its linked Inbox entries read. |
+| `messages` | `messages cancel <message-id>` | Cancel a queued outbound message by the hexadecimal ID printed by `list` or `send`. |
 | `email` | `email` | Open the receive-only email app. |
 | `email` | `email status` | Show saved account, local message counts, and last sync error. |
 | `email` | `email configure <imaps://host[:port]> <user> <password> [mailbox]` | Save an IMAPS account; the default mailbox is `INBOX`. |
@@ -75,6 +92,12 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `email` | `email forget` | Remove the saved account and local email list. |
 | `pocsag` | `pocsag status` | Show POCSAG receiver configuration, counters, correction statistics, and RSSI. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
+
+`nvs status` distinguishes raw free entries from entries currently available
+for new data; use the available count when diagnosing a failed NVS write. `nvs
+clear` erases the complete default NVS partition, including identity, Wi-Fi and
+BLE state, credentials, service settings, and radio profiles, then reboots.
+Files on SD or the internal FAT filesystem are not affected.
 
 Sessions are foreground application state plus shell instances attached to a
 display target or byte-stream port. Background services such as log followers,
@@ -501,6 +524,11 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio profile apply <radio> <profile>` | Apply one complete profile to a radio, restoring the prior config if application fails. |
 | `radio` | `radio profile save <radio> <profile>` | Save or replace a user profile from the radio's complete current config. |
 | `radio` | `radio profile remove <profile>` | Remove a user profile. Built-in profiles are read-only. |
+| `meshcore` | `meshcore status` | Show MeshCore identity, radio, packet, delivery, duplicate, memory, and stack state. |
+| `meshcore` | `meshcore identity show\|generate\|import\|export` | Inspect or explicitly manage the private MeshCore identity. |
+| `meshcore` | `meshcore name [name]` | Show or set the MeshCore-specific advertised name. |
+| `meshcore` | `meshcore advert zero\|flood` | Queue a local or explicitly network-wide advert. |
+| `meshcore` | `meshcore channel list\|add\|remove\|public` | Manage bounded shared-key groups while the job is stopped. |
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |

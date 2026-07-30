@@ -17,13 +17,13 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "solar_os_identity.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_queue.h"
 #include "solar_os_task.h"
 
 #define CHAT_DEFAULT_USER "user"
-#define CHAT_DEFAULT_DEVICE "sol"
 #define CHAT_DEFAULT_TCP_PORT 7777
 #define CHAT_DEFAULT_TLS_PORT 7778
 #define CHAT_CONNECT_TIMEOUT_MS 10000
@@ -958,7 +958,8 @@ static esp_err_t solar_os_chat_gateway_init(void)
 
     chat_state.initialized = true;
     strlcpy(chat_state.user, CHAT_DEFAULT_USER, sizeof(chat_state.user));
-    strlcpy(chat_state.device, CHAT_DEFAULT_DEVICE, sizeof(chat_state.device));
+    solar_os_identity_get_hostname(chat_state.device,
+                                   sizeof(chat_state.device));
     return ESP_OK;
 }
 

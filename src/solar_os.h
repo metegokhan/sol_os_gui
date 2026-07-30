@@ -81,9 +81,12 @@ struct solar_os_app {
     /* Declarative launch admission for an app-owned worker. */
     uint32_t worker_stack_bytes;
     bool worker_stack_external;
-    /* Zero selects the runtime defaults. Deadlines are execution-time budgets. */
+    /* Zero selects the 25 ms default; smaller intervals raise runtime cadence. */
+    /* Deadlines are execution-time budgets, not preemptive limits. */
     uint32_t tick_interval_ms;
     uint32_t tick_deadline_ms;
+    /* Optional runtime override; zero keeps tick_interval_ms/default policy. */
+    uint32_t (*requested_tick_interval_ms)(void);
 };
 
 typedef enum {
@@ -101,7 +104,8 @@ struct solar_os_job {
     /* Declarative start admission for a job-owned worker. */
     uint32_t worker_stack_bytes;
     bool worker_stack_external;
-    /* Zero selects the runtime defaults. Deadlines are execution-time budgets. */
+    /* Zero selects the 25 ms default; smaller intervals raise runtime cadence. */
+    /* Deadlines are execution-time budgets, not preemptive limits. */
     uint32_t tick_interval_ms;
     uint32_t tick_deadline_ms;
 };
@@ -156,3 +160,5 @@ bool solar_os_context_take_session_request(solar_os_context_t *ctx,
 void solar_os_context_reboot(solar_os_context_t *ctx, const char *status);
 int solar_os_context_argc(const solar_os_context_t *ctx);
 const char *solar_os_context_argv(const solar_os_context_t *ctx, int index);
+uint32_t solar_os_app_tick_interval_ms(const solar_os_app_t *app,
+                                       uint32_t default_interval_ms);

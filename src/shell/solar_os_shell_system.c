@@ -11,9 +11,12 @@
 #include <string.h>
 
 #include "esp_heap_caps.h"
+#include "esp_partition.h"
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include "solar_os_audio.h"
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
@@ -780,6 +783,63 @@ void solar_os_shell_cmd_uptime(solar_os_context_t *ctx, int argc, char **argv)
 
     solar_os_time_format_uptime(solar_os_time_uptime_ms(), uptime, sizeof(uptime));
     solar_os_shell_io_printf(term, "up %s\n", uptime);
+}
+
+void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc != 2 ||
+        (strcmp(argv[1], "status") != 0 &&
+         strcmp(argv[1], "clear") != 0)) {
+        solar_os_shell_io_writeln(term, "usage: nvs status|clear");
+        return;
+    }
+
+    if (strcmp(argv[1], "status") == 0) {
+        nvs_stats_t stats;
+        const esp_err_t error = nvs_get_stats(NULL, &stats);
+        if (error != ESP_OK) {
+            solar_os_shell_io_printf(
+                term, "nvs status: %s\n", esp_err_to_name(error));
+            return;
+        }
+
+        const esp_partition_t *partition = esp_partition_find_first(
+            ESP_PARTITION_TYPE_DATA,
+            ESP_PARTITION_SUBTYPE_DATA_NVS,
+            "nvs");
+        if (partition != NULL) {
+            solar_os_shell_io_printf(
+                term, "NVS partition: %u bytes\n", (unsigned)partition->size);
+        } else {
+            solar_os_shell_io_writeln(term, "NVS partition: unknown");
+        }
+        solar_os_shell_io_printf(
+            term,
+            "Entries: used %u, free %u, available %u, total %u\n",
+            (unsigned)stats.used_entries,
+            (unsigned)stats.free_entries,
+            (unsigned)stats.available_entries,
+            (unsigned)stats.total_entries);
+        solar_os_shell_io_printf(
+            term, "Namespaces: %u\n", (unsigned)stats.namespace_count);
+        return;
+    }
+
+    const esp_err_t error = nvs_flash_erase();
+    if (error != ESP_OK) {
+        (void)nvs_flash_init();
+        solar_os_shell_io_printf(
+            term, "nvs clear: %s\n", esp_err_to_name(error));
+        return;
+    }
+
+    solar_os_shell_io_writeln(
+        term, "NVS cleared; all saved settings removed; rebooting");
+    solar_os_shell_io_flush(term);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    solar_os_context_reboot(ctx, "NVS cleared");
 }
 
 static void mem_print_region(solar_os_shell_io_t *term,

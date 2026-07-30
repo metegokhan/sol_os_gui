@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -19,7 +20,9 @@
 #include "lualib.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_config.h"
+#include "solar_os_contacts.h"
 #include "solar_os_memory.h"
+#include "solar_os_messaging.h"
 #include "solar_os_task.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
@@ -67,6 +70,7 @@
 #include "solar_os_port_shell.h"
 #include "solar_os_pins.h"
 #include "solar_os_queue.h"
+#include "solar_os_scheduler.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -211,6 +215,7 @@ typedef enum {
 
 static portMUX_TYPE solua_runtime_lock = portMUX_INITIALIZER_UNLOCKED;
 static EXT_RAM_BSS_ATTR solua_runtime_owner_t solua_runtime_owner;
+static EXT_RAM_BSS_ATTR uint32_t solua_tick_interval_ms;
 
 static bool solua_runtime_claim(solua_runtime_owner_t owner)
 {
@@ -218,6 +223,7 @@ static bool solua_runtime_claim(solua_runtime_owner_t owner)
     portENTER_CRITICAL(&solua_runtime_lock);
     if (solua_runtime_owner == SOLUA_RUNTIME_OWNER_NONE) {
         solua_runtime_owner = owner;
+        solua_tick_interval_ms = 0;
         claimed = true;
     }
     portEXIT_CRITICAL(&solua_runtime_lock);
@@ -229,6 +235,7 @@ static void solua_runtime_release(solua_runtime_owner_t owner)
     portENTER_CRITICAL(&solua_runtime_lock);
     if (solua_runtime_owner == owner) {
         solua_runtime_owner = SOLUA_RUNTIME_OWNER_NONE;
+        solua_tick_interval_ms = 0;
     }
     portEXIT_CRITICAL(&solua_runtime_lock);
 }
@@ -240,6 +247,30 @@ static bool solua_runtime_is_owned_by(solua_runtime_owner_t owner)
     matches = solua_runtime_owner == owner;
     portEXIT_CRITICAL(&solua_runtime_lock);
     return matches;
+}
+
+static uint32_t solua_requested_tick_interval_ms(void)
+{
+    uint32_t interval_ms = 0;
+    portENTER_CRITICAL(&solua_runtime_lock);
+    if (solua_runtime_owner == SOLUA_RUNTIME_OWNER_APP) {
+        interval_ms = solua_tick_interval_ms != 0 ?
+            solua_tick_interval_ms : SOLAR_OS_TICK_INTERVAL_DEFAULT_MS;
+    }
+    portEXIT_CRITICAL(&solua_runtime_lock);
+    return interval_ms;
+}
+
+static bool solua_set_tick_interval_ms(uint32_t interval_ms)
+{
+    bool set = false;
+    portENTER_CRITICAL(&solua_runtime_lock);
+    if (solua_runtime_owner == SOLUA_RUNTIME_OWNER_APP) {
+        solua_tick_interval_ms = interval_ms;
+        set = true;
+    }
+    portEXIT_CRITICAL(&solua_runtime_lock);
+    return set;
 }
 
 static solar_os_shell_io_t *solua_io(solar_os_context_t *ctx)
@@ -928,6 +959,29 @@ static int solua_solaros_version(lua_State *L)
 static int solua_solaros_should_exit(lua_State *L)
 {
     lua_pushboolean(L, solua.stop_requested || solua.interrupt_requested);
+    return 1;
+}
+
+static int solua_solaros_tick_interval(lua_State *L)
+{
+    const int argc = lua_gettop(L);
+    if (argc > 1) {
+        return luaL_error(L, "expected zero or one argument");
+    }
+    if (argc == 1) {
+        const uint32_t interval_ms = solua_check_u32(L, 1);
+        if (!solua_set_tick_interval_ms(interval_ms)) {
+            return luaL_error(
+                L,
+                "tick interval requires foreground lua app");
+        }
+    }
+
+    const uint32_t requested_ms = solua_requested_tick_interval_ms();
+    lua_pushinteger(
+        L,
+        requested_ms != 0 ?
+            requested_ms : SOLAR_OS_TICK_INTERVAL_DEFAULT_MS);
     return 1;
 }
 
@@ -3893,6 +3947,230 @@ static int solua_gfx_text(lua_State *L)
     return 0;
 }
 
+static void solua_push_contact(lua_State *L,
+                               const solar_os_contact_t *contact)
+{
+    lua_newtable(L);
+    lua_pushinteger(L, contact->id);
+    lua_setfield(L, -2, "id");
+    lua_pushstring(L, contact->display_name);
+    lua_setfield(L, -2, "name");
+    lua_pushinteger(L, contact->flags);
+    lua_setfield(L, -2, "flags");
+    lua_pushstring(L, solar_os_contact_trust_name(contact->primary_trust));
+    lua_setfield(L, -2, "trust");
+    lua_pushstring(
+        L,
+        solar_os_messaging_provider_name(contact->primary_provider));
+    lua_setfield(L, -2, "provider");
+    lua_newtable(L);
+    solar_os_endpoint_t *endpoints =
+        solar_os_memory_calloc(SOLAR_OS_ENDPOINT_CAPACITY,
+                               sizeof(*endpoints),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "lua.contacts.endpoints");
+    if (endpoints != NULL) {
+        const size_t count =
+            solar_os_contacts_endpoint_snapshot(contact->id,
+                                                endpoints,
+                                                SOLAR_OS_ENDPOINT_CAPACITY);
+        for (size_t i = 0; i < count; i++) {
+            lua_pushinteger(L, endpoints[i].id);
+            lua_rawseti(L, -2, (lua_Integer)i + 1);
+        }
+        solar_os_memory_free(endpoints);
+    }
+    lua_setfield(L, -2, "endpoint_ids");
+}
+
+static int solua_contacts_list(lua_State *L)
+{
+    solar_os_contact_t *contacts =
+        solar_os_memory_calloc(SOLAR_OS_CONTACT_CAPACITY,
+                               sizeof(*contacts),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "lua.contacts.list");
+    if (contacts == NULL) {
+        return solua_check_esp(L, ESP_ERR_NO_MEM);
+    }
+    const size_t count =
+        solar_os_contacts_snapshot(contacts,
+                                   SOLAR_OS_CONTACT_CAPACITY,
+                                   false,
+                                   SOLAR_OS_CONTACT_TRUST_DISCOVERED,
+                                   NULL);
+    lua_newtable(L);
+    for (size_t i = 0; i < count; i++) {
+        solua_push_contact(L, &contacts[i]);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    solar_os_memory_free(contacts);
+    return 1;
+}
+
+static int solua_contacts_get(lua_State *L)
+{
+    solar_os_contact_t contact;
+    const esp_err_t error =
+        solar_os_contacts_get((uint32_t)luaL_checkinteger(L, 1), &contact);
+    if (error != ESP_OK) {
+        return solua_check_esp(L, error);
+    }
+    solua_push_contact(L, &contact);
+    return 1;
+}
+
+static void solua_push_conversation(
+    lua_State *L,
+    const solar_os_messaging_conversation_t *conversation)
+{
+    lua_newtable(L);
+    lua_pushinteger(L, conversation->id);
+    lua_setfield(L, -2, "id");
+    lua_pushstring(
+        L,
+        solar_os_messaging_provider_name(conversation->provider));
+    lua_setfield(L, -2, "provider");
+    lua_pushstring(L, solar_os_conversation_kind_name(conversation->kind));
+    lua_setfield(L, -2, "kind");
+    lua_pushstring(L, conversation->title);
+    lua_setfield(L, -2, "title");
+    lua_pushinteger(L, conversation->contact_id);
+    lua_setfield(L, -2, "contact_id");
+    lua_pushinteger(L, conversation->endpoint_id);
+    lua_setfield(L, -2, "endpoint_id");
+    lua_pushinteger(L, conversation->group_ref);
+    lua_setfield(L, -2, "group_ref");
+    lua_pushinteger(L, conversation->unread_count);
+    lua_setfield(L, -2, "unread");
+    lua_pushinteger(L, (lua_Integer)conversation->last_message_ms);
+    lua_setfield(L, -2, "last_message_ms");
+    lua_pushinteger(L, conversation->security_flags);
+    lua_setfield(L, -2, "security_flags");
+}
+
+static int solua_messages_conversations(lua_State *L)
+{
+    solar_os_messaging_conversation_t *conversations =
+        solar_os_memory_calloc(SOLAR_OS_MESSAGING_CONVERSATION_CAPACITY,
+                               sizeof(*conversations),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "lua.messages.conversations");
+    if (conversations == NULL) {
+        return solua_check_esp(L, ESP_ERR_NO_MEM);
+    }
+    const size_t count = solar_os_messaging_conversation_snapshot(
+        conversations,
+        SOLAR_OS_MESSAGING_CONVERSATION_CAPACITY);
+    lua_newtable(L);
+    for (size_t i = 0; i < count; i++) {
+        solua_push_conversation(L, &conversations[i]);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    solar_os_memory_free(conversations);
+    return 1;
+}
+
+typedef struct {
+    lua_State *state;
+    size_t index;
+} solua_messages_list_context_t;
+
+static bool solua_messages_list_visit(
+    const solar_os_messaging_message_t *message,
+    void *user)
+{
+    solua_messages_list_context_t *context = user;
+    lua_State *L = context->state;
+    lua_newtable(L);
+    char key[17];
+    snprintf(key, sizeof(key), "%016" PRIx64, message->key);
+    lua_pushstring(L, key);
+    lua_setfield(L, -2, "id");
+    lua_pushinteger(L, message->conversation_id);
+    lua_setfield(L, -2, "conversation_id");
+    lua_pushstring(
+        L,
+        message->direction == SOLAR_OS_MESSAGE_INBOUND ? "inbound" :
+                                                        "outbound");
+    lua_setfield(L, -2, "direction");
+    lua_pushstring(L, solar_os_delivery_state_name(message->delivery));
+    lua_setfield(L, -2, "delivery");
+    lua_pushstring(L, message->sender);
+    lua_setfield(L, -2, "sender");
+    lua_pushstring(L, message->body);
+    lua_setfield(L, -2, "body");
+    lua_pushinteger(L, (lua_Integer)message->timestamp_ms);
+    lua_setfield(L, -2, "timestamp_ms");
+    lua_pushinteger(L, message->security_flags);
+    lua_setfield(L, -2, "security_flags");
+    lua_pushboolean(L, message->unread);
+    lua_setfield(L, -2, "unread");
+    lua_pushboolean(L, message->truncated);
+    lua_setfield(L, -2, "truncated");
+    lua_pushstring(L, message->error);
+    lua_setfield(L, -2, "error");
+    lua_rawseti(L, -2, (lua_Integer)++context->index);
+    return true;
+}
+
+static int solua_messages_list(lua_State *L)
+{
+    const uint32_t conversation_id =
+        (uint32_t)luaL_checkinteger(L, 1);
+    lua_newtable(L);
+    solua_messages_list_context_t context = {
+        .state = L,
+    };
+    (void)solar_os_messaging_message_visit(conversation_id,
+                                           0,
+                                           solua_messages_list_visit,
+                                           &context,
+                                           NULL);
+    return 1;
+}
+
+static int solua_messages_send(lua_State *L)
+{
+    const uint32_t conversation_id =
+        (uint32_t)luaL_checkinteger(L, 1);
+    const char *body = luaL_checkstring(L, 2);
+    const bool allow_untrusted =
+        lua_gettop(L) >= 3 ? lua_toboolean(L, 3) : false;
+    solar_os_message_key_t key = 0;
+    const esp_err_t error =
+        solar_os_messaging_send(conversation_id,
+                                body,
+                                allow_untrusted,
+                                &key);
+    if (error != ESP_OK) {
+        return solua_check_esp(L, error);
+    }
+    char text[17];
+    snprintf(text, sizeof(text), "%016" PRIx64, key);
+    lua_pushstring(L, text);
+    return 1;
+}
+
+static int solua_messages_mark_read(lua_State *L)
+{
+    return solua_check_esp(
+        L,
+        solar_os_messaging_mark_read(
+            (uint32_t)luaL_checkinteger(L, 1)));
+}
+
+static int solua_messages_cancel(lua_State *L)
+{
+    const char *text = luaL_checkstring(L, 1);
+    char *end = NULL;
+    const unsigned long long key = strtoull(text, &end, 16);
+    if (end == text || *end != '\0' || key == 0) {
+        return luaL_error(L, "expected hexadecimal message id");
+    }
+    return solua_check_esp(L, solar_os_messaging_cancel((uint64_t)key));
+}
+
 static void solua_new_submodule(lua_State *L, int parent, const char *name)
 {
     parent = lua_absindex(L, parent);
@@ -3920,6 +4198,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, solaros, "write", solua_solaros_write);
     solua_set_func(L, solaros, "version", solua_solaros_version);
     solua_set_func(L, solaros, "should_exit", solua_solaros_should_exit);
+    solua_set_func(L, solaros, "tick_interval", solua_solaros_tick_interval);
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     solua_set_func(L, solaros, "battery_status", solua_solaros_battery_status);
 #endif
@@ -4211,6 +4490,24 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "status", solua_jobs_status);
     solua_set_func(L, mod, "start", solua_jobs_start);
     solua_set_func(L, mod, "stop", solua_jobs_stop);
+    lua_pop(L, 1);
+
+    solua_new_submodule(L, solaros, "contacts");
+    mod = lua_gettop(L);
+    solua_set_func(L, mod, "list", solua_contacts_list);
+    solua_set_func(L, mod, "get", solua_contacts_get);
+    lua_pop(L, 1);
+
+    solua_new_submodule(L, solaros, "messages");
+    mod = lua_gettop(L);
+    solua_set_func(L,
+                   mod,
+                   "conversations",
+                   solua_messages_conversations);
+    solua_set_func(L, mod, "list", solua_messages_list);
+    solua_set_func(L, mod, "send", solua_messages_send);
+    solua_set_func(L, mod, "mark_read", solua_messages_mark_read);
+    solua_set_func(L, mod, "cancel", solua_messages_cancel);
     lua_pop(L, 1);
 
     solua_new_submodule(L, solaros, "sessions");
@@ -5308,4 +5605,5 @@ const solar_os_app_t solar_os_lua_app = {
     .stop = solua_stop,
     .event = solua_event,
     .worker_stack_bytes = SOLUA_TASK_STACK,
+    .requested_tick_interval_ms = solua_requested_tick_interval_ms,
 };

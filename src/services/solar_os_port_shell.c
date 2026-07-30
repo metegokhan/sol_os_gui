@@ -834,7 +834,9 @@ static void port_shell_send_tick(port_shell_state_t *state, uint32_t now_ms)
         solar_os_tick_stats_reset(&state->tick_stats);
     }
     if (!solar_os_tick_due(&state->tick_stats,
-                           tick_app->tick_interval_ms,
+                           solar_os_app_tick_interval_ms(
+                               tick_app,
+                               PORT_SHELL_TICK_MS),
                            tick_app->tick_deadline_ms,
                            PORT_SHELL_TICK_MS,
                            SOLAR_OS_TICK_DEADLINE_DEFAULT_MS,
@@ -868,6 +870,20 @@ static void port_shell_send_tick(port_shell_state_t *state, uint32_t now_ms)
                       state->tick_stats.deadline_ms,
                       state->tick_stats.deadline_miss_count);
     }
+}
+
+static uint32_t port_shell_read_timeout_ms(port_shell_state_t *state)
+{
+    const solar_os_app_t *foreground_app =
+        port_shell_foreground_app(state);
+    const solar_os_app_t *tick_app = foreground_app != NULL ?
+        foreground_app : solar_os_shell_app();
+    const uint32_t tick_interval_ms =
+        solar_os_app_tick_interval_ms(tick_app,
+                                      PORT_SHELL_TICK_MS);
+
+    return tick_interval_ms < PORT_SHELL_READ_TIMEOUT_MS ?
+        tick_interval_ms : PORT_SHELL_READ_TIMEOUT_MS;
 }
 
 static void port_shell_apply_dimensions(port_shell_state_t *state)
@@ -1088,7 +1104,7 @@ static void port_shell_run(port_shell_state_t *state)
         err = solar_os_port_read(&state->port,
                                                  buffer,
                                                  sizeof(buffer),
-                                                 PORT_SHELL_READ_TIMEOUT_MS,
+                                                 port_shell_read_timeout_ms(state),
                                                  &read_len);
         const uint32_t now_ms = port_shell_now_ms();
         if (err == ESP_OK && read_len > 0) {

@@ -124,8 +124,10 @@ Controls:
 
 ## chat
 
-Two-pane chat client. The left pane lists channels, the right pane shows
-conversation history, and the bottom line is the message/command input.
+Two-pane provider-neutral conversation client. The left pane lists gateway and
+radio conversations, the right pane shows bounded shared history, and the
+bottom line is the message/command input. It opens and remains useful offline;
+network or radio transport jobs connect independently.
 
 Usage:
 
@@ -133,13 +135,16 @@ Usage:
 chat [gateway-url] [channel] [user] [token]
 ```
 
-The background `chat-sync` job owns the transport connection, retries, joined
-channels, and queued outbound messages. Start it explicitly with
+The background `chat-sync` job owns the transport connection, retries, and
+joined-channel replay. The shared messaging service owns queued outbound
+messages and `chat-sync` consumes only gateway requests. Start it explicitly with
 `job start chat-sync`, just like `email-sync`. Closing or suspending `chat` does
 not disconnect an already-running synchronizer. Incoming messages remain in the
-shared bounded chat store and publish bounded notifications to the universal
-inbox; reopening the app replays the retained store. With SD storage, full
-messages are retained under `/.chat/messages.bin`. On internal flash, Chat
+shared bounded messaging store and publish bounded notifications to the
+universal inbox; reopening the app replays retained conversations from every
+provider. With SD storage, full messages are retained under
+`/.messages/messages.bin`. On
+internal flash, Chat
 restores the compact message copy already retained in `/.inbox/messages.bin`,
 so it consumes no second flash ring. Both backends deduplicate transport replays
 by stable message identity and keep linked Inbox read state aligned.
@@ -150,10 +155,18 @@ and reconnects with exponential backoff while remaining in the running state.
 `/connect [url]` updates the saved gateway and enables synchronization.
 `/disconnect` pauses synchronization without stopping the job.
 
+Conversation rows show provider, unread, and security state. Outbound rows show
+queued/sending/sent/delivered/failed state. Use `/new CONTACT_ID` to open a
+direct conversation with the contact's preferred endpoint. Sending to a
+discovered endpoint asks for a second Enter confirmation; blocked endpoints
+cannot be messaged. Gateway room management commands apply only to a selected
+gateway room.
+
 In-app commands:
 
 ```text
 /help
+/new contact-id
 /join channel
 /leave [channel]
 /delete [channel]
@@ -165,7 +178,7 @@ In-app commands:
 
 Controls:
 
-- `Tab` changes focus between channel list, messages, and input.
+- `Tab` changes focus between conversation list, messages, and input.
 - `Up`/`Down` navigate the focused pane or input history.
 - `Enter` sends input or joins the selected channel.
 - `Page Up`/`Page Down` scroll messages.
@@ -289,6 +302,48 @@ Controls:
 - `Enter` opens directories or launches known files.
 - File operations refresh both panes after completion.
 - App-exit key exits.
+
+## contacts
+
+Provider-neutral address book for gateway and MeshCore identities. Contacts can
+carry multiple provider endpoints while retaining trust independently for each
+endpoint. A signed MeshCore advert creates a `discovered` endpoint: the
+signature proves possession of the advertised key, not the human identity
+behind it.
+
+Open the searchable TUI:
+
+```text
+contacts
+```
+
+The list is grouped by trust and provider. Press `/` to search, `Enter` to view
+the selected endpoint addresses, capabilities, last-seen times, and bounded
+provider metadata summary, and `Esc` or `q` to leave.
+
+Use the shell surface for mutations:
+
+```text
+contacts status
+contacts list [all|discovered|trusted|blocked]
+contacts show CONTACT_ID
+contacts rename CONTACT_ID NAME
+contacts trust CONTACT_ID [ENDPOINT_ID]
+contacts block CONTACT_ID [ENDPOINT_ID]
+contacts remove CONTACT_ID
+contacts link TARGET_CONTACT_ID SOURCE_CONTACT_ID
+```
+
+Contact and endpoint identifiers autocomplete from live service snapshots.
+Linking moves the source endpoints to the target contact and removes the source
+record. When the 64-contact store is full, SolarOS may evict the oldest
+unpinned contact whose endpoints are all still discovered; trusted and blocked
+records are never automatically evicted.
+
+The versioned store is CRC checked, uses two alternating headers and data
+copies, remains below 24 KiB, and normally lives at
+`/.contacts/contacts.bin`. If storage is unavailable, Contacts remains usable
+in volatile mode and `contacts status` reports the storage error.
 
 ## inbox
 
@@ -515,7 +570,7 @@ Controls:
 ## playground
 
 Browse the configured community catalog as a foldable category tree, search
-applications, and download, update, remove, or run Python and Lua scripts.
+applications, and install, update, uninstall, or run Python and Lua scripts.
 
 Usage:
 
@@ -527,12 +582,15 @@ playground run APP-ID
 playground refresh
 playground reload
 playground source [repository-or-catalog-url|reset]
+playground storage [flash|sd]
 ```
 
 Press `/` to search, `Enter` to open an application, and use the actions shown
-in the bottom bar. Downloads are verified by size and SHA-256 and installed
-under `/.solar/playground/`; SD can be selected when mounted. Community scripts
-run with the normal permissions of their runtime and are not sandboxed.
+in the bottom bar. Press `i` on an application in the catalog tree or details
+page to install it, and `u` to uninstall it after confirmation. Packages are
+verified by size and SHA-256 and installed under `/.solar/playground/` on the
+permanently configured `flash` or `sd` storage. Community scripts run with the
+normal permissions of their runtime and are not sandboxed.
 
 The shell subcommands use the local catalog: `refresh` downloads and saves it,
 `reload` loads that saved copy without network access, `search` prints matches,
@@ -542,6 +600,12 @@ creating a Playground session. Tab completes installed catalog IDs after
 `playground install` and `playground run`. Opening the TUI reloads the saved
 catalog automatically and does not refresh it. At the top-level catalog tree,
 `Esc`, `q`, and the app-exit key exit Playground.
+
+`playground storage` shows the persistent catalog and default application
+storage. Set it with `playground storage flash` or `playground storage sd`.
+Without a saved preference, Playground selects SD when it is mounted and flash
+otherwise. Omitting the `install` target, or specifying `auto`, uses the
+selected setting.
 
 See [Playground](playground.md) for controls, storage layout, source selection,
 and the trust model.

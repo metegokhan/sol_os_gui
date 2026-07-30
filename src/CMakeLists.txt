@@ -353,9 +353,20 @@ set(SOLAR_OS_FLAVOR_STAMP
     "${SOLAR_OS_FLAVOR_NAME}:${SOLAR_OS_PACKAGE_LIST}"
 )
 
+set(SOLAR_OS_EXTRA_INCLUDE_DIRS)
+if(SOLAR_OS_PACKAGE_SERVICE_MESHCORE)
+    list(APPEND SOLAR_OS_EXTRA_INCLUDE_DIRS
+        "../src/vendor/meshcore"
+        "../src/vendor/meshcore/crypto"
+        "../src/vendor/meshcore/ed25519"
+    )
+endif()
+
 idf_component_register(
     SRCS ${SOLAR_OS_SRCS}
-    INCLUDE_DIRS "." "apps" "board" "drivers" "jobs" "services" "shell" "../include" "${SOLAR_OS_GENERATED_DIR}"
+    INCLUDE_DIRS "." "apps" "board" "drivers" "jobs" "services" "shell"
+                 "../include" "${SOLAR_OS_GENERATED_DIR}"
+                 ${SOLAR_OS_EXTRA_INCLUDE_DIRS}
     REQUIRES ${SOLAR_OS_REQUIRES}
 )
 
@@ -368,3 +379,14 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     SOLAR_OS_VERSION="${SOLAR_OS_VERSION}"
     SOLAR_OS_FLAVOR_STAMP="${SOLAR_OS_FLAVOR_STAMP}"
 )
+
+if(SOLAR_OS_PACKAGE_SERVICE_MESHCORE)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MAX_CONTACTS=32
+        MAX_CONNECTIONS=16
+        MAX_GROUP_CHANNELS=8
+        MESHCORE_SOLAROS=1
+        MESH_DEBUG=0
+        MESH_PACKET_LOGGING=0
+    )
+endif()

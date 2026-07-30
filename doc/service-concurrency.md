@@ -73,3 +73,11 @@ Callbacks may call other SolarOS services because no global registry lock is
 held around them. A callback must not synchronously start or stop its own job;
 asynchronous completion uses `solar_os_jobs_mark_stopped()` instead. Callbacks
 must not retain pointers to registry slots or caller-owned snapshot buffers.
+
+Foreground apps and event-driven jobs select their cooperative tick rate with
+`tick_interval_ms`; zero keeps the 25 ms default. Active requests below 25 ms
+raise the main scheduler cadence only while needed, down to the 1 ms FreeRTOS
+tick. Port-shell apps similarly shorten their input wait while active. These
+intervals are best-effort scheduling targets, not hard real-time guarantees:
+callbacks still run serially and must return promptly. `tick_deadline_ms`
+records execution-budget misses but does not preempt a callback.

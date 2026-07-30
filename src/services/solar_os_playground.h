@@ -36,7 +36,7 @@ typedef enum {
     SOLAR_OS_PLAYGROUND_PROGRESS_PACKAGE,
     SOLAR_OS_PLAYGROUND_PROGRESS_VERIFY,
     SOLAR_OS_PLAYGROUND_PROGRESS_INSTALL,
-    SOLAR_OS_PLAYGROUND_PROGRESS_REMOVE,
+    SOLAR_OS_PLAYGROUND_PROGRESS_UNINSTALL,
     SOLAR_OS_PLAYGROUND_PROGRESS_DONE,
 } solar_os_playground_progress_stage_t;
 
@@ -79,6 +79,8 @@ esp_err_t solar_os_playground_init(void);
 void solar_os_playground_get_source(char *url, size_t url_len);
 esp_err_t solar_os_playground_set_source(const char *url);
 esp_err_t solar_os_playground_reset_source(void);
+solar_os_playground_target_t solar_os_playground_get_storage(void);
+esp_err_t solar_os_playground_set_storage(solar_os_playground_target_t target);
 
 bool solar_os_playground_catalog_available(void);
 esp_err_t solar_os_playground_reload(void);
@@ -110,9 +112,10 @@ esp_err_t solar_os_playground_install(const solar_os_playground_app_info_t *app,
                                       volatile bool *cancel,
                                       solar_os_playground_progress_fn progress_fn,
                                       void *progress_user);
-esp_err_t solar_os_playground_remove(const solar_os_playground_app_info_t *app,
-                                     solar_os_playground_progress_fn progress_fn,
-                                     void *progress_user);
+esp_err_t solar_os_playground_uninstall(
+    const solar_os_playground_app_info_t *app,
+    solar_os_playground_progress_fn progress_fn,
+    void *progress_user);
 
 const char *solar_os_playground_runtime_name(solar_os_playground_runtime_t runtime);
 const char *solar_os_playground_target_name(solar_os_playground_target_t target);

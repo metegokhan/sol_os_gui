@@ -50,6 +50,7 @@ Optional API groups follow these package gates:
 - `service.ble`: `solaros.ble`
 - `service.gpio`: `solaros.gpio` and `solaros.led`
 - `service.onewire`: `solaros.onewire`
+- `service.messaging`: `solaros.contacts` and `solaros.messages`
 - `service.adc`, `service.pwm`, `service.i2c`, `service.spi`, and
   `service.uart`: their matching submodules
 - `service.audio`, `service.battery`, and `service.sensors`: their matching
@@ -86,9 +87,34 @@ solaros.time.set_datetime({"year": 2026, "month": 6, "day": 19, "hour": 12, "min
 - `solaros.write(text)`: write text to the SolarOS terminal.
 - `solaros.version()`: return the SolarOS firmware version string.
 - `solaros.should_exit()`: return `True` when the app is being asked to stop.
+- `solaros.tick_interval([ms])`: get or set the foreground event-pump interval in milliseconds. Pass `0` to restore the 25 ms default.
 - `solaros.battery_status()`: shortcut for `solaros.battery.status()` when battery support is compiled.
 - `solaros.wifi_status()`: compact Wi-Fi status shortcut when Wi-Fi support is compiled.
 - `solaros.environment()`: shortcut for `solaros.sensors.environment()` when environmental sensor support is compiled.
+
+For example, `solaros.tick_interval(5)` lets a foreground Python app drain
+terminal, TUI, and graphics events at a best-effort 5 ms cadence. It does not
+schedule or preempt Python code, and it is not a hard-real-time timer. The
+setting lasts for the current foreground Python app only; headless script jobs
+cannot change it.
+
+## `solaros.contacts` and `solaros.messages`
+
+Provider-neutral messaging builds expose:
+
+- `solaros.contacts.list()`: bounded contact summaries.
+- `solaros.contacts.get(contact_id)`: one contact with endpoint IDs, or `None`.
+- `solaros.messages.conversations()`: bounded conversation summaries.
+- `solaros.messages.list(conversation_id)`: retained messages.
+- `solaros.messages.send(conversation_id, body, allow_untrusted=False)`: queue
+  a message and return its stable hexadecimal ID.
+- `solaros.messages.mark_read(conversation_id)`: mark linked message state read.
+- `solaros.messages.cancel(message_id)`: cancel a queued message using the
+  hexadecimal string returned by `send()` or `list()`.
+
+Scripts cannot read credentials or endpoint secret material. Blocked direct
+endpoints are rejected, and discovered endpoints require
+`allow_untrusted=True` for that one send.
 
 ## `solaros.storage`
 

@@ -1,0 +1,166 @@
+# SolarOS Messaging Architecture
+
+SolarOS messaging is a provider-neutral set of bounded services. Gateway Chat
+and MeshCore are providers of the same Contacts, Conversations, and Messages
+model; neither provider owns the user interface or generic history.
+
+SolarOS Link remains a separate wire protocol. Its provider identifier is
+reserved so it can be projected into messaging in a later release without
+coupling the two protocols now.
+
+## Stable identifiers
+
+Services exchange fixed numeric identifiers rather than internal pointers or
+unbounded strings:
+
+- contact ID: one local address-book entity;
+- endpoint ID: one provider address belonging to a contact;
+- conversation ID: one direct, group, room, or broadcast conversation;
+- message key: one locally stable message identity;
+- credential ID: one opaque record in the Credentials service.
+
+Zero is the invalid value for every identifier. Public snapshot and visitor
+APIs copy records while holding the owning service lock, release the lock, and
+only then invoke callers or perform I/O.
+
+## Providers
+
+The assigned provider identifiers are:
+
+| ID | Name | Purpose |
+| --- | --- | --- |
+| 1 | `gateway` | Existing SolarOS gateway Chat protocol |
+| 2 | `meshcore` | MeshCore companion/chat provider |
+| 3 | `link` | Reserved for a possible future SolarOS Link projection |
+
+A provider owns transport configuration, connection state, wire identifiers,
+and provider-specific metadata. Generic services own contacts, trust,
+conversation summaries, retained messages, delivery state, and the volatile
+outbox.
+
+## Contacts and endpoints
+
+A contact contains a stable ID, display name, flags, timestamps, and one or
+more endpoint IDs. `pinned` prevents automatic eviction.
+
+An endpoint contains:
+
+- stable endpoint and owning-contact IDs;
+- provider identifier;
+- binary provider address of at most 32 bytes;
+- `discovered`, `trusted`, or `blocked` trust;
+- bounded capability flags;
+- last-seen time;
+- at most 64 bytes of opaque provider metadata.
+
+A valid signed MeshCore advert proves control of the advertised public key, not
+the human identity behind it, so it creates a `discovered` endpoint. Trust is
+per endpoint even when gateway and MeshCore endpoints are linked into one
+contact. Blocked direct endpoints cannot publish or receive messages.
+
+When the bounded contact store is full, Contacts may evict the oldest contact
+whose endpoints are all discovered and whose `pinned` flag is clear. Trusted
+and blocked records are never evicted automatically.
+
+## Credentials
+
+Credentials stores opaque provider records. The supported kinds are asymmetric
+identity, shared key, and token. Public enumeration returns only record ID,
+provider, kind, and label. Secret reads name one exact record and copy into a
+caller-provided buffer.
+
+Secret bytes are never published to Inbox, logs, autocomplete, native agent
+tools, Python, or Lua. Temporary secret buffers must be wiped. SolarOS
+currently stores NVS without flash encryption; physical flash access can
+therefore recover these records.
+
+SSH keys, native-agent API keys, and existing tokens are not migrated into this
+service in this release.
+
+## Conversations and messages
+
+Conversation kinds are `direct`, `group`, `room`, and `broadcast`. A snapshot
+contains provider, kind, title, endpoint or provider-group reference, unread
+count, last-message time, and a security summary.
+
+A message contains:
+
+- stable message key and optional provider message key;
+- conversation, contact, and endpoint references;
+- receive and provider timestamps;
+- inbound or outbound direction;
+- delivery state;
+- security flags;
+- body of at most 4096 bytes and a truncation marker;
+- linked Inbox ID;
+- bounded error text.
+
+Delivery states are `received`, `queued`, `sending`, `sent`, `delivered`,
+`failed`, and `cancelled`.
+
+Security flags are `encrypted`, `peer-key-known`, `peer-trusted`,
+`shared-key`, `sender-unverified`, and `transport-secured`. MeshCore group
+messages are shared-key encrypted but sender-unverified. The name embedded in a
+group message is display data and never establishes contact identity.
+
+## Provider boundary
+
+Providers register and report status, upsert or remove conversations, publish
+normalized inbound messages, consume only their own outbound requests, update
+delivery state, and publish bounded cursor-based events.
+
+The 16-entry outbox is volatile. It survives provider-job restarts but not a
+reboot. Generic messaging invokes no provider callback while holding its global
+lock.
+
+Inbox is a notification projection, not the owner of history. Messaging first
+publishes a normalized message, releases its lock, publishes the notification,
+then links the returned Inbox ID using the message key and the current
+generation. Marking a message read updates its linked Inbox entry after
+releasing the messaging lock.
+
+## Persistence
+
+Contacts uses a versioned, CRC-checked store with two alternating headers at
+`/.contacts/contacts.bin`, capped below 24 KiB. It remains usable in volatile
+mode and reports the storage error when persistence is unavailable.
+
+Messages uses the same bounded fixed-slot and dual-header approach at
+`/.messages/messages.bin` only when the active storage has the large-history
+capacity already required by Chat. Small internal flash restores compact
+gateway and MeshCore notifications from Inbox instead.
+
+No `/.chat/messages.bin` records are migrated. After the new Messages store
+initializes successfully, the obsolete Chat store is removed. Existing Inbox
+notifications remain.
+
+Persistence snapshots carry a generation. Filesystem writes and `fsync` occur
+after releasing the service lock; the generation is rechecked before the
+result is committed as current.
+
+## User interfaces and scripting
+
+The unified `chat` TUI renders conversations from every provider and does not
+require Wi-Fi. Gateway-only room commands remain provider-gated. Sending to a
+discovered MeshCore endpoint requires interactive confirmation; shell and
+scripting callers must pass `allow_untrusted=true`.
+
+Contacts and Chat are resumable text TUIs that work through the common shell
+I/O layer on display and VT100 port shells. They exit with `Esc` or `Ctrl+]`
+according to the active terminal.
+
+Python and Lua receive bounded contact, conversation, and message snapshots
+plus send, mark-read, and cancel operations. They cannot mutate trust or access
+provider metadata or Credentials.
+
+## Concurrency and memory rules
+
+- Registry metadata is protected by short lock sections.
+- Long-lived resources use generation-checked, reference-counted handles.
+- No global lock is held across filesystem or NVS I/O, Inbox publication,
+  provider callbacks, or radio operations.
+- Large registries, message bodies, events, outbox entries, packet pools, and
+  complete MeshCore provider state require external PSRAM.
+- MeshCore must leave at least 64 KiB of internal SRAM free on the DevKit and
+  at least 1 KiB of worker stack watermark while running.
+

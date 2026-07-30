@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- Fixed repeat Playground catalog refreshes on FAT filesystems, added a
+  persistent flash/SD target shared by the catalog and default application
+  installations with SD preferred when no setting exists, and added `i`
+  install and `u` uninstall actions to both the catalog tree and application
+  details.
+- Hardened MeshCore lifecycle transitions against concurrent starts and
+  configuration changes, made its internal peer cache follow Contacts
+  generations with blocked endpoints failing closed, compacted the Credentials
+  NVS blob to its active records for used-device headroom, tuned the measured
+  worker stack, added the RFM95 62.5-kHz LoRa mapping, bounded status rendering,
+  and added host two-node plus connected memory/stack/start-stop regression
+  coverage.
+- Added a pinned, audited MeshCore companion provider with Ed25519/ECDH direct
+  messaging, ACK retries, shared-key groups, contact discovery and trust
+  enforcement, a PSRAM-resident bounded core, an RFM95-compatible radio
+  adapter, explicit EU868 profile, background job, shell controls, and manual.
+- Made Chat an offline-capable provider-neutral conversation client and added
+  live `messages` shell controls plus safe Contacts/Messages APIs for Python and
+  Lua. Direct messages now require an explicit second confirmation for
+  discovered endpoints and always reject blocked endpoints.
+- Extracted the provider-neutral Conversations/Messages owner from gateway Chat,
+  with PSRAM-backed bounded rings, offline provider outboxes, normalized gateway
+  delivery, Inbox projection, and fresh CRC-checked `/.messages/messages.bin`
+  history on large storage.
+
+- Defined the provider-neutral SolarOS messaging contract and fixed public
+  identifiers, trust, conversation, delivery, capability, and security types
+  shared by the gateway and planned MeshCore provider.
+- Added PSRAM-backed Contacts and Credentials services. Contacts provides 64
+  contacts, 80 independently trusted provider endpoints, bounded live
+  snapshots, safe linking and eviction, a sub-24-KiB dual-copy CRC store,
+  shell commands with live ID completion, and a searchable resumable TUI.
+  Credentials stores twelve opaque versioned NVS records without exposing
+  secret material through public listings or scripting surfaces.
 - Added an RFM95W expansion driver with LoRa, FSK, GFSK, MSK, GMSK, and OOK
   operation through the common `radio` service. LoRa supports packet
   transmit/receive and RSSI/SNR reporting; the FSK/OOK modem supports packet

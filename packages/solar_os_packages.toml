@@ -35,21 +35,29 @@ members = [
   "service_expansion",
   "service_radio",
   "service_link",
+  "service_meshcore",
   "expansion_rfm69",
   "expansion_rfm95",
   "expansion_pcd8544",
   "expansion_ssd1306",
   "job_pocsag",
   "job_radio_link",
+  "job_meshcore",
 ]
 
 [groups.maintenance_apps]
 members = [
   "service_ota",
   "service_docs",
+  "service_contacts",
+  "service_credentials",
+  "service_messaging",
+  "service_chat",
   "core_fs_commands",
   "app_docs",
   "app_inbox",
+  "app_contacts",
+  "app_chat",
   "app_com",
   "app_edit",
   "app_less",
@@ -77,7 +85,6 @@ members = [
   "service_mqtt",
   "service_ssh",
   "service_mail",
-  "service_chat",
   "chat_transport_gateway",
   "service_http_client",
   "service_http_server",
@@ -86,7 +93,6 @@ members = [
   "app_curl",
   "app_telnet",
   "app_web",
-  "app_chat",
   "app_email",
   "job_httpd",
   "job_displayd",
@@ -103,7 +109,6 @@ triggers = [
   "app_curl",
   "app_telnet",
   "app_web",
-  "app_chat",
   "app_email",
   "job_httpd",
   "job_displayd",
@@ -179,6 +184,7 @@ sources = [
   "services/solar_os_log.c",
   "services/solar_os_manual.c",
   "services/solar_os_memory.c",
+  "services/solar_os_messaging_types.c",
   "services/solar_os_port.c",
   "services/solar_os_port_shell.c",
   "services/solar_os_power.c",
@@ -254,6 +260,18 @@ label = "service.inbox"
 sources = ["services/solar_os_inbox.c"]
 requires = ["esp_timer", "heap"]
 
+[packages.service_contacts]
+label = "service.contacts"
+sources = ["services/solar_os_contacts.c"]
+requires = ["esp_timer", "heap"]
+capabilities = ["psram"]
+
+[packages.service_credentials]
+label = "service.credentials"
+sources = ["services/solar_os_credentials.c"]
+requires = ["heap", "nvs_flash"]
+capabilities = ["psram"]
+
 [packages.core_fs_commands]
 label = "core.fs-commands"
 depends = ["service_zip"]
@@ -311,9 +329,18 @@ capabilities = ["wifi"]
 
 [packages.service_chat]
 label = "network.chat"
-depends = ["service_inbox"]
+depends = ["service_messaging"]
 sources = ["services/solar_os_chat.c"]
 requires = ["heap", "nvs_flash"]
+capabilities = ["psram"]
+
+[packages.service_messaging]
+label = "service.messaging"
+depends = ["service_contacts", "service_inbox"]
+sources = [
+  "services/solar_os_messaging.c",
+]
+requires = ["heap"]
 capabilities = ["psram"]
 
 [packages.chat_transport_gateway]
@@ -481,6 +508,44 @@ sources = [
 ]
 requires = ["esp_hw_support"]
 
+[packages.service_meshcore]
+label = "service.meshcore"
+depends = [
+  "service_contacts",
+  "service_credentials",
+  "service_messaging",
+  "service_radio",
+]
+sources = [
+  "services/solar_os_meshcore.cpp",
+  "vendor/meshcore/Dispatcher.cpp",
+  "vendor/meshcore/Identity.cpp",
+  "vendor/meshcore/Mesh.cpp",
+  "vendor/meshcore/Packet.cpp",
+  "vendor/meshcore/Utils.cpp",
+  "vendor/meshcore/helpers/AdvertDataHelpers.cpp",
+  "vendor/meshcore/helpers/BaseChatMesh.cpp",
+  "vendor/meshcore/helpers/TxtDataHelpers.cpp",
+  "vendor/meshcore/crypto/AESEsp32.cpp",
+  "vendor/meshcore/crypto/BlockCipher.cpp",
+  "vendor/meshcore/crypto/Crypto.cpp",
+  "vendor/meshcore/crypto/Hash.cpp",
+  "vendor/meshcore/crypto/SHA256.cpp",
+  "vendor/meshcore/ed25519/add_scalar.c",
+  "vendor/meshcore/ed25519/fe.c",
+  "vendor/meshcore/ed25519/ge.c",
+  "vendor/meshcore/ed25519/key_exchange.c",
+  "vendor/meshcore/ed25519/keypair.c",
+  "vendor/meshcore/ed25519/sc.c",
+  "vendor/meshcore/ed25519/seed.c",
+  "vendor/meshcore/ed25519/sha512.c",
+  "vendor/meshcore/ed25519/sign.c",
+  "vendor/meshcore/ed25519/verify.c",
+]
+requires = ["mbedtls", "nvs_flash"]
+capabilities = ["psram"]
+any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
+
 [packages.expansion_rfm69]
 label = "expansion.rfm69"
 depends = ["service_radio", "service_spi"]
@@ -625,9 +690,12 @@ capabilities = ["psram", "wifi", "gfx"]
 
 [packages.app_chat]
 label = "app.chat"
-depends = ["job_chat_sync"]
-sources = ["apps/solar_os_chat.c"]
-capabilities = ["psram", "wifi"]
+depends = ["service_chat"]
+sources = [
+  "apps/solar_os_chat.c",
+  "shell/solar_os_shell_messages.c",
+]
+capabilities = ["psram"]
 
 [packages.app_agent]
 label = "app.agent"
@@ -655,6 +723,15 @@ sources = [
   "shell/solar_os_shell_inbox.c",
 ]
 
+[packages.app_contacts]
+label = "app.contacts"
+depends = ["service_contacts", "service_credentials"]
+sources = [
+  "apps/solar_os_contacts.c",
+  "shell/solar_os_shell_contacts.c",
+]
+capabilities = ["psram"]
+
 [packages.app_view]
 label = "app.view"
 depends = ["service_image"]
@@ -668,14 +745,14 @@ capabilities = ["gfx"]
 
 [packages.app_python]
 label = "app.python"
-depends = ["service_script_runner"]
+depends = ["service_messaging", "service_script_runner"]
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
 capabilities = ["psram"]
 
 [packages.app_lua]
 label = "app.lua"
-depends = ["service_script_runner"]
+depends = ["service_messaging", "service_script_runner"]
 sources = ["apps/solar_os_lua.c"]
 requires = ["lua"]
 capabilities = ["psram"]
@@ -849,4 +926,14 @@ any_capabilities = ["expansion_spi", "expansion_gpio"]
 label = "job.radio-link"
 depends = ["service_inbox", "service_link", "service_radio"]
 sources = ["jobs/solar_os_radio_link_job.c"]
+any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
+
+[packages.job_meshcore]
+label = "job.meshcore"
+depends = ["service_meshcore"]
+sources = [
+  "jobs/solar_os_meshcore_job.c",
+  "shell/solar_os_shell_meshcore.c",
+]
+capabilities = ["psram"]
 any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]

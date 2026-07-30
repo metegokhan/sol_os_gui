@@ -251,17 +251,23 @@ connects when the network becomes available. In `/.shell/startup`, use exactly:
 job start chat-sync
 ```
 
-It owns transport connection lifetime, exponential retry, opaque resume cursors,
-joined-channel replay, outbound queue delivery, retained message publication,
-and chat notifications in the universal inbox. Replayed transport messages are
+It owns transport connection lifetime, exponential retry, opaque resume
+cursors, joined-channel replay, and delivery of the gateway provider's shared
+outbound requests. The messaging service owns retained publication and Inbox
+projection. Replayed transport messages are
 deduplicated by the shared stable producer identity before another notification
 is published.
+
+The gateway hello uses the SolarOS `identity hostname` value as its device
+identity; Chat does not maintain a separate device-name setting.
+
 Stopping or closing `app.chat` has no effect on this job. Its worker performs
 transport startup, polling, and retry work outside the cooperative session/job
 scheduler.
 
-The store retains at most 64 messages. SD-backed systems use the full-message
-`/.chat/messages.bin` ring. Systems using internal flash restore Chat history
+The shared store retains at most 64 messages. SD-backed systems use the
+full-message `/.messages/messages.bin` ring. Systems using internal flash
+restore Chat history
 from the compact records already stored in `/.inbox/messages.bin`; no second
 ring is created, so Chat history cannot consume the remaining flash volume.
 
@@ -667,6 +673,39 @@ Notes:
 - Sending supports messages spanning multiple batches and restores the radio's
   previous configuration afterward. A receiver job using the same half-duplex
   radio must be stopped first.
+
+## meshcore
+
+Non-forwarding MeshCore companion provider for Contacts and Messages.
+
+Usage:
+
+```text
+job start meshcore <radio> <profile>
+job stop meshcore
+job status meshcore
+meshcore status
+```
+
+Example:
+
+```text
+job start meshcore radio0 meshcore-eu868
+meshcore advert flood
+chat
+```
+
+The job requires PSRAM and a packet-radio expansion capability. It claims the
+radio, applies the explicit regional profile, sends one zero-hop startup
+advert, and continuously handles adverts, direct messages, ACKs, and group
+messages. Its complete protocol context is allocated as external-required
+PSRAM; the 6144-byte worker stack remains internal and its minimum watermark is
+reported by `meshcore status`.
+
+Stopping restores the previous radio configuration and state before releasing
+ownership. MeshCore and `radio-link` therefore report normal ownership
+conflicts when pointed at the same radio. See [meshcore.md](meshcore.md) for
+identity, trust, channel, regional-profile, and security details.
 
 ## radio-link
 

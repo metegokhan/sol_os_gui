@@ -28,6 +28,7 @@
 
 #define PLAYGROUND_NVS_NAMESPACE "playground"
 #define PLAYGROUND_NVS_SOURCE_KEY "source"
+#define PLAYGROUND_NVS_STORAGE_KEY "storage"
 #define PLAYGROUND_SCHEMA "solaros.playground.catalog"
 #define PLAYGROUND_SCHEMA_VERSION 1U
 #define PLAYGROUND_CATALOG_MAX (256U * 1024U)
@@ -40,6 +41,8 @@
 #define PLAYGROUND_CATALOG_SOURCE_FILE "catalog.source"
 #define PLAYGROUND_CATALOG_TEMP_FILE "catalog.json.new"
 #define PLAYGROUND_CATALOG_SOURCE_TEMP_FILE "catalog.source.new"
+#define PLAYGROUND_CATALOG_BACKUP_FILE "catalog.json.old"
+#define PLAYGROUND_CATALOG_SOURCE_BACKUP_FILE "catalog.source.old"
 
 typedef struct {
     size_t category_count;
@@ -65,12 +68,23 @@ typedef struct {
     size_t entry_count;
 } playground_zip_summary_t;
 
+typedef struct {
+    char catalog[SOLAR_OS_STORAGE_PATH_MAX];
+    char source[SOLAR_OS_STORAGE_PATH_MAX];
+    char catalog_temp[SOLAR_OS_STORAGE_PATH_MAX];
+    char source_temp[SOLAR_OS_STORAGE_PATH_MAX];
+    char catalog_backup[SOLAR_OS_STORAGE_PATH_MAX];
+    char source_backup[SOLAR_OS_STORAGE_PATH_MAX];
+} playground_cache_paths_t;
+
 static EXT_RAM_BSS_ATTR playground_catalog_t playground_catalog_banks[2];
 static portMUX_TYPE playground_lock = portMUX_INITIALIZER_UNLOCKED;
 static playground_catalog_t *playground_catalog =
     &playground_catalog_banks[0];
 static char playground_source[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX] =
     SOLAR_OS_PLAYGROUND_DEFAULT_SOURCE;
+static solar_os_playground_target_t playground_storage =
+    SOLAR_OS_PLAYGROUND_TARGET_FLASH;
 static bool playground_initialized;
 static bool playground_catalog_ready;
 static bool playground_refresh_active;
@@ -815,9 +829,10 @@ static esp_err_t playground_mount_for_target(
     size_t mount_len)
 {
     if (target == SOLAR_OS_PLAYGROUND_TARGET_AUTO) {
-        target = solar_os_storage_sd_is_mounted() ?
-            SOLAR_OS_PLAYGROUND_TARGET_SD :
-            SOLAR_OS_PLAYGROUND_TARGET_FLASH;
+        (void)solar_os_playground_init();
+        portENTER_CRITICAL(&playground_lock);
+        target = playground_storage;
+        portEXIT_CRITICAL(&playground_lock);
     }
     if (target == SOLAR_OS_PLAYGROUND_TARGET_SD) {
         if (!solar_os_storage_sd_is_mounted()) {
@@ -868,80 +883,157 @@ static esp_err_t playground_data_root(const char *mount,
     return err;
 }
 
-static esp_err_t playground_cache_paths(bool create,
-                                        char *catalog,
-                                        size_t catalog_len,
-                                        char *source,
-                                        size_t source_len,
-                                        char *catalog_temp,
-                                        size_t catalog_temp_len,
-                                        char *source_temp,
-                                        size_t source_temp_len)
+static esp_err_t playground_cache_paths(
+    bool create,
+    solar_os_playground_target_t target,
+    playground_cache_paths_t *paths)
 {
+    if (paths == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     char mount[SOLAR_OS_STORAGE_MOUNT_POINT_MAX];
     char root[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t err = playground_mount_for_target(
-        SOLAR_OS_PLAYGROUND_TARGET_FLASH, mount, sizeof(mount));
+    esp_err_t err = playground_mount_for_target(target, mount, sizeof(mount));
     if (err == ESP_OK) {
         err = playground_data_root(mount, root, sizeof(root), create);
     }
     if (err == ESP_OK) {
         err = solar_os_storage_join_path(
-            root, PLAYGROUND_CATALOG_FILE, catalog, catalog_len);
+            root,
+            PLAYGROUND_CATALOG_FILE,
+            paths->catalog,
+            sizeof(paths->catalog));
     }
     if (err == ESP_OK) {
         err = solar_os_storage_join_path(
-            root, PLAYGROUND_CATALOG_SOURCE_FILE, source, source_len);
+            root,
+            PLAYGROUND_CATALOG_SOURCE_FILE,
+            paths->source,
+            sizeof(paths->source));
     }
-    if (err == ESP_OK && catalog_temp != NULL) {
+    if (err == ESP_OK) {
         err = solar_os_storage_join_path(root,
                                          PLAYGROUND_CATALOG_TEMP_FILE,
-                                         catalog_temp,
-                                         catalog_temp_len);
+                                         paths->catalog_temp,
+                                         sizeof(paths->catalog_temp));
     }
-    if (err == ESP_OK && source_temp != NULL) {
+    if (err == ESP_OK) {
         err = solar_os_storage_join_path(
             root,
             PLAYGROUND_CATALOG_SOURCE_TEMP_FILE,
-            source_temp,
-            source_temp_len);
+            paths->source_temp,
+            sizeof(paths->source_temp));
+    }
+    if (err == ESP_OK) {
+        err = solar_os_storage_join_path(root,
+                                         PLAYGROUND_CATALOG_BACKUP_FILE,
+                                         paths->catalog_backup,
+                                         sizeof(paths->catalog_backup));
+    }
+    if (err == ESP_OK) {
+        err = solar_os_storage_join_path(
+            root,
+            PLAYGROUND_CATALOG_SOURCE_BACKUP_FILE,
+            paths->source_backup,
+            sizeof(paths->source_backup));
     }
     return err;
 }
 
+static esp_err_t playground_backup_file(const char *path,
+                                        const char *backup,
+                                        bool *backed_up)
+{
+    if (backed_up == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *backed_up = false;
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return errno == ENOENT ? ESP_OK : ESP_FAIL;
+    }
+    if (remove(backup) != 0 && errno != ENOENT) {
+        return ESP_FAIL;
+    }
+    if (rename(path, backup) != 0) {
+        return ESP_FAIL;
+    }
+    *backed_up = true;
+    return ESP_OK;
+}
+
+static void playground_restore_file(const char *path,
+                                    const char *backup,
+                                    bool backed_up,
+                                    bool committed)
+{
+    if (committed) {
+        (void)remove(path);
+    }
+    if (backed_up) {
+        (void)remove(path);
+        (void)rename(backup, path);
+    }
+}
+
 static esp_err_t playground_save_catalog(const char *source_value,
                                          const char *body,
-                                         size_t body_len)
+                                         size_t body_len,
+                                         solar_os_playground_target_t target)
 {
-    char catalog[SOLAR_OS_STORAGE_PATH_MAX];
-    char source[SOLAR_OS_STORAGE_PATH_MAX];
-    char catalog_temp[SOLAR_OS_STORAGE_PATH_MAX];
-    char source_temp[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t err = playground_cache_paths(true,
-                                           catalog,
-                                           sizeof(catalog),
-                                           source,
-                                           sizeof(source),
-                                           catalog_temp,
-                                           sizeof(catalog_temp),
-                                           source_temp,
-                                           sizeof(source_temp));
+    playground_cache_paths_t paths = {0};
+    esp_err_t err = playground_cache_paths(true, target, &paths);
     if (err == ESP_OK) {
-        err = playground_write_file(catalog_temp, body, body_len);
+        err = playground_write_file(paths.catalog_temp, body, body_len);
     }
     if (err == ESP_OK) {
         err = playground_write_file(
-            source_temp, source_value, strlen(source_value));
+            paths.source_temp, source_value, strlen(source_value));
     }
-    if (err == ESP_OK && rename(catalog_temp, catalog) != 0) {
+    bool catalog_backed_up = false;
+    bool source_backed_up = false;
+    bool catalog_committed = false;
+    bool source_committed = false;
+    if (err == ESP_OK) {
+        err = playground_backup_file(paths.catalog,
+                                     paths.catalog_backup,
+                                     &catalog_backed_up);
+    }
+    if (err == ESP_OK) {
+        err = playground_backup_file(paths.source,
+                                     paths.source_backup,
+                                     &source_backed_up);
+    }
+    if (err == ESP_OK && rename(paths.catalog_temp, paths.catalog) != 0) {
         err = ESP_FAIL;
+    } else if (err == ESP_OK) {
+        catalog_committed = true;
     }
-    if (err == ESP_OK && rename(source_temp, source) != 0) {
+    if (err == ESP_OK && rename(paths.source_temp, paths.source) != 0) {
         err = ESP_FAIL;
+    } else if (err == ESP_OK) {
+        source_committed = true;
     }
-    if (err != ESP_OK) {
-        (void)remove(catalog_temp);
-        (void)remove(source_temp);
+    if (err == ESP_OK) {
+        (void)remove(paths.catalog_backup);
+        (void)remove(paths.source_backup);
+    } else {
+        playground_restore_file(
+            paths.catalog,
+            paths.catalog_backup,
+            catalog_backed_up,
+            catalog_committed);
+        playground_restore_file(
+            paths.source,
+            paths.source_backup,
+            source_backed_up,
+            source_committed);
+        if (paths.catalog_temp[0] != '\0') {
+            (void)remove(paths.catalog_temp);
+        }
+        if (paths.source_temp[0] != '\0') {
+            (void)remove(paths.source_temp);
+        }
     }
     return err;
 }
@@ -1167,6 +1259,10 @@ esp_err_t solar_os_playground_init(void)
         SOLAR_OS_PLAYGROUND_DEFAULT_SOURCE;
     char source[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX] =
         SOLAR_OS_PLAYGROUND_DEFAULT_SOURCE;
+    solar_os_playground_target_t storage =
+        solar_os_storage_sd_is_mounted() ?
+            SOLAR_OS_PLAYGROUND_TARGET_SD :
+            SOLAR_OS_PLAYGROUND_TARGET_FLASH;
     nvs_handle_t nvs = 0;
     if (nvs_open(PLAYGROUND_NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
         size_t source_len = sizeof(stored_source);
@@ -1179,10 +1275,19 @@ esp_err_t solar_os_playground_init(void)
                                         sizeof(source)) != ESP_OK) {
             strlcpy(source, SOLAR_OS_PLAYGROUND_DEFAULT_SOURCE, sizeof(source));
         }
+        uint8_t stored_storage = (uint8_t)SOLAR_OS_PLAYGROUND_TARGET_FLASH;
+        if (nvs_get_u8(nvs,
+                       PLAYGROUND_NVS_STORAGE_KEY,
+                       &stored_storage) == ESP_OK &&
+            (stored_storage == SOLAR_OS_PLAYGROUND_TARGET_FLASH ||
+             stored_storage == SOLAR_OS_PLAYGROUND_TARGET_SD)) {
+            storage = (solar_os_playground_target_t)stored_storage;
+        }
         nvs_close(nvs);
     }
     portENTER_CRITICAL(&playground_lock);
     strlcpy(playground_source, source, sizeof(playground_source));
+    playground_storage = storage;
     playground_initialized = true;
     portEXIT_CRITICAL(&playground_lock);
     return ESP_OK;
@@ -1260,6 +1365,48 @@ esp_err_t solar_os_playground_reset_source(void)
     return err;
 }
 
+solar_os_playground_target_t solar_os_playground_get_storage(void)
+{
+    (void)solar_os_playground_init();
+    portENTER_CRITICAL(&playground_lock);
+    const solar_os_playground_target_t target = playground_storage;
+    portEXIT_CRITICAL(&playground_lock);
+    return target;
+}
+
+esp_err_t solar_os_playground_set_storage(
+    solar_os_playground_target_t target)
+{
+    if (target != SOLAR_OS_PLAYGROUND_TARGET_FLASH &&
+        target != SOLAR_OS_PLAYGROUND_TARGET_SD) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t nvs = 0;
+    esp_err_t err = nvs_open(PLAYGROUND_NVS_NAMESPACE,
+                             NVS_READWRITE,
+                             &nvs);
+    if (err == ESP_OK) {
+        err = nvs_set_u8(nvs, PLAYGROUND_NVS_STORAGE_KEY, (uint8_t)target);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&playground_lock);
+        if (playground_storage != target) {
+            playground_storage = target;
+            playground_catalog_ready = false;
+            playground_source_generation++;
+        }
+        playground_initialized = true;
+        portEXIT_CRITICAL(&playground_lock);
+    }
+    if (nvs != 0) {
+        nvs_close(nvs);
+    }
+    return err;
+}
+
 bool solar_os_playground_catalog_available(void)
 {
     portENTER_CRITICAL(&playground_lock);
@@ -1271,6 +1418,8 @@ bool solar_os_playground_catalog_available(void)
 esp_err_t solar_os_playground_reload(void)
 {
     char source[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX];
+    solar_os_playground_target_t storage =
+        SOLAR_OS_PLAYGROUND_TARGET_FLASH;
     uint32_t source_generation = 0U;
     (void)solar_os_playground_init();
     portENTER_CRITICAL(&playground_lock);
@@ -1281,27 +1430,19 @@ esp_err_t solar_os_playground_reload(void)
     playground_refresh_active = true;
     source_generation = playground_source_generation;
     strlcpy(source, playground_source, sizeof(source));
+    storage = playground_storage;
     playground_catalog_t *parsed =
         playground_catalog == &playground_catalog_banks[0]
             ? &playground_catalog_banks[1]
             : &playground_catalog_banks[0];
     portEXIT_CRITICAL(&playground_lock);
 
-    char catalog_path[SOLAR_OS_STORAGE_PATH_MAX];
-    char source_path[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t err = playground_cache_paths(false,
-                                           catalog_path,
-                                           sizeof(catalog_path),
-                                           source_path,
-                                           sizeof(source_path),
-                                           NULL,
-                                           0U,
-                                           NULL,
-                                           0U);
+    playground_cache_paths_t paths = {0};
+    esp_err_t err = playground_cache_paths(false, storage, &paths);
     char *stored_source = NULL;
     size_t stored_source_len = 0U;
     if (err == ESP_OK) {
-        err = playground_read_file(source_path,
+        err = playground_read_file(paths.source,
                                    SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX - 1U,
                                    &stored_source,
                                    &stored_source_len);
@@ -1316,7 +1457,7 @@ esp_err_t solar_os_playground_reload(void)
     size_t body_len = 0U;
     if (err == ESP_OK) {
         err = playground_read_file(
-            catalog_path, PLAYGROUND_CATALOG_MAX, &body, &body_len);
+            paths.catalog, PLAYGROUND_CATALOG_MAX, &body, &body_len);
     }
     if (err == ESP_OK) {
         memset(parsed, 0, sizeof(*parsed));
@@ -1363,6 +1504,8 @@ esp_err_t solar_os_playground_refresh(
     void *progress_user)
 {
     char source[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX];
+    solar_os_playground_target_t storage =
+        SOLAR_OS_PLAYGROUND_TARGET_FLASH;
     uint32_t source_generation = 0U;
     (void)solar_os_playground_init();
     portENTER_CRITICAL(&playground_lock);
@@ -1373,6 +1516,7 @@ esp_err_t solar_os_playground_refresh(
     playground_refresh_active = true;
     source_generation = playground_source_generation;
     strlcpy(source, playground_source, sizeof(source));
+    storage = playground_storage;
     portEXIT_CRITICAL(&playground_lock);
 
     char *body = NULL;
@@ -1398,7 +1542,7 @@ esp_err_t solar_os_playground_refresh(
         err = playground_parse_catalog(body, body_len, parsed);
     }
     if (err == ESP_OK) {
-        err = playground_save_catalog(source, body, body_len);
+        err = playground_save_catalog(source, body, body_len, storage);
     }
     if (err == ESP_OK) {
         portENTER_CRITICAL(&playground_lock);
@@ -1769,7 +1913,7 @@ esp_err_t solar_os_playground_install(
     return err;
 }
 
-esp_err_t solar_os_playground_remove(
+esp_err_t solar_os_playground_uninstall(
     const solar_os_playground_app_info_t *app,
     solar_os_playground_progress_fn progress_fn,
     void *progress_user)
@@ -1782,7 +1926,7 @@ esp_err_t solar_os_playground_remove(
         return ESP_ERR_NOT_FOUND;
     }
     solar_os_playground_progress_t progress = {
-        .stage = SOLAR_OS_PLAYGROUND_PROGRESS_REMOVE,
+        .stage = SOLAR_OS_PLAYGROUND_PROGRESS_UNINSTALL,
     };
     playground_report(progress_fn, progress_user, &progress);
     const esp_err_t err = playground_remove_tree(root);

@@ -255,6 +255,15 @@ radio send radio0 "hello from SolarOS"
 radio recv radio0 5000
 ```
 
+The built-in `meshcore-eu868` profile is specifically for MeshCore companion
+operation in the EU868 region: 869.618 MHz, 62.5 kHz, SF8, coding rate 4/8,
+private sync word `0x12`, CRC, variable length, and 14 dBm. MeshCore always
+requires an explicit profile:
+
+```text
+job start meshcore radio0 meshcore-eu868
+```
+
 `gfsk-eu868` and `ook-eu868` are also built in. Change both ends of a link to
 the same profile before exchanging packets. A custom set of settings can be
 captured in one of eight persistent NVS user profiles:
