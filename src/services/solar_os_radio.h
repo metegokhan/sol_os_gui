@@ -55,6 +55,8 @@ typedef struct {
     uint32_t bitrate_bps;
     uint32_t deviation_hz;
     uint32_t rx_bandwidth_hz;
+    uint8_t spreading_factor;
+    uint8_t coding_rate_denominator;
     uint16_t preamble_len;
     uint8_t sync_word_len;
     uint8_t sync_word[SOLAR_OS_RADIO_SYNC_WORD_MAX];

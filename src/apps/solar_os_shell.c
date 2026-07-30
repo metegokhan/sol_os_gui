@@ -566,6 +566,9 @@ static const char * const expansion_driver_values[] = {
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
     "rfm69",
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_RFM95
+    "rfm95",
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
     "pcd8544",
 #endif
@@ -589,6 +592,8 @@ static const char * const radio_config_fields[] = {
     "bitrate",
     "deviation",
     "bandwidth",
+    "sf",
+    "coding-rate",
     "power",
     "crc",
     "variable",
@@ -605,6 +610,12 @@ static const char * const radio_modulation_values[] = {
     "gmsk",
     "ook",
     "lora",
+};
+static const char * const radio_spreading_factor_values[] = {
+    "6", "7", "8", "9", "10", "11", "12",
+};
+static const char * const radio_coding_rate_values[] = {
+    "4/5", "4/6", "4/7", "4/8",
 };
 static const char * const radio_state_values[] = {
     "sleep",
@@ -1425,6 +1436,8 @@ static const char * const path_radio_config_name[] = {"radio", "config", SHELL_C
 static const char * const path_radio_config_modulation[] = {"radio", "config", SHELL_COMPLETION_ANY, "modulation"};
 static const char * const path_radio_config_crc[] = {"radio", "config", SHELL_COMPLETION_ANY, "crc"};
 static const char * const path_radio_config_variable[] = {"radio", "config", SHELL_COMPLETION_ANY, "variable"};
+static const char * const path_radio_config_sf[] = {"radio", "config", SHELL_COMPLETION_ANY, "sf"};
+static const char * const path_radio_config_coding_rate[] = {"radio", "config", SHELL_COMPLETION_ANY, "coding-rate"};
 static const char * const path_radio_state[] = {"radio", "state"};
 static const char * const path_radio_state_name[] = {"radio", "state", SHELL_COMPLETION_ANY};
 static const char * const path_radio_send[] = {"radio", "send"};
@@ -1979,6 +1992,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_radio_config_modulation, radio_modulation_values),
     SHELL_COMPLETION_STATIC(path_radio_config_crc, on_off_values),
     SHELL_COMPLETION_STATIC(path_radio_config_variable, on_off_values),
+    SHELL_COMPLETION_STATIC(path_radio_config_sf, radio_spreading_factor_values),
+    SHELL_COMPLETION_STATIC(path_radio_config_coding_rate, radio_coding_rate_values),
     SHELL_COMPLETION_RADIOS(path_radio_state),
     SHELL_COMPLETION_STATIC(path_radio_state_name, radio_state_values),
     SHELL_COMPLETION_RADIOS(path_radio_send),

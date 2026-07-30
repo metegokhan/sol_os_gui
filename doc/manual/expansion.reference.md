@@ -62,7 +62,7 @@ voltage and current requirements before connecting it.
 | --- | --- | --- | --- |
 | Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. The SSD1683 stays on its dedicated internal SPI2 host. |
-| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
+| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO4/GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 
 I2C and SPI buses accept shared logical leases. UART and registered 1-Wire bus
@@ -193,6 +193,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | --- | --- | --- | --- |
 | `manual` | Resource-only profile | Any valid bus, address, chip-select, GPIO, ADC, or PWM bindings | Claims resources without initializing hardware. |
 | `rfm69` | HopeRF RFM69 packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target for the `radio` command. |
+| `rfm95` | HopeRF RFM95W LoRa radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a LoRa packet-radio target for the `radio` command. |
 | `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
@@ -226,6 +227,37 @@ display test lcd0
 
 Wire a module backlight according to the module board and use suitable current
 limiting when connecting it to 3V3.
+
+### RFM95W on ESP32-S3-DevKitC-1
+
+The RFM95W is a 3.3 V device. Connect an antenna suitable for the module band
+before transmitting.
+
+```text
+VCC -> 3V3        GND -> GND
+SCK -> GPIO12     MISO -> GPIO13
+MOSI -> GPIO11    NSS/CS -> GPIO4
+RESET -> GPIO5
+
+expansion attach rfm95 radio0 spi=spi0 cs=gpio4 reset=gpio5
+radio status radio0
+```
+
+The default LoRa profile is 868 MHz, 125 kHz bandwidth, SF7, coding rate 4/5,
+CRC enabled, explicit headers, sync word `0x12`, and 13 dBm transmit power.
+Change both ends of the link to identical settings before exchanging packets:
+
+```text
+radio config radio0 frequency 868MHz
+radio config radio0 bandwidth 125000
+radio config radio0 sf 7
+radio config radio0 coding-rate 4/5
+radio send radio0 "hello from SolarOS"
+radio recv radio0 5000
+```
+
+The driver polls the radio status registers, so DIO0/IRQ is optional. An IRQ
+binding can still be reserved for future interrupt-driven operation.
 
 ### SSD1306 or SH1106 on Waveshare ESP32-S3-RLCD-4.2
 

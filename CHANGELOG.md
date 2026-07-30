@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added an RFM95W LoRa expansion driver with packet transmit/receive, RSSI/SNR
+  reporting, configurable frequency, bandwidth, spreading factor, coding rate,
+  CRC, header mode, preamble, sync word, and transmit power through the common
+  `radio` service. The ESP32-S3 DevKitC `spi0` profile now accepts GPIO4 as a
+  chip-select, matching the documented RFM95W wiring with reset on GPIO5.
+
 ## 4.x
 
 - **4.4.2** — 2026-07-29 — Reduced SD-card boot time by trusting the signed

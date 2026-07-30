@@ -596,6 +596,20 @@ radio send radio0 hello
 radio recv radio0 5000
 ```
 
+LoRa radios additionally use `bandwidth`, `sf`, and `coding-rate`. For an
+RFM95W using the common 868 MHz profile:
+
+```text
+radio config radio0 frequency 868MHz
+radio config radio0 bandwidth 125000
+radio config radio0 sf 7
+radio config radio0 coding-rate 4/5
+```
+
+`variable=on` selects the normal explicit LoRa header. `variable=off` selects
+implicit-header mode and requires the configured `length` to match on both
+ends. SF6 requires implicit-header mode.
+
 The POCSAG job configures an attached packet radio for one paging channel,
 filters addresses to one RIC, corrects up to two bad bits per BCH codeword, and
 publishes decoded pages to the universal inbox. Consecutive POCSAG batches are

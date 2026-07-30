@@ -29,6 +29,7 @@
 #define SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK (1U << SPI3_HOST)
 #define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
 #define SOLAR_OS_BOARD_SPI_CS_SLOTS { \
+    {.pin = GPIO_NUM_4, .name = "gpio4"}, \
     {.pin = GPIO_NUM_10, .name = "gpio10"}, \
     {.pin = GPIO_NUM_5, .name = "gpio5"}, \
     {.pin = GPIO_NUM_6, .name = "gpio6"}, \
@@ -58,8 +59,9 @@
             .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
             .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
             .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
-            .cs_count = 4, \
+            .cs_count = 5, \
             .cs = { \
+                {.name = "gpio4", .pin = GPIO_NUM_4}, \
                 {.name = "gpio10", .pin = GPIO_NUM_10}, \
                 {.name = "gpio5", .pin = GPIO_NUM_5}, \
                 {.name = "gpio6", .pin = GPIO_NUM_6}, \
@@ -155,7 +157,7 @@
     {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "strapping"}, \
-    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / SPI CS"}, \
     {.pin = 5, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / SPI CS"}, \
     {.pin = 6, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / SPI CS"}, \
     {.pin = 7, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / SPI CS"}, \

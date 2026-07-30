@@ -14,6 +14,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
 #include "solar_os_rfm69.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_RFM95
+#include "solar_os_rfm95.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
 #include "solar_os_ssd1306.h"
 #endif
@@ -23,6 +26,15 @@
 
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
 static const solar_os_expansion_binding_spec_t rfm69_binding_specs[] = {
+    {.key = "spi", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .required = true},
+    {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
+    {.key = "irq", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "irq"},
+    {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset"},
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_RFM95
+static const solar_os_expansion_binding_spec_t rfm95_binding_specs[] = {
     {.key = "spi", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .required = true},
     {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
     {.key = "irq", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "irq"},
@@ -73,6 +85,18 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .binding_spec_count = sizeof(rfm69_binding_specs) / sizeof(rfm69_binding_specs[0]),
         .attach = solar_os_rfm69_attach,
         .detach = solar_os_rfm69_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_RFM95
+    {
+        .name = "rfm95",
+        .summary = "HopeRF RFM95W LoRa radio",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI,
+        .probe_supported = true,
+        .binding_specs = rfm95_binding_specs,
+        .binding_spec_count = sizeof(rfm95_binding_specs) / sizeof(rfm95_binding_specs[0]),
+        .attach = solar_os_rfm95_attach,
+        .detach = solar_os_rfm95_detach,
     },
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544

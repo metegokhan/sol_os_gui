@@ -187,6 +187,22 @@ static bool parse_bool_arg(const char *text, bool *value)
     return false;
 }
 
+static bool parse_coding_rate_arg(const char *text, uint8_t *denominator)
+{
+    if (text == NULL || denominator == NULL) {
+        return false;
+    }
+    if (strncmp(text, "4/", 2) == 0) {
+        text += 2;
+    }
+    uint32_t value = 0;
+    if (!parse_u32_arg(text, 5, 8, &value)) {
+        return false;
+    }
+    *denominator = (uint8_t)value;
+    return true;
+}
+
 static bool token_has_hex_alpha(const char *text)
 {
     for (const char *p = text; p != NULL && *p != '\0'; p++) {
@@ -257,6 +273,25 @@ static void radio_print_sync_word(solar_os_shell_io_t *term, const solar_os_radi
 
 static void radio_print_config(solar_os_shell_io_t *term, const solar_os_radio_config_t *config)
 {
+    if (config->modulation == SOLAR_OS_RADIO_MODULATION_LORA) {
+        solar_os_shell_io_printf(term,
+                                 "frequency=%" PRIu32 " modulation=lora bandwidth=%" PRIu32
+                                 " sf=%u coding-rate=4/%u power=%d crc=%s"
+                                 " preamble=%u variable=%s length=%u ",
+                                 config->frequency_hz,
+                                 config->rx_bandwidth_hz,
+                                 config->spreading_factor,
+                                 config->coding_rate_denominator,
+                                 config->tx_power_dbm,
+                                 config->crc_enabled ? "on" : "off",
+                                 config->preamble_len,
+                                 config->variable_length ? "on" : "off",
+                                 config->payload_length);
+        radio_print_sync_word(term, config);
+        solar_os_shell_io_put_char(term, '\n');
+        return;
+    }
+
     solar_os_shell_io_printf(term,
                              "frequency=%" PRIu32 " modulation=%s bitrate=%" PRIu32
                              " deviation=%" PRIu32 " bandwidth=%" PRIu32
@@ -448,6 +483,17 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
         config.rx_bandwidth_hz = u32;
+    } else if (strcmp(field, "sf") == 0) {
+        if (!parse_u32_arg(argv[4], 6, 12, &u32)) {
+            radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
+            return;
+        }
+        config.spreading_factor = (uint8_t)u32;
+    } else if (strcmp(field, "coding-rate") == 0) {
+        if (!parse_coding_rate_arg(argv[4], &config.coding_rate_denominator)) {
+            radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
+            return;
+        }
     } else if (strcmp(field, "power") == 0) {
         if (!parse_i32_arg(argv[4], -128, 127, &i32)) {
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);

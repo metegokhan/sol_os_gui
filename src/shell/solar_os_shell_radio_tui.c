@@ -28,6 +28,8 @@ typedef enum {
     RADIO_TUI_ITEM_BITRATE,
     RADIO_TUI_ITEM_DEVIATION,
     RADIO_TUI_ITEM_BANDWIDTH,
+    RADIO_TUI_ITEM_SPREADING_FACTOR,
+    RADIO_TUI_ITEM_CODING_RATE,
     RADIO_TUI_ITEM_POWER,
     RADIO_TUI_ITEM_CRC,
     RADIO_TUI_ITEM_VARIABLE,
@@ -67,6 +69,8 @@ static const radio_tui_item_def_t radio_tui_items[] = {
     [RADIO_TUI_ITEM_BITRATE] = {.label = "bitrate", .editable = true},
     [RADIO_TUI_ITEM_DEVIATION] = {.label = "deviation", .editable = true},
     [RADIO_TUI_ITEM_BANDWIDTH] = {.label = "bandwidth", .editable = true},
+    [RADIO_TUI_ITEM_SPREADING_FACTOR] = {.label = "sf", .editable = true},
+    [RADIO_TUI_ITEM_CODING_RATE] = {.label = "coding rate", .editable = true},
     [RADIO_TUI_ITEM_POWER] = {.label = "power", .editable = true},
     [RADIO_TUI_ITEM_CRC] = {.label = "crc", .editable = false},
     [RADIO_TUI_ITEM_VARIABLE] = {.label = "variable", .editable = false},
@@ -401,6 +405,20 @@ static void radio_tui_current_value(radio_tui_item_t item,
     case RADIO_TUI_ITEM_BANDWIDTH:
         snprintf(buffer, buffer_len, "%" PRIu32, config->rx_bandwidth_hz);
         break;
+    case RADIO_TUI_ITEM_SPREADING_FACTOR:
+        if (config->spreading_factor != 0) {
+            snprintf(buffer, buffer_len, "%u", config->spreading_factor);
+        } else {
+            strlcpy(buffer, "-", buffer_len);
+        }
+        break;
+    case RADIO_TUI_ITEM_CODING_RATE:
+        if (config->coding_rate_denominator != 0) {
+            snprintf(buffer, buffer_len, "4/%u", config->coding_rate_denominator);
+        } else {
+            strlcpy(buffer, "-", buffer_len);
+        }
+        break;
     case RADIO_TUI_ITEM_POWER:
         snprintf(buffer, buffer_len, "%d", (int)config->tx_power_dbm);
         break;
@@ -604,6 +622,25 @@ static bool radio_tui_commit_edit(void)
         }
         config.rx_bandwidth_hz = u32;
         break;
+    case RADIO_TUI_ITEM_SPREADING_FACTOR:
+        if (!radio_tui_parse_u32(radio_tui.edit_text, 6, 12, &u32)) {
+            radio_tui_set_status("invalid spreading factor");
+            return false;
+        }
+        config.spreading_factor = (uint8_t)u32;
+        break;
+    case RADIO_TUI_ITEM_CODING_RATE: {
+        const char *text = radio_tui.edit_text;
+        if (strncmp(text, "4/", 2) == 0) {
+            text += 2;
+        }
+        if (!radio_tui_parse_u32(text, 5, 8, &u32)) {
+            radio_tui_set_status("invalid coding rate");
+            return false;
+        }
+        config.coding_rate_denominator = (uint8_t)u32;
+        break;
+    }
     case RADIO_TUI_ITEM_POWER:
         if (!radio_tui_parse_i32(radio_tui.edit_text, -128, 127, &i32)) {
             radio_tui_set_status("invalid power");
