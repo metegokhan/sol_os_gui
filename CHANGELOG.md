@@ -7,6 +7,9 @@
   CRC, header mode, preamble, sync word, and transmit power through the common
   `radio` service. The ESP32-S3 DevKitC `spi0` profile now accepts GPIO4 as a
   chip-select, matching the documented RFM95W wiring with reset on GPIO5.
+- SPI buses now leave unused chip-select candidates available. An attached
+  device or one-shot transfer claims only its selected CS GPIO, allowing another
+  declared CS candidate to serve roles such as reset or data/command.
 
 ## 4.x
 

@@ -135,10 +135,11 @@ Detaching the port that carries the current shell fails as busy, so the shell
 cannot disconnect itself accidentally.
 
 On a board with an approved available SPI host, create a bus before attaching the
-device. Creating the bus claims SCLK, MOSI, and optional MISO immediately. Each
-`cs=` option declares and reserves a chip-select pin for the lifetime of
-the attached bus. Devices and one-shot transfers additionally claim the
-logical chip-select slot, preventing two users from driving it concurrently:
+device. Creating the bus claims its controller, SCLK, MOSI, and optional MISO
+immediately. Each `cs=` option declares an allowed chip-select pin but leaves it
+available until a device or one-shot transfer selects it. That user claims both
+the GPIO and logical chip-select slot, preventing GPIO or SPI users from driving
+it concurrently:
 
 ```text
 expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio17

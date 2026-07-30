@@ -374,12 +374,20 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
                             -1,
                             "pwm");
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+        ESP_RETURN_ON_ERROR(append_claim(requests,
+                                         request_count,
+                                         SOLAR_OS_RESOURCE_SPI_CS,
+                                         binding->value,
+                                         -1,
+                                         binding->target),
+                            "expansion",
+                            "append spi cs claim failed");
         return append_claim(requests,
                             request_count,
-                            SOLAR_OS_RESOURCE_SPI_CS,
+                            SOLAR_OS_RESOURCE_GPIO_PIN,
                             binding->value,
                             -1,
-                            binding->target);
+                            "spi-cs");
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS: {
         char target[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
         size_t bus_index = 0;

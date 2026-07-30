@@ -267,8 +267,7 @@ static size_t bus_resource_requests(const solar_os_bus_info_t *info,
         };
         break;
     case SOLAR_OS_BUS_PROTOCOL_SPI:
-        if (capacity < 3U + (info->config.spi.miso_pin >= 0 ? 1U : 0U) +
-            info->config.spi.cs_count) {
+        if (capacity < 3U + (info->config.spi.miso_pin >= 0 ? 1U : 0U)) {
             return 0;
         }
         requests[count++] = (solar_os_resource_request_t) {
@@ -295,14 +294,6 @@ static size_t bus_resource_requests(const solar_os_bus_info_t *info,
                 .primary = info->config.spi.miso_pin,
                 .secondary = -1,
                 .label = "spi-miso",
-            };
-        }
-        for (size_t i = 0; i < info->config.spi.cs_count; i++) {
-            requests[count++] = (solar_os_resource_request_t) {
-                .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
-                .primary = info->config.spi.cs[i].pin,
-                .secondary = -1,
-                .label = "spi-cs-slot",
             };
         }
         break;
@@ -1672,7 +1663,26 @@ esp_err_t solar_os_bus_spi_transfer_once(const char *name,
             .secondary = -1,
             .label = name,
         },
+        {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = cs_pin,
+            .secondary = -1,
+            .label = "spi-cs",
+        },
     };
+    solar_os_resource_claim_t existing;
+    const bool had_spi_cs =
+        solar_os_resource_find_claim(SOLAR_OS_RESOURCE_SPI_CS,
+                                     cs_pin,
+                                     -1,
+                                     &existing) &&
+        strcmp(existing.owner, owner) == 0;
+    const bool had_gpio =
+        solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                     cs_pin,
+                                     -1,
+                                     &existing) &&
+        strcmp(existing.owner, owner) == 0;
     esp_err_t ret = solar_os_resource_claim_bundle(requests,
                                                     sizeof(requests) / sizeof(requests[0]),
                                                     owner,
@@ -1682,10 +1692,18 @@ esp_err_t solar_os_bus_spi_transfer_once(const char *name,
     }
     ret = solar_os_bus_acquire(name, SOLAR_OS_BUS_PROTOCOL_SPI, owner);
     if (ret != ESP_OK) {
-        (void)solar_os_resource_release(SOLAR_OS_RESOURCE_SPI_CS,
-                                        cs_pin,
-                                        -1,
-                                        owner);
+        if (!had_spi_cs) {
+            (void)solar_os_resource_release(SOLAR_OS_RESOURCE_SPI_CS,
+                                            cs_pin,
+                                            -1,
+                                            owner);
+        }
+        if (!had_gpio) {
+            (void)solar_os_resource_release(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                            cs_pin,
+                                            -1,
+                                            owner);
+        }
         return ret;
     }
     ret = solar_os_bus_spi_transfer(name,
@@ -1698,10 +1716,18 @@ esp_err_t solar_os_bus_spi_transfer_once(const char *name,
     const esp_err_t release_ret = solar_os_bus_release(name,
                                                        SOLAR_OS_BUS_PROTOCOL_SPI,
                                                        owner);
-    (void)solar_os_resource_release(SOLAR_OS_RESOURCE_SPI_CS,
-                                    cs_pin,
-                                    -1,
-                                    owner);
+    if (!had_spi_cs) {
+        (void)solar_os_resource_release(SOLAR_OS_RESOURCE_SPI_CS,
+                                        cs_pin,
+                                        -1,
+                                        owner);
+    }
+    if (!had_gpio) {
+        (void)solar_os_resource_release(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                        cs_pin,
+                                        -1,
+                                        owner);
+    }
     return ret == ESP_OK ? release_ret : ret;
 }
 
