@@ -516,6 +516,11 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio profile apply <radio> <profile>` | Apply one complete profile to a radio, restoring the prior config if application fails. |
 | `radio` | `radio profile save <radio> <profile>` | Save or replace a user profile from the radio's complete current config. |
 | `radio` | `radio profile remove <profile>` | Remove a user profile. Built-in profiles are read-only. |
+| `meshcore` | `meshcore status` | Show MeshCore identity, radio, packet, delivery, duplicate, memory, and stack state. |
+| `meshcore` | `meshcore identity show\|generate\|import\|export` | Inspect or explicitly manage the private MeshCore identity. |
+| `meshcore` | `meshcore name [name]` | Show or set the MeshCore-specific advertised name. |
+| `meshcore` | `meshcore advert zero\|flood` | Queue a local or explicitly network-wide advert. |
+| `meshcore` | `meshcore channel list\|add\|remove\|public` | Manage bounded shared-key groups while the job is stopped. |
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |

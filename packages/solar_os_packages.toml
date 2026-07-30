@@ -35,12 +35,14 @@ members = [
   "service_expansion",
   "service_radio",
   "service_link",
+  "service_meshcore",
   "expansion_rfm69",
   "expansion_rfm95",
   "expansion_pcd8544",
   "expansion_ssd1306",
   "job_pocsag",
   "job_radio_link",
+  "job_meshcore",
 ]
 
 [groups.maintenance_apps]
@@ -506,6 +508,44 @@ sources = [
 ]
 requires = ["esp_hw_support"]
 
+[packages.service_meshcore]
+label = "service.meshcore"
+depends = [
+  "service_contacts",
+  "service_credentials",
+  "service_messaging",
+  "service_radio",
+]
+sources = [
+  "services/solar_os_meshcore.cpp",
+  "vendor/meshcore/Dispatcher.cpp",
+  "vendor/meshcore/Identity.cpp",
+  "vendor/meshcore/Mesh.cpp",
+  "vendor/meshcore/Packet.cpp",
+  "vendor/meshcore/Utils.cpp",
+  "vendor/meshcore/helpers/AdvertDataHelpers.cpp",
+  "vendor/meshcore/helpers/BaseChatMesh.cpp",
+  "vendor/meshcore/helpers/TxtDataHelpers.cpp",
+  "vendor/meshcore/crypto/AESEsp32.cpp",
+  "vendor/meshcore/crypto/BlockCipher.cpp",
+  "vendor/meshcore/crypto/Crypto.cpp",
+  "vendor/meshcore/crypto/Hash.cpp",
+  "vendor/meshcore/crypto/SHA256.cpp",
+  "vendor/meshcore/ed25519/add_scalar.c",
+  "vendor/meshcore/ed25519/fe.c",
+  "vendor/meshcore/ed25519/ge.c",
+  "vendor/meshcore/ed25519/key_exchange.c",
+  "vendor/meshcore/ed25519/keypair.c",
+  "vendor/meshcore/ed25519/sc.c",
+  "vendor/meshcore/ed25519/seed.c",
+  "vendor/meshcore/ed25519/sha512.c",
+  "vendor/meshcore/ed25519/sign.c",
+  "vendor/meshcore/ed25519/verify.c",
+]
+requires = ["mbedtls", "nvs_flash"]
+capabilities = ["psram"]
+any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
+
 [packages.expansion_rfm69]
 label = "expansion.rfm69"
 depends = ["service_radio", "service_spi"]
@@ -886,4 +926,14 @@ any_capabilities = ["expansion_spi", "expansion_gpio"]
 label = "job.radio-link"
 depends = ["service_inbox", "service_link", "service_radio"]
 sources = ["jobs/solar_os_radio_link_job.c"]
+any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
+
+[packages.job_meshcore]
+label = "job.meshcore"
+depends = ["service_meshcore"]
+sources = [
+  "jobs/solar_os_meshcore_job.c",
+  "shell/solar_os_shell_meshcore.c",
+]
+capabilities = ["psram"]
 any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]

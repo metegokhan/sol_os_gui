@@ -140,6 +140,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [email-sync job](jobs.reference.md#email-sync) — Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local email app and publishes each new message to the universal inbox.
 - [httpd job](jobs.reference.md#httpd) — Static HTTP file server for a folder on mounted storage.
 - [log job](jobs.reference.md#log) — Runtime SolarOS log follower. It mirrors log entries to a byte-stream port or appends them to a file.
+- [meshcore job](jobs.reference.md#meshcore) — Non-forwarding MeshCore companion messaging over a claimed packet radio.
 - [ntp-sync job](jobs.reference.md#ntp-sync) — Network time synchronization job. It updates the SolarOS wall clock from NTP and also updates the hardware RTC when the board provides one.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
 - [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for transport-independent SolarOS Link messages.
@@ -175,6 +176,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 - [Device identity](identity.md) — Read and configure the NVS-backed user and hostname
 - [Foreground sessions and applications](sessions.apps.md) — Create shells and inspect resumable foreground applications
+- [MeshCore companion messaging](meshcore.md) — Secure direct and shared-group messages over a claimed packet radio
 - [SolarOS Link](link.md) — Transport-independent packet messaging and the radio-link adapter
 
 ## Boards and firmware

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added a pinned, audited MeshCore companion provider with Ed25519/ECDH direct
+  messaging, ACK retries, shared-key groups, contact discovery and trust
+  enforcement, a PSRAM-resident bounded core, an RFM95-compatible radio
+  adapter, explicit EU868 profile, background job, shell controls, and manual.
 - Made Chat an offline-capable provider-neutral conversation client and added
   live `messages` shell controls plus safe Contacts/Messages APIs for Python and
   Lua. Direct messages now require an explicit second confirmation for

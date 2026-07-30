@@ -74,3 +74,7 @@ messages send CONVERSATION_ID TEXT [--allow-untrusted]
 messages read CONVERSATION_ID
 messages cancel MESSAGE_ID
 ```
+
+For packet-radio operation, see `meshcore`. MeshCore direct messages use the
+same conversations and trust states as gateway messages; shared-key groups
+remain visibly sender-unverified.

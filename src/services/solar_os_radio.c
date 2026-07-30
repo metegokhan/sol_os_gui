@@ -45,6 +45,24 @@ typedef struct {
 
 static const solar_os_radio_profile_t radio_builtin_profiles[] = {
     {
+        .name = "meshcore-eu868",
+        .builtin = true,
+        .config = {
+            .frequency_hz = 869618000,
+            .modulation = SOLAR_OS_RADIO_MODULATION_LORA,
+            .rx_bandwidth_hz = 62500,
+            .spreading_factor = 8,
+            .coding_rate_denominator = 8,
+            .preamble_len = 8,
+            .sync_word_len = 1,
+            .sync_word = {0x12},
+            .tx_power_dbm = 14,
+            .crc_enabled = true,
+            .variable_length = true,
+            .payload_length = 255,
+        },
+    },
+    {
         .name = "lora-eu868",
         .builtin = true,
         .config = {

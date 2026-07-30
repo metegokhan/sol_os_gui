@@ -58,6 +58,11 @@ void solar_os_shell_cmd_cp(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_MQTT
 void solar_os_shell_cmd_mqtt(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_JOB_MESHCORE
+void solar_os_shell_cmd_meshcore(solar_os_context_t *ctx,
+                                 int argc,
+                                 char **argv);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv);
 #endif

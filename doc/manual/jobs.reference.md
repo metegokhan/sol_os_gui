@@ -670,6 +670,39 @@ Notes:
   previous configuration afterward. A receiver job using the same half-duplex
   radio must be stopped first.
 
+## meshcore
+
+Non-forwarding MeshCore companion provider for Contacts and Messages.
+
+Usage:
+
+```text
+job start meshcore <radio> <profile>
+job stop meshcore
+job status meshcore
+meshcore status
+```
+
+Example:
+
+```text
+job start meshcore radio0 meshcore-eu868
+meshcore advert flood
+chat
+```
+
+The job requires PSRAM and a packet-radio expansion capability. It claims the
+radio, applies the explicit regional profile, sends one zero-hop startup
+advert, and continuously handles adverts, direct messages, ACKs, and group
+messages. Its complete protocol context is allocated as external-required
+PSRAM; the 6144-byte worker stack remains internal and its minimum watermark is
+reported by `meshcore status`.
+
+Stopping restores the previous radio configuration and state before releasing
+ownership. MeshCore and `radio-link` therefore report normal ownership
+conflicts when pointed at the same radio. See [meshcore.md](meshcore.md) for
+identity, trust, channel, regional-profile, and security details.
+
 ## radio-link
 
 Packet-radio adapter for the transport-independent SolarOS Link service.

@@ -246,6 +246,10 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     {"email", "IMAP email client", solar_os_shell_cmd_email},
 #endif
+#if SOLAR_OS_PACKAGE_JOB_MESHCORE
+    {"meshcore", "MeshCore identity and radio messaging",
+     solar_os_shell_cmd_meshcore},
+#endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
     {"pocsag", "POCSAG pager send and receive", solar_os_shell_cmd_pocsag},
 #endif
@@ -513,6 +517,19 @@ static const char * const slip_baud_values[] = {"9600", "38400", "115200", "2304
 static const char * const pocsag_subcommands[] = {"status", "send"};
 static const char * const pocsag_format_values[] = {"alpha", "numeric"};
 static const char * const pocsag_polarity_values[] = {"normal", "inverted"};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_MESHCORE
+static const char * const meshcore_subcommands[] = {
+    "status", "identity", "name", "advert", "channel",
+};
+static const char * const meshcore_identity_subcommands[] = {
+    "show", "generate", "import", "export",
+};
+static const char * const meshcore_channel_subcommands[] = {
+    "list", "add", "remove", "public",
+};
+static const char * const meshcore_advert_values[] = {"zero", "flood"};
+static const char * const meshcore_on_off_values[] = {"off", "on"};
 #endif
 
 static const char * const sd_subcommands[] = {
@@ -1227,6 +1244,27 @@ static const char * const path_job_start_radio_link_radio[] = {
 static const char * const path_job_start_radio_link_profile[] = {
     "job", "start", "radio-link", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY
+};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_MESHCORE
+static const char * const path_job_start_meshcore[] = {
+    "job", "start", "meshcore"
+};
+static const char * const path_job_start_meshcore_radio[] = {
+    "job", "start", "meshcore", SHELL_COMPLETION_ANY
+};
+static const char * const path_meshcore[] = {"meshcore"};
+static const char * const path_meshcore_identity[] = {
+    "meshcore", "identity"
+};
+static const char * const path_meshcore_advert[] = {
+    "meshcore", "advert"
+};
+static const char * const path_meshcore_channel[] = {
+    "meshcore", "channel"
+};
+static const char * const path_meshcore_channel_public[] = {
+    "meshcore", "channel", "public"
 };
 #endif
 static const char * const path_job_start_slip[] = {"job", "start", "slip"};
@@ -1977,6 +2015,18 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_RADIO_PROFILES(path_job_start_radio_link_radio),
     SHELL_COMPLETION_STATIC(path_job_start_radio_link_profile,
                             radio_link_inbox_values),
+#endif
+#if SOLAR_OS_PACKAGE_JOB_MESHCORE
+    SHELL_COMPLETION_RADIOS(path_job_start_meshcore),
+    SHELL_COMPLETION_RADIO_PROFILES(path_job_start_meshcore_radio),
+    SHELL_COMPLETION_STATIC(path_meshcore, meshcore_subcommands),
+    SHELL_COMPLETION_STATIC(path_meshcore_identity,
+                            meshcore_identity_subcommands),
+    SHELL_COMPLETION_STATIC(path_meshcore_advert, meshcore_advert_values),
+    SHELL_COMPLETION_STATIC(path_meshcore_channel,
+                            meshcore_channel_subcommands),
+    SHELL_COMPLETION_STATIC(path_meshcore_channel_public,
+                            meshcore_on_off_values),
 #endif
     SHELL_COMPLETION_PORTS(path_job_start_slip),
 #if SOLAR_OS_PACKAGE_JOB_SLIP
