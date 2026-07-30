@@ -258,6 +258,9 @@ static void radio_print_error(solar_os_shell_io_t *term, const char *prefix, esp
     case ESP_ERR_TIMEOUT:
         solar_os_shell_io_printf(term, "%s: timeout\n", prefix);
         break;
+    case ESP_ERR_INVALID_STATE:
+        solar_os_shell_io_printf(term, "%s: radio is owned by a job\n", prefix);
+        break;
     default:
         solar_os_shell_io_printf(term, "%s failed: %s\n", prefix, esp_err_to_name(err));
         break;
@@ -344,6 +347,9 @@ static void radio_print_device(solar_os_shell_io_t *term, const solar_os_radio_i
         solar_os_shell_io_printf(term, " snr=%d", status.snr_db);
     }
     solar_os_shell_io_printf(term, " modulations=%s\n", modulations);
+    if (info->claimed) {
+        solar_os_shell_io_printf(term, "  owner: %s\n", info->owner);
+    }
 
     if (!verbose) {
         return;
@@ -568,9 +574,15 @@ static void radio_profile_print_error(solar_os_shell_io_t *term,
     if (err == ESP_ERR_NOT_FOUND) {
         solar_os_shell_io_printf(term, "radio profile %s: radio or profile not found\n",
                                  operation);
-    } else if (err == ESP_ERR_INVALID_STATE) {
+    } else if (err == ESP_ERR_INVALID_STATE &&
+               (strcmp(operation, "remove") == 0 ||
+                strcmp(operation, "save") == 0)) {
         solar_os_shell_io_printf(term,
                                  "radio profile %s: built-in profiles are read-only\n",
+                                 operation);
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term,
+                                 "radio profile %s: radio is owned by a job\n",
                                  operation);
     } else if (err == ESP_ERR_NO_MEM) {
         solar_os_shell_io_printf(term,

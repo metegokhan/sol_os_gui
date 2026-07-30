@@ -68,6 +68,9 @@ void solar_os_shell_cmd_pwm(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
 void solar_os_shell_cmd_radio(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+void solar_os_shell_cmd_link(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 void solar_os_shell_cmd_pocsag(solar_os_context_t *ctx, int argc, char **argv);
 #endif

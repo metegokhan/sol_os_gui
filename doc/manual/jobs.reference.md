@@ -638,6 +638,39 @@ Notes:
   previous configuration afterward. A receiver job using the same half-duplex
   radio must be stopped first.
 
+## radio-link
+
+Packet-radio adapter for the transport-independent SolarOS Link service.
+
+Usage:
+
+```text
+job start radio-link <link> <radio> <profile> [inbox=off|on]
+job stop radio-link
+job status radio-link
+link status <link>
+```
+
+Example:
+
+```text
+job start radio-link link0 radio0 lora-eu868 inbox=on
+link send link0 broadcast "hello"
+link status link0
+```
+
+The job claims the radio, applies the complete named profile, creates the Link
+instance, transmits its queued frames, and continuously receives complete radio
+packets. The Link service validates its own CRC, suppresses duplicates, replies
+to requested unicast acknowledgements, and retains accepted messages in a
+bounded queue. `inbox=on` additionally publishes accepted text messages to the
+universal inbox; it is off by default.
+
+Stopping restores the radio configuration and state that existed before the
+job started. Mutating direct radio operations are rejected while the radio is
+owned by the job. See [link.md](link.md) for commands, frame layout, IDs,
+queue limits, transport MTUs, and version-one exclusions.
+
 ## slip
 
 IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines,

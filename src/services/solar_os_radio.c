@@ -7,9 +7,11 @@
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "nvs.h"
 
 #define SOLAR_OS_RADIO_DEVICE_MAX 4
+#define RADIO_RELEASE_WAIT_MS 3500U
 #define RADIO_PROFILE_NVS_NAMESPACE "radio_prof"
 #define RADIO_PROFILE_NVS_KEY "profiles"
 #define RADIO_PROFILE_MAGIC 0x52504631U
@@ -21,6 +23,11 @@ typedef struct {
     solar_os_radio_status_t status;
     const solar_os_radio_ops_t *ops;
     void *ctx;
+    bool claimed;
+    bool releasing;
+    size_t handle_refs;
+    char owner[SOLAR_OS_RADIO_OWNER_MAX];
+    uint32_t token;
 } radio_device_t;
 
 typedef struct {
@@ -103,6 +110,7 @@ _Static_assert(sizeof(radio_builtin_profiles) / sizeof(radio_builtin_profiles[0]
 static radio_device_t radio_devices[SOLAR_OS_RADIO_DEVICE_MAX];
 static SemaphoreHandle_t radio_mutex;
 static SemaphoreHandle_t radio_profile_mutex;
+static uint32_t radio_next_token = 1;
 
 static esp_err_t radio_ensure_init(void)
 {
@@ -146,6 +154,54 @@ static radio_device_t *radio_alloc_locked(void)
         }
     }
     return NULL;
+}
+
+static bool radio_handle_valid_locked(const solar_os_radio_handle_t *handle)
+{
+    if (handle == NULL ||
+        handle->index < 0 ||
+        handle->index >= (int)SOLAR_OS_RADIO_DEVICE_MAX) {
+        return false;
+    }
+    const radio_device_t *device = &radio_devices[handle->index];
+    return device->active && device->claimed && device->token == handle->token;
+}
+
+static bool radio_handle_operation_acquire_locked(const solar_os_radio_handle_t *handle)
+{
+    if (!radio_handle_valid_locked(handle)) {
+        return false;
+    }
+    radio_device_t *device = &radio_devices[handle->index];
+    if (device->releasing) {
+        return false;
+    }
+    device->handle_refs++;
+    return true;
+}
+
+static void radio_handle_operation_release_locked(int index, uint32_t token)
+{
+    if (index < 0 || index >= (int)SOLAR_OS_RADIO_DEVICE_MAX) {
+        return;
+    }
+    radio_device_t *device = &radio_devices[index];
+    if (device->active && device->claimed && device->token == token &&
+        device->handle_refs > 0) {
+        device->handle_refs--;
+    }
+}
+
+static void radio_fill_info_locked(const radio_device_t *device,
+                                   solar_os_radio_info_t *info)
+{
+    *info = device->info;
+    info->claimed = device->claimed;
+    if (device->claimed) {
+        strlcpy(info->owner, device->owner, sizeof(info->owner));
+    } else {
+        info->owner[0] = '\0';
+    }
 }
 
 static bool radio_modulation_supported(solar_os_radio_modulation_t modulation,
@@ -263,6 +319,10 @@ esp_err_t solar_os_radio_unregister(const char *name)
         xSemaphoreGive(radio_mutex);
         return ESP_ERR_NOT_FOUND;
     }
+    if (radio_devices[index].claimed) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
     memset(&radio_devices[index], 0, sizeof(radio_devices[index]));
     xSemaphoreGive(radio_mutex);
     return ESP_OK;
@@ -300,7 +360,7 @@ bool solar_os_radio_get(size_t index, solar_os_radio_info_t *info)
             continue;
         }
         if (current++ == index) {
-            *info = radio_devices[i].info;
+            radio_fill_info_locked(&radio_devices[i], info);
             xSemaphoreGive(radio_mutex);
             return true;
         }
@@ -322,7 +382,7 @@ esp_err_t solar_os_radio_get_info(const char *name, solar_os_radio_info_t *info)
         xSemaphoreGive(radio_mutex);
         return ESP_ERR_NOT_FOUND;
     }
-    *info = radio_devices[index].info;
+    radio_fill_info_locked(&radio_devices[index], info);
     xSemaphoreGive(radio_mutex);
     return ESP_OK;
 }
@@ -367,6 +427,154 @@ esp_err_t solar_os_radio_get_status(const char *name, solar_os_radio_status_t *s
     return ESP_OK;
 }
 
+esp_err_t solar_os_radio_claim(const char *name,
+                               const char *owner,
+                               solar_os_radio_handle_t *handle)
+{
+    if (!radio_name_valid(name) ||
+        owner == NULL ||
+        owner[0] == '\0' ||
+        strnlen(owner, SOLAR_OS_RADIO_OWNER_MAX) >= SOLAR_OS_RADIO_OWNER_MAX ||
+        handle == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    const int index = radio_find_index_locked(name);
+    if (index < 0) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+    radio_device_t *device = &radio_devices[index];
+    if (device->claimed) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    device->claimed = true;
+    device->releasing = false;
+    device->handle_refs = 0;
+    strlcpy(device->owner, owner, sizeof(device->owner));
+    device->token = radio_next_token++;
+    if (radio_next_token == 0) {
+        radio_next_token = 1;
+    }
+    handle->index = index;
+    handle->token = device->token;
+    xSemaphoreGive(radio_mutex);
+    return ESP_OK;
+}
+
+esp_err_t solar_os_radio_release(solar_os_radio_handle_t *handle)
+{
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+
+    int index = -1;
+    uint32_t token = 0;
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (!radio_handle_valid_locked(handle)) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    index = handle->index;
+    token = handle->token;
+    radio_devices[index].releasing = true;
+    xSemaphoreGive(radio_mutex);
+
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(RADIO_RELEASE_WAIT_MS);
+    for (;;) {
+        xSemaphoreTake(radio_mutex, portMAX_DELAY);
+        radio_device_t *device = &radio_devices[index];
+        if (!device->active || !device->claimed || device->token != token) {
+            xSemaphoreGive(radio_mutex);
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (device->handle_refs == 0) {
+            device->claimed = false;
+            device->releasing = false;
+            device->owner[0] = '\0';
+            device->token = 0;
+            handle->index = -1;
+            handle->token = 0;
+            xSemaphoreGive(radio_mutex);
+            return ESP_OK;
+        }
+        if ((int32_t)(deadline - xTaskGetTickCount()) <= 0) {
+            device->releasing = false;
+            xSemaphoreGive(radio_mutex);
+            return ESP_ERR_TIMEOUT;
+        }
+        xSemaphoreGive(radio_mutex);
+        vTaskDelay(1);
+    }
+}
+
+bool solar_os_radio_handle_valid(const solar_os_radio_handle_t *handle)
+{
+    if (radio_ensure_init() != ESP_OK) {
+        return false;
+    }
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    const bool valid =
+        radio_handle_valid_locked(handle) && !radio_devices[handle->index].releasing;
+    xSemaphoreGive(radio_mutex);
+    return valid;
+}
+
+esp_err_t solar_os_radio_handle_get_status(const solar_os_radio_handle_t *handle,
+                                           solar_os_radio_status_t *status)
+{
+    if (status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+
+    const solar_os_radio_ops_t *ops = NULL;
+    void *ctx = NULL;
+    solar_os_radio_status_t current = {0};
+    int index = -1;
+    uint32_t token = 0;
+
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (!radio_handle_operation_acquire_locked(handle)) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    index = handle->index;
+    token = handle->token;
+    current = radio_devices[index].status;
+    ops = radio_devices[index].ops;
+    ctx = radio_devices[index].ctx;
+    xSemaphoreGive(radio_mutex);
+
+    if (ops != NULL && ops->get_status != NULL) {
+        const esp_err_t ret = ops->get_status(ctx, &current);
+        if (ret != ESP_OK) {
+            xSemaphoreTake(radio_mutex, portMAX_DELAY);
+            radio_handle_operation_release_locked(index, token);
+            xSemaphoreGive(radio_mutex);
+            return ret;
+        }
+        xSemaphoreTake(radio_mutex, portMAX_DELAY);
+        if (index >= 0 &&
+            index < (int)SOLAR_OS_RADIO_DEVICE_MAX &&
+            radio_devices[index].active &&
+            radio_devices[index].claimed &&
+            radio_devices[index].token == token) {
+            radio_devices[index].status = current;
+        }
+        radio_handle_operation_release_locked(index, token);
+        xSemaphoreGive(radio_mutex);
+    } else {
+        xSemaphoreTake(radio_mutex, portMAX_DELAY);
+        radio_handle_operation_release_locked(index, token);
+        xSemaphoreGive(radio_mutex);
+    }
+    *status = current;
+    return ESP_OK;
+}
+
 esp_err_t solar_os_radio_configure(const char *name, const solar_os_radio_config_t *config)
 {
     if (!radio_name_valid(name) || config == NULL) {
@@ -383,6 +591,10 @@ esp_err_t solar_os_radio_configure(const char *name, const solar_os_radio_config
     if (index < 0) {
         xSemaphoreGive(radio_mutex);
         return ESP_ERR_NOT_FOUND;
+    }
+    if (radio_devices[index].claimed) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_STATE;
     }
     supported = radio_devices[index].info.modulations;
     ops = radio_devices[index].ops;
@@ -408,6 +620,61 @@ esp_err_t solar_os_radio_configure(const char *name, const solar_os_radio_config
     return ESP_OK;
 }
 
+esp_err_t solar_os_radio_handle_configure(const solar_os_radio_handle_t *handle,
+                                          const solar_os_radio_config_t *config)
+{
+    if (config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+
+    const solar_os_radio_ops_t *ops = NULL;
+    void *ctx = NULL;
+    solar_os_radio_modulations_t supported = 0;
+    int index = -1;
+    uint32_t token = 0;
+
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (!radio_handle_operation_acquire_locked(handle)) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    index = handle->index;
+    token = handle->token;
+    supported = radio_devices[index].info.modulations;
+    ops = radio_devices[index].ops;
+    ctx = radio_devices[index].ctx;
+    xSemaphoreGive(radio_mutex);
+
+    esp_err_t ret = radio_validate_config(config, supported);
+    if (ret != ESP_OK) {
+        xSemaphoreTake(radio_mutex, portMAX_DELAY);
+        radio_handle_operation_release_locked(index, token);
+        xSemaphoreGive(radio_mutex);
+        return ret;
+    }
+    if (ops == NULL || ops->configure == NULL) {
+        xSemaphoreTake(radio_mutex, portMAX_DELAY);
+        radio_handle_operation_release_locked(index, token);
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    ret = ops->configure(ctx, config);
+
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (ret == ESP_OK &&
+        index >= 0 &&
+        index < (int)SOLAR_OS_RADIO_DEVICE_MAX &&
+        radio_devices[index].active &&
+        radio_devices[index].claimed &&
+        radio_devices[index].token == token) {
+        radio_devices[index].status.config = *config;
+    }
+    radio_handle_operation_release_locked(index, token);
+    xSemaphoreGive(radio_mutex);
+    return ret;
+}
+
 esp_err_t solar_os_radio_set_state(const char *name, solar_os_radio_state_t state)
 {
     if (!radio_name_valid(name) ||
@@ -425,6 +692,10 @@ esp_err_t solar_os_radio_set_state(const char *name, solar_os_radio_state_t stat
     if (index < 0) {
         xSemaphoreGive(radio_mutex);
         return ESP_ERR_NOT_FOUND;
+    }
+    if (radio_devices[index].claimed) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_STATE;
     }
     ops = radio_devices[index].ops;
     ctx = radio_devices[index].ctx;
@@ -446,6 +717,52 @@ esp_err_t solar_os_radio_set_state(const char *name, solar_os_radio_state_t stat
     }
     xSemaphoreGive(radio_mutex);
     return ESP_OK;
+}
+
+esp_err_t solar_os_radio_handle_set_state(const solar_os_radio_handle_t *handle,
+                                          solar_os_radio_state_t state)
+{
+    if (state == SOLAR_OS_RADIO_STATE_UNKNOWN ||
+        state > SOLAR_OS_RADIO_STATE_TX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+
+    const solar_os_radio_ops_t *ops = NULL;
+    void *ctx = NULL;
+    int index = -1;
+    uint32_t token = 0;
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (!radio_handle_operation_acquire_locked(handle)) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    index = handle->index;
+    token = handle->token;
+    ops = radio_devices[index].ops;
+    ctx = radio_devices[index].ctx;
+    xSemaphoreGive(radio_mutex);
+
+    if (ops == NULL || ops->set_state == NULL) {
+        xSemaphoreTake(radio_mutex, portMAX_DELAY);
+        radio_handle_operation_release_locked(index, token);
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    const esp_err_t ret = ops->set_state(ctx, state);
+
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (ret == ESP_OK &&
+        index >= 0 &&
+        index < (int)SOLAR_OS_RADIO_DEVICE_MAX &&
+        radio_devices[index].active &&
+        radio_devices[index].claimed &&
+        radio_devices[index].token == token) {
+        radio_devices[index].status.state = state;
+    }
+    radio_handle_operation_release_locked(index, token);
+    xSemaphoreGive(radio_mutex);
+    return ret;
 }
 
 esp_err_t solar_os_radio_send(const char *name,
@@ -470,6 +787,10 @@ esp_err_t solar_os_radio_send(const char *name,
         xSemaphoreGive(radio_mutex);
         return ESP_ERR_NOT_FOUND;
     }
+    if (radio_devices[index].claimed) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
     max_packet_len = radio_devices[index].info.max_packet_len;
     ops = radio_devices[index].ops;
     ctx = radio_devices[index].ctx;
@@ -482,6 +803,48 @@ esp_err_t solar_os_radio_send(const char *name,
         return ESP_ERR_NOT_SUPPORTED;
     }
     return ops->send(ctx, packet, timeout_ms);
+}
+
+esp_err_t solar_os_radio_handle_send(const solar_os_radio_handle_t *handle,
+                                     const solar_os_radio_packet_t *packet,
+                                     uint32_t timeout_ms)
+{
+    if (packet == NULL ||
+        packet->len == 0 ||
+        packet->len > SOLAR_OS_RADIO_PACKET_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+
+    const solar_os_radio_ops_t *ops = NULL;
+    void *ctx = NULL;
+    size_t max_packet_len = 0;
+    int index = -1;
+    uint32_t token = 0;
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (!radio_handle_operation_acquire_locked(handle)) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    index = handle->index;
+    token = handle->token;
+    max_packet_len = radio_devices[index].info.max_packet_len;
+    ops = radio_devices[index].ops;
+    ctx = radio_devices[index].ctx;
+    xSemaphoreGive(radio_mutex);
+
+    esp_err_t ret = ESP_OK;
+    if (packet->len > max_packet_len) {
+        ret = ESP_ERR_INVALID_SIZE;
+    } else if (ops == NULL || ops->send == NULL) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    } else {
+        ret = ops->send(ctx, packet, timeout_ms);
+    }
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    radio_handle_operation_release_locked(index, token);
+    xSemaphoreGive(radio_mutex);
+    return ret;
 }
 
 esp_err_t solar_os_radio_send_stream(const char *name,
@@ -503,6 +866,10 @@ esp_err_t solar_os_radio_send_stream(const char *name,
     if (index < 0) {
         xSemaphoreGive(radio_mutex);
         return ESP_ERR_NOT_FOUND;
+    }
+    if (radio_devices[index].claimed) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_STATE;
     }
     features = radio_devices[index].info.features;
     ops = radio_devices[index].ops;
@@ -535,6 +902,10 @@ esp_err_t solar_os_radio_receive(const char *name,
         xSemaphoreGive(radio_mutex);
         return ESP_ERR_NOT_FOUND;
     }
+    if (radio_devices[index].claimed) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
     max_packet_len = radio_devices[index].info.max_packet_len;
     ops = radio_devices[index].ops;
     ctx = radio_devices[index].ctx;
@@ -553,6 +924,50 @@ esp_err_t solar_os_radio_receive(const char *name,
         return ESP_ERR_INVALID_SIZE;
     }
     return ESP_OK;
+}
+
+esp_err_t solar_os_radio_handle_receive(const solar_os_radio_handle_t *handle,
+                                        solar_os_radio_packet_t *packet,
+                                        uint32_t timeout_ms)
+{
+    if (packet == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+
+    const solar_os_radio_ops_t *ops = NULL;
+    void *ctx = NULL;
+    size_t max_packet_len = 0;
+    int index = -1;
+    uint32_t token = 0;
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (!radio_handle_operation_acquire_locked(handle)) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    index = handle->index;
+    token = handle->token;
+    max_packet_len = radio_devices[index].info.max_packet_len;
+    ops = radio_devices[index].ops;
+    ctx = radio_devices[index].ctx;
+    xSemaphoreGive(radio_mutex);
+
+    if (ops == NULL || ops->receive == NULL) {
+        xSemaphoreTake(radio_mutex, portMAX_DELAY);
+        radio_handle_operation_release_locked(index, token);
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    memset(packet, 0, sizeof(*packet));
+    esp_err_t ret = ops->receive(ctx, packet, timeout_ms);
+    if (ret == ESP_OK &&
+        (packet->len > max_packet_len || packet->len > SOLAR_OS_RADIO_PACKET_MAX)) {
+        ret = ESP_ERR_INVALID_SIZE;
+    }
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    radio_handle_operation_release_locked(index, token);
+    xSemaphoreGive(radio_mutex);
+    return ret;
 }
 
 static bool radio_profile_name_valid(const char *name)
@@ -775,6 +1190,32 @@ esp_err_t solar_os_radio_profile_apply(const char *radio_name,
         if (previous.state != SOLAR_OS_RADIO_STATE_UNKNOWN &&
             previous.state != SOLAR_OS_RADIO_STATE_STANDBY) {
             (void)solar_os_radio_set_state(radio_name, previous.state);
+        }
+    }
+    return ret;
+}
+
+esp_err_t solar_os_radio_handle_profile_apply(
+    const solar_os_radio_handle_t *handle,
+    const char *profile_name)
+{
+    solar_os_radio_profile_t profile;
+    ESP_RETURN_ON_ERROR(solar_os_radio_profile_get(profile_name, &profile),
+                        "radio",
+                        "profile not found");
+
+    solar_os_radio_status_t previous;
+    ESP_RETURN_ON_ERROR(solar_os_radio_handle_get_status(handle, &previous),
+                        "radio",
+                        "invalid radio handle");
+
+    const esp_err_t ret =
+        solar_os_radio_handle_configure(handle, &profile.config);
+    if (ret != ESP_OK) {
+        (void)solar_os_radio_handle_configure(handle, &previous.config);
+        if (previous.state != SOLAR_OS_RADIO_STATE_UNKNOWN &&
+            previous.state != SOLAR_OS_RADIO_STATE_STANDBY) {
+            (void)solar_os_radio_handle_set_state(handle, previous.state);
         }
     }
     return ret;

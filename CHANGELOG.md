@@ -15,6 +15,14 @@
   plus eight persistent user profiles in a versioned NVS record. Profiles save
   and apply the complete common radio configuration, attempt rollback after
   driver rejection, and autocomplete without an idle SRAM cache.
+- Added transport-independent SolarOS Link v1 framing for text, binary, and
+  acknowledgement messages with stable 32-bit device IDs, broadcast delivery,
+  protocol CRC, bounded PSRAM-preferred queues, duplicate suppression, and ACK
+  tracking. The new `radio-link` job claims a packet radio, applies a named
+  profile, moves complete Link frames, optionally copies accepted text to the
+  inbox, and restores the radio on stop. Added `link` send/receive/status
+  commands, generation-checked and reference-counted radio ownership,
+  autocomplete, and manual coverage.
 
 ## 4.x
 

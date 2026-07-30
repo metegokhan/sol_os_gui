@@ -49,6 +49,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [joystick command](commands.md) — Show joystick axes, raw values, direction, and thresholds.
 - [led command](commands.md) — Inspect or control the built-in status LED when available.
 - [log command](commands.md) — Show runtime log ring status.
+- [link command](commands.md) — Send and receive transport-independent SolarOS Link messages.
 - [ls command](commands.md) — List files. Hidden files are shown only with -a; sizes are human-readable with -h.
 - [man command](commands.md) — Read or search the package-aware SolarOS manual.
 - [mem command](commands.md) — Print heap status; policy also shows allocation-class counters, guarded fallback limits, and the last tagged failure.
@@ -141,6 +142,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [log job](jobs.reference.md#log) — Runtime SolarOS log follower. It mirrors log entries to a byte-stream port or appends them to a file.
 - [ntp-sync job](jobs.reference.md#ntp-sync) — Network time synchronization job. It updates the SolarOS wall clock from NTP and also updates the hardware RTC when the board provides one.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
+- [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for transport-independent SolarOS Link messages.
 - [slip job](jobs.reference.md#slip) — IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines, headless boards, and serial networking experiments.
 - [sump job](jobs.reference.md#sump) — SUMP-compatible logic analyzer server on cdc0. It claims the CDC port and uses the shared logic analyzer service for acquisition. PulseView and sigrok can connect with the OpenBench Logic Sniffer/SUMP serial driver.
 - [telnetd job](jobs.reference.md#telnetd) — Remote Telnet shell server. The listener is a background job; each accepted connection is attached to its own normal SolarOS port-shell session.
@@ -173,6 +175,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 - [Device identity](identity.md) — Read and configure the NVS-backed user and hostname
 - [Foreground sessions and applications](sessions.apps.md) — Create shells and inspect resumable foreground applications
+- [SolarOS Link](link.md) — Transport-independent packet messaging and the radio-link adapter
 
 ## Boards and firmware
 

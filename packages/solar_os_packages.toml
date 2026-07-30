@@ -34,11 +34,13 @@ members = [
 members = [
   "service_expansion",
   "service_radio",
+  "service_link",
   "expansion_rfm69",
   "expansion_rfm95",
   "expansion_pcd8544",
   "expansion_ssd1306",
   "job_pocsag",
+  "job_radio_link",
 ]
 
 [groups.maintenance_apps]
@@ -471,6 +473,14 @@ any_capabilities = [
   "expansion_uart",
 ]
 
+[packages.service_link]
+label = "service.link"
+sources = [
+  "services/solar_os_link.c",
+  "shell/solar_os_shell_link.c",
+]
+requires = ["esp_hw_support"]
+
 [packages.expansion_rfm69]
 label = "expansion.rfm69"
 depends = ["service_radio", "service_spi"]
@@ -833,3 +843,9 @@ sources = [
   "shell/solar_os_shell_pocsag.c",
 ]
 any_capabilities = ["expansion_spi", "expansion_gpio"]
+
+[packages.job_radio_link]
+label = "job.radio-link"
+depends = ["service_inbox", "service_link", "service_radio"]
+sources = ["jobs/solar_os_radio_link_job.c"]
+any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
