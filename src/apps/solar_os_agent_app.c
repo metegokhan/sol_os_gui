@@ -749,9 +749,10 @@ static void agent_app_drain_events(solar_os_context_t *ctx)
             agent_app.running = false;
             agent_app.turn_finished = true;
             if (agent_app.mode == AGENT_APP_MODE_ASK) {
-                solar_os_shell_io_writeln(
+                solar_os_shell_io_printf(
                     io,
-                    "\nPress Ctrl+] to return to the shell.");
+                    "\nPress Esc or %s to return to the shell.\n",
+                    solar_os_shell_io_app_exit_key(io));
             }
             break;
         default:
@@ -952,9 +953,11 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
     solar_os_shell_io_flush(agent_app_io(ctx));
 
     if (chat_mode) {
-        solar_os_shell_io_writeln(
-            agent_app_io(ctx),
-            "Enter sends. Page Up/Down scrolls. Ctrl+] exits.");
+        solar_os_shell_io_t *io = agent_app_io(ctx);
+        solar_os_shell_io_printf(
+            io,
+            "Enter sends. Page Up/Down scrolls. Esc or %s exits.\n",
+            solar_os_shell_io_app_exit_key(io));
         if (resume_mode) {
             solar_os_agent_conversation_info_t info;
             if (solar_os_agent_conversation_get(agent_app.conversation_id,
@@ -1051,7 +1054,9 @@ static bool agent_app_event(solar_os_context_t *ctx,
     }
 
     const uint8_t ch = (uint8_t)event->data.ch;
-    if (agent_app.confirmation_pending && ch != SOLAR_OS_KEY_APP_EXIT) {
+    const bool exit_key =
+        ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE;
+    if (agent_app.confirmation_pending && !exit_key) {
         if (ch == 'y' || ch == 'Y') {
             agent_app.confirm_decision = 1;
             agent_app.confirmation_pending = false;
@@ -1071,7 +1076,7 @@ static bool agent_app_event(solar_os_context_t *ctx,
         }
         return true;
     }
-    if (ch == SOLAR_OS_KEY_APP_EXIT) {
+    if (exit_key) {
         if (agent_app.running) {
             solar_os_shell_io_newline(agent_app_io(ctx));
             agent_app_writeln(agent_app_io(ctx), "cancelling");

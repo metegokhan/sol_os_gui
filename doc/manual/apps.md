@@ -53,9 +53,9 @@ without changing provider credentials. Responses uses its saved provider
 continuation ID; Chat Completions uses bounded local history. Slots are `1` to
 `3` on internal flash or `1` to `8` on SD; the oldest is reused when full.
 `agent ask`
-performs one unsaved request but likewise waits for the app-exit key after
-completion, so display-shell output is not immediately replaced by the shell
-screen.
+performs one unsaved request but likewise waits for `Esc` or the app-exit key
+after completion, so display-shell output is not immediately replaced by the
+shell screen.
 
 Use `agent config key clear` for an endpoint that does not require bearer
 authentication. `agent status` shows configuration, request counters, HTTP
@@ -72,8 +72,8 @@ results instead of failing on one more tool request. Output is bounded to
 uses a declared 16 KiB internal stack.
 Full builds can reuse that worker for bounded Python or Lua source/file
 execution. The manual script path captures at most 4095 output bytes, has a
-30-second deadline, and supports app-exit cancellation. Model-generated source
-is capped at 640 bytes and captures 383 output bytes.
+30-second deadline, and supports cancellation with `Esc` or the app-exit key.
+Model-generated source is capped at 640 bytes and captures 383 output bytes.
 
 The storage registry includes bounded listing, sensitive text-file reads, and
 text-file replacement. Reads and writes are capped at 3072 bytes and paths
@@ -89,7 +89,7 @@ limits.
 
 Controls:
 
-- App-exit key cancels an active request.
+- `Esc` or the app-exit key cancels an active request and exits.
 - `Page Up`/`Page Down` scroll terminal output while a request is active.
 
 ## aplay
