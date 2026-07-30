@@ -133,13 +133,15 @@ Usage:
 chat [gateway-url] [channel] [user] [token]
 ```
 
-The background `chat-sync` job owns the transport connection, retries, joined
-channels, and queued outbound messages. Start it explicitly with
+The background `chat-sync` job owns the transport connection, retries, and
+joined-channel replay. The shared messaging service owns queued outbound
+messages and `chat-sync` consumes only gateway requests. Start it explicitly with
 `job start chat-sync`, just like `email-sync`. Closing or suspending `chat` does
 not disconnect an already-running synchronizer. Incoming messages remain in the
-shared bounded chat store and publish bounded notifications to the universal
-inbox; reopening the app replays the retained store. With SD storage, full
-messages are retained under `/.chat/messages.bin`. On internal flash, Chat
+shared bounded messaging store and publish bounded notifications to the
+universal inbox; reopening the app replays retained gateway conversations. With
+SD storage, full messages are retained under `/.messages/messages.bin`. On
+internal flash, Chat
 restores the compact message copy already retained in `/.inbox/messages.bin`,
 so it consumes no second flash ring. Both backends deduplicate transport replays
 by stable message identity and keep linked Inbox read state aligned.

@@ -5,10 +5,10 @@
 
 #include "solar_os_chat.h"
 #include "solar_os_chat_transport_gateway.h"
-#include "solar_os_inbox.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_messaging.h"
 #include "solar_os_task.h"
 #include "solar_os_wifi.h"
 
@@ -26,6 +26,7 @@ typedef struct {
     volatile bool worker_done;
     bool rejoin_pending;
     bool transport_busy;
+    bool messaging_inflight;
     uint32_t config_revision;
     uint32_t next_retry_ms;
     uint32_t retry_delay_ms;
@@ -37,6 +38,7 @@ typedef struct {
     solar_os_chat_transport_event_t *event;
     solar_os_chat_command_t *command;
     solar_os_chat_channel_t *channels;
+    solar_os_messaging_outbound_t *outbound;
     char cursor[SOLAR_OS_CHAT_TRANSPORT_CURSOR_MAX];
     char cursor_endpoint[SOLAR_OS_CHAT_URL_MAX];
 } chat_sync_state_t;
@@ -78,46 +80,6 @@ static bool chat_sync_url_is_local(const char *url)
              host[localhost_len] == '/'));
 }
 
-static void chat_sync_publish_inbox(const solar_os_chat_event_t *event,
-                                    uint64_t message_key)
-{
-    if (event == NULL || event->type != SOLAR_OS_CHAT_EVENT_MESSAGE ||
-        message_key == 0) {
-        return;
-    }
-    char title[SOLAR_OS_INBOX_TITLE_MAX];
-    if (event->channel[0] != '\0') {
-        snprintf(title, sizeof(title), "Chat #%s", event->channel);
-    } else {
-        strlcpy(title, "Chat message", sizeof(title));
-    }
-    char dedupe_key[24];
-    snprintf(dedupe_key,
-             sizeof(dedupe_key),
-             "%016llx",
-             (unsigned long long)message_key);
-    const solar_os_inbox_publish_t notification = {
-        .source = "chat",
-        .topic = event->channel,
-        .sender = event->from,
-        .title = title,
-        .body = event->text,
-        .dedupe_key = dedupe_key,
-        .source_id = message_key,
-        .source_context = solar_os_chat_context_id(),
-        .timestamp_ms = event->timestamp,
-        .priority = SOLAR_OS_INBOX_PRIORITY_NORMAL,
-    };
-    uint32_t inbox_id = 0;
-    const esp_err_t err = solar_os_inbox_publish(&notification, &inbox_id);
-    if (err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "inbox publish failed: %s", esp_err_to_name(err));
-    } else if (solar_os_chat_sync_set_inbox_id(message_key, inbox_id) != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "inbox link failed for message %016llx",
-                      (unsigned long long)message_key);
-    }
-}
-
 static void chat_sync_begin_rejoin(void)
 {
     chat_sync.rejoin_count = solar_os_chat_channel_snapshot(
@@ -126,6 +88,7 @@ static void chat_sync_begin_rejoin(void)
     chat_sync.rejoin_index = 0;
     chat_sync.rejoin_pending = true;
     chat_sync.transport_busy = false;
+    chat_sync.messaging_inflight = false;
     chat_sync.inflight_id = 0;
 }
 
@@ -146,6 +109,15 @@ static void chat_sync_drain_events(uint32_t now_ms)
             chat_sync.transport_busy = false;
             if (chat_sync.rejoin_pending) {
                 chat_sync.rejoin_index++;
+            } else if (chat_sync.messaging_inflight &&
+                       chat_sync.inflight_id != 0 &&
+                       event->command_id == chat_sync.inflight_id) {
+                (void)solar_os_messaging_outbox_update(
+                    chat_sync.inflight_id,
+                    SOLAR_OS_DELIVERY_SENT,
+                    NULL);
+                chat_sync.inflight_id = 0;
+                chat_sync.messaging_inflight = false;
             } else if (chat_sync.inflight_id != 0 &&
                        event->command_id == chat_sync.inflight_id) {
                 (void)solar_os_chat_outbox_ack(chat_sync.inflight_id);
@@ -161,8 +133,6 @@ static void chat_sync_drain_events(uint32_t now_ms)
             SOLAR_OS_LOGW(TAG,
                           "message store failed: %s",
                           esp_err_to_name(publish_err));
-        } else if (inserted) {
-            chat_sync_publish_inbox(event, message_key);
         }
         if (event->type == SOLAR_OS_CHAT_EVENT_CONNECTED) {
             chat_sync.retry_delay_ms = CHAT_SYNC_RETRY_MIN_MS;
@@ -171,7 +141,15 @@ static void chat_sync_drain_events(uint32_t now_ms)
         } else if (event->type == SOLAR_OS_CHAT_EVENT_DISCONNECTED ||
                    event->type == SOLAR_OS_CHAT_EVENT_ERROR) {
             chat_sync.transport_busy = false;
+            if (chat_sync.messaging_inflight &&
+                chat_sync.inflight_id != 0) {
+                (void)solar_os_messaging_outbox_update(
+                    chat_sync.inflight_id,
+                    SOLAR_OS_DELIVERY_QUEUED,
+                    "gateway disconnected before send");
+            }
             chat_sync.inflight_id = 0;
+            chat_sync.messaging_inflight = false;
             chat_sync.rejoin_pending = false;
             chat_sync_schedule_retry(now_ms);
         }
@@ -203,10 +181,34 @@ static void chat_sync_submit_next(void)
         }
     }
     if (solar_os_chat_outbox_peek(chat_sync.command) != ESP_OK) {
+        if (solar_os_messaging_outbox_peek(
+                SOLAR_OS_MESSAGING_PROVIDER_GATEWAY,
+                chat_sync.outbound) != ESP_OK) {
+            return;
+        }
+        memset(chat_sync.command, 0, sizeof(*chat_sync.command));
+        chat_sync.command->id = chat_sync.outbound->id;
+        chat_sync.command->type = SOLAR_OS_CHAT_COMMAND_MESSAGE;
+        strlcpy(chat_sync.command->channel,
+                chat_sync.outbound->provider_key,
+                sizeof(chat_sync.command->channel));
+        strlcpy(chat_sync.command->text,
+                chat_sync.outbound->body,
+                sizeof(chat_sync.command->text));
+        if (chat_sync.transport->submit(chat_sync.command) == ESP_OK) {
+            chat_sync.inflight_id = chat_sync.outbound->id;
+            chat_sync.messaging_inflight = true;
+            chat_sync.transport_busy = true;
+            (void)solar_os_messaging_outbox_update(
+                chat_sync.outbound->id,
+                SOLAR_OS_DELIVERY_SENDING,
+                NULL);
+        }
         return;
     }
     if (chat_sync.transport->submit(chat_sync.command) == ESP_OK) {
         chat_sync.inflight_id = chat_sync.command->id;
+        chat_sync.messaging_inflight = false;
         chat_sync.transport_busy = true;
     }
 }
@@ -225,15 +227,23 @@ static esp_err_t chat_sync_alloc_buffers(void)
                                                 sizeof(*chat_sync.channels),
                                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
                                                 "chat.sync.channels");
+    chat_sync.outbound = solar_os_memory_calloc(
+        1,
+        sizeof(*chat_sync.outbound),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "chat.sync.outbound");
     if (chat_sync.event == NULL ||
         chat_sync.command == NULL ||
-        chat_sync.channels == NULL) {
+        chat_sync.channels == NULL ||
+        chat_sync.outbound == NULL) {
         solar_os_memory_free(chat_sync.event);
         solar_os_memory_free(chat_sync.command);
         solar_os_memory_free(chat_sync.channels);
+        solar_os_memory_free(chat_sync.outbound);
         chat_sync.event = NULL;
         chat_sync.command = NULL;
         chat_sync.channels = NULL;
+        chat_sync.outbound = NULL;
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
@@ -244,9 +254,11 @@ static void chat_sync_free_buffers(void)
     solar_os_memory_free(chat_sync.event);
     solar_os_memory_free(chat_sync.command);
     solar_os_memory_free(chat_sync.channels);
+    solar_os_memory_free(chat_sync.outbound);
     chat_sync.event = NULL;
     chat_sync.command = NULL;
     chat_sync.channels = NULL;
+    chat_sync.outbound = NULL;
 }
 
 static esp_err_t chat_sync_start(solar_os_context_t *ctx, int argc, char **argv)
@@ -348,6 +360,7 @@ static bool chat_sync_process(uint32_t now_ms)
         chat_sync.next_retry_ms = 0;
         chat_sync.rejoin_pending = false;
         chat_sync.transport_busy = false;
+        chat_sync.messaging_inflight = false;
         chat_sync.inflight_id = 0;
     }
     if (config_changed && strcmp(chat_sync.cursor_endpoint, config.url) != 0) {

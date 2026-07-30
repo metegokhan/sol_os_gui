@@ -1314,7 +1314,7 @@ static void chat_show_status(void)
     chat_append_statusf("persistence: %s cap=%u",
                         status.persistent ?
                             (status.persistent_inbox_backed ?
-                                 "/.inbox/messages.bin" : "/.chat/messages.bin") :
+                                 "/.inbox/messages.bin" : "/.messages/messages.bin") :
                             "unavailable",
                         (unsigned)status.persistent_capacity);
 }

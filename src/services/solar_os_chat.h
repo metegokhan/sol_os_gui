@@ -6,14 +6,13 @@
 
 #include "esp_err.h"
 #include "solar_os_chat_protocol.h"
+#include "solar_os_messaging.h"
 
 #define SOLAR_OS_CHAT_ERROR_MAX 96
 #define SOLAR_OS_CHAT_STORE_CAPACITY 80
-#define SOLAR_OS_CHAT_MESSAGE_CAPACITY 64
+#define SOLAR_OS_CHAT_MESSAGE_CAPACITY SOLAR_OS_MESSAGING_MESSAGE_CAPACITY
 #define SOLAR_OS_CHAT_OUTBOX_CAPACITY 16
 #define SOLAR_OS_CHAT_CHANNEL_CAPACITY 32
-#define SOLAR_OS_CHAT_STORE_DIR ".chat"
-#define SOLAR_OS_CHAT_STORE_FILE "messages.bin"
 
 typedef enum {
     SOLAR_OS_CHAT_STATE_DISCONNECTED,

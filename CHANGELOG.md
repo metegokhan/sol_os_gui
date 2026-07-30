@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Extracted the provider-neutral Conversations/Messages owner from gateway Chat,
+  with PSRAM-backed bounded rings, offline provider outboxes, normalized gateway
+  delivery, Inbox projection, and fresh CRC-checked `/.messages/messages.bin`
+  history on large storage.
+
 - Defined the provider-neutral SolarOS messaging contract and fixed public
   identifiers, trust, conversation, delivery, capability, and security types
   shared by the gateway and planned MeshCore provider.

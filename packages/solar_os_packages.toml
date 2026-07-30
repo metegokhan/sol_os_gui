@@ -327,9 +327,18 @@ capabilities = ["wifi"]
 
 [packages.service_chat]
 label = "network.chat"
-depends = ["service_inbox"]
+depends = ["service_messaging"]
 sources = ["services/solar_os_chat.c"]
 requires = ["heap", "nvs_flash"]
+capabilities = ["psram"]
+
+[packages.service_messaging]
+label = "service.messaging"
+depends = ["service_inbox"]
+sources = [
+  "services/solar_os_messaging.c",
+]
+requires = ["heap"]
 capabilities = ["psram"]
 
 [packages.chat_transport_gateway]
