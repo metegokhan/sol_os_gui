@@ -123,13 +123,11 @@ typedef struct {
 esp_err_t solar_os_chat_init(void);
 esp_err_t solar_os_chat_configure(const char *url,
                                   const char *token,
-                                  const char *user,
-                                  const char *device);
+                                  const char *user);
 /* Connect/disconnect set desired synchronization state; the sync job owns I/O. */
 esp_err_t solar_os_chat_connect(const char *url,
                                 const char *token,
-                                const char *user,
-                                const char *device);
+                                const char *user);
 esp_err_t solar_os_chat_disconnect(void);
 esp_err_t solar_os_chat_join(const char *channel);
 esp_err_t solar_os_chat_leave(const char *channel);

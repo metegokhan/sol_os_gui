@@ -6,6 +6,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "nvs.h"
+#include "solar_os_identity.h"
 #include "solar_os_memory.h"
 #include "solar_os_messaging.h"
 
@@ -13,10 +14,8 @@
 #define CHAT_NVS_URL_KEY "url"
 #define CHAT_NVS_TOKEN_KEY "token"
 #define CHAT_NVS_USER_KEY "user"
-#define CHAT_NVS_DEVICE_KEY "device"
 #define CHAT_NVS_ENABLED_KEY "enabled"
 #define CHAT_DEFAULT_USER "user"
-#define CHAT_DEFAULT_DEVICE "sol"
 #define CHAT_DEFAULT_CHANNEL "general"
 #define CHAT_EVENT_WAIT_POLL_MS 20U
 
@@ -25,7 +24,6 @@ typedef struct {
     char url[SOLAR_OS_CHAT_URL_MAX];
     char token[SOLAR_OS_CHAT_TOKEN_MAX];
     char user[SOLAR_OS_CHAT_USER_MAX];
-    char device[SOLAR_OS_CHAT_DEVICE_MAX];
 } solar_os_chat_saved_config_t;
 
 typedef struct {
@@ -37,7 +35,6 @@ typedef struct {
     char url[SOLAR_OS_CHAT_URL_MAX];
     char token[SOLAR_OS_CHAT_TOKEN_MAX];
     char user[SOLAR_OS_CHAT_USER_MAX];
-    char device[SOLAR_OS_CHAT_DEVICE_MAX];
     char last_error[SOLAR_OS_CHAT_ERROR_MAX];
     esp_err_t last_esp_error;
     uint32_t config_revision;
@@ -208,7 +205,6 @@ static void chat_snapshot_config_locked(solar_os_chat_saved_config_t *config)
     strlcpy(config->url, chat.url, sizeof(config->url));
     strlcpy(config->token, chat.token, sizeof(config->token));
     strlcpy(config->user, chat.user, sizeof(config->user));
-    strlcpy(config->device, chat.device, sizeof(config->device));
 }
 
 static esp_err_t chat_save_config(const solar_os_chat_saved_config_t *config)
@@ -227,9 +223,6 @@ static esp_err_t chat_save_config(const solar_os_chat_saved_config_t *config)
         error = nvs_set_str(nvs, CHAT_NVS_USER_KEY, config->user);
     }
     if (error == ESP_OK) {
-        error = nvs_set_str(nvs, CHAT_NVS_DEVICE_KEY, config->device);
-    }
-    if (error == ESP_OK) {
         error = nvs_set_u8(nvs,
                            CHAT_NVS_ENABLED_KEY,
                            config->enabled ? 1U : 0U);
@@ -244,7 +237,6 @@ static esp_err_t chat_save_config(const solar_os_chat_saved_config_t *config)
 static void chat_load_config(void)
 {
     strlcpy(chat.user, CHAT_DEFAULT_USER, sizeof(chat.user));
-    strlcpy(chat.device, CHAT_DEFAULT_DEVICE, sizeof(chat.device));
     nvs_handle_t nvs;
     if (nvs_open(CHAT_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
         return;
@@ -252,7 +244,6 @@ static void chat_load_config(void)
     char url[SOLAR_OS_CHAT_URL_MAX] = {0};
     char token[SOLAR_OS_CHAT_TOKEN_MAX] = {0};
     char user[SOLAR_OS_CHAT_USER_MAX] = {0};
-    char device[SOLAR_OS_CHAT_DEVICE_MAX] = {0};
     size_t length = sizeof(url);
     esp_err_t error = nvs_get_str(nvs, CHAT_NVS_URL_KEY, url, &length);
     if (error == ESP_OK && chat_url_is_valid(url)) {
@@ -267,20 +258,11 @@ static void chat_load_config(void)
         if (nvs_get_str(nvs, CHAT_NVS_USER_KEY, user, &length) != ESP_OK) {
             strlcpy(user, CHAT_DEFAULT_USER, sizeof(user));
         }
-        length = sizeof(device);
-        if (nvs_get_str(nvs,
-                        CHAT_NVS_DEVICE_KEY,
-                        device,
-                        &length) != ESP_OK) {
-            strlcpy(device, CHAT_DEFAULT_DEVICE, sizeof(device));
-        }
         if (chat_string_is_valid(token, sizeof(token), true) &&
-            chat_string_is_valid(user, sizeof(user), false) &&
-            chat_string_is_valid(device, sizeof(device), false)) {
+            chat_string_is_valid(user, sizeof(user), false)) {
             strlcpy(chat.url, url, sizeof(chat.url));
             strlcpy(chat.token, token, sizeof(chat.token));
             strlcpy(chat.user, user, sizeof(chat.user));
-            strlcpy(chat.device, device, sizeof(chat.device));
             chat.configured = true;
             uint8_t enabled = 1U;
             const esp_err_t enabled_error =
@@ -337,16 +319,13 @@ esp_err_t solar_os_chat_init(void)
 
 esp_err_t solar_os_chat_configure(const char *url,
                                   const char *token,
-                                  const char *user,
-                                  const char *device)
+                                  const char *user)
 {
     if ((url != NULL && url[0] != '\0' && !chat_url_is_valid(url)) ||
         (token != NULL &&
          !chat_string_is_valid(token, SOLAR_OS_CHAT_TOKEN_MAX, true)) ||
         (user != NULL &&
-         !chat_string_is_valid(user, SOLAR_OS_CHAT_USER_MAX, false)) ||
-        (device != NULL &&
-         !chat_string_is_valid(device, SOLAR_OS_CHAT_DEVICE_MAX, false))) {
+         !chat_string_is_valid(user, SOLAR_OS_CHAT_USER_MAX, false))) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t error = solar_os_chat_init();
@@ -363,9 +342,6 @@ esp_err_t solar_os_chat_configure(const char *url,
     }
     if (user != NULL) {
         strlcpy(chat.user, user, sizeof(chat.user));
-    }
-    if (device != NULL) {
-        strlcpy(chat.device, device, sizeof(chat.device));
     }
     if (!chat.configured || !chat_url_is_valid(chat.url)) {
         chat_unlock();
@@ -392,10 +368,9 @@ esp_err_t solar_os_chat_configure(const char *url,
 
 esp_err_t solar_os_chat_connect(const char *url,
                                 const char *token,
-                                const char *user,
-                                const char *device)
+                                const char *user)
 {
-    esp_err_t error = solar_os_chat_configure(url, token, user, device);
+    esp_err_t error = solar_os_chat_configure(url, token, user);
     if (error != ESP_OK) {
         return error;
     }
@@ -692,7 +667,8 @@ esp_err_t solar_os_chat_get_status(solar_os_chat_status_t *status)
              SOLAR_OS_CHAT_STATE_DISCONNECTED);
     strlcpy(status->url, chat.url, sizeof(status->url));
     strlcpy(status->user, chat.user, sizeof(status->user));
-    strlcpy(status->device, chat.device, sizeof(status->device));
+    solar_os_identity_get_hostname(status->device,
+                                   sizeof(status->device));
     strlcpy(status->last_error,
             chat.last_error,
             sizeof(status->last_error));
@@ -734,7 +710,8 @@ esp_err_t solar_os_chat_get_config(solar_os_chat_config_t *config)
     strlcpy(config->url, chat.url, sizeof(config->url));
     strlcpy(config->token, chat.token, sizeof(config->token));
     strlcpy(config->user, chat.user, sizeof(config->user));
-    strlcpy(config->device, chat.device, sizeof(config->device));
+    solar_os_identity_get_hostname(config->device,
+                                   sizeof(config->device));
     chat_unlock();
     return ESP_OK;
 }
