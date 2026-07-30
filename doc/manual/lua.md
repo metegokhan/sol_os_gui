@@ -27,9 +27,16 @@ Lua allocations prefer PSRAM. Host-facing Lua `io`, `os`, and dynamic package lo
 - `solaros.write(text)`: write to the foreground terminal.
 - `solaros.version()`: return the firmware version.
 - `solaros.should_exit()`: return whether the foreground app was asked to exit.
+- `solaros.tick_interval([ms])`: get or set the foreground event-pump interval in milliseconds. Pass `0` to restore the 25 ms default.
 - `solaros.battery_status()`: short battery status table or `nil` when battery support is compiled.
 - `solaros.wifi_status()`: short Wi-Fi status table when Wi-Fi support is compiled.
 - `solaros.environment()`: temperature and humidity table or `nil` when environmental sensor support is compiled.
+
+For example, `solaros.tick_interval(5)` lets a foreground Lua app drain
+terminal, TUI, and graphics events at a best-effort 5 ms cadence. It does not
+schedule or preempt Lua code, and it is not a hard-real-time timer. The setting
+lasts for the current foreground Lua app only; headless script jobs cannot
+change it.
 
 ## Service Tables
 

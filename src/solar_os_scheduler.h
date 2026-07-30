@@ -17,6 +17,8 @@ typedef struct {
 } solar_os_tick_stats_t;
 
 void solar_os_tick_stats_reset(solar_os_tick_stats_t *stats);
+uint32_t solar_os_tick_interval_ms(uint32_t configured_interval_ms,
+                                   uint32_t default_interval_ms);
 bool solar_os_tick_due(solar_os_tick_stats_t *stats,
                        uint32_t configured_interval_ms,
                        uint32_t configured_deadline_ms,

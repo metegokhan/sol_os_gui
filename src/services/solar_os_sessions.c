@@ -1556,7 +1556,9 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
     const bool tick = event->type == SOLAR_OS_EVENT_TICK;
     if (tick &&
         !solar_os_tick_due(&session->tick_stats,
-                           session->app->tick_interval_ms,
+                           solar_os_app_tick_interval_ms(
+                               session->app,
+                               SOLAR_OS_TICK_INTERVAL_DEFAULT_MS),
                            session->app->tick_deadline_ms,
                            SOLAR_OS_TICK_INTERVAL_DEFAULT_MS,
                            SOLAR_OS_TICK_DEADLINE_DEFAULT_MS,
@@ -1594,7 +1596,9 @@ static void dispatch_legacy_event(const solar_os_event_t *event)
     const bool tick = event->type == SOLAR_OS_EVENT_TICK;
     if (tick &&
         !solar_os_tick_due(&session_state.legacy_tick_stats,
-                           app->tick_interval_ms,
+                           solar_os_app_tick_interval_ms(
+                               app,
+                               SOLAR_OS_TICK_INTERVAL_DEFAULT_MS),
                            app->tick_deadline_ms,
                            SOLAR_OS_TICK_INTERVAL_DEFAULT_MS,
                            SOLAR_OS_TICK_DEADLINE_DEFAULT_MS,
@@ -2103,6 +2107,40 @@ void solar_os_sessions_dispatch_tick(uint32_t now_ms)
         dispatch_legacy_event(&event);
         solar_os_sessions_process_requests();
     }
+}
+
+uint32_t solar_os_sessions_requested_tick_interval_ms(void)
+{
+    uint32_t interval_ms = SOLAR_OS_TICK_INTERVAL_DEFAULT_MS;
+
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        const solar_os_session_entry_t *session = &session_state.sessions[i];
+        if (!session->used || session->suspended ||
+            session->app == NULL || session->app->event == NULL) {
+            continue;
+        }
+        const uint32_t requested_ms =
+            solar_os_app_tick_interval_ms(
+                session->app,
+                SOLAR_OS_TICK_INTERVAL_DEFAULT_MS);
+        if (requested_ms < interval_ms) {
+            interval_ms = requested_ms;
+        }
+    }
+
+    const solar_os_app_t *legacy_app = session_state.foreground_app;
+    if (session_state.foreground_session == NULL &&
+        legacy_app != NULL && legacy_app->event != NULL) {
+        const uint32_t requested_ms =
+            solar_os_app_tick_interval_ms(
+                legacy_app,
+                SOLAR_OS_TICK_INTERVAL_DEFAULT_MS);
+        if (requested_ms < interval_ms) {
+            interval_ms = requested_ms;
+        }
+    }
+
+    return interval_ms;
 }
 
 void solar_os_sessions_dispatch_resume(uint32_t now_ms)

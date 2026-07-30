@@ -70,6 +70,7 @@
 #include "solar_os_port_shell.h"
 #include "solar_os_pins.h"
 #include "solar_os_queue.h"
+#include "solar_os_scheduler.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -214,6 +215,7 @@ typedef enum {
 
 static portMUX_TYPE solua_runtime_lock = portMUX_INITIALIZER_UNLOCKED;
 static EXT_RAM_BSS_ATTR solua_runtime_owner_t solua_runtime_owner;
+static EXT_RAM_BSS_ATTR uint32_t solua_tick_interval_ms;
 
 static bool solua_runtime_claim(solua_runtime_owner_t owner)
 {
@@ -221,6 +223,7 @@ static bool solua_runtime_claim(solua_runtime_owner_t owner)
     portENTER_CRITICAL(&solua_runtime_lock);
     if (solua_runtime_owner == SOLUA_RUNTIME_OWNER_NONE) {
         solua_runtime_owner = owner;
+        solua_tick_interval_ms = 0;
         claimed = true;
     }
     portEXIT_CRITICAL(&solua_runtime_lock);
@@ -232,6 +235,7 @@ static void solua_runtime_release(solua_runtime_owner_t owner)
     portENTER_CRITICAL(&solua_runtime_lock);
     if (solua_runtime_owner == owner) {
         solua_runtime_owner = SOLUA_RUNTIME_OWNER_NONE;
+        solua_tick_interval_ms = 0;
     }
     portEXIT_CRITICAL(&solua_runtime_lock);
 }
@@ -243,6 +247,30 @@ static bool solua_runtime_is_owned_by(solua_runtime_owner_t owner)
     matches = solua_runtime_owner == owner;
     portEXIT_CRITICAL(&solua_runtime_lock);
     return matches;
+}
+
+static uint32_t solua_requested_tick_interval_ms(void)
+{
+    uint32_t interval_ms = 0;
+    portENTER_CRITICAL(&solua_runtime_lock);
+    if (solua_runtime_owner == SOLUA_RUNTIME_OWNER_APP) {
+        interval_ms = solua_tick_interval_ms != 0 ?
+            solua_tick_interval_ms : SOLAR_OS_TICK_INTERVAL_DEFAULT_MS;
+    }
+    portEXIT_CRITICAL(&solua_runtime_lock);
+    return interval_ms;
+}
+
+static bool solua_set_tick_interval_ms(uint32_t interval_ms)
+{
+    bool set = false;
+    portENTER_CRITICAL(&solua_runtime_lock);
+    if (solua_runtime_owner == SOLUA_RUNTIME_OWNER_APP) {
+        solua_tick_interval_ms = interval_ms;
+        set = true;
+    }
+    portEXIT_CRITICAL(&solua_runtime_lock);
+    return set;
 }
 
 static solar_os_shell_io_t *solua_io(solar_os_context_t *ctx)
@@ -931,6 +959,29 @@ static int solua_solaros_version(lua_State *L)
 static int solua_solaros_should_exit(lua_State *L)
 {
     lua_pushboolean(L, solua.stop_requested || solua.interrupt_requested);
+    return 1;
+}
+
+static int solua_solaros_tick_interval(lua_State *L)
+{
+    const int argc = lua_gettop(L);
+    if (argc > 1) {
+        return luaL_error(L, "expected zero or one argument");
+    }
+    if (argc == 1) {
+        const uint32_t interval_ms = solua_check_u32(L, 1);
+        if (!solua_set_tick_interval_ms(interval_ms)) {
+            return luaL_error(
+                L,
+                "tick interval requires foreground lua app");
+        }
+    }
+
+    const uint32_t requested_ms = solua_requested_tick_interval_ms();
+    lua_pushinteger(
+        L,
+        requested_ms != 0 ?
+            requested_ms : SOLAR_OS_TICK_INTERVAL_DEFAULT_MS);
     return 1;
 }
 
@@ -4147,6 +4198,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, solaros, "write", solua_solaros_write);
     solua_set_func(L, solaros, "version", solua_solaros_version);
     solua_set_func(L, solaros, "should_exit", solua_solaros_should_exit);
+    solua_set_func(L, solaros, "tick_interval", solua_solaros_tick_interval);
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     solua_set_func(L, solaros, "battery_status", solua_solaros_battery_status);
 #endif
@@ -5553,4 +5605,5 @@ const solar_os_app_t solar_os_lua_app = {
     .stop = solua_stop,
     .event = solua_event,
     .worker_stack_bytes = SOLUA_TASK_STACK,
+    .requested_tick_interval_ms = solua_requested_tick_interval_ms,
 };

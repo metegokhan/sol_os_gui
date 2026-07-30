@@ -44,6 +44,7 @@ void solar_os_sessions_mark_foreground_dirty(void);
 void solar_os_sessions_dispatch_foreground_event(const solar_os_event_t *event);
 bool solar_os_sessions_dispatch_input_event(const solar_os_event_t *event);
 const solar_os_app_t *solar_os_sessions_input_app(void);
+uint32_t solar_os_sessions_requested_tick_interval_ms(void);
 void solar_os_sessions_dispatch_tick(uint32_t now_ms);
 void solar_os_sessions_dispatch_resume(uint32_t now_ms);
 void solar_os_sessions_process_requests(void);

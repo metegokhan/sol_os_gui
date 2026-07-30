@@ -40,6 +40,11 @@ instead of creating a second copy.
 SolarOS always keeps at least one interactive shell. `exit`, `close`, and
 `session close` refuse to close the final remaining display or port shell.
 
+Native applications receive cooperative tick events every 25 ms by default.
+An application that needs a faster best-effort update rate can set its
+descriptor's `tick_interval_ms` below 25; the runtime raises its scheduler
+cadence while that application is active. A zero value keeps the default.
+
 ## Create another shell
 
 ```text

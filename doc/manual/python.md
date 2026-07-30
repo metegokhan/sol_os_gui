@@ -87,9 +87,16 @@ solaros.time.set_datetime({"year": 2026, "month": 6, "day": 19, "hour": 12, "min
 - `solaros.write(text)`: write text to the SolarOS terminal.
 - `solaros.version()`: return the SolarOS firmware version string.
 - `solaros.should_exit()`: return `True` when the app is being asked to stop.
+- `solaros.tick_interval([ms])`: get or set the foreground event-pump interval in milliseconds. Pass `0` to restore the 25 ms default.
 - `solaros.battery_status()`: shortcut for `solaros.battery.status()` when battery support is compiled.
 - `solaros.wifi_status()`: compact Wi-Fi status shortcut when Wi-Fi support is compiled.
 - `solaros.environment()`: shortcut for `solaros.sensors.environment()` when environmental sensor support is compiled.
+
+For example, `solaros.tick_interval(5)` lets a foreground Python app drain
+terminal, TUI, and graphics events at a best-effort 5 ms cadence. It does not
+schedule or preempt Python code, and it is not a hard-real-time timer. The
+setting lasts for the current foreground Python app only; headless script jobs
+cannot change it.
 
 ## `solaros.contacts` and `solaros.messages`
 

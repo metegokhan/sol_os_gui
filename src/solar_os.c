@@ -377,3 +377,20 @@ const char *solar_os_context_argv(const solar_os_context_t *ctx, int index)
 
     return ctx->argv[index];
 }
+
+uint32_t solar_os_app_tick_interval_ms(const solar_os_app_t *app,
+                                       uint32_t default_interval_ms)
+{
+    if (app == NULL) {
+        return default_interval_ms;
+    }
+
+    uint32_t interval_ms = app->tick_interval_ms;
+    if (app->requested_tick_interval_ms != NULL) {
+        const uint32_t requested_ms = app->requested_tick_interval_ms();
+        if (requested_ms != 0) {
+            interval_ms = requested_ms;
+        }
+    }
+    return interval_ms != 0 ? interval_ms : default_interval_ms;
+}

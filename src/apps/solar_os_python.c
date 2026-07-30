@@ -77,6 +77,7 @@
 #include "solar_os_port_shell.h"
 #include "solar_os_pins.h"
 #include "solar_os_queue.h"
+#include "solar_os_scheduler.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -226,6 +227,7 @@ typedef enum {
 
 static portMUX_TYPE python_runtime_lock = portMUX_INITIALIZER_UNLOCKED;
 static EXT_RAM_BSS_ATTR python_runtime_owner_t python_runtime_owner;
+static EXT_RAM_BSS_ATTR uint32_t python_tick_interval_ms;
 
 static bool python_runtime_claim(python_runtime_owner_t owner)
 {
@@ -233,6 +235,7 @@ static bool python_runtime_claim(python_runtime_owner_t owner)
     portENTER_CRITICAL(&python_runtime_lock);
     if (python_runtime_owner == PYTHON_RUNTIME_OWNER_NONE) {
         python_runtime_owner = owner;
+        python_tick_interval_ms = 0;
         claimed = true;
     }
     portEXIT_CRITICAL(&python_runtime_lock);
@@ -244,6 +247,7 @@ static void python_runtime_release(python_runtime_owner_t owner)
     portENTER_CRITICAL(&python_runtime_lock);
     if (python_runtime_owner == owner) {
         python_runtime_owner = PYTHON_RUNTIME_OWNER_NONE;
+        python_tick_interval_ms = 0;
     }
     portEXIT_CRITICAL(&python_runtime_lock);
 }
@@ -255,6 +259,30 @@ static bool python_runtime_is_owned_by(python_runtime_owner_t owner)
     matches = python_runtime_owner == owner;
     portEXIT_CRITICAL(&python_runtime_lock);
     return matches;
+}
+
+static uint32_t python_requested_tick_interval_ms(void)
+{
+    uint32_t interval_ms = 0;
+    portENTER_CRITICAL(&python_runtime_lock);
+    if (python_runtime_owner == PYTHON_RUNTIME_OWNER_APP) {
+        interval_ms = python_tick_interval_ms != 0 ?
+            python_tick_interval_ms : SOLAR_OS_TICK_INTERVAL_DEFAULT_MS;
+    }
+    portEXIT_CRITICAL(&python_runtime_lock);
+    return interval_ms;
+}
+
+static bool python_set_tick_interval_ms(uint32_t interval_ms)
+{
+    bool set = false;
+    portENTER_CRITICAL(&python_runtime_lock);
+    if (python_runtime_owner == PYTHON_RUNTIME_OWNER_APP) {
+        python_tick_interval_ms = interval_ms;
+        set = true;
+    }
+    portEXIT_CRITICAL(&python_runtime_lock);
+    return set;
 }
 
 static solar_os_shell_io_t *python_io(solar_os_context_t *ctx)
@@ -876,6 +904,27 @@ static mp_obj_t solaros_should_exit(void)
     return mp_obj_new_bool(python_app.stop_requested);
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_should_exit_obj, solaros_should_exit);
+
+static mp_obj_t solaros_tick_interval(size_t n_args, const mp_obj_t *args)
+{
+    if (n_args == 1) {
+        const uint32_t interval_ms = python_u32_from_obj(args[0]);
+        if (!python_set_tick_interval_ms(interval_ms)) {
+            mp_raise_msg(
+                &mp_type_RuntimeError,
+                MP_ERROR_TEXT("tick interval requires foreground python app"));
+        }
+    }
+
+    const uint32_t requested_ms = python_requested_tick_interval_ms();
+    return mp_obj_new_int_from_uint(
+        requested_ms != 0 ?
+            requested_ms : SOLAR_OS_TICK_INTERVAL_DEFAULT_MS);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_tick_interval_obj,
+                                    0,
+                                    1,
+                                    solaros_tick_interval);
 
 static mp_obj_t python_builtin_exit(size_t n_args, const mp_obj_t *args)
 {
@@ -4375,6 +4424,7 @@ static void python_register_solaros_module(void)
     python_module_store(module, "write", MP_OBJ_FROM_PTR(&solaros_write_obj));
     python_module_store(module, "version", MP_OBJ_FROM_PTR(&solaros_version_obj));
     python_module_store(module, "should_exit", MP_OBJ_FROM_PTR(&solaros_should_exit_obj));
+    python_module_store(module, "tick_interval", MP_OBJ_FROM_PTR(&solaros_tick_interval_obj));
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     python_module_store(module, "battery_status", MP_OBJ_FROM_PTR(&solaros_battery_obj));
 #endif
@@ -5872,4 +5922,5 @@ const solar_os_app_t solar_os_python_app = {
     .stop = python_stop,
     .event = python_event,
     .worker_stack_bytes = PYTHON_TASK_STACK,
+    .requested_tick_interval_ms = python_requested_tick_interval_ms,
 };

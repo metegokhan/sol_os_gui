@@ -12,6 +12,13 @@ void solar_os_tick_stats_reset(solar_os_tick_stats_t *stats)
     }
 }
 
+uint32_t solar_os_tick_interval_ms(uint32_t configured_interval_ms,
+                                   uint32_t default_interval_ms)
+{
+    return configured_interval_ms != 0 ?
+        configured_interval_ms : default_interval_ms;
+}
+
 bool solar_os_tick_due(solar_os_tick_stats_t *stats,
                        uint32_t configured_interval_ms,
                        uint32_t configured_deadline_ms,
@@ -23,8 +30,8 @@ bool solar_os_tick_due(solar_os_tick_stats_t *stats,
         return false;
     }
 
-    const uint32_t interval_ms = configured_interval_ms != 0 ?
-        configured_interval_ms : default_interval_ms;
+    const uint32_t interval_ms =
+        solar_os_tick_interval_ms(configured_interval_ms, default_interval_ms);
     const uint32_t deadline_ms = configured_deadline_ms != 0 ?
         configured_deadline_ms : default_deadline_ms;
     stats->interval_ms = interval_ms;

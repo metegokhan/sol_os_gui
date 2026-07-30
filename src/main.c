@@ -66,6 +66,7 @@
 #include "solar_os_sensors.h"
 #include "solar_os_sessions.h"
 #include "solar_os_shell.h"
+#include "solar_os_scheduler.h"
 #include "solar_os_splash.h"
 #include "solar_os_spi.h"
 #include "solar_os_storage.h"
@@ -105,7 +106,7 @@
 #endif
 #define BLE_SLEEP_DISCONNECT_TIMEOUT_MS 500
 #define BLE_RESUME_PM_HOLDOFF_MS 15000
-#define APP_TICK_INTERVAL_MS 25
+#define MAIN_LOOP_INTERVAL_DEFAULT_MS 10U
 #define STATUS_UPDATE_INTERVAL_MS 1000
 #define SESSION_OVERLAY_TITLE_MAX 48
 #define SESSION_OVERLAY_MS 900
@@ -882,10 +883,22 @@ static void dispatch_input_sources(void)
     dispatch_adc_dpad_chars();
 }
 
+static uint32_t requested_tick_interval_ms(void)
+{
+    uint32_t interval_ms = solar_os_sessions_requested_tick_interval_ms();
+    const uint32_t jobs_interval_ms =
+        solar_os_jobs_requested_tick_interval_ms();
+    if (jobs_interval_ms < interval_ms) {
+        interval_ms = jobs_interval_ms;
+    }
+    return interval_ms;
+}
+
 static void dispatch_app_tick(void)
 {
     const uint32_t now_ms = millis_u32();
-    if ((now_ms - last_app_tick_ms) < APP_TICK_INTERVAL_MS) {
+    const uint32_t interval_ms = requested_tick_interval_ms();
+    if ((now_ms - last_app_tick_ms) < interval_ms) {
         return;
     }
 
@@ -1383,6 +1396,10 @@ void app_main(void)
         draw_session_overlay_if_needed();
         maybe_enter_idle_sleep();
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        uint32_t loop_interval_ms = requested_tick_interval_ms();
+        if (loop_interval_ms > MAIN_LOOP_INTERVAL_DEFAULT_MS) {
+            loop_interval_ms = MAIN_LOOP_INTERVAL_DEFAULT_MS;
+        }
+        vTaskDelay(pdMS_TO_TICKS(loop_interval_ms));
     }
 }
