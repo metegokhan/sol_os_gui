@@ -1002,9 +1002,11 @@ static const char * const playground_subcommands[] = {
     "run",
     "search",
     "source",
+    "storage",
 };
 static const char * const playground_source_values[] = {"reset"};
 static const char * const playground_target_values[] = {"auto", "flash", "sd"};
+static const char * const playground_storage_values[] = {"flash", "sd"};
 #endif
 #if SOLAR_OS_PACKAGE_MEDIA
 static const char * const view_options[] = {"-fit", "-actual"};
@@ -1056,6 +1058,7 @@ static const char * const path_playground[] = {"playground"};
 static const char * const path_playground_install[] = {"playground", "install"};
 static const char * const path_playground_run[] = {"playground", "run"};
 static const char * const path_playground_source[] = {"playground", "source"};
+static const char * const path_playground_storage[] = {"playground", "storage"};
 static const char * const path_playground_install_target[] = {
     "playground",
     "install",
@@ -1921,6 +1924,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PLAYGROUND_APPS(path_playground_install),
     SHELL_COMPLETION_PLAYGROUND_APPS(path_playground_run),
     SHELL_COMPLETION_STATIC(path_playground_source, playground_source_values),
+    SHELL_COMPLETION_STATIC(path_playground_storage, playground_storage_values),
     SHELL_COMPLETION_STATIC(path_playground_install_target, playground_target_values),
 #endif
     SHELL_COMPLETION_OPTIONS(path_zip, zip_options),

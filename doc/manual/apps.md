@@ -582,12 +582,15 @@ playground run APP-ID
 playground refresh
 playground reload
 playground source [repository-or-catalog-url|reset]
+playground storage [flash|sd]
 ```
 
 Press `/` to search, `Enter` to open an application, and use the actions shown
-in the bottom bar. Downloads are verified by size and SHA-256 and installed
-under `/.solar/playground/`; SD can be selected when mounted. Community scripts
-run with the normal permissions of their runtime and are not sandboxed.
+in the bottom bar. Press `d` on an application in the catalog tree or details
+page to download it. Downloads are verified by size and SHA-256 and installed
+under `/.solar/playground/` on the permanently configured `flash` or `sd`
+storage. Community scripts run with the normal permissions of their runtime and
+are not sandboxed.
 
 The shell subcommands use the local catalog: `refresh` downloads and saves it,
 `reload` loads that saved copy without network access, `search` prints matches,
@@ -597,6 +600,10 @@ creating a Playground session. Tab completes installed catalog IDs after
 `playground install` and `playground run`. Opening the TUI reloads the saved
 catalog automatically and does not refresh it. At the top-level catalog tree,
 `Esc`, `q`, and the app-exit key exit Playground.
+
+`playground storage` shows the persistent catalog and default application
+storage. Set it with `playground storage flash` or `playground storage sd`.
+Omitting the `install` target, or specifying `auto`, uses this setting.
 
 See [Playground](playground.md) for controls, storage layout, source selection,
 and the trust model.

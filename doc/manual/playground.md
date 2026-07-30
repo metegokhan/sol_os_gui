@@ -23,6 +23,7 @@ playground install APP-ID [auto|flash|sd]
 playground run APP-ID
 playground reload
 playground refresh
+playground storage [flash|sd]
 ```
 
 Opening the TUI loads the saved local catalog without accessing the network.
@@ -32,8 +33,9 @@ Press `/` to search names, descriptions, authors, tags, and categories.
 
 The same operations are available directly from the shell. `search` prints
 matching catalog IDs, runtimes, names, and installation markers. `install`
-downloads and verifies one ID to the automatically selected filesystem, or to
-the explicit `flash` or `sd` target. `run` resolves the installed entry in the
+downloads and verifies one ID to the configured filesystem, or to an explicit
+`flash` or `sd` target. The omitted and `auto` targets both use the persistent
+Playground storage setting. `run` resolves the installed entry in the
 shell and launches its Python or Lua runtime directly; it does not create a
 Playground session. After the catalog is loaded, Tab completes installed
 application IDs for both `install` and `run` without keeping a second ID list
@@ -50,16 +52,25 @@ Application markers:
 - `[U]` has an update available.
 - `[!]` cannot run on this board or firmware.
 
-Select an application and press `Enter` or `Right` for details. From there,
-`d` downloads or updates it, `r` runs an installed copy, and `Delete` removes
-it after confirmation. When an SD card is mounted, downloads ask whether to
-use flash or SD; otherwise they use flash.
+Select an application and press `d` to download or update it directly from the
+catalog tree. Press `Enter` or `Right` for details; from there, `d` downloads
+or updates it, `r` runs an installed copy, and `Delete` removes it after
+confirmation.
 
-The saved catalog always lives on internal flash:
+The catalog and default application downloads live on the persistent storage
+target. Internal flash is the default. Inspect or change the setting with:
 
 ```text
-<flash>/.solar/playground/catalog.json
-<flash>/.solar/playground/catalog.source
+playground storage
+playground storage flash
+playground storage sd
+```
+
+The saved catalog lives at:
+
+```text
+<configured-filesystem>/.solar/playground/catalog.json
+<configured-filesystem>/.solar/playground/catalog.source
 ```
 
 Installed files live on the selected filesystem:
@@ -70,7 +81,10 @@ Installed files live on the selected filesystem:
 ```
 
 SD installations take precedence when the same application also exists in
-flash.
+flash. Changing the storage setting does not migrate an existing catalog or
+installed applications. Refresh the catalog after changing it. When `sd` is
+configured, the SD card must be mounted to load or refresh the catalog and to
+download applications.
 
 ## Sources and safety
 
@@ -102,7 +116,7 @@ applications whose maintainers you trust.
 - `Enter`, `Space`, `Left`, `Right`: fold categories or open details.
 - `/`: search the current catalog.
 - `r`: refresh in the tree, or run from details.
-- `d`: download or update from details.
+- `d`: download or update the selected application from the tree or details.
 - `Delete`: remove from details.
 - `Esc`: cancel or go back in nested views; exit from the catalog tree.
 - `q` or the app-exit key: exit.
@@ -113,6 +127,7 @@ Run `playground` to browse the configured catalog. Use `/` to search, `Enter`
 for details, `d` to download, `r` to run, and `Delete` to remove. Refresh with
 `r` in the tree or `playground refresh`; use `playground reload` to load the
 saved catalog without a network request. Use `playground source [URL|reset]` to
-inspect or change the catalog. Packages are hash-checked but scripts are not
-sandboxed. Shell automation can use `playground search QUERY`, `playground
-install ID [auto|flash|sd]`, and `playground run ID`.
+inspect or change the catalog source, and `playground storage [flash|sd]` to
+choose persistent catalog and application storage. Packages are hash-checked
+but scripts are not sandboxed. Shell automation can use `playground search
+QUERY`, `playground install ID [auto|flash|sd]`, and `playground run ID`.

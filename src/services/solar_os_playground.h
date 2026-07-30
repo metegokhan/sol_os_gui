@@ -79,6 +79,8 @@ esp_err_t solar_os_playground_init(void);
 void solar_os_playground_get_source(char *url, size_t url_len);
 esp_err_t solar_os_playground_set_source(const char *url);
 esp_err_t solar_os_playground_reset_source(void);
+solar_os_playground_target_t solar_os_playground_get_storage(void);
+esp_err_t solar_os_playground_set_storage(solar_os_playground_target_t target);
 
 bool solar_os_playground_catalog_available(void);
 esp_err_t solar_os_playground_reload(void);

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed repeat Playground catalog refreshes on FAT filesystems, added a
+  persistent flash/SD target shared by the catalog and default application
+  downloads, and enabled `d` downloads directly from the catalog tree.
 - Hardened MeshCore lifecycle transitions against concurrent starts and
   configuration changes, made its internal peer cache follow Contacts
   generations with blocked endpoints failing closed, compacted the Credentials
