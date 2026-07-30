@@ -90,7 +90,7 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM95
     {
         .name = "rfm95",
-        .summary = "HopeRF RFM95W LoRa radio",
+        .summary = "HopeRF RFM95W multimode radio",
         .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI,
         .probe_supported = true,
         .binding_specs = rfm95_binding_specs,

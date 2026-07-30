@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-- Added an RFM95W LoRa expansion driver with packet transmit/receive, RSSI/SNR
-  reporting, configurable frequency, bandwidth, spreading factor, coding rate,
-  CRC, header mode, preamble, sync word, and transmit power through the common
-  `radio` service. The ESP32-S3 DevKitC `spi0` profile now accepts GPIO4 as a
+- Added an RFM95W expansion driver with LoRa, FSK, GFSK, MSK, GMSK, and OOK
+  operation through the common `radio` service. LoRa supports packet
+  transmit/receive and RSSI/SNR reporting; the FSK/OOK modem supports packet
+  and unlimited FIFO-stream operation, RSSI, CRC, sync words, addressing, and
+  Gaussian shaping. The ESP32-S3 DevKitC `spi0` profile now accepts GPIO4 as a
   chip-select, matching the documented RFM95W wiring with reset on GPIO5.
 - SPI buses now leave unused chip-select candidates available. An attached
   device or one-shot transfer claims only its selected CS GPIO, allowing another

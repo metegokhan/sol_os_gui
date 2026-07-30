@@ -194,7 +194,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | --- | --- | --- | --- |
 | `manual` | Resource-only profile | Any valid bus, address, chip-select, GPIO, ADC, or PWM bindings | Claims resources without initializing hardware. |
 | `rfm69` | HopeRF RFM69 packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target for the `radio` command. |
-| `rfm95` | HopeRF RFM95W LoRa radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a LoRa packet-radio target for the `radio` command. |
+| `rfm95` | HopeRF RFM95W multimode radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers an FSK/GFSK/MSK/GMSK/OOK/LoRa target for the `radio` command. |
 | `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
@@ -244,7 +244,8 @@ expansion attach rfm95 radio0 spi=spi0 cs=gpio4 reset=gpio5
 radio status radio0
 ```
 
-The default LoRa profile is 868 MHz, 125 kHz bandwidth, SF7, coding rate 4/5,
+The module and driver support FSK, GFSK, MSK, GMSK, OOK, and LoRa. The default
+LoRa profile is 868 MHz, 125 kHz bandwidth, SF7, coding rate 4/5,
 CRC enabled, explicit headers, sync word `0x12`, and 13 dBm transmit power.
 Change both ends of the link to identical settings before exchanging packets:
 
@@ -256,6 +257,25 @@ radio config radio0 coding-rate 4/5
 radio send radio0 "hello from SolarOS"
 radio recv radio0 5000
 ```
+
+To select a conventional FSK-family packet profile, change the modulation and
+then set its bitrate, deviation, single-side receive bandwidth, preamble, and
+sync word. Selecting MSK or GMSK sets the deviation to one quarter of the
+bitrate, giving the required modulation index of 0.5. GFSK and GMSK enable
+Gaussian shaping with BT=1.0.
+
+```text
+radio config radio0 modulation gfsk
+radio config radio0 bitrate 4800
+radio config radio0 deviation 5000
+radio config radio0 bandwidth 12500
+radio config radio0 preamble 3
+radio config radio0 sync 2d d4
+```
+
+FSK-family and OOK packet payloads are limited to 64 bytes by the modem FIFO;
+LoRa payloads may contain up to 255 bytes. Fixed length zero selects the
+FSK/OOK unlimited FIFO-stream mode used by services such as POCSAG.
 
 The driver polls the radio status registers, so DIO0/IRQ is optional. An IRQ
 binding can still be reserved for future interrupt-driven operation.

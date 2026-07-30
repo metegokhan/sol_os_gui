@@ -596,8 +596,8 @@ Auxiliary SPI displays can use that expansion SPI bus through expansion
 drivers. For example, a PCD8544 84x48 LCD module can attach as `lcd0` with
 `expansion attach pcd8544 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5` and
 then be exercised with `display test lcd0`.
-An RFM95W LoRa module wired with NSS on GPIO4 and reset on GPIO5 attaches with
-`expansion attach rfm95 radio0 spi=spi0 cs=gpio4 reset=gpio5`.
+An RFM95W multimode radio wired with NSS on GPIO4 and reset on GPIO5 attaches
+with `expansion attach rfm95 radio0 spi=spi0 cs=gpio4 reset=gpio5`.
 Auxiliary I2C displays can use `i2c0` as well. A common 128x64 SSD1306 OLED at
 address `0x3c` can attach with
 `expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c`; use `display test oled0`

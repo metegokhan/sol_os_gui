@@ -216,6 +216,14 @@ static esp_err_t op_send(void *ctx,
     return rfm95_send((rfm95_t *)ctx, packet, timeout_ms);
 }
 
+static esp_err_t op_send_stream(void *ctx,
+                                const uint8_t *data,
+                                size_t len,
+                                uint32_t timeout_ms)
+{
+    return rfm95_send_stream((rfm95_t *)ctx, data, len, timeout_ms);
+}
+
 static esp_err_t op_receive(void *ctx,
                             solar_os_radio_packet_t *packet,
                             uint32_t timeout_ms)
@@ -228,6 +236,7 @@ static const solar_os_radio_ops_t radio_ops = {
     .set_state = op_set_state,
     .get_status = op_get_status,
     .send = op_send,
+    .send_stream = op_send_stream,
     .receive = op_receive,
 };
 
@@ -284,8 +293,13 @@ esp_err_t solar_os_rfm95_attach(const char *name,
         const solar_os_radio_registration_t registration = {
             .name = name,
             .driver = "rfm95",
-            .summary = "HopeRF RFM95W LoRa radio",
-            .modulations = SOLAR_OS_RADIO_MODULATION_LORA,
+            .summary = "HopeRF RFM95W multimode radio",
+            .modulations = SOLAR_OS_RADIO_MODULATION_FSK |
+                SOLAR_OS_RADIO_MODULATION_GFSK |
+                SOLAR_OS_RADIO_MODULATION_MSK |
+                SOLAR_OS_RADIO_MODULATION_GMSK |
+                SOLAR_OS_RADIO_MODULATION_OOK |
+                SOLAR_OS_RADIO_MODULATION_LORA,
             .features = SOLAR_OS_RADIO_FEATURE_PACKET |
                 SOLAR_OS_RADIO_FEATURE_RSSI |
                 SOLAR_OS_RADIO_FEATURE_SNR |
@@ -294,7 +308,9 @@ esp_err_t solar_os_rfm95_attach(const char *name,
                 SOLAR_OS_RADIO_FEATURE_SYNC_WORD |
                 SOLAR_OS_RADIO_FEATURE_PREAMBLE |
                 SOLAR_OS_RADIO_FEATURE_VARIABLE_LENGTH |
-                SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX,
+                SOLAR_OS_RADIO_FEATURE_ADDRESSING |
+                SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX |
+                SOLAR_OS_RADIO_FEATURE_CONTINUOUS_TX,
             .max_packet_len = RFM95_MAX_PACKET_LEN,
             .default_config = config,
             .initial_state = SOLAR_OS_RADIO_STATE_STANDBY,

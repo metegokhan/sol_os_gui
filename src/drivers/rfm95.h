@@ -12,6 +12,7 @@
 
 #define RFM95_VERSION 0x12
 #define RFM95_MAX_PACKET_LEN 255
+#define RFM95_FSK_MAX_PACKET_LEN 64
 
 typedef struct {
     char spi_bus[SOLAR_OS_BUS_NAME_MAX];
@@ -36,6 +37,10 @@ esp_err_t rfm95_get_status(rfm95_t *dev, solar_os_radio_status_t *status);
 esp_err_t rfm95_send(rfm95_t *dev,
                      const solar_os_radio_packet_t *packet,
                      uint32_t timeout_ms);
+esp_err_t rfm95_send_stream(rfm95_t *dev,
+                            const uint8_t *data,
+                            size_t len,
+                            uint32_t timeout_ms);
 esp_err_t rfm95_receive(rfm95_t *dev,
                         solar_os_radio_packet_t *packet,
                         uint32_t timeout_ms);
