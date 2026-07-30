@@ -495,6 +495,11 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio status|list` | List packet radios registered by expansion drivers. |
 | `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |
 | `radio` | `radio config <name> [field value]` | Show or update common packet-radio configuration. |
+| `radio` | `radio profile list` | List immutable built-in and persistent user radio profiles. |
+| `radio` | `radio profile show <profile>` | Show every setting captured by one profile. |
+| `radio` | `radio profile apply <radio> <profile>` | Apply one complete profile to a radio, restoring the prior config if application fails. |
+| `radio` | `radio profile save <radio> <profile>` | Save or replace a user profile from the radio's complete current config. |
+| `radio` | `radio profile remove <profile>` | Remove a user profile. Built-in profiles are read-only. |
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
@@ -595,6 +600,27 @@ radio config radio0 modulation gfsk
 radio send radio0 hello
 radio recv radio0 5000
 ```
+
+Profiles avoid partially reconfiguring one end while copying a list of fields.
+`lora-eu868`, `gfsk-eu868`, and `ook-eu868` are built in. Up to eight user
+profiles are stored as one versioned NVS record and consume no idle profile
+cache:
+
+```text
+radio profile list
+radio profile apply radio0 lora-eu868
+radio config radio0 sf 9
+radio profile save radio0 lora-sf9
+radio profile show lora-sf9
+radio profile remove lora-sf9
+```
+
+Like `radio config`, applying a profile leaves the radio in driver standby. If
+the driver rejects a setting, SolarOS attempts to restore the complete prior
+configuration and operating state. A profile does not bypass the driver's
+supported frequency, modulation, power, or packet-size checks. The operator
+remains responsible for regional frequency, transmit-power, and duty-cycle
+rules.
 
 RFM95W radios support FSK, GFSK, MSK, GMSK, OOK, and LoRa. LoRa additionally
 uses `bandwidth`, `sf`, and `coding-rate`. For an RFM95W using the common

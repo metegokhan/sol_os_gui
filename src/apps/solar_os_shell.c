@@ -110,6 +110,8 @@ typedef struct {
     bool complete_session_ids;
     bool complete_ports;
     bool complete_radios;
+    bool complete_radio_profiles;
+    bool complete_user_radio_profiles;
     bool complete_ramfs_mounts;
     bool complete_storage_mountables;
     bool complete_storage_unmount_targets;
@@ -582,9 +584,17 @@ static const char * const radio_subcommands[] = {
     "status",
     "list",
     "config",
+    "profile",
     "state",
     "send",
     "recv",
+};
+static const char * const radio_profile_subcommands[] = {
+    "list",
+    "show",
+    "apply",
+    "save",
+    "remove",
 };
 static const char * const radio_config_fields[] = {
     "frequency",
@@ -1438,6 +1448,17 @@ static const char * const path_radio_config_crc[] = {"radio", "config", SHELL_CO
 static const char * const path_radio_config_variable[] = {"radio", "config", SHELL_COMPLETION_ANY, "variable"};
 static const char * const path_radio_config_sf[] = {"radio", "config", SHELL_COMPLETION_ANY, "sf"};
 static const char * const path_radio_config_coding_rate[] = {"radio", "config", SHELL_COMPLETION_ANY, "coding-rate"};
+static const char * const path_radio_profile[] = {"radio", "profile"};
+static const char * const path_radio_profile_show[] = {"radio", "profile", "show"};
+static const char * const path_radio_profile_apply[] = {"radio", "profile", "apply"};
+static const char * const path_radio_profile_apply_radio[] = {
+    "radio", "profile", "apply", SHELL_COMPLETION_ANY
+};
+static const char * const path_radio_profile_save[] = {"radio", "profile", "save"};
+static const char * const path_radio_profile_save_radio[] = {
+    "radio", "profile", "save", SHELL_COMPLETION_ANY
+};
+static const char * const path_radio_profile_remove[] = {"radio", "profile", "remove"};
 static const char * const path_radio_state[] = {"radio", "state"};
 static const char * const path_radio_state_name[] = {"radio", "state", SHELL_COMPLETION_ANY};
 static const char * const path_radio_send[] = {"radio", "send"};
@@ -1567,6 +1588,18 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_radios = true, \
+    }
+#define SHELL_COMPLETION_RADIO_PROFILES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_radio_profiles = true, \
+    }
+#define SHELL_COMPLETION_USER_RADIO_PROFILES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_user_radio_profiles = true, \
     }
 #define SHELL_COMPLETION_RAMFS_MOUNTS(path_array) \
     { \
@@ -1994,6 +2027,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_radio_config_variable, on_off_values),
     SHELL_COMPLETION_STATIC(path_radio_config_sf, radio_spreading_factor_values),
     SHELL_COMPLETION_STATIC(path_radio_config_coding_rate, radio_coding_rate_values),
+    SHELL_COMPLETION_STATIC(path_radio_profile, radio_profile_subcommands),
+    SHELL_COMPLETION_RADIO_PROFILES(path_radio_profile_show),
+    SHELL_COMPLETION_RADIOS(path_radio_profile_apply),
+    SHELL_COMPLETION_RADIO_PROFILES(path_radio_profile_apply_radio),
+    SHELL_COMPLETION_RADIOS(path_radio_profile_save),
+    SHELL_COMPLETION_USER_RADIO_PROFILES(path_radio_profile_save_radio),
+    SHELL_COMPLETION_USER_RADIO_PROFILES(path_radio_profile_remove),
     SHELL_COMPLETION_RADIOS(path_radio_state),
     SHELL_COMPLETION_STATIC(path_radio_state_name, radio_state_values),
     SHELL_COMPLETION_RADIOS(path_radio_send),
@@ -4110,6 +4150,29 @@ static void shell_completion_emit_radios(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_radio_profiles(shell_completion_match_t *state,
+                                                 bool user_only)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+    solar_os_radio_profile_t profiles[SOLAR_OS_RADIO_PROFILE_MAX];
+    size_t count = 0;
+    if (solar_os_radio_profile_list(profiles,
+                                    SOLAR_OS_RADIO_PROFILE_MAX,
+                                    &count) != ESP_OK) {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        if (!user_only || !profiles[i].builtin) {
+            shell_completion_emit(state, profiles[i].name);
+        }
+    }
+#else
+    (void)state;
+    (void)user_only;
+#endif
+}
+
 static void shell_completion_emit_ramfs_mounts(shell_completion_match_t *state)
 {
     const size_t count = solar_os_ramfs_mount_count();
@@ -5209,6 +5272,12 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_radios) {
             shell_completion_emit_radios(state);
+        }
+        if (rule->complete_radio_profiles) {
+            shell_completion_emit_radio_profiles(state, false);
+        }
+        if (rule->complete_user_radio_profiles) {
+            shell_completion_emit_radio_profiles(state, true);
         }
         if (rule->complete_ramfs_mounts) {
             shell_completion_emit_ramfs_mounts(state);

@@ -1,13 +1,19 @@
 #include "solar_os_radio.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "nvs.h"
 
 #define SOLAR_OS_RADIO_DEVICE_MAX 4
+#define RADIO_PROFILE_NVS_NAMESPACE "radio_prof"
+#define RADIO_PROFILE_NVS_KEY "profiles"
+#define RADIO_PROFILE_MAGIC 0x52504631U
+#define RADIO_PROFILE_VERSION 1U
 
 typedef struct {
     bool active;
@@ -17,8 +23,86 @@ typedef struct {
     void *ctx;
 } radio_device_t;
 
+typedef struct {
+    bool active;
+    char name[SOLAR_OS_RADIO_PROFILE_NAME_MAX];
+    solar_os_radio_config_t config;
+} radio_user_profile_t;
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t size;
+    radio_user_profile_t profiles[SOLAR_OS_RADIO_USER_PROFILE_MAX];
+} radio_profile_store_t;
+
+static const solar_os_radio_profile_t radio_builtin_profiles[] = {
+    {
+        .name = "lora-eu868",
+        .builtin = true,
+        .config = {
+            .frequency_hz = 868000000,
+            .modulation = SOLAR_OS_RADIO_MODULATION_LORA,
+            .rx_bandwidth_hz = 125000,
+            .spreading_factor = 7,
+            .coding_rate_denominator = 5,
+            .preamble_len = 8,
+            .sync_word_len = 1,
+            .sync_word = {0x12},
+            .tx_power_dbm = 13,
+            .crc_enabled = true,
+            .variable_length = true,
+            .payload_length = 255,
+        },
+    },
+    {
+        .name = "gfsk-eu868",
+        .builtin = true,
+        .config = {
+            .frequency_hz = 868000000,
+            .modulation = SOLAR_OS_RADIO_MODULATION_GFSK,
+            .bitrate_bps = 4800,
+            .deviation_hz = 5000,
+            .rx_bandwidth_hz = 12500,
+            .spreading_factor = 7,
+            .coding_rate_denominator = 5,
+            .preamble_len = 3,
+            .sync_word_len = 2,
+            .sync_word = {0x2d, 0xd4},
+            .tx_power_dbm = 13,
+            .crc_enabled = true,
+            .variable_length = true,
+            .payload_length = 64,
+        },
+    },
+    {
+        .name = "ook-eu868",
+        .builtin = true,
+        .config = {
+            .frequency_hz = 868000000,
+            .modulation = SOLAR_OS_RADIO_MODULATION_OOK,
+            .bitrate_bps = 4800,
+            .rx_bandwidth_hz = 12500,
+            .spreading_factor = 7,
+            .coding_rate_denominator = 5,
+            .preamble_len = 3,
+            .sync_word_len = 2,
+            .sync_word = {0x2d, 0xd4},
+            .tx_power_dbm = 13,
+            .crc_enabled = true,
+            .variable_length = true,
+            .payload_length = 64,
+        },
+    },
+};
+
+_Static_assert(sizeof(radio_builtin_profiles) / sizeof(radio_builtin_profiles[0]) ==
+                   SOLAR_OS_RADIO_BUILTIN_PROFILE_COUNT,
+               "built-in radio profile count mismatch");
+
 static radio_device_t radio_devices[SOLAR_OS_RADIO_DEVICE_MAX];
 static SemaphoreHandle_t radio_mutex;
+static SemaphoreHandle_t radio_profile_mutex;
 
 static esp_err_t radio_ensure_init(void)
 {
@@ -469,6 +553,311 @@ esp_err_t solar_os_radio_receive(const char *name,
         return ESP_ERR_INVALID_SIZE;
     }
     return ESP_OK;
+}
+
+static bool radio_profile_name_valid(const char *name)
+{
+    if (name == NULL ||
+        name[0] == '\0' ||
+        strnlen(name, SOLAR_OS_RADIO_PROFILE_NAME_MAX) >=
+            SOLAR_OS_RADIO_PROFILE_NAME_MAX ||
+        !isalnum((unsigned char)name[0])) {
+        return false;
+    }
+
+    for (const char *p = name + 1; *p != '\0'; p++) {
+        if (!isalnum((unsigned char)*p) &&
+            *p != '-' &&
+            *p != '_' &&
+            *p != '.') {
+            return false;
+        }
+    }
+    return true;
+}
+
+static esp_err_t radio_profile_ensure_init(void)
+{
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+    if (radio_profile_mutex != NULL) {
+        return ESP_OK;
+    }
+
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (radio_profile_mutex == NULL) {
+        radio_profile_mutex = xSemaphoreCreateMutex();
+    }
+    xSemaphoreGive(radio_mutex);
+    return radio_profile_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+static const solar_os_radio_profile_t *radio_builtin_profile_find(const char *name)
+{
+    for (size_t i = 0;
+         i < sizeof(radio_builtin_profiles) / sizeof(radio_builtin_profiles[0]);
+         i++) {
+        if (strcmp(radio_builtin_profiles[i].name, name) == 0) {
+            return &radio_builtin_profiles[i];
+        }
+    }
+    return NULL;
+}
+
+static void radio_profile_store_empty(radio_profile_store_t *store)
+{
+    memset(store, 0, sizeof(*store));
+    store->magic = RADIO_PROFILE_MAGIC;
+    store->version = RADIO_PROFILE_VERSION;
+    store->size = sizeof(*store);
+}
+
+static esp_err_t radio_profile_store_load(radio_profile_store_t *store)
+{
+    if (store == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    radio_profile_store_empty(store);
+
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(RADIO_PROFILE_NVS_NAMESPACE, NVS_READONLY, &nvs);
+    if (ret == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    size_t len = sizeof(*store);
+    ret = nvs_get_blob(nvs, RADIO_PROFILE_NVS_KEY, store, &len);
+    nvs_close(nvs);
+    if (ret == ESP_ERR_NVS_NOT_FOUND) {
+        radio_profile_store_empty(store);
+        return ESP_OK;
+    }
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (len != sizeof(*store) ||
+        store->magic != RADIO_PROFILE_MAGIC ||
+        store->version != RADIO_PROFILE_VERSION ||
+        store->size != sizeof(*store)) {
+        return ESP_ERR_INVALID_VERSION;
+    }
+
+    for (size_t i = 0; i < SOLAR_OS_RADIO_USER_PROFILE_MAX; i++) {
+        const radio_user_profile_t *profile = &store->profiles[i];
+        if (!profile->active) {
+            continue;
+        }
+        if (!radio_profile_name_valid(profile->name) ||
+            radio_builtin_profile_find(profile->name) != NULL ||
+            radio_validate_config(
+                &profile->config,
+                SOLAR_OS_RADIO_MODULATION_FSK |
+                    SOLAR_OS_RADIO_MODULATION_GFSK |
+                    SOLAR_OS_RADIO_MODULATION_MSK |
+                    SOLAR_OS_RADIO_MODULATION_GMSK |
+                    SOLAR_OS_RADIO_MODULATION_OOK |
+                    SOLAR_OS_RADIO_MODULATION_LORA) != ESP_OK) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    }
+    return ESP_OK;
+}
+
+static esp_err_t radio_profile_store_save(const radio_profile_store_t *store)
+{
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(RADIO_PROFILE_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = nvs_set_blob(nvs, RADIO_PROFILE_NVS_KEY, store, sizeof(*store));
+    if (ret == ESP_OK) {
+        ret = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return ret;
+}
+
+esp_err_t solar_os_radio_profile_list(solar_os_radio_profile_t *profiles,
+                                      size_t capacity,
+                                      size_t *count)
+{
+    if (count == NULL || (profiles == NULL && capacity != 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    radio_profile_store_t store;
+    ESP_RETURN_ON_ERROR(radio_profile_ensure_init(), "radio", "init failed");
+    xSemaphoreTake(radio_profile_mutex, portMAX_DELAY);
+    const esp_err_t load_ret = radio_profile_store_load(&store);
+    xSemaphoreGive(radio_profile_mutex);
+    ESP_RETURN_ON_ERROR(load_ret, "radio", "load profiles failed");
+
+    size_t total = 0;
+    for (size_t i = 0;
+         i < sizeof(radio_builtin_profiles) / sizeof(radio_builtin_profiles[0]);
+         i++) {
+        if (total < capacity) {
+            profiles[total] = radio_builtin_profiles[i];
+        }
+        total++;
+    }
+    for (size_t i = 0; i < SOLAR_OS_RADIO_USER_PROFILE_MAX; i++) {
+        if (!store.profiles[i].active) {
+            continue;
+        }
+        if (total < capacity) {
+            memset(&profiles[total], 0, sizeof(profiles[total]));
+            strlcpy(profiles[total].name,
+                    store.profiles[i].name,
+                    sizeof(profiles[total].name));
+            profiles[total].config = store.profiles[i].config;
+        }
+        total++;
+    }
+
+    *count = total;
+    return total <= capacity ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+esp_err_t solar_os_radio_profile_get(const char *profile_name,
+                                     solar_os_radio_profile_t *profile)
+{
+    if (!radio_profile_name_valid(profile_name) || profile == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const solar_os_radio_profile_t *builtin =
+        radio_builtin_profile_find(profile_name);
+    if (builtin != NULL) {
+        *profile = *builtin;
+        return ESP_OK;
+    }
+
+    radio_profile_store_t store;
+    ESP_RETURN_ON_ERROR(radio_profile_ensure_init(), "radio", "init failed");
+    xSemaphoreTake(radio_profile_mutex, portMAX_DELAY);
+    const esp_err_t load_ret = radio_profile_store_load(&store);
+    xSemaphoreGive(radio_profile_mutex);
+    ESP_RETURN_ON_ERROR(load_ret, "radio", "load profiles failed");
+    for (size_t i = 0; i < SOLAR_OS_RADIO_USER_PROFILE_MAX; i++) {
+        if (store.profiles[i].active &&
+            strcmp(store.profiles[i].name, profile_name) == 0) {
+            memset(profile, 0, sizeof(*profile));
+            strlcpy(profile->name, store.profiles[i].name, sizeof(profile->name));
+            profile->config = store.profiles[i].config;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t solar_os_radio_profile_apply(const char *radio_name,
+                                       const char *profile_name)
+{
+    solar_os_radio_profile_t profile;
+    ESP_RETURN_ON_ERROR(solar_os_radio_profile_get(profile_name, &profile),
+                        "radio",
+                        "profile not found");
+
+    solar_os_radio_status_t previous;
+    ESP_RETURN_ON_ERROR(solar_os_radio_get_status(radio_name, &previous),
+                        "radio",
+                        "radio not found");
+
+    const esp_err_t ret = solar_os_radio_configure(radio_name, &profile.config);
+    if (ret != ESP_OK) {
+        (void)solar_os_radio_configure(radio_name, &previous.config);
+        if (previous.state != SOLAR_OS_RADIO_STATE_UNKNOWN &&
+            previous.state != SOLAR_OS_RADIO_STATE_STANDBY) {
+            (void)solar_os_radio_set_state(radio_name, previous.state);
+        }
+    }
+    return ret;
+}
+
+esp_err_t solar_os_radio_profile_save(const char *radio_name,
+                                      const char *profile_name)
+{
+    if (!radio_profile_name_valid(profile_name)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (radio_builtin_profile_find(profile_name) != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    solar_os_radio_status_t status;
+    ESP_RETURN_ON_ERROR(solar_os_radio_get_status(radio_name, &status),
+                        "radio",
+                        "radio not found");
+
+    ESP_RETURN_ON_ERROR(radio_profile_ensure_init(), "radio", "init failed");
+
+    radio_profile_store_t store;
+    xSemaphoreTake(radio_profile_mutex, portMAX_DELAY);
+    esp_err_t ret = radio_profile_store_load(&store);
+    if (ret != ESP_OK) {
+        xSemaphoreGive(radio_profile_mutex);
+        return ret;
+    }
+    radio_user_profile_t *target = NULL;
+    for (size_t i = 0; i < SOLAR_OS_RADIO_USER_PROFILE_MAX; i++) {
+        if (store.profiles[i].active &&
+            strcmp(store.profiles[i].name, profile_name) == 0) {
+            target = &store.profiles[i];
+            break;
+        }
+        if (!store.profiles[i].active && target == NULL) {
+            target = &store.profiles[i];
+        }
+    }
+    if (target == NULL) {
+        xSemaphoreGive(radio_profile_mutex);
+        return ESP_ERR_NO_MEM;
+    }
+
+    memset(target, 0, sizeof(*target));
+    target->active = true;
+    strlcpy(target->name, profile_name, sizeof(target->name));
+    target->config = status.config;
+    ret = radio_profile_store_save(&store);
+    xSemaphoreGive(radio_profile_mutex);
+    return ret;
+}
+
+esp_err_t solar_os_radio_profile_remove(const char *profile_name)
+{
+    if (!radio_profile_name_valid(profile_name)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (radio_builtin_profile_find(profile_name) != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_RETURN_ON_ERROR(radio_profile_ensure_init(), "radio", "init failed");
+
+    radio_profile_store_t store;
+    xSemaphoreTake(radio_profile_mutex, portMAX_DELAY);
+    esp_err_t ret = radio_profile_store_load(&store);
+    if (ret != ESP_OK) {
+        xSemaphoreGive(radio_profile_mutex);
+        return ret;
+    }
+    for (size_t i = 0; i < SOLAR_OS_RADIO_USER_PROFILE_MAX; i++) {
+        if (store.profiles[i].active &&
+            strcmp(store.profiles[i].name, profile_name) == 0) {
+            memset(&store.profiles[i], 0, sizeof(store.profiles[i]));
+            ret = radio_profile_store_save(&store);
+            xSemaphoreGive(radio_profile_mutex);
+            return ret;
+        }
+    }
+    xSemaphoreGive(radio_profile_mutex);
+    return ESP_ERR_NOT_FOUND;
 }
 
 const char *solar_os_radio_modulation_name(solar_os_radio_modulation_t modulation)

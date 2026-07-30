@@ -11,6 +11,10 @@
 - SPI buses now leave unused chip-select candidates available. An attached
   device or one-shot transfer claims only its selected CS GPIO, allowing another
   declared CS candidate to serve roles such as reset or data/command.
+- Added atomic radio profiles with built-in LoRa, GFSK, and OOK EU868 settings
+  plus eight persistent user profiles in a versioned NVS record. Profiles save
+  and apply the complete common radio configuration, attempt rollback after
+  driver rejection, and autocomplete without an idle SRAM cache.
 
 ## 4.x
 

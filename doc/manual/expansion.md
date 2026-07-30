@@ -44,6 +44,7 @@ reset on GPIO5 attaches as a multimode packet radio:
 ```text
 expansion attach rfm95 radio0 spi=spi0 cs=gpio4 reset=gpio5
 radio status radio0
+radio profile apply radio0 lora-eu868
 ```
 
 Connect an antenna suitable for the module band before transmitting. See the

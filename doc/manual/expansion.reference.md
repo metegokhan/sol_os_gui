@@ -247,31 +247,31 @@ radio status radio0
 The module and driver support FSK, GFSK, MSK, GMSK, OOK, and LoRa. The default
 LoRa profile is 868 MHz, 125 kHz bandwidth, SF7, coding rate 4/5,
 CRC enabled, explicit headers, sync word `0x12`, and 13 dBm transmit power.
-Change both ends of the link to identical settings before exchanging packets:
+The matching built-in profile applies those settings as one operation:
 
 ```text
-radio config radio0 frequency 868MHz
-radio config radio0 bandwidth 125000
-radio config radio0 sf 7
-radio config radio0 coding-rate 4/5
+radio profile apply radio0 lora-eu868
 radio send radio0 "hello from SolarOS"
 radio recv radio0 5000
 ```
 
-To select a conventional FSK-family packet profile, change the modulation and
-then set its bitrate, deviation, single-side receive bandwidth, preamble, and
-sync word. Selecting MSK or GMSK sets the deviation to one quarter of the
-bitrate, giving the required modulation index of 0.5. GFSK and GMSK enable
-Gaussian shaping with BT=1.0.
+`gfsk-eu868` and `ook-eu868` are also built in. Change both ends of a link to
+the same profile before exchanging packets. A custom set of settings can be
+captured in one of eight persistent NVS user profiles:
 
 ```text
-radio config radio0 modulation gfsk
-radio config radio0 bitrate 4800
-radio config radio0 deviation 5000
-radio config radio0 bandwidth 12500
-radio config radio0 preamble 3
-radio config radio0 sync 2d d4
+radio profile apply radio0 gfsk-eu868
+radio config radio0 bitrate 9600
+radio profile save radio0 gfsk-9600
+radio profile show gfsk-9600
 ```
+
+Applying a profile leaves the radio in standby and rolls back the complete
+configuration and prior state if the driver rejects it. User profiles preserve
+every common radio setting, including addressing. Built-in profiles are read-only.
+Selecting MSK or GMSK sets the deviation to one quarter of the bitrate, giving
+the required modulation index of 0.5. GFSK and GMSK enable Gaussian shaping
+with BT=1.0.
 
 FSK-family and OOK packet payloads are limited to 64 bytes by the modem FIFO;
 LoRa payloads may contain up to 255 bytes. Fixed length zero selects the
