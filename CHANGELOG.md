@@ -2,68 +2,52 @@
 
 ## Unreleased
 
-- Fixed repeat Playground catalog refreshes on FAT filesystems, added a
-  persistent flash/SD target shared by the catalog and default application
-  installations with SD preferred when no setting exists, and added `i`
-  install and `u` uninstall actions to both the catalog tree and application
-  details.
-- Hardened MeshCore lifecycle transitions against concurrent starts and
-  configuration changes, made its internal peer cache follow Contacts
-  generations with blocked endpoints failing closed, compacted the Credentials
-  NVS blob to its active records for used-device headroom, tuned the measured
-  worker stack, added the RFM95 62.5-kHz LoRa mapping, bounded status rendering,
-  and added host two-node plus connected memory/stack/start-stop regression
-  coverage.
-- Added a pinned, audited MeshCore companion provider with Ed25519/ECDH direct
-  messaging, ACK retries, shared-key groups, contact discovery and trust
-  enforcement, a PSRAM-resident bounded core, an RFM95-compatible radio
-  adapter, explicit EU868 profile, background job, shell controls, and manual.
-- Made Chat an offline-capable provider-neutral conversation client and added
-  live `messages` shell controls plus safe Contacts/Messages APIs for Python and
-  Lua. Direct messages now require an explicit second confirmation for
-  discovered endpoints and always reject blocked endpoints.
-- Extracted the provider-neutral Conversations/Messages owner from gateway Chat,
-  with PSRAM-backed bounded rings, offline provider outboxes, normalized gateway
-  delivery, Inbox projection, and fresh CRC-checked `/.messages/messages.bin`
-  history on large storage.
-
-- Defined the provider-neutral SolarOS messaging contract and fixed public
-  identifiers, trust, conversation, delivery, capability, and security types
-  shared by the gateway and planned MeshCore provider.
-- Added PSRAM-backed Contacts and Credentials services. Contacts provides 64
-  contacts, 80 independently trusted provider endpoints, bounded live
-  snapshots, safe linking and eviction, a sub-24-KiB dual-copy CRC store,
-  shell commands with live ID completion, and a searchable resumable TUI.
-  Credentials stores twelve opaque versioned NVS records without exposing
-  secret material through public listings or scripting surfaces.
-- Added an RFM95W expansion driver with LoRa, FSK, GFSK, MSK, GMSK, and OOK
-  operation through the common `radio` service. LoRa supports packet
-  transmit/receive and RSSI/SNR reporting; the FSK/OOK modem supports packet
-  and unlimited FIFO-stream operation, RSSI, CRC, sync words, addressing, and
-  Gaussian shaping. The ESP32-S3 DevKitC `spi0` profile now accepts GPIO4 as a
-  chip-select, matching the documented RFM95W wiring with reset on GPIO5.
-- SPI buses now leave unused chip-select candidates available. An attached
-  device or one-shot transfer claims only its selected CS GPIO, allowing another
-  declared CS candidate to serve roles such as reset or data/command.
-- Added atomic radio profiles with built-in LoRa, GFSK, and OOK EU868 settings
-  plus eight persistent user profiles in a versioned NVS record. Profiles save
-  and apply the complete common radio configuration, attempt rollback after
-  driver rejection, and autocomplete without an idle SRAM cache.
-- Added transport-independent SolarOS Link v1 framing for text, binary, and
-  acknowledgement messages with stable 32-bit device IDs, broadcast delivery,
-  protocol CRC, bounded PSRAM-preferred queues, duplicate suppression, and ACK
-  tracking. The new `radio-link` job claims a packet radio, applies a named
-  profile, moves complete Link frames, optionally copies accepted text to the
-  inbox, and restores the radio on stop. Added `link` send/receive/status
-  commands, generation-checked and reference-counted radio ownership,
-  autocomplete, and manual coverage.
-- Extended the `bridge` job to connect a bidirectional byte-stream port to an
-  active SolarOS Link. Serial chunks become MTU-bounded binary messages, Link
-  text/binary payloads return to the serial stream, and broadcast or
-  acknowledged-unicast destinations are supported without an unbounded buffer.
-
 ## 4.x
 
+- **4.4.8** — 2026-07-30 — The Agent app now exits with `Esc` as well as the
+  app-exit key. SSH and SCP behave like normal command-line tools: they keep the
+  current terminal contents, print their result inline, and return directly to
+  the shell prompt. Playground now stores its catalog and applications in the
+  visible `/playground` directory, and `playground delete` removes that
+  directory, cleans up the legacy hidden location, and clears the loaded
+  catalog while retaining source and storage preferences.
+- **4.4.7** — 2026-07-30 — Applications and jobs can request scheduler ticks
+  faster than the former fixed 25 ms cadence. Python and Lua scripts can use
+  `solaros.tick_interval([ms])`, including `solaros.tick_interval(5)` for a
+  5 ms cadence and `solaros.tick_interval(0)` to restore the default. The
+  scheduler uses the fastest active request while preserving cooperative
+  execution.
+- **4.4.6** — 2026-07-30 — Fixed repeat Playground catalog refreshes on FAT
+  filesystems, added a persistent flash/SD target shared by the catalog and
+  default application installations, and made SD the default when available
+  and no setting exists.
+  The catalog tree and application details now use `i` to install or update and
+  `u` to uninstall. Added `nvs status` for partition, entry, and namespace
+  diagnostics, and `nvs clear` to erase all NVS-backed settings and reboot.
+- **4.4.5** — 2026-07-30 — Added provider-neutral messaging, PSRAM-backed
+  Contacts and Credentials services, bounded Conversations/Messages storage,
+  offline provider outboxes, Inbox projection, live `messages` shell controls,
+  safe Python/Lua APIs, and an offline-capable Chat client with live provider
+  and contact identity handling. Added the pinned MeshCore companion provider
+  with Ed25519/ECDH direct messaging, shared-key groups, ACK retries, discovery
+  and trust enforcement, an RFM95-compatible adapter, an EU868 profile, a
+  background job, and shell controls. Hardened MeshCore lifecycle transitions,
+  contact-cache updates and blocking, credential persistence, memory use, and
+  connected-device regression coverage.
+- **4.4.4** — 2026-07-30 — Added transport-independent SolarOS Link v1 framing
+  for text, binary, and acknowledgement messages with stable device IDs,
+  broadcast delivery, CRC checks, bounded queues, duplicate suppression, and
+  ACK tracking. The `radio-link` job and `link` shell commands provide managed
+  packet-radio transport. The `bridge` job can now connect a bidirectional
+  byte-stream port to an active Link for broadcast or acknowledged unicast
+  traffic.
+- **4.4.3** — 2026-07-30 — Added the RFM95W expansion driver with LoRa, FSK,
+  GFSK, MSK, GMSK, and OOK modes, including packet and FIFO-stream operation,
+  signal reporting, CRC, sync words, addressing, and Gaussian shaping. SPI
+  devices now claim only their selected chip-select GPIO, leaving other
+  candidates available for roles such as reset or data/command. Added atomic
+  complete-radio profiles with built-in EU868 settings and eight persistent
+  user profiles.
 - **4.4.2** — 2026-07-29 — Reduced SD-card boot time by trusting the signed
   active manual catalog instead of reopening and hashing every previously
   verified Markdown page. Manual downloads and updates still verify the
