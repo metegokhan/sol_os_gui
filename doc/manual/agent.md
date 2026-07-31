@@ -53,7 +53,8 @@ saved provider response ID; Chat Completions endpoints receive a bounded local
 message window. Bare `agent` always starts a new conversation.
 
 Use `agent ask PROMPT` for one request. It leaves the answer visible until you
-press `Ctrl+]`; one-request answers are not added to the conversation store.
+press `Esc` or the app-exit key; one-request answers are not added to the
+conversation store.
 
 ## Inspect background workloads
 
@@ -92,4 +93,4 @@ tools with `agent config`. `agent tools` reports the installed typed tools and
 their policy disposition. `jobs_list` is read-only and reports actual job
 admission and memory state; it does not start or stop jobs. The default
 `confirm` policy runs read-only tools and requires local approval for sensitive,
-mutating, or disruptive calls. Ctrl+] returns to the shell.
+mutating, or disruptive calls. `Esc` or the app-exit key returns to the shell.

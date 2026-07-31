@@ -803,6 +803,28 @@ static void playground_command_finish(solar_os_context_t *ctx)
     solar_os_context_request_exit(ctx);
 }
 
+static bool playground_handle_delete_command(solar_os_context_t *ctx)
+{
+    const int argc = solar_os_context_argc(ctx);
+    if (argc < 2 || strcmp(solar_os_context_argv(ctx, 1), "delete") != 0) {
+        return false;
+    }
+    solar_os_shell_io_t *io = playground_io(ctx);
+    if (argc != 2) {
+        solar_os_shell_io_writeln(io, "usage: playground delete");
+    } else {
+        const esp_err_t err = solar_os_playground_delete();
+        solar_os_shell_io_printf(
+            io,
+            "playground: %s\n",
+            err == ESP_OK ?
+                "storage deleted; catalog cleared" :
+                esp_err_to_name(err));
+    }
+    playground_command_finish(ctx);
+    return true;
+}
+
 static bool playground_handle_storage_command(solar_os_context_t *ctx)
 {
     const int argc = solar_os_context_argc(ctx);
@@ -1013,7 +1035,8 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
     if (playground_handle_source_command(ctx)) {
         return ESP_OK;
     }
-    if (playground_handle_storage_command(ctx) ||
+    if (playground_handle_delete_command(ctx) ||
+        playground_handle_storage_command(ctx) ||
         playground_handle_reload_command(ctx) ||
         playground_handle_search_command(ctx) ||
         playground_handle_install_command(ctx)) {
@@ -1026,7 +1049,7 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
         solar_os_shell_io_t *io = playground_io(ctx);
         solar_os_shell_io_writeln(
             io,
-            "usage: playground [refresh|reload|search QUERY|install ID [target]|"
+            "usage: playground [delete|refresh|reload|search QUERY|install ID [target]|"
             "run ID|source [url|reset]|storage [flash|sd]]");
         solar_os_context_request_exit(ctx);
         return ESP_OK;

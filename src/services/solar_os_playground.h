@@ -83,6 +83,7 @@ solar_os_playground_target_t solar_os_playground_get_storage(void);
 esp_err_t solar_os_playground_set_storage(solar_os_playground_target_t target);
 
 bool solar_os_playground_catalog_available(void);
+esp_err_t solar_os_playground_delete(void);
 esp_err_t solar_os_playground_reload(void);
 esp_err_t solar_os_playground_refresh(volatile bool *cancel,
                                       solar_os_playground_progress_fn progress_fn,

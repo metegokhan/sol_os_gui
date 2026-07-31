@@ -20,6 +20,8 @@ typedef struct solar_os_shell_session solar_os_shell_session_t;
 typedef void (*solar_os_session_list_fn)(solar_os_shell_io_t *io, void *user);
 
 #define SOLAR_OS_APP_FLAG_RESUMABLE (1U << 0)
+/* Reuse a launching display shell's terminal instead of allocating a new one. */
+#define SOLAR_OS_APP_FLAG_SHELL_INLINE (1U << 1)
 
 typedef enum {
     SOLAR_OS_LAUNCH_REPLACE,

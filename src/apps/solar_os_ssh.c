@@ -23,7 +23,6 @@ typedef enum {
     SSH_APP_PASSWORD,
     SSH_APP_CONNECTING,
     SSH_APP_CONNECTED,
-    SSH_APP_ERROR,
 } ssh_app_mode_t;
 
 typedef enum {
@@ -67,7 +66,6 @@ typedef struct {
     size_t saved_row;
     size_t saved_col;
     bool saved_cursor_valid;
-    bool saw_error;
     bool suspended;
 } ssh_app_state_t;
 
@@ -116,12 +114,9 @@ static void ssh_render_usage(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = ssh_io(ctx);
 
-    solar_os_shell_io_clear(io);
-    solar_os_shell_io_write_bold(io, "ssh");
-    solar_os_shell_io_newline(io);
     solar_os_shell_io_writeln(io, "usage: ssh [user@]host [port]");
-    solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
     ssh_flush(ctx);
+    ssh_request_close(ctx);
 }
 
 static bool ssh_parse_port(const char *text, uint16_t *port)
@@ -187,7 +182,6 @@ static void ssh_render_password_prompt(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = ssh_io(ctx);
 
-    solar_os_shell_io_clear(io);
     solar_os_shell_io_printf_bold(io,
                                   "ssh %s@%s:%u\n",
                                   ssh_app.username,
@@ -197,9 +191,6 @@ static void ssh_render_password_prompt(solar_os_context_t *ctx)
                             solar_os_ssh_keys_default_exists() ?
                                 "password (Enter for key): " :
                                 "password: ");
-    for (size_t i = 0; i < ssh_app.password_len; i++) {
-        solar_os_shell_io_put_char(io, '*');
-    }
     ssh_flush(ctx);
 }
 
@@ -215,12 +206,6 @@ static esp_err_t ssh_begin_connect(solar_os_context_t *ctx)
         .rows = solar_os_shell_io_rows(io),
     };
 
-    solar_os_shell_io_clear(io);
-    solar_os_shell_io_printf_bold(io,
-                                  "ssh %s@%s:%u\n",
-                                  ssh_app.username,
-                                  ssh_app.host,
-                                  (unsigned)ssh_app.port);
     solar_os_shell_io_writeln(io, "starting");
     ssh_flush(ctx);
 
@@ -230,7 +215,6 @@ static esp_err_t ssh_begin_connect(solar_os_context_t *ctx)
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io, "ssh start failed: %s\n", esp_err_to_name(err));
         ssh_flush(ctx);
-        ssh_app.mode = SSH_APP_ERROR;
         ssh_request_close(ctx);
         return err;
     }
@@ -815,7 +799,6 @@ static void ssh_drain_events(solar_os_context_t *ctx)
             ssh_write_output(ctx, event.data, event.len);
             break;
         case SOLAR_OS_SSH_EVENT_ERROR:
-            ssh_app.saw_error = true;
             solar_os_shell_io_printf(io, "ssh: %s\n", event.message);
             ssh_flush(ctx);
             break;
@@ -824,13 +807,7 @@ static void ssh_drain_events(solar_os_context_t *ctx)
             ssh_flush(ctx);
             solar_os_ssh_stop(ssh_app.session);
             ssh_app.session = NULL;
-            if (ssh_app.saw_error) {
-                ssh_app.mode = SSH_APP_ERROR;
-                ssh_flush(ctx);
-                ssh_request_close(ctx);
-            } else {
-                ssh_request_close(ctx);
-            }
+            ssh_request_close(ctx);
             break;
         default:
             break;
@@ -1011,13 +988,11 @@ static esp_err_t ssh_start(solar_os_context_t *ctx)
 
     const int argc = solar_os_context_argc(ctx);
     if (argc < 2 || argc > 3 || !ssh_parse_target(solar_os_context_argv(ctx, 1))) {
-        ssh_app.mode = SSH_APP_ERROR;
         ssh_render_usage(ctx);
         return ESP_OK;
     }
 
     if (argc == 3 && !ssh_parse_port(solar_os_context_argv(ctx, 2), &ssh_app.port)) {
-        ssh_app.mode = SSH_APP_ERROR;
         ssh_render_usage(ctx);
         return ESP_OK;
     }
@@ -1092,7 +1067,7 @@ static bool ssh_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             solar_os_ssh_stop(ssh_app.session);
             ssh_app.session = NULL;
         }
-        solar_os_context_request_exit(ctx);
+        ssh_request_close(ctx);
         return true;
     }
 
@@ -1102,22 +1077,23 @@ static bool ssh_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             if (ssh_app.password_len > 0) {
                 ssh_app.password_len--;
                 ssh_app.password[ssh_app.password_len] = '\0';
-                ssh_render_password_prompt(ctx);
+                solar_os_shell_io_write(ssh_io(ctx), "\b \b");
+                ssh_flush(ctx);
             }
         } else if (ch == '\r' || ch == '\n') {
+            solar_os_shell_io_newline(ssh_io(ctx));
             (void)ssh_begin_connect(ctx);
         } else if (ssh_is_printable(ch) && ssh_app.password_len + 1 < sizeof(ssh_app.password)) {
             ssh_app.password[ssh_app.password_len++] = ch;
             ssh_app.password[ssh_app.password_len] = '\0';
-            ssh_render_password_prompt(ctx);
+            solar_os_shell_io_put_char(ssh_io(ctx), '*');
+            ssh_flush(ctx);
         }
         break;
     case SSH_APP_CONNECTING:
     case SSH_APP_CONNECTED:
         ssh_send_key(ch);
         ssh_drain_events(ctx);
-        break;
-    case SSH_APP_ERROR:
         break;
     default:
         break;
@@ -1129,7 +1105,7 @@ static bool ssh_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_ssh_app = {
     .name = "ssh",
     .summary = "SSH client",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_SHELL_INLINE,
     .start = ssh_start,
     .suspend = ssh_suspend,
     .resume = ssh_resume,

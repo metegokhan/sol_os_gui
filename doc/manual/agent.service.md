@@ -54,8 +54,8 @@ agent
 agent new
 ```
 
-Enter sends a message, Page Up/Down scrolls the terminal transcript, and the
-app-exit key returns to the shell. The prompt uses the configured SolarOS
+Enter sends a message, Page Up/Down scrolls the terminal transcript, and `Esc`
+or the app-exit key returns to the shell. The prompt uses the configured SolarOS
 username, agent labels are bold, and the protected bottom status bar shows the
 latest input, output, and total token counts without adding usage lines to the
 conversation or scrollback. Narrow displays abbreviate those fields as `I`, `O`,
@@ -87,7 +87,8 @@ agent ask Describe the current device status.
 ```
 
 The one-request frontend stays open after completion so the response remains
-readable. It is not persisted. Use the app-exit key to return to the shell.
+readable. It is not persisted. Use `Esc` or the app-exit key to return to the
+shell.
 
 On full builds, the same 16 KiB foreground worker can run a Python or Lua
 source string or file through the reusable script-runner contract:
@@ -101,8 +102,9 @@ agent script lua /script.lua argument
 
 This manual path captures output instead of streaming directly from the
 interpreter. Output is limited to 4095 bytes and execution to 30 seconds. The
-app-exit key cancels a running script. Python and Lua each have a single-owner
-guard, so a captured run cannot overlap their foreground app or REPL.
+`Esc` or the app-exit key cancels a running script. Python and Lua each have a
+single-owner guard, so a captured run cannot overlap their foreground app or
+REPL.
 Exceptions, cancellation, deadlines, truncation, and completion are returned
 as structured runner status.
 
@@ -218,7 +220,7 @@ Tool policy is NVS-backed and enforced again inside the canonical executor:
 
 Under `confirm`, the foreground app prints the exact bounded JSON arguments and
 waits up to 30 seconds at `Allow once? [y/N]`. Only `y` allows that call;
-`n`, Enter, or the timeout denies it. The app-exit key cancels the whole
+`n`, Enter, or the timeout denies it. `Esc` or the app-exit key cancels the whole
 request. A denial is returned to the model as a structured result so it can
 explain or choose another approach rather than losing the conversation turn.
 `agent status` includes executed, denied, and failed tool counters.
