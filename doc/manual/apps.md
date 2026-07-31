@@ -579,6 +579,7 @@ playground
 playground search QUERY...
 playground install APP-ID [auto|flash|sd]
 playground run APP-ID
+playground delete
 playground refresh
 playground reload
 playground source [repository-or-catalog-url|reset]
@@ -588,9 +589,15 @@ playground storage [flash|sd]
 Press `/` to search, `Enter` to open an application, and use the actions shown
 in the bottom bar. Press `i` on an application in the catalog tree or details
 page to install it, and `u` to uninstall it after confirmation. Packages are
-verified by size and SHA-256 and installed under `/.solar/playground/` on the
+verified by size and SHA-256 and installed under `/playground/` on the
 permanently configured `flash` or `sd` storage. Community scripts run with the
 normal permissions of their runtime and are not sandboxed.
+
+Catalog and application files are stored under `/playground/` on the selected
+filesystem. `playground delete` recursively removes that entire directory,
+clears the loaded catalog from memory, and also removes the legacy hidden
+`.solar/playground` directory when present. Source and storage preferences are
+retained.
 
 The shell subcommands use the local catalog: `refresh` downloads and saves it,
 `reload` loads that saved copy without network access, `search` prints matches,

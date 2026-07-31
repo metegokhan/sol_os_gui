@@ -863,22 +863,26 @@ static esp_err_t playground_data_root(const char *mount,
                                       size_t root_len,
                                       bool create)
 {
+    esp_err_t err =
+        solar_os_storage_join_path(mount, "playground", root, root_len);
+    if (err == ESP_OK && create) {
+        err = playground_mkdir_one(root);
+    }
+    return err;
+}
+
+static esp_err_t playground_legacy_data_root(const char *mount,
+                                             char *root,
+                                             size_t root_len)
+{
     char solar[SOLAR_OS_STORAGE_PATH_MAX];
     esp_err_t err = solar_os_storage_join_path(mount,
                                                ".solar",
                                                solar,
                                                sizeof(solar));
-    if (err == ESP_OK && create) {
-        err = playground_mkdir_one(solar);
-    }
     if (err == ESP_OK) {
-        err = solar_os_storage_join_path(solar,
-                                         "playground",
-                                         root,
-                                         root_len);
-    }
-    if (err == ESP_OK && create) {
-        err = playground_mkdir_one(root);
+        err = solar_os_storage_join_path(
+            solar, "playground", root, root_len);
     }
     return err;
 }
@@ -1413,6 +1417,43 @@ bool solar_os_playground_catalog_available(void)
     const bool ready = playground_catalog_ready;
     portEXIT_CRITICAL(&playground_lock);
     return ready;
+}
+
+esp_err_t solar_os_playground_delete(void)
+{
+    (void)solar_os_playground_init();
+
+    solar_os_playground_target_t storage =
+        SOLAR_OS_PLAYGROUND_TARGET_FLASH;
+    portENTER_CRITICAL(&playground_lock);
+    if (playground_refresh_active) {
+        portEXIT_CRITICAL(&playground_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    storage = playground_storage;
+    playground_catalog_ready = false;
+    playground_source_generation++;
+    portEXIT_CRITICAL(&playground_lock);
+
+    char mount[SOLAR_OS_STORAGE_MOUNT_POINT_MAX];
+    esp_err_t err =
+        playground_mount_for_target(storage, mount, sizeof(mount));
+    if (err != ESP_OK) {
+        return err;
+    }
+    char root[SOLAR_OS_STORAGE_PATH_MAX];
+    err = playground_data_root(mount, root, sizeof(root), false);
+    if (err == ESP_OK) {
+        err = playground_remove_tree(root);
+    }
+
+    char legacy_root[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t legacy_err =
+        playground_legacy_data_root(mount, legacy_root, sizeof(legacy_root));
+    if (legacy_err == ESP_OK) {
+        legacy_err = playground_remove_tree(legacy_root);
+    }
+    return err != ESP_OK ? err : legacy_err;
 }
 
 esp_err_t solar_os_playground_reload(void)

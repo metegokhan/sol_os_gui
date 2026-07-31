@@ -996,6 +996,7 @@ static const char * const telnet_options[] = {"-r"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
 static const char * const playground_subcommands[] = {
+    "delete",
     "install",
     "refresh",
     "reload",

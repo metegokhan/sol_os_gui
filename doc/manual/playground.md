@@ -21,6 +21,7 @@ playground
 playground search QUERY...
 playground install APP-ID [auto|flash|sd]
 playground run APP-ID
+playground delete
 playground reload
 playground refresh
 playground storage [flash|sd]
@@ -30,6 +31,12 @@ Opening the TUI loads the saved local catalog without accessing the network.
 Press `r` in the tree, or run `playground refresh`, to download and save the
 current catalog. Run `playground reload` to explicitly reload the saved copy.
 Press `/` to search names, descriptions, authors, tags, and categories.
+
+`playground delete` recursively deletes the catalog and every installed
+Playground application from the configured storage target, then clears the
+loaded catalog from memory. It retains the configured source and storage
+preferences. It also removes the legacy hidden `.solar/playground` directory
+when present.
 
 The same operations are available directly from the shell. `search` prints
 matching catalog IDs, runtimes, names, and installation markers. `install`
@@ -70,15 +77,15 @@ playground storage sd
 The saved catalog lives at:
 
 ```text
-<configured-filesystem>/.solar/playground/catalog.json
-<configured-filesystem>/.solar/playground/catalog.source
+<configured-filesystem>/playground/catalog.json
+<configured-filesystem>/playground/catalog.source
 ```
 
 Installed files live on the selected filesystem:
 
 ```text
-<filesystem>/.solar/playground/python/APP-ID/
-<filesystem>/.solar/playground/lua/APP-ID/
+<filesystem>/playground/python/APP-ID/
+<filesystem>/playground/lua/APP-ID/
 ```
 
 SD installations take precedence when the same application also exists in
@@ -131,4 +138,5 @@ saved catalog without a network request. Use `playground source [URL|reset]` to
 inspect or change the catalog source, and `playground storage [flash|sd]` to
 choose persistent catalog and application storage. Packages are hash-checked
 but scripts are not sandboxed. Shell automation can use `playground search
-QUERY`, `playground install ID [auto|flash|sd]`, and `playground run ID`.
+QUERY`, `playground install ID [auto|flash|sd]`, `playground run ID`, and
+`playground delete`.
