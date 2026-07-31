@@ -4,9 +4,9 @@ SolarOS messaging is a provider-neutral set of bounded services. Gateway Chat
 and MeshCore are providers of the same Contacts, Conversations, and Messages
 model; neither provider owns the user interface or generic history.
 
-SolarOS Link remains a separate wire protocol. Its provider identifier is
-reserved so it can be projected into messaging in a later release without
-coupling the two protocols now.
+SolarOS Link remains a separate wire protocol. The optional Link messaging
+adapter projects its packet-sized text messages into the shared model without
+changing the Link v1 frame format.
 
 ## Stable identifiers
 
@@ -31,12 +31,19 @@ The assigned provider identifiers are:
 | --- | --- | --- |
 | 1 | `gateway` | Existing SolarOS gateway Chat protocol |
 | 2 | `meshcore` | MeshCore companion/chat provider |
-| 3 | `link` | Reserved for a possible future SolarOS Link projection |
+| 3 | `link` | SolarOS Link text, direct, and broadcast projection |
 
 A provider owns transport configuration, connection state, wire identifiers,
 and provider-specific metadata. Generic services own contacts, trust,
 conversation summaries, retained messages, delivery state, and the volatile
 outbox.
+
+When `radio-link` starts with `chat=on`, each 32-bit Link source ID becomes a
+discovered endpoint and the active Link gets one broadcast conversation.
+Accepted text is projected without consuming the Link receive queue. Direct
+Link messages remain `sending` until their acknowledgement arrives; broadcast
+messages become `sent` after radio transmission. Link v1 provides no
+encryption, authentication, fragmentation, routing, or automatic retry.
 
 ## Contacts and endpoints
 
@@ -163,4 +170,3 @@ provider metadata or Credentials.
   complete MeshCore provider state require external PSRAM.
 - MeshCore must leave at least 64 KiB of internal SRAM free on the DevKit and
   at least 1 KiB of worker stack watermark while running.
-

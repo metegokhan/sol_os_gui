@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added an optional SolarOS Link provider for unified Chat. `radio-link
+  ... chat=on` creates a broadcast conversation, discovers 32-bit Link source
+  IDs as Contacts, projects incoming text without consuming the Link receive
+  queue, sends packet-sized direct and broadcast text, and maps unicast
+  acknowledgements and timeouts to delivery state.
+
 ## 4.x
 
 - **4.4.8** — 2026-07-30 — The Agent app now exits with `Esc` as well as the

@@ -714,7 +714,7 @@ Packet-radio adapter for the transport-independent SolarOS Link service.
 Usage:
 
 ```text
-job start radio-link <link> <radio> <profile> [inbox=off|on]
+job start radio-link <link> <radio> <profile> [inbox=off|on] [chat=off|on]
 job stop radio-link
 job status radio-link
 link status <link>
@@ -723,7 +723,7 @@ link status <link>
 Example:
 
 ```text
-job start radio-link link0 radio0 lora-eu868 inbox=on
+job start radio-link link0 radio0 lora-eu868 chat=on
 link send link0 broadcast "hello"
 link status link0
 ```
@@ -733,7 +733,10 @@ instance, transmits its queued frames, and continuously receives complete radio
 packets. The Link service validates its own CRC, suppresses duplicates, replies
 to requested unicast acknowledgements, and retains accepted messages in a
 bounded queue. `inbox=on` additionally publishes accepted text messages to the
-universal inbox; it is off by default.
+universal inbox. `chat=on` instead registers Link as a messaging provider,
+creates a broadcast conversation, discovers source IDs as Contacts, and
+supports direct and broadcast text through Chat. Both options are off by
+default and cannot be enabled together.
 
 Stopping restores the radio configuration and state that existed before the
 job started. Mutating direct radio operations are rejected while the radio is

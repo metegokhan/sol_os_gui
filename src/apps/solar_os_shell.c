@@ -644,7 +644,12 @@ static const char * const link_subcommands[] = {
 };
 static const char * const link_destination_values[] = {"broadcast"};
 static const char * const radio_link_names[] = {"link0"};
-static const char * const radio_link_inbox_values[] = {"inbox=off", "inbox=on"};
+static const char * const radio_link_option_values[] = {
+    "inbox=off",
+    "inbox=on",
+    "chat=off",
+    "chat=on",
+};
 #endif
 static const char * const radio_config_fields[] = {
     "frequency",
@@ -1251,6 +1256,10 @@ static const char * const path_job_start_radio_link_radio[] = {
 static const char * const path_job_start_radio_link_profile[] = {
     "job", "start", "radio-link", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY
+};
+static const char * const path_job_start_radio_link_option[] = {
+    "job", "start", "radio-link", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
 };
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
@@ -2023,7 +2032,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_RADIOS(path_job_start_radio_link_name),
     SHELL_COMPLETION_RADIO_PROFILES(path_job_start_radio_link_radio),
     SHELL_COMPLETION_STATIC(path_job_start_radio_link_profile,
-                            radio_link_inbox_values),
+                            radio_link_option_values),
+    SHELL_COMPLETION_STATIC(path_job_start_radio_link_option,
+                            radio_link_option_values),
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
     SHELL_COMPLETION_RADIOS(path_job_start_meshcore),

@@ -9,10 +9,12 @@
 #include "freertos/task.h"
 #include "solar_os_inbox.h"
 #include "solar_os_jobs.h"
+#include "solar_os_link_messaging.h"
 #include "solar_os_log.h"
 #include "solar_os_task.h"
 
-#define RADIO_LINK_TASK_STACK 4096U
+/* Chat projection enters contacts and messaging services from this worker. */
+#define RADIO_LINK_TASK_STACK 6144U
 #define RADIO_LINK_RECEIVE_TIMEOUT_MS 50U
 #define RADIO_LINK_SEND_TIMEOUT_MS 3000U
 #define RADIO_LINK_STOP_WAIT_MS 3500U
@@ -50,14 +52,15 @@ static bool parse_args(int argc,
                        const char **link,
                        const char **radio,
                        const char **profile,
-                       bool *inbox_enabled)
+                       bool *inbox_enabled,
+                       bool *chat_enabled)
 {
     int first = 0;
     if (argc > 0 && argv != NULL && argv[0] != NULL &&
         strcmp(argv[0], solar_os_radio_link_job.name) == 0) {
         first = 1;
     }
-    if (argc - first < 3 || argc - first > 4) {
+    if (argc - first < 3 || argc - first > 5) {
         return false;
     }
 
@@ -65,14 +68,31 @@ static bool parse_args(int argc,
     *radio = argv[first + 1];
     *profile = argv[first + 2];
     *inbox_enabled = false;
-    if (argc - first == 4) {
-        static const char prefix[] = "inbox=";
-        if (strncmp(argv[first + 3], prefix, sizeof(prefix) - 1) != 0 ||
-            !parse_on_off(argv[first + 3] + sizeof(prefix) - 1, inbox_enabled)) {
+    *chat_enabled = false;
+    bool inbox_seen = false;
+    bool chat_seen = false;
+    for (int index = first + 3; index < argc; index++) {
+        static const char inbox_prefix[] = "inbox=";
+        static const char chat_prefix[] = "chat=";
+        if (strncmp(argv[index], inbox_prefix, sizeof(inbox_prefix) - 1U) == 0) {
+            if (inbox_seen ||
+                !parse_on_off(argv[index] + sizeof(inbox_prefix) - 1U,
+                              inbox_enabled)) {
+                return false;
+            }
+            inbox_seen = true;
+        } else if (strncmp(argv[index], chat_prefix, sizeof(chat_prefix) - 1U) == 0) {
+            if (chat_seen ||
+                !parse_on_off(argv[index] + sizeof(chat_prefix) - 1U,
+                              chat_enabled)) {
+                return false;
+            }
+            chat_seen = true;
+        } else {
             return false;
         }
     }
-    return true;
+    return !(*inbox_enabled && *chat_enabled);
 }
 
 static void restore_radio(void)
@@ -133,6 +153,11 @@ static void radio_link_task(void *arg)
     (void)arg;
 
     while (!radio_link.stop_requested) {
+        const uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+        if (radio_link.status.chat_enabled) {
+            solar_os_link_messaging_process(now_ms);
+        }
+
         solar_os_link_frame_t frame;
         esp_err_t ret = solar_os_link_take_tx(radio_link.status.link, &frame, 0);
         if (ret == ESP_OK) {
@@ -142,6 +167,9 @@ static void radio_link_task(void *arg)
             memcpy(packet.data, frame.data, frame.len);
             ret = solar_os_radio_handle_send(
                 &radio_link.radio_handle, &packet, RADIO_LINK_SEND_TIMEOUT_MS);
+            if (radio_link.status.chat_enabled) {
+                solar_os_link_messaging_note_transmit(&frame, ret, now_ms);
+            }
             radio_link.status.last_error = ret;
             if (ret == ESP_OK) {
                 radio_link.status.transmitted++;
@@ -183,6 +211,16 @@ static void radio_link_task(void *arg)
             radio_link.status.receive_errors++;
             continue;
         }
+        if (radio_link.status.chat_enabled) {
+            const esp_err_t chat_error =
+                solar_os_link_messaging_note_ingest(&result, now_ms);
+            if (chat_error != ESP_OK) {
+                radio_link.status.chat_errors++;
+                SOLAR_OS_LOGW(TAG,
+                              "Chat projection failed: %s",
+                              esp_err_to_name(chat_error));
+            }
+        }
         if (result.accepted) {
             radio_link.status.received++;
             publish_to_inbox(&result.message);
@@ -200,8 +238,18 @@ static esp_err_t radio_link_start(solar_os_context_t *ctx, int argc, char **argv
     const char *radio = NULL;
     const char *profile = NULL;
     bool inbox_enabled = false;
-    if (!parse_args(argc, argv, &link, &radio, &profile, &inbox_enabled)) {
+    bool chat_enabled = false;
+    if (!parse_args(argc,
+                    argv,
+                    &link,
+                    &radio,
+                    &profile,
+                    &inbox_enabled,
+                    &chat_enabled)) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (chat_enabled && !solar_os_link_messaging_available()) {
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
     solar_os_radio_info_t info;
@@ -253,12 +301,25 @@ static esp_err_t radio_link_start(solar_os_context_t *ctx, int argc, char **argv
         (void)solar_os_radio_release(&handle);
         return ret;
     }
+    if (chat_enabled) {
+        ret = solar_os_link_messaging_start(link);
+        if (ret != ESP_OK) {
+            (void)solar_os_link_destroy(link);
+            (void)solar_os_radio_handle_configure(&handle, &saved.config);
+            if (saved.state != SOLAR_OS_RADIO_STATE_UNKNOWN) {
+                (void)solar_os_radio_handle_set_state(&handle, saved.state);
+            }
+            (void)solar_os_radio_release(&handle);
+            return ret;
+        }
+    }
 
     memset(&radio_link, 0, sizeof(radio_link));
     radio_link.radio_handle = handle;
     radio_link.saved_radio = saved;
     radio_link.status.running = true;
     radio_link.status.inbox_enabled = inbox_enabled;
+    radio_link.status.chat_enabled = chat_enabled;
     radio_link.status.last_error = ESP_OK;
     strlcpy(radio_link.status.link, link, sizeof(radio_link.status.link));
     strlcpy(radio_link.status.radio, radio, sizeof(radio_link.status.radio));
@@ -274,6 +335,9 @@ static esp_err_t radio_link_start(solar_os_context_t *ctx, int argc, char **argv
                                              SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         radio_link.status.running = false;
         radio_link.status.last_error = ESP_ERR_NO_MEM;
+        if (chat_enabled) {
+            solar_os_link_messaging_stop();
+        }
         (void)solar_os_link_destroy(link);
         restore_radio();
         (void)solar_os_radio_release(&radio_link.radio_handle);
@@ -285,11 +349,12 @@ static esp_err_t radio_link_start(solar_os_context_t *ctx, int argc, char **argv
     (void)solar_os_jobs_note_resource(
         solar_os_radio_link_job.name, SOLAR_OS_JOB_RESOURCE_CUSTOM, link, "SolarOS Link");
     SOLAR_OS_LOGI(TAG,
-                  "started link=%s radio=%s profile=%s inbox=%s mtu=%u",
+                  "started link=%s radio=%s profile=%s inbox=%s chat=%s mtu=%u",
                   link,
                   radio,
                   profile,
                   inbox_enabled ? "on" : "off",
+                  chat_enabled ? "on" : "off",
                   (unsigned)frame_mtu);
     return ESP_OK;
 }
@@ -309,6 +374,9 @@ static void radio_link_stop(solar_os_context_t *ctx)
     }
 
     radio_link.status.running = false;
+    if (radio_link.status.chat_enabled) {
+        solar_os_link_messaging_stop();
+    }
     (void)solar_os_link_destroy(radio_link.status.link);
     restore_radio();
     (void)solar_os_radio_release(&radio_link.radio_handle);
