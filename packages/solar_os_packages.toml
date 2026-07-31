@@ -7,6 +7,7 @@ members = [
   "system_shell",
   "service_wifi",
   "service_ble",
+  "service_hid",
   "service_sd",
   "service_audio",
   "service_resources",
@@ -200,7 +201,6 @@ sources = [
 ]
 requires = [
   "esp_driver_gpio",
-  "esp_driver_usb_serial_jtag",
   "esp_event",
   "esp_pm",
   "esp_rom",
@@ -412,6 +412,11 @@ label = "service.ble"
 sources = ["services/solar_os_ble_keyboard.c"]
 requires = ["bt", "esp_hid", "nvs_flash"]
 capabilities = ["ble"]
+
+[packages.service_hid]
+label = "service.hid"
+sources = ["services/solar_os_hid.c"]
+capabilities = ["cdc"]
 
 [packages.service_sd]
 label = "service.sd"

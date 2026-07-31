@@ -2,7 +2,7 @@ set(SOLAR_OS_BOARD_ID "esp32_s3_devkitc1_n16r8")
 set(SOLAR_OS_BOARD_NAME "Espressif ESP32-S3-DevKitC-1-N16R8")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_ESP32_S3_DEVKITC1_N16R8")
 
-include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_tinyusb_composite.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/i2c_esp_idf.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/spi_esp_idf.cmake")

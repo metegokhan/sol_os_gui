@@ -41,6 +41,9 @@
 #include "solar_os_gpio.h"
 #include "solar_os_gfx_internal.h"
 #include "solar_os_fonts.h"
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+#include "solar_os_hid.h"
+#endif
 #include "solar_os_i2c.h"
 #include "solar_os_identity.h"
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
@@ -1017,6 +1020,12 @@ static void init_peripherals(void)
         if (cdc_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "CDC port unavailable: %s", esp_err_to_name(cdc_err));
         }
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+        const esp_err_t hid_err = solar_os_hid_init();
+        if (hid_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "USB HID unavailable: %s", esp_err_to_name(hid_err));
+        }
+#endif
     }
 
     const esp_err_t power_err = solar_os_power_init();

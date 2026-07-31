@@ -87,7 +87,7 @@ set(SOLAR_OS_BOARD_ID "esp32_s3_devkitc1_n16r8")
 set(SOLAR_OS_BOARD_NAME "Espressif ESP32-S3-DevKitC-1-N16R8")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_ESP32_S3_DEVKITC1_N16R8")
 
-include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_tinyusb_composite.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
@@ -107,7 +107,7 @@ set(SOLAR_OS_BOARD_ID "waveshare_esp32_s3_rlcd_4_2")
 set(SOLAR_OS_BOARD_NAME "Waveshare ESP32-S3-RLCD-4.2")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2")
 
-include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_tinyusb_composite.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_st7305.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/storage_sdmmc.cmake")
@@ -199,7 +199,7 @@ Current built-in driver selector values:
 
 | Capability | Fragment | Selector |
 | --- | --- | --- |
-| `CDC` | `drivers/cdc_usb_serial_jtag.cmake` | `SOLAR_OS_BOARD_CDC_DRIVER=usb_serial_jtag` |
+| `CDC` | `drivers/cdc_tinyusb_composite.cmake` | `SOLAR_OS_BOARD_CDC_DRIVER=tinyusb_composite` |
 | `UART` | `drivers/uart_esp_idf.cmake` | `SOLAR_OS_BOARD_UART_DRIVER=esp_idf` |
 | `DISPLAY` | `drivers/display_st7305.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=st7305` |
 | `DISPLAY` | `drivers/display_ssd1683.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ssd1683` |
@@ -227,7 +227,7 @@ The current capability flags are:
 | `SIMD` | CPU vector/SIMD instructions are available for bulk data engines such as image, audio, DSP, or accelerated math paths. |
 | `DISPLAY` | A board-integrated primary display driver and boot-time display target are available. Requires `GFX`. |
 | `GFX` | The firmware can host drawable display targets, including targets registered later by expansion drivers. It does not imply that a display exists at boot. |
-| `CDC` | USB serial/JTAG CDC byte-stream port `cdc0`. |
+| `CDC` | Composite TinyUSB device with byte-stream port `cdc0` and standard keyboard, mouse, and gamepad HID reports. |
 | `UART` | Hardware UART service is supported. Named UART buses may be board-defined or created at runtime. |
 | `SD` | SD/MMC storage and filesystem mounting. |
 | `I2C` | Hardware I2C service is supported. Named I2C buses may be board-defined or created at runtime. |
@@ -565,7 +565,7 @@ Recommended minimal capability set for a generic ESP32-S3 board:
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
 set(SOLAR_OS_BOARD_HAS_SIMD ON)
-include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_tinyusb_composite.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 set(SOLAR_OS_BOARD_HAS_CDC ON)
 set(SOLAR_OS_BOARD_HAS_UART ON)

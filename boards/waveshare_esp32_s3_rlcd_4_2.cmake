@@ -2,7 +2,7 @@ set(SOLAR_OS_BOARD_ID "waveshare_esp32_s3_rlcd_4_2")
 set(SOLAR_OS_BOARD_NAME "Waveshare ESP32-S3-RLCD-4.2")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2")
 
-include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_tinyusb_composite.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_st7305.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/storage_sdmmc.cmake")
