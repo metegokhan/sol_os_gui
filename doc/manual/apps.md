@@ -563,6 +563,11 @@ plot temperature humidity --rate 1000
 plot -f /logs/env.csv temperature humidity
 ```
 
+`--rate` is a best-effort live sampling interval in milliseconds. Rates below
+25 ms request faster runtime ticks while the screen redraws no more often than
+once every 25 ms, so fast acquisition does not force an equally fast display
+refresh.
+
 Controls:
 
 - `Left`/`Right` pan.

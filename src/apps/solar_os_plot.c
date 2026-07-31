@@ -14,6 +14,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_scheduler.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
@@ -28,6 +29,7 @@
 #define PLOT_MESSAGE_MAX 96U
 #define PLOT_DEFAULT_CAPACITY 2048U
 #define PLOT_DEFAULT_RATE_MS 1000U
+#define PLOT_RENDER_INTERVAL_MS SOLAR_OS_TICK_INTERVAL_DEFAULT_MS
 #define PLOT_MIN_RATE_MS 1U
 #define PLOT_MAX_RATE_MS 86400000U
 #define PLOT_DEFAULT_WINDOW_MS 60000U
@@ -70,6 +72,7 @@ typedef struct {
     uint32_t rate_ms;
     uint32_t live_window_ms;
     uint32_t next_sample_ms;
+    uint32_t next_render_ms;
     uint64_t *x;
     float *y;
     size_t capacity;
@@ -652,6 +655,7 @@ static esp_err_t plot_start_live(int stream_count, const char **streams, uint32_
     plot.rate_ms = rate_ms;
     plot.live_window_ms = PLOT_DEFAULT_WINDOW_MS;
     plot.next_sample_ms = 0;
+    plot.next_render_ms = 0;
     plot_close_live_streams();
 
     for (int i = 0; i < stream_count; i++) {
@@ -1270,6 +1274,15 @@ static bool plot_handle_char(solar_os_context_t *ctx, char ch)
     return true;
 }
 
+static uint32_t plot_requested_tick_interval_ms(void)
+{
+    if (plot_state == NULL || !plot.running || plot.suspended ||
+        plot.mode != PLOT_MODE_LIVE || plot.paused) {
+        return 0;
+    }
+    return plot.rate_ms;
+}
+
 static bool plot_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) {
@@ -1287,7 +1300,10 @@ static bool plot_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             (int32_t)(event->data.tick_ms - plot.next_sample_ms) >= 0) {
             plot.next_sample_ms = event->data.tick_ms + plot.rate_ms;
             plot_live_sample();
-            if (!plot.suspended) {
+            if (!plot.suspended &&
+                (plot.next_render_ms == 0 ||
+                 (int32_t)(event->data.tick_ms - plot.next_render_ms) >= 0)) {
+                plot.next_render_ms = event->data.tick_ms + PLOT_RENDER_INTERVAL_MS;
                 plot_render(ctx);
             }
         }
@@ -1312,4 +1328,6 @@ const solar_os_app_t solar_os_plot_app = {
     .stop = plot_stop,
     .event = plot_event,
     .title = plot_title,
+    .tick_interval_ms = PLOT_DEFAULT_RATE_MS,
+    .requested_tick_interval_ms = plot_requested_tick_interval_ms,
 };
