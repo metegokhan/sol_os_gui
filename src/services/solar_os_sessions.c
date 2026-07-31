@@ -125,6 +125,11 @@ static bool app_is_resumable(const solar_os_app_t *app)
     return app != NULL && (app->flags & SOLAR_OS_APP_FLAG_RESUMABLE) != 0;
 }
 
+static bool app_is_shell_inline(const solar_os_app_t *app)
+{
+    return app != NULL && (app->flags & SOLAR_OS_APP_FLAG_SHELL_INLINE) != 0;
+}
+
 static void session_store_input_focus(const char *target_name)
 {
     portENTER_CRITICAL(&input_focus_lock);
@@ -1108,6 +1113,11 @@ static bool switch_to_display_app(const solar_os_app_t *app,
             return false;
         }
         session_bind_display(session, parent);
+        if (app_is_shell_inline(app) &&
+            parent != NULL &&
+            parent->app == solar_os_shell_app()) {
+            session->terminal = parent->terminal;
+        }
     }
     if (session == parent) {
         return true;

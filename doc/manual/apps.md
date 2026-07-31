@@ -669,6 +669,10 @@ scp [-P port] [user@]host:remote
 Remote download paths can use `*` or `?`. The local target must be an existing
 directory for remote wildcard downloads.
 
+SCP runs inline in the shell. Its progress and result remain in the terminal
+scrollback, and usage errors or a completed transfer return directly to the
+prompt.
+
 Controls:
 
 - App-exit key cancels an active transfer.
@@ -702,6 +706,10 @@ Usage:
 ```text
 ssh [user@]host [port]
 ```
+
+SSH runs inline in the shell, so connection output remains in the terminal
+scrollback and disconnecting returns directly to the prompt. Remote terminal
+control sequences still work, including full-screen applications.
 
 Controls:
 

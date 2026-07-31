@@ -27,7 +27,6 @@
 typedef enum {
     SCP_APP_PASSWORD,
     SCP_APP_RUNNING,
-    SCP_APP_ERROR,
 } scp_app_mode_t;
 
 typedef struct {
@@ -52,7 +51,6 @@ typedef struct {
     int last_percent;
     uint64_t last_progress_step;
     bool remote_glob;
-    bool saw_error;
 } scp_app_state_t;
 
 static scp_app_state_t scp_app;
@@ -73,6 +71,12 @@ static bool scp_is_printable(char ch)
 {
     const unsigned char value = (unsigned char)ch;
     return isprint(value) || value >= 0xa0;
+}
+
+static void scp_request_close(solar_os_context_t *ctx)
+{
+    solar_os_context_request_terminal_preserve(ctx);
+    solar_os_context_request_exit(ctx);
 }
 
 static bool scp_parse_port(const char *text, uint16_t *port)
@@ -242,24 +246,20 @@ static void scp_render_usage(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = scp_io(ctx);
 
-    solar_os_shell_io_clear(io);
-    solar_os_shell_io_write_bold(io, "scp");
-    solar_os_shell_io_newline(io);
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  scp [-P port] local [user@]host:remote");
     solar_os_shell_io_writeln(io, "  scp [-P port] local [user@]host:");
     solar_os_shell_io_writeln(io, "  scp [-P port] [user@]host:remote local");
     solar_os_shell_io_writeln(io, "  scp [-P port] [user@]host:remote-glob dir");
     solar_os_shell_io_writeln(io, "  scp [-P port] [user@]host:remote");
-    solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
     solar_os_shell_io_flush(io);
+    scp_request_close(ctx);
 }
 
 static void scp_render_password_prompt(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = scp_io(ctx);
 
-    solar_os_shell_io_clear(io);
     solar_os_shell_io_printf_bold(io,
                                   "scp %s %s@%s:%u\n",
                                   scp_app.direction == SOLAR_OS_SCP_UPLOAD ? "put" : "get",
@@ -270,9 +270,6 @@ static void scp_render_password_prompt(solar_os_context_t *ctx)
                             solar_os_ssh_keys_default_exists() ?
                                 "password (Enter for key): " :
                                 "password: ");
-    for (size_t i = 0; i < scp_app.password_len; i++) {
-        solar_os_shell_io_put_char(io, '*');
-    }
     solar_os_shell_io_flush(io);
 }
 
@@ -291,13 +288,6 @@ static esp_err_t scp_begin_transfer(solar_os_context_t *ctx)
         .remote_glob = scp_app.remote_glob,
     };
 
-    solar_os_shell_io_clear(io);
-    solar_os_shell_io_printf_bold(io,
-                                  "scp %s %s@%s:%u\n",
-                                  scp_app.direction == SOLAR_OS_SCP_UPLOAD ? "put" : "get",
-                                  scp_app.username,
-                                  scp_app.host,
-                                  (unsigned)scp_app.port);
     solar_os_shell_io_printf(io, "local:  %s\n", scp_app.local_path);
     solar_os_shell_io_printf(io, "remote: %s\n", scp_app.remote_path);
     solar_os_shell_io_writeln(io, "starting");
@@ -308,9 +298,8 @@ static esp_err_t scp_begin_transfer(solar_os_context_t *ctx)
     scp_app.password_len = 0;
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io, "scp start failed: %s\n", esp_err_to_name(err));
-        solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
         solar_os_shell_io_flush(io);
-        scp_app.mode = SCP_APP_ERROR;
+        scp_request_close(ctx);
         return err;
     }
 
@@ -359,19 +348,13 @@ static void scp_drain_events(solar_os_context_t *ctx)
             scp_print_progress(io, event.transferred, event.total);
             break;
         case SOLAR_OS_SCP_EVENT_ERROR:
-            scp_app.saw_error = true;
             solar_os_shell_io_printf(io, "scp: %s\n", event.message);
             break;
         case SOLAR_OS_SCP_EVENT_DONE:
             solar_os_shell_io_printf(io, "scp: %s\n", event.message);
             solar_os_scp_stop(scp_app.session);
             scp_app.session = NULL;
-            if (scp_app.saw_error) {
-                scp_app.mode = SCP_APP_ERROR;
-                solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-            } else {
-                solar_os_context_request_exit(ctx);
-            }
+            scp_request_close(ctx);
             break;
         default:
             break;
@@ -462,7 +445,6 @@ static esp_err_t scp_start(solar_os_context_t *ctx)
     scp_app.last_percent = -10;
 
     if (!scp_parse_args(ctx)) {
-        scp_app.mode = SCP_APP_ERROR;
         scp_render_usage(ctx);
         return ESP_OK;
     }
@@ -505,7 +487,7 @@ static bool scp_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             solar_os_scp_stop(scp_app.session);
             scp_app.session = NULL;
         }
-        solar_os_context_request_exit(ctx);
+        scp_request_close(ctx);
         return true;
     }
 
@@ -515,20 +497,22 @@ static bool scp_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             if (scp_app.password_len > 0) {
                 scp_app.password_len--;
                 scp_app.password[scp_app.password_len] = '\0';
-                scp_render_password_prompt(ctx);
+                solar_os_shell_io_write(scp_io(ctx), "\b \b");
+                solar_os_shell_io_flush(scp_io(ctx));
             }
         } else if (ch == '\r' || ch == '\n') {
+            solar_os_shell_io_newline(scp_io(ctx));
             (void)scp_begin_transfer(ctx);
         } else if (scp_is_printable(ch) && scp_app.password_len + 1 < sizeof(scp_app.password)) {
             scp_app.password[scp_app.password_len++] = ch;
             scp_app.password[scp_app.password_len] = '\0';
-            scp_render_password_prompt(ctx);
+            solar_os_shell_io_put_char(scp_io(ctx), '*');
+            solar_os_shell_io_flush(scp_io(ctx));
         }
         break;
     case SCP_APP_RUNNING:
         scp_drain_events(ctx);
         break;
-    case SCP_APP_ERROR:
     default:
         break;
     }
@@ -539,6 +523,7 @@ static bool scp_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_scp_app = {
     .name = "scp",
     .summary = "SCP file copy",
+    .flags = SOLAR_OS_APP_FLAG_SHELL_INLINE,
     .start = scp_start,
     .stop = scp_stop,
     .event = scp_event,
