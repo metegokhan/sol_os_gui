@@ -104,8 +104,8 @@
 #else
 #define KEY_WAKE_MODE ESP_EXT1_WAKEUP_ANY_HIGH
 #endif
-#define BLE_SLEEP_DISCONNECT_TIMEOUT_MS 500
-#define BLE_RESUME_PM_HOLDOFF_MS 15000
+#define BLE_SLEEP_DISCONNECT_TIMEOUT_MS 1500
+#define RADIO_RESUME_PM_HOLDOFF_MS 15000
 #define MAIN_LOOP_INTERVAL_DEFAULT_MS 10U
 #define STATUS_UPDATE_INTERVAL_MS 1000
 #define SESSION_OVERLAY_TITLE_MAX 48
@@ -598,6 +598,17 @@ static void enter_light_sleep(const char *reason)
     }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
+    if (board_has(SOLAR_OS_BOARD_CAP_WIFI)) {
+        const esp_err_t wifi_sleep_err = solar_os_wifi_prepare_sleep();
+        if (wifi_sleep_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG,
+                          "Wi-Fi sleep prepare failed: %s",
+                          esp_err_to_name(wifi_sleep_err));
+        }
+    }
+#endif
+
     solar_os_power_note_sleep_enter(millis_u32());
     err = esp_light_sleep_start();
 
@@ -625,12 +636,26 @@ static void enter_light_sleep(const char *reason)
         SOLAR_OS_LOGW(TAG, "light sleep rejected: %s", esp_err_to_name(err));
         solar_os_power_note_sleep_exit(now_ms, (int)wake_cause, wake_ext1, false);
     }
+    bool radio_resumed = false;
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
+    if (board_has(SOLAR_OS_BOARD_CAP_WIFI)) {
+        const esp_err_t wifi_resume_err = solar_os_wifi_resume();
+        if (wifi_resume_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "Wi-Fi resume failed: %s", esp_err_to_name(wifi_resume_err));
+        } else {
+            radio_resumed = true;
+        }
+    }
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
         solar_os_ble_keyboard_resume();
-        (void)solar_os_power_hold_automatic_light_sleep(BLE_RESUME_PM_HOLDOFF_MS);
+        radio_resumed = true;
     }
 #endif
+    if (radio_resumed) {
+        (void)solar_os_power_hold_automatic_light_sleep(RADIO_RESUME_PM_HOLDOFF_MS);
+    }
     (void)solar_os_power_end_explicit_sleep();
 
     update_status();
@@ -725,21 +750,15 @@ static void poll_key_button(void)
     key_long_press_fired = true;
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
-        const bool cancel_pairing = solar_os_ble_keyboard_is_pairing();
-        const esp_err_t err = cancel_pairing ?
-            solar_os_ble_keyboard_cancel_pairing() :
-            solar_os_ble_keyboard_start_pairing();
+        const esp_err_t err = solar_os_ble_keyboard_forget_and_start_pairing();
         last_status_update_ms = 0;
         update_status();
         draw_terminal_if_needed();
         if (err == ESP_OK) {
-            SOLAR_OS_LOGI(TAG,
-                          "KEY long press: BLE keyboard pairing %s",
-                          cancel_pairing ? "cancelled" : "started");
+            SOLAR_OS_LOGI(TAG, "KEY long press: BLE keyboard forgotten, pairing started");
         } else {
             SOLAR_OS_LOGW(TAG,
-                          "KEY long press: pairing %s failed: %s",
-                          cancel_pairing ? "cancel" : "start",
+                          "KEY long press: BLE keyboard replacement failed: %s",
                           esp_err_to_name(err));
         }
     }

@@ -70,6 +70,8 @@ typedef struct {
 esp_err_t solar_os_wifi_init(void);
 esp_err_t solar_os_wifi_start(void);
 esp_err_t solar_os_wifi_stop(void);
+esp_err_t solar_os_wifi_prepare_sleep(void);
+esp_err_t solar_os_wifi_resume(void);
 esp_err_t solar_os_wifi_connect(const char *ssid, const char *password);
 esp_err_t solar_os_wifi_connect_saved(void);
 esp_err_t solar_os_wifi_disconnect(void);

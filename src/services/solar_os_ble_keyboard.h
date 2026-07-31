@@ -62,6 +62,7 @@ typedef struct {
 esp_err_t solar_os_ble_keyboard_init(void);
 esp_err_t solar_os_ble_keyboard_start_pairing(void);
 esp_err_t solar_os_ble_keyboard_cancel_pairing(void);
+esp_err_t solar_os_ble_keyboard_forget_and_start_pairing(void);
 esp_err_t solar_os_ble_keyboard_scan(solar_os_ble_keyboard_scan_result_t *results,
                                      size_t max_results,
                                      size_t *found);
