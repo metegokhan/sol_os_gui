@@ -832,6 +832,8 @@ static void messaging_restore_inbox(void)
             provider = SOLAR_OS_MESSAGING_PROVIDER_GATEWAY;
         } else if (strcmp(entry->source, "meshcore") == 0) {
             provider = SOLAR_OS_MESSAGING_PROVIDER_MESHCORE;
+        } else if (strcmp(entry->source, "link-chat") == 0) {
+            provider = SOLAR_OS_MESSAGING_PROVIDER_LINK;
         } else {
             continue;
         }
@@ -844,8 +846,13 @@ static void messaging_restore_inbox(void)
         solar_os_messaging_conversation_upsert_t conversation_request = {
             .provider = provider,
             .provider_key = provider_key,
-            .kind = provider == SOLAR_OS_MESSAGING_PROVIDER_GATEWAY ?
-                SOLAR_OS_CONVERSATION_ROOM : SOLAR_OS_CONVERSATION_DIRECT,
+            .kind =
+                provider == SOLAR_OS_MESSAGING_PROVIDER_GATEWAY ?
+                    SOLAR_OS_CONVERSATION_ROOM :
+                provider == SOLAR_OS_MESSAGING_PROVIDER_LINK &&
+                    strncmp(provider_key, "b:", 2U) == 0 ?
+                    SOLAR_OS_CONVERSATION_BROADCAST :
+                    SOLAR_OS_CONVERSATION_DIRECT,
             .title = provider_key,
         };
         const solar_os_conversation_id_t conversation_id =
@@ -916,9 +923,14 @@ static void messaging_publish_inbox_projection(
              sizeof(dedupe_key),
              "%016llx",
              (unsigned long long)message_key);
+    const char *source =
+        request->provider == SOLAR_OS_MESSAGING_PROVIDER_MESHCORE ?
+            "meshcore" :
+        request->provider == SOLAR_OS_MESSAGING_PROVIDER_LINK ?
+            "link-chat" :
+            "messages";
     const solar_os_inbox_publish_t notification = {
-        .source = request->provider == SOLAR_OS_MESSAGING_PROVIDER_MESHCORE ?
-            "meshcore" : "messages",
+        .source = source,
         .topic = request->conversation_key,
         .sender = request->sender,
         .title = title,

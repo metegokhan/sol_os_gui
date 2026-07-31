@@ -46,6 +46,21 @@ link receive link0 1000
 
 The optional timeout is in milliseconds and is limited to 1000 in the shell.
 
+To use Link text in the unified Chat and Messages interfaces instead:
+
+```text
+job start radio-link link0 radio0 lora-eu868 chat=on
+chat
+```
+
+Chat shows a `link` provider section with a `link0 broadcast` conversation.
+Each received 32-bit source ID creates a discovered Contact and direct
+conversation. Rename, trust, or block it with the normal `contacts` commands.
+The Chat projection observes accepted frames without consuming the Link receive
+queue, so `link receive` remains available. `chat=on` and `inbox=on` are
+mutually exclusive because generic messaging already publishes received Chat
+messages to Inbox.
+
 ## Commands
 
 | Command | Description |
@@ -70,7 +85,7 @@ bytes, while a 64-byte FSK profile carries at most 50.
 Usage:
 
 ```text
-job start radio-link <link> <radio> <profile> [inbox=off|on]
+job start radio-link <link> <radio> <profile> [inbox=off|on] [chat=off|on]
 job status radio-link
 job stop radio-link
 ```
@@ -89,6 +104,14 @@ The Link queues have four entries each and use PSRAM when available. They are
 created only when a Link starts, so the compiled service has no idle queue
 allocation. Queue overflow increments the drop counter rather than growing
 without bound.
+
+With `chat=on`, outgoing broadcast text becomes `sent` after the radio accepts
+the frame. Direct text remains `sending` until the matching Link
+acknowledgement arrives and becomes `failed` after ten seconds without one.
+There is no automatic retry. Text that exceeds the active Link payload MTU
+fails with the exact byte limit. Link contacts remain discovered until
+explicitly trusted, and Link messages carry no encrypted or transport-secured
+security flag.
 
 ## Version 1 Frame
 
@@ -142,8 +165,10 @@ sustained input can overrun the serial driver or the four-entry Link queue.
 ## Quick reference
 
 Start a packet-radio link with `job start radio-link link0 radio0
-lora-eu868 [inbox=off|on]`. Use `link status link0`, `link send link0
-broadcast "text"`, and `link receive link0`. Unicast destination IDs request
-acknowledgements. Version one provides bounded text/binary packet delivery,
-protocol CRC, and duplicate suppression, but no routing, fragmentation,
-encryption, mesh forwarding, or automatic retransmission.
+lora-eu868 [inbox=off|on] [chat=off|on]`. Use `link status link0`, `link send
+link0 broadcast "text"`, and `link receive link0`. Use `chat=on` for unified
+Link broadcast/direct conversations and discovered Contacts. Unicast
+destination IDs request acknowledgements. Version one provides bounded
+text/binary packet delivery, protocol CRC, and duplicate suppression, but no
+routing, fragmentation, encryption, mesh forwarding, or automatic
+retransmission.

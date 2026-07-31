@@ -10,9 +10,9 @@ packages_any = ["service_contacts", "service_credentials"]
 # Messaging identities and security
 
 SolarOS separates messaging identity from transport. A contact is one local
-address-book entry, while each gateway or MeshCore address is an endpoint with
-its own trust and capabilities. Linking endpoints does not copy trust between
-providers.
+address-book entry, while each gateway, MeshCore, or SolarOS Link address is an
+endpoint with its own trust and capabilities. Linking endpoints does not copy
+trust between providers.
 
 Trust has three states:
 
@@ -75,6 +75,8 @@ messages read CONVERSATION_ID
 messages cancel MESSAGE_ID
 ```
 
-For packet-radio operation, see `meshcore`. MeshCore direct messages use the
-same conversations and trust states as gateway messages; shared-key groups
-remain visibly sender-unverified.
+For packet-radio operation, see `meshcore` and `link`. MeshCore direct messages
+use the same conversations and trust states as gateway messages; shared-key
+groups remain visibly sender-unverified. A `radio-link` job started with
+`chat=on` adds unencrypted, packet-sized Link broadcast and direct conversations
+and discovers source device IDs as Contacts.

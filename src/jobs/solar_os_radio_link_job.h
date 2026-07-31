@@ -11,12 +11,14 @@
 typedef struct {
     bool running;
     bool inbox_enabled;
+    bool chat_enabled;
     char link[SOLAR_OS_LINK_NAME_MAX];
     char radio[SOLAR_OS_RADIO_NAME_MAX];
     char profile[SOLAR_OS_RADIO_PROFILE_NAME_MAX];
     uint32_t transmitted;
     uint32_t received;
     uint32_t inbox_published;
+    uint32_t chat_errors;
     uint32_t transmit_errors;
     uint32_t receive_errors;
     esp_err_t last_error;

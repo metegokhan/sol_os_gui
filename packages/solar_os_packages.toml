@@ -925,7 +925,10 @@ any_capabilities = ["expansion_spi", "expansion_gpio"]
 [packages.job_radio_link]
 label = "job.radio-link"
 depends = ["service_inbox", "service_link", "service_radio"]
-sources = ["jobs/solar_os_radio_link_job.c"]
+sources = [
+  "jobs/solar_os_radio_link_job.c",
+  "services/solar_os_link_messaging.c",
+]
 any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
 
 [packages.job_meshcore]
