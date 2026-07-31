@@ -62,6 +62,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+#include "solar_os_neopixel.h"
+#endif
 #include "solar_os_identity.h"
 #include "solar_os_jobs.h"
 #include "solar_os_keys.h"
@@ -2547,7 +2550,7 @@ static bool python_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
         "spi", "cs", "ce", "i2c", "addr", "uart", "gpio", "irq", "reset",
-        "rst", "dc", "busy", "adc", "pwm",
+        "rst", "data", "dc", "busy", "adc", "pwm", "count",
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         if (strcmp(key, keys[i]) == 0) {
@@ -2683,6 +2686,7 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
         {"irq", "irq", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"reset", "reset", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"rst", "reset", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"data", "data", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"dc", "dc", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"busy", "busy", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"adc", "adc", SOLAR_OS_EXPANSION_BINDING_ADC},
@@ -2691,6 +2695,17 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
     if (python_get_dict_obj(config_obj, "reset", false) != MP_OBJ_NULL &&
         python_get_dict_obj(config_obj, "rst", false) != MP_OBJ_NULL) {
         mp_raise_ValueError(MP_ERROR_TEXT("use reset or rst, not both"));
+    }
+
+    const mp_obj_t count_obj = python_get_dict_obj(config_obj, "count", false);
+    if (count_obj != MP_OBJ_NULL) {
+        python_expansion_add_binding(bindings,
+                                     &binding_count,
+                                     SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                                     "count",
+                                     "",
+                                     mp_obj_get_int(count_obj),
+                                     -1);
     }
     for (size_t i = 0; i < sizeof(pin_bindings) / sizeof(pin_bindings[0]); i++) {
         const mp_obj_t value = python_get_dict_obj(config_obj, pin_bindings[i].key, false);
@@ -2720,6 +2735,64 @@ static mp_obj_t solaros_expansion_detach(mp_obj_t name_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_expansion_detach_obj, solaros_expansion_detach);
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+static mp_obj_t solaros_neopixel_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    const size_t count = solar_os_neopixel_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_neopixel_info_t info;
+        if (!solar_os_neopixel_get(i, &info)) {
+            continue;
+        }
+        mp_obj_t item = mp_obj_new_dict(3);
+        python_dict_store_cstr(item, "name", info.name);
+        python_dict_store_int(item, "data_pin", info.data_pin);
+        python_dict_store_uint(item, "count", info.pixel_count);
+        mp_obj_list_append(list, item);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_neopixel_list_obj, solaros_neopixel_list);
+
+static mp_obj_t solaros_neopixel_set(size_t n_args, const mp_obj_t *args)
+{
+    (void)n_args;
+    python_check_esp(solar_os_neopixel_set(mp_obj_str_get_str(args[0]),
+                                           python_size_from_obj(args[1]),
+                                           python_u8_from_obj(args[2]),
+                                           python_u8_from_obj(args[3]),
+                                           python_u8_from_obj(args[4])));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_neopixel_set_obj, 5, 5, solaros_neopixel_set);
+
+static mp_obj_t solaros_neopixel_fill(size_t n_args, const mp_obj_t *args)
+{
+    (void)n_args;
+    python_check_esp(solar_os_neopixel_fill(mp_obj_str_get_str(args[0]),
+                                            python_u8_from_obj(args[1]),
+                                            python_u8_from_obj(args[2]),
+                                            python_u8_from_obj(args[3])));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_neopixel_fill_obj, 4, 4, solaros_neopixel_fill);
+
+static mp_obj_t solaros_neopixel_show(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_neopixel_show(mp_obj_str_get_str(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_neopixel_show_obj, solaros_neopixel_show);
+
+static mp_obj_t solaros_neopixel_clear(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_neopixel_clear(mp_obj_str_get_str(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_neopixel_clear_obj, solaros_neopixel_clear);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C

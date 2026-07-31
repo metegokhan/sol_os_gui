@@ -51,6 +51,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+#include "solar_os_neopixel.h"
+#endif
 #include "solar_os_identity.h"
 #include "solar_os_jobs.h"
 #include "solar_os_keys.h"
@@ -2440,7 +2443,7 @@ static bool solua_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
         "spi", "cs", "ce", "i2c", "addr", "uart", "gpio", "irq", "reset",
-        "rst", "dc", "busy", "adc", "pwm",
+        "rst", "data", "dc", "busy", "adc", "pwm", "count",
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         if (strcmp(key, keys[i]) == 0) {
@@ -2603,6 +2606,7 @@ static int solua_expansion_attach(lua_State *L)
         {"irq", "irq", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"reset", "reset", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"rst", "reset", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"data", "data", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"dc", "dc", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"busy", "busy", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"adc", "adc", SOLAR_OS_EXPANSION_BINDING_ADC},
@@ -2613,6 +2617,17 @@ static int solua_expansion_attach(lua_State *L)
     if (solua_table_optional_int(L, 3, "reset", &reset) &&
         solua_table_optional_int(L, 3, "rst", &rst)) {
         return luaL_error(L, "use reset or rst, not both");
+    }
+
+    if (solua_table_optional_int(L, 3, "count", &value)) {
+        solua_expansion_add_binding(L,
+                                    bindings,
+                                    &binding_count,
+                                    SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                                    "count",
+                                    "",
+                                    value,
+                                    -1);
     }
     for (size_t i = 0; i < sizeof(pin_bindings) / sizeof(pin_bindings[0]); i++) {
         if (!solua_table_optional_int(L, 3, pin_bindings[i].key, &value)) {
@@ -2638,6 +2653,56 @@ static int solua_expansion_attach(lua_State *L)
 static int solua_expansion_detach(lua_State *L)
 {
     return solua_check_esp(L, solar_os_expansion_detach(luaL_checkstring(L, 1)));
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+static int solua_neopixel_list(lua_State *L)
+{
+    lua_newtable(L);
+    int out = 1;
+    const size_t count = solar_os_neopixel_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_neopixel_info_t info;
+        if (!solar_os_neopixel_get(i, &info)) {
+            continue;
+        }
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_int(L, -1, "data_pin", info.data_pin);
+        solua_set_int(L, -1, "count", info.pixel_count);
+        lua_rawseti(L, -2, out++);
+    }
+    return 1;
+}
+
+static int solua_neopixel_set(lua_State *L)
+{
+    return solua_check_esp(L,
+                           solar_os_neopixel_set(luaL_checkstring(L, 1),
+                                                 solua_check_size(L, 2),
+                                                 solua_check_u8(L, 3),
+                                                 solua_check_u8(L, 4),
+                                                 solua_check_u8(L, 5)));
+}
+
+static int solua_neopixel_fill(lua_State *L)
+{
+    return solua_check_esp(L,
+                           solar_os_neopixel_fill(luaL_checkstring(L, 1),
+                                                  solua_check_u8(L, 2),
+                                                  solua_check_u8(L, 3),
+                                                  solua_check_u8(L, 4)));
+}
+
+static int solua_neopixel_show(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_neopixel_show(luaL_checkstring(L, 1)));
+}
+
+static int solua_neopixel_clear(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_neopixel_clear(luaL_checkstring(L, 1)));
 }
 #endif
 

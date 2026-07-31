@@ -542,7 +542,8 @@ service is compiled.
 - `detach(name)`: detach a device and release its resource claims and bus leases.
 
 Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `uart`,
-`gpio`, `irq`, `reset` (or `rst`), `dc`, `busy`, `adc`, and `pwm`. `cs`
+`gpio`, `irq`, `reset` (or `rst`), `data`, `dc`, `busy`, `adc`, `pwm`, and
+`count`. `cs`
 requires `spi`, and `addr` requires `i2c`. Unknown keys are rejected.
 
 ```python
@@ -556,6 +557,25 @@ solaros.expansion.attach("pcd8544", "lcd0", {
 })
 print(solaros.expansion.devices())
 solaros.expansion.detach("lcd0")
+```
+
+## `solaros.neopixel`
+
+Available when the NeoPixel expansion package is compiled.
+
+- `list()`: return attached strip dictionaries with `name`, `data_pin`, and `count`.
+- `set(name, index, red, green, blue)`: update one buffered pixel.
+- `fill(name, red, green, blue)`: update every buffered pixel.
+- `show(name)`: transmit the buffered colors in GRB wire order.
+- `clear(name)`: clear the buffer and transmit it immediately.
+
+```python
+import solaros
+
+solaros.expansion.attach("neopixel", "pixels0", {"data": 1, "count": 8})
+solaros.neopixel.fill("pixels0", 0, 0, 8)
+solaros.neopixel.set("pixels0", 3, 16, 0, 0)
+solaros.neopixel.show("pixels0")
 ```
 
 ## `solaros.i2c`

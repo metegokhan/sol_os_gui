@@ -23,6 +23,7 @@ typedef enum {
     SOLAR_OS_EXPANSION_BINDING_SPI_BUS,
     SOLAR_OS_EXPANSION_BINDING_SPI_CS,
     SOLAR_OS_EXPANSION_BINDING_UART_PORT,
+    SOLAR_OS_EXPANSION_BINDING_PARAMETER,
 } solar_os_expansion_binding_kind_t;
 
 typedef struct {
@@ -41,6 +42,9 @@ typedef struct {
     bool required;
     const int *allowed_values;
     size_t allowed_value_count;
+    bool has_value_range;
+    int min_value;
+    int max_value;
 } solar_os_expansion_binding_spec_t;
 
 typedef enum {

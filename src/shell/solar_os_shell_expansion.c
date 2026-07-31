@@ -327,6 +327,8 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
     }
     for (size_t i = 0; i < driver->binding_spec_count; i++) {
         switch (driver->binding_specs[i].kind) {
+        case SOLAR_OS_EXPANSION_BINDING_GPIO:
+            return "GPIO";
         case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
             return "I2C";
         case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
@@ -385,6 +387,9 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         break;
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         solar_os_shell_io_printf(term, " uart=%s", binding->target);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+        solar_os_shell_io_printf(term, " %s=%d", binding->role, binding->value);
         break;
     default:
         break;
@@ -563,6 +568,17 @@ static bool parse_binding_token(const char *arg,
         return parse_int_arg(value, 0x03, 0x77, &address) &&
             binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, "", "", address, -1);
     }
+    if (strcmp(key, "count") == 0) {
+        int count = 0;
+        return parse_int_arg(value, 1, 4096, &count) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                          "count",
+                          "",
+                          count,
+                          -1);
+    }
 
     int pin = -1;
     if (!parse_int_arg(value, 0, 63, &pin)) {
@@ -594,6 +610,7 @@ static bool parse_binding_token(const char *arg,
         strcmp(key, "irq") == 0 ||
         strcmp(key, "reset") == 0 ||
         strcmp(key, "rst") == 0 ||
+        strcmp(key, "data") == 0 ||
         strcmp(key, "dc") == 0 ||
         strcmp(key, "busy") == 0) {
         const char *role = strcmp(key, "rst") == 0 ? "reset" : key;

@@ -515,6 +515,10 @@ and writes the inactive ESP-IDF OTA partition.
 | `expansion` | `expansion bus remove <name>` | Remove an idle runtime bus and release its signal pins. |
 | `expansion` | `expansion attach <driver> <name> <resource...>` | Attach a compiled expansion driver or manual resource profile. |
 | `expansion` | `expansion detach <name>` | Detach an active expansion device and release its resource claims. |
+| `neopixel` | `neopixel [status\|list] [name]` | List attached WS2812/NeoPixel strips. |
+| `neopixel` | `neopixel set <name> <index> <red> <green> <blue>` | Set one zero-based pixel and immediately refresh the strip. |
+| `neopixel` | `neopixel fill <name> <red> <green> <blue>` | Fill and immediately refresh the strip. Color components are `0..255`. |
+| `neopixel` | `neopixel clear\|show <name>` | Clear a strip immediately, or transmit its buffered colors. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
 | `radio` | `radio status|list` | List packet radios registered by expansion drivers. |
 | `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |

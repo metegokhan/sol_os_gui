@@ -61,6 +61,7 @@ service packages are not available on that board.
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
 - `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `attach`, `detach`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_uart`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
 - `solaros.expansion`: `drivers`, `devices`, `attach`, `detach` when the expansion service is compiled
+- `solaros.neopixel`: `list`, `set`, `fill`, `show`, `clear` when the NeoPixel expansion package is compiled
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg` when I2C support is compiled
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
 - `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
@@ -210,7 +211,7 @@ local reply = solaros.buses.onewire_xfer("onewire0", 9, "\xcc\x44")
 active devices with normalized bindings. `attach(driver, name, bindings)` and
 `detach(name)` mirror the shell lifecycle. Binding tables accept `spi`, `cs`
 (or `ce`), `i2c`, `addr`, `uart`, `gpio`, `irq`, `reset` (or `rst`), `dc`,
-`busy`, `adc`, and `pwm`. `cs` requires `spi`, `addr` requires `i2c`, and
+`busy`, `data`, `adc`, `pwm`, and `count`. `cs` requires `spi`, `addr` requires `i2c`, and
 unknown fields are rejected.
 
 ```lua
@@ -222,6 +223,16 @@ solaros.expansion.attach("pcd8544", "lcd0", {
 })
 print(#solaros.expansion.devices())
 solaros.expansion.detach("lcd0")
+```
+
+NeoPixel `set` and `fill` update a buffer; call `show` once after a batch of
+changes. `clear` updates and transmits immediately.
+
+```lua
+solaros.expansion.attach("neopixel", "pixels0", {data = 1, count = 8})
+solaros.neopixel.fill("pixels0", 0, 0, 8)
+solaros.neopixel.set("pixels0", 3, 16, 0, 0)
+solaros.neopixel.show("pixels0")
 ```
 
 `solaros.spi` is a compatibility table that selects `spi0` when present,

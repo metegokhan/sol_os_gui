@@ -20,6 +20,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
 #include "solar_os_ssd1306.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+#include "solar_os_neopixel.h"
+#endif
 #include "solar_os_resources.h"
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
@@ -63,6 +66,28 @@ static const solar_os_expansion_binding_spec_t oled_binding_specs[] = {
         .required = true,
         .allowed_values = oled_i2c_addresses,
         .allowed_value_count = sizeof(oled_i2c_addresses) / sizeof(oled_i2c_addresses[0]),
+    },
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+static const solar_os_expansion_binding_spec_t neopixel_binding_specs[] = {
+    {
+        .key = "data",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+        .role = "data",
+        .required = true,
+    },
+    {
+        .key = "count",
+        .value_hint = "1..256",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "count",
+        .required = true,
+        .has_value_range = true,
+        .min_value = 1,
+        .max_value = SOLAR_OS_NEOPIXEL_MAX_PIXELS,
     },
 };
 #endif
@@ -132,6 +157,19 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .binding_spec_count = sizeof(oled_binding_specs) / sizeof(oled_binding_specs[0]),
         .attach = solar_os_sh1106_attach,
         .detach = solar_os_ssd1306_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+    {
+        .name = "neopixel",
+        .summary = "WS2812/NeoPixel GRB strip",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+        .probe_supported = false,
+        .binding_specs = neopixel_binding_specs,
+        .binding_spec_count = sizeof(neopixel_binding_specs) /
+            sizeof(neopixel_binding_specs[0]),
+        .attach = solar_os_neopixel_attach,
+        .detach = solar_os_neopixel_detach,
     },
 #endif
 };
@@ -248,6 +286,8 @@ static const char *binding_key(const solar_os_expansion_binding_t *binding)
         return "cs";
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         return "uart";
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+        return binding->role[0] != '\0' ? binding->role : "parameter";
     default:
         return "resource";
     }
@@ -410,6 +450,7 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
         return ESP_OK;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
     default:
         return ESP_OK;
     }
@@ -447,6 +488,8 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
         return solar_os_expansion_find_uart_port(binding->target, &port, NULL) &&
             port.port == binding->value;
     }
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+        return binding->role[0] != '\0';
     default:
         return false;
     }
@@ -622,7 +665,9 @@ esp_err_t solar_os_expansion_validate_bindings(
             }
             break;
         }
-        if (matched == NULL && !driver_def->allow_unlisted_bindings) {
+        if (matched == NULL &&
+            (!driver_def->allow_unlisted_bindings ||
+             bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER)) {
             set_binding_validation(validation,
                                    SOLAR_OS_EXPANSION_BINDINGS_UNEXPECTED,
                                    binding_key(&bindings[i]));
@@ -648,6 +693,14 @@ esp_err_t solar_os_expansion_validate_bindings(
                                        matched->key);
                 return ESP_ERR_INVALID_ARG;
             }
+        }
+        if (matched != NULL && matched->has_value_range &&
+            (bindings[i].value < matched->min_value ||
+             bindings[i].value > matched->max_value)) {
+            set_binding_validation(validation,
+                                   SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE,
+                                   matched->key);
+            return ESP_ERR_INVALID_ARG;
         }
     }
 
@@ -1097,6 +1150,8 @@ const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind
         return "spi_cs";
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         return "uart";
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+        return "parameter";
     default:
         return "unknown";
     }

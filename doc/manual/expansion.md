@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "rfm69", "rfm95", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral radio rfm69 rfm95 fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "rfm69", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral radio rfm69 rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -49,6 +49,20 @@ radio profile apply radio0 lora-eu868
 
 Connect an antenna suitable for the module band before transmitting. See the
 expansion reference for the complete wiring and modulation configuration.
+
+A WS2812/NeoPixel strip uses one runtime-safe GPIO and a declared pixel count:
+
+```text
+expansion attach neopixel pixels0 data=gpio1 count=8
+neopixel fill pixels0 16 0 0
+neopixel set pixels0 3 0 16 0
+neopixel clear pixels0
+expansion detach pixels0
+```
+
+SolarOS stores colors in RGB form and transmits the strip's standard GRB wire
+order. Attach clears all declared pixels. `set` and `fill` refresh immediately
+in the shell; scripting APIs buffer changes until `show()`.
 
 ## Quick reference
 

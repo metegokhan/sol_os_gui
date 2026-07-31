@@ -313,6 +313,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     {"expansion", "manage expansion hardware", solar_os_shell_cmd_expansion},
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+    {"neopixel", "control attached NeoPixel strips", solar_os_shell_cmd_neopixel},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
     {"radio", "packet radio tools", solar_os_shell_cmd_radio},
 #endif
@@ -615,7 +618,21 @@ static const char * const expansion_driver_values[] = {
     "ssd1306",
     "sh1106",
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+    "neopixel",
+#endif
 };
+
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+static const char * const neopixel_subcommands[] = {
+    "status",
+    "list",
+    "set",
+    "fill",
+    "clear",
+    "show",
+};
+#endif
 
 static const char * const radio_subcommands[] = {
     "status",
@@ -1594,6 +1611,15 @@ static const char * const path_expansion_bus_detach[] = {"expansion", "bus", "de
 static const char * const path_expansion_bus_remove[] = {"expansion", "bus", "remove"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_expansion_detach[] = {"expansion", "detach"};
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+static const char * const path_neopixel[] = {"neopixel"};
+static const char * const path_neopixel_status[] = {"neopixel", "status"};
+static const char * const path_neopixel_list[] = {"neopixel", "list"};
+static const char * const path_neopixel_set[] = {"neopixel", "set"};
+static const char * const path_neopixel_fill[] = {"neopixel", "fill"};
+static const char * const path_neopixel_clear[] = {"neopixel", "clear"};
+static const char * const path_neopixel_show[] = {"neopixel", "show"};
+#endif
 static const char * const path_radio[] = {"radio"};
 static const char * const path_radio_status[] = {"radio", "status"};
 static const char * const path_radio_config[] = {"radio", "config"};
@@ -2247,6 +2273,15 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
     SHELL_COMPLETION_STATIC(path_expansion_attach, expansion_driver_values),
     SHELL_COMPLETION_EXPANSION_DEVICES(path_expansion_detach),
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+    SHELL_COMPLETION_STATIC(path_neopixel, neopixel_subcommands),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_status),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_list),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_set),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_fill),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_clear),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_show),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
     SHELL_COMPLETION_STATIC(path_radio, radio_subcommands),

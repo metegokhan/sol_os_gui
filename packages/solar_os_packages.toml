@@ -40,6 +40,7 @@ members = [
   "expansion_rfm95",
   "expansion_pcd8544",
   "expansion_ssd1306",
+  "expansion_neopixel",
   "job_pocsag",
   "job_radio_link",
   "job_meshcore",
@@ -585,6 +586,17 @@ sources = [
 ]
 requires = ["esp_driver_i2c", "u8g2"]
 capabilities = ["expansion_i2c"]
+
+[packages.expansion_neopixel]
+label = "expansion.neopixel"
+depends = ["service_expansion"]
+sources = [
+  "drivers/neopixel.c",
+  "services/solar_os_neopixel.c",
+  "shell/solar_os_shell_neopixel.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_rmt"]
+capabilities = ["expansion_gpio"]
 
 [packages.service_json]
 label = "service.json"
