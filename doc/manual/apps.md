@@ -474,7 +474,7 @@ Usage:
 
 ```text
 logic
-logic <pin[,pin...]> [rate-hz] [samples]
+logic <pin[,pin...]> [rate-hz] [samples] [trigger=<pin>]
 ```
 
 Examples:
@@ -483,7 +483,12 @@ Examples:
 logic
 logic 1,2,3,17
 logic 1,2 500000 8192
+logic 1,2,3,17 10000 4096 trigger=1
 ```
+
+`trigger=<pin>` waits for the next rising or falling edge on that runtime-safe
+GPIO before sampling. The trigger pin may be one of the captured data pins, as
+in the last example, or a separate GPIO that is not displayed as a channel.
 
 Controls:
 

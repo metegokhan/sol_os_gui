@@ -74,7 +74,7 @@ static esp_err_t logic_parse_config(solar_os_context_t *ctx, solar_os_logic_conf
     }
 
     const int argc = solar_os_context_argc(ctx);
-    if (argc < 2 || argc > 4) {
+    if (argc < 2 || argc > 5) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -86,19 +86,36 @@ static esp_err_t logic_parse_config(solar_os_context_t *ctx, solar_os_logic_conf
     if (err != ESP_OK) {
         return err;
     }
-    if (argc >= 3 &&
-        !logic_parse_u32(solar_os_context_argv(ctx, 2),
-                         SOLAR_OS_LOGIC_MIN_RATE_HZ,
-                         SOLAR_OS_LOGIC_MAX_RATE_HZ,
-                         &config->sample_rate_hz)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (argc >= 4 &&
-        !logic_parse_u32(solar_os_context_argv(ctx, 3),
-                         1U,
-                         SOLAR_OS_LOGIC_MAX_SAMPLES,
-                         &config->sample_count)) {
-        return ESP_ERR_INVALID_ARG;
+    uint8_t positional_count = 0;
+    for (int i = 2; i < argc; i++) {
+        const char *arg = solar_os_context_argv(ctx, i);
+        if (arg != NULL && strncmp(arg, "trigger=", 8) == 0) {
+            uint32_t pin = 0;
+            if (config->trigger_enabled ||
+                !logic_parse_u32(arg + 8, 0, UINT8_MAX, &pin)) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            config->trigger_enabled = true;
+            config->trigger_pin = (uint8_t)pin;
+        } else if (positional_count == 0) {
+            if (!logic_parse_u32(arg,
+                                 SOLAR_OS_LOGIC_MIN_RATE_HZ,
+                                 SOLAR_OS_LOGIC_MAX_RATE_HZ,
+                                 &config->sample_rate_hz)) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            positional_count++;
+        } else if (positional_count == 1) {
+            if (!logic_parse_u32(arg,
+                                 1U,
+                                 SOLAR_OS_LOGIC_MAX_SAMPLES,
+                                 &config->sample_count)) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            positional_count++;
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
     }
     return solar_os_logic_validate_config(config);
 }
@@ -248,6 +265,14 @@ static void logic_render(solar_os_context_t *ctx)
              (unsigned)logic_app.capture.config.channel_count,
              (unsigned long)logic_app.capture.effective_rate_hz,
              (unsigned long)logic_app.capture.config.sample_count);
+    if (logic_app.capture.config.trigger_enabled) {
+        char trigger[16];
+        snprintf(trigger,
+                 sizeof(trigger),
+                 " trig G%u",
+                 (unsigned)logic_app.capture.config.trigger_pin);
+        strlcat(header, trigger, sizeof(header));
+    }
     solar_os_gfx_text(gfx, 2, 10, header);
 
     const int left = width > 120 ? 32 : 22;

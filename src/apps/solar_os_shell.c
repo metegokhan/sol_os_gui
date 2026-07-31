@@ -1008,6 +1008,7 @@ static const char * const curl_options[] = {"-L", "-o"};
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const logic_rate_values[] = {"10000", "100000", "500000", "1000000", "2000000"};
 static const char * const logic_sample_values[] = {"1024", "4096", "16384", "32768"};
+static const char * const logic_trigger_options[] = {"trigger="};
 #endif
 #if SOLAR_OS_PACKAGE_APP_SCP
 static const char * const scp_options[] = {"-P"};
@@ -1065,6 +1066,12 @@ static const char * const path_logic[] = {"logic"};
 static const char * const path_logic_pins[] = {"logic", SHELL_COMPLETION_ANY};
 static const char * const path_logic_rate[] = {
     "logic",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
+static const char * const path_logic_samples[] = {
+    "logic",
+    SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
@@ -1947,6 +1954,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_logic),
     SHELL_COMPLETION_STATIC(path_logic_pins, logic_rate_values),
     SHELL_COMPLETION_STATIC(path_logic_rate, logic_sample_values),
+    SHELL_COMPLETION_STATIC(path_logic_samples, logic_trigger_options),
 #endif
 #if SOLAR_OS_PACKAGE_APP_SCP
     SHELL_COMPLETION_OPTIONS(path_scp, scp_options),

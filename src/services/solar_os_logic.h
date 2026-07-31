@@ -16,6 +16,8 @@
 typedef struct {
     uint8_t pins[SOLAR_OS_LOGIC_MAX_CHANNELS];
     uint8_t channel_count;
+    bool trigger_enabled;
+    uint8_t trigger_pin;
     uint32_t sample_rate_hz;
     uint32_t sample_count;
 } solar_os_logic_config_t;
