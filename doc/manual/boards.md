@@ -200,6 +200,7 @@ Current built-in driver selector values:
 | Capability | Fragment | Selector |
 | --- | --- | --- |
 | `CDC` | `drivers/cdc_usb_serial_jtag.cmake` | `SOLAR_OS_BOARD_CDC_DRIVER=usb_serial_jtag` |
+| `CDC` (dormant) | `drivers/cdc_tinyusb_composite.cmake` | `SOLAR_OS_BOARD_CDC_DRIVER=tinyusb_composite` |
 | `UART` | `drivers/uart_esp_idf.cmake` | `SOLAR_OS_BOARD_UART_DRIVER=esp_idf` |
 | `DISPLAY` | `drivers/display_st7305.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=st7305` |
 | `DISPLAY` | `drivers/display_ssd1683.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ssd1683` |
@@ -227,7 +228,7 @@ The current capability flags are:
 | `SIMD` | CPU vector/SIMD instructions are available for bulk data engines such as image, audio, DSP, or accelerated math paths. |
 | `DISPLAY` | A board-integrated primary display driver and boot-time display target are available. Requires `GFX`. |
 | `GFX` | The firmware can host drawable display targets, including targets registered later by expansion drivers. It does not imply that a display exists at boot. |
-| `CDC` | USB serial/JTAG CDC byte-stream port `cdc0`. |
+| `CDC` | USB Serial/JTAG CDC byte-stream port `cdc0`. The dormant TinyUSB composite driver can add keyboard, mouse, and gamepad HID reports when explicitly enabled. |
 | `UART` | Hardware UART service is supported. Named UART buses may be board-defined or created at runtime. |
 | `SD` | SD/MMC storage and filesystem mounting. |
 | `I2C` | Hardware I2C service is supported. Named I2C buses may be board-defined or created at runtime. |

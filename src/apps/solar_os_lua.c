@@ -45,6 +45,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_gpio.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+#include "solar_os_hid.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
 #include "solar_os_i2c.h"
 #endif
@@ -3152,6 +3155,113 @@ static int solua_ble_read(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+static int solua_hid_status(lua_State *L)
+{
+    solar_os_hid_status_t status;
+    solar_os_hid_get_status(&status);
+    lua_createtable(L, 0, 2);
+    solua_set_bool(L, -1, "initialized", status.initialized);
+    solua_set_bool(L, -1, "connected", status.connected);
+    return 1;
+}
+
+static size_t solua_hid_keys(lua_State *L, uint16_t *keys, size_t capacity)
+{
+    const int count = lua_gettop(L);
+    if (count < 1 || (size_t)count > capacity) {
+        luaL_error(L, "expected 1..8 keys");
+    }
+    for (int index = 0; index < count; index++) {
+        const lua_Integer value = luaL_checkinteger(L, index + 1);
+        if (value < 0 || value > UINT16_MAX) {
+            luaL_error(L, "invalid HID key");
+        }
+        keys[index] = (uint16_t)value;
+    }
+    return (size_t)count;
+}
+
+static int solua_hid_keyboard_press(lua_State *L)
+{
+    uint16_t keys[8];
+    return solua_check_esp(L,
+                           solar_os_hid_keyboard_press(
+                               keys, solua_hid_keys(L, keys, 8)));
+}
+
+static int solua_hid_keyboard_release(lua_State *L)
+{
+    uint16_t keys[8];
+    return solua_check_esp(L,
+                           solar_os_hid_keyboard_release(
+                               keys, solua_hid_keys(L, keys, 8)));
+}
+
+static int solua_hid_keyboard_release_all(lua_State *L)
+{
+    (void)L;
+    return solua_check_esp(L, solar_os_hid_keyboard_release_all());
+}
+
+static int solua_hid_mouse_move(lua_State *L)
+{
+    const lua_Integer x = luaL_checkinteger(L, 1);
+    const lua_Integer y = luaL_checkinteger(L, 2);
+    if (x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX) {
+        return luaL_error(L, "mouse delta out of range");
+    }
+    return solua_check_esp(L, solar_os_hid_mouse_move((int32_t)x, (int32_t)y));
+}
+
+static int solua_hid_mouse_button(lua_State *L)
+{
+    const lua_Integer button = luaL_checkinteger(L, 1);
+    if (button < 0 || button > UINT8_MAX) {
+        return luaL_error(L, "invalid mouse button");
+    }
+    return solua_check_esp(L,
+                           solar_os_hid_mouse_button((uint8_t)button,
+                                                     lua_toboolean(L, 2)));
+}
+
+static int solua_hid_gamepad_axis(lua_State *L)
+{
+    const lua_Integer axis = luaL_checkinteger(L, 1);
+    const lua_Integer value = luaL_checkinteger(L, 2);
+    if (value < INT16_MIN || value > INT16_MAX) {
+        return luaL_error(L, "expected axis value -32768..32767");
+    }
+    return solua_check_esp(L,
+                           solar_os_hid_gamepad_axis((solar_os_hid_axis_t)axis,
+                                                     (int16_t)value));
+}
+
+static int solua_hid_gamepad_button(lua_State *L)
+{
+    const lua_Integer button = luaL_checkinteger(L, 1);
+    if (button < 0 || button > UINT8_MAX) {
+        return luaL_error(L, "invalid gamepad button");
+    }
+    return solua_check_esp(L,
+                           solar_os_hid_gamepad_button((uint8_t)button,
+                                                       lua_toboolean(L, 2)));
+}
+
+static int solua_hid_gamepad_hat(lua_State *L)
+{
+    return solua_check_esp(L,
+                           solar_os_hid_gamepad_hat(
+                               (solar_os_hid_hat_t)luaL_checkinteger(L, 1)));
+}
+
+static int solua_hid_gamepad_send(lua_State *L)
+{
+    (void)L;
+    return solua_check_esp(L, solar_os_hid_gamepad_send());
+}
+#endif
+
 static int solua_clipboard_set(lua_State *L)
 {
     size_t len = 0;
@@ -4513,6 +4623,62 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+    solua_new_submodule(L, solaros, "hid");
+    mod = lua_gettop(L);
+    solua_set_func(L, mod, "status", solua_hid_status);
+#define SOLAR_OS_HID_KEY_CONSTANT(name, value) solua_set_int(L, mod, #name, value);
+#include "solar_os_hid_keycodes.inc"
+#undef SOLAR_OS_HID_KEY_CONSTANT
+    solua_set_int(L, mod, "KEY_LEFT_CTRL", SOLAR_OS_HID_KEY_LEFT_CTRL);
+    solua_set_int(L, mod, "KEY_LEFT_SHIFT", SOLAR_OS_HID_KEY_LEFT_SHIFT);
+    solua_set_int(L, mod, "KEY_LEFT_ALT", SOLAR_OS_HID_KEY_LEFT_ALT);
+    solua_set_int(L, mod, "KEY_LEFT_GUI", SOLAR_OS_HID_KEY_LEFT_GUI);
+    solua_set_int(L, mod, "KEY_RIGHT_CTRL", SOLAR_OS_HID_KEY_RIGHT_CTRL);
+    solua_set_int(L, mod, "KEY_RIGHT_SHIFT", SOLAR_OS_HID_KEY_RIGHT_SHIFT);
+    solua_set_int(L, mod, "KEY_RIGHT_ALT", SOLAR_OS_HID_KEY_RIGHT_ALT);
+    solua_set_int(L, mod, "KEY_RIGHT_GUI", SOLAR_OS_HID_KEY_RIGHT_GUI);
+    solua_set_int(L, mod, "MOUSE_LEFT", SOLAR_OS_HID_MOUSE_LEFT);
+    solua_set_int(L, mod, "MOUSE_RIGHT", SOLAR_OS_HID_MOUSE_RIGHT);
+    solua_set_int(L, mod, "MOUSE_MIDDLE", SOLAR_OS_HID_MOUSE_MIDDLE);
+    solua_set_int(L, mod, "MOUSE_BACK", SOLAR_OS_HID_MOUSE_BACK);
+    solua_set_int(L, mod, "MOUSE_FORWARD", SOLAR_OS_HID_MOUSE_FORWARD);
+    solua_set_int(L, mod, "AXIS_X", SOLAR_OS_HID_AXIS_X);
+    solua_set_int(L, mod, "AXIS_Y", SOLAR_OS_HID_AXIS_Y);
+    solua_set_int(L, mod, "AXIS_Z", SOLAR_OS_HID_AXIS_Z);
+    solua_set_int(L, mod, "AXIS_RZ", SOLAR_OS_HID_AXIS_RZ);
+    solua_set_int(L, mod, "AXIS_RX", SOLAR_OS_HID_AXIS_RX);
+    solua_set_int(L, mod, "AXIS_RY", SOLAR_OS_HID_AXIS_RY);
+    solua_set_int(L, mod, "HAT_CENTERED", SOLAR_OS_HID_HAT_CENTERED);
+    solua_set_int(L, mod, "HAT_UP", SOLAR_OS_HID_HAT_UP);
+    solua_set_int(L, mod, "HAT_UP_RIGHT", SOLAR_OS_HID_HAT_UP_RIGHT);
+    solua_set_int(L, mod, "HAT_RIGHT", SOLAR_OS_HID_HAT_RIGHT);
+    solua_set_int(L, mod, "HAT_DOWN_RIGHT", SOLAR_OS_HID_HAT_DOWN_RIGHT);
+    solua_set_int(L, mod, "HAT_DOWN", SOLAR_OS_HID_HAT_DOWN);
+    solua_set_int(L, mod, "HAT_DOWN_LEFT", SOLAR_OS_HID_HAT_DOWN_LEFT);
+    solua_set_int(L, mod, "HAT_LEFT", SOLAR_OS_HID_HAT_LEFT);
+    solua_set_int(L, mod, "HAT_UP_LEFT", SOLAR_OS_HID_HAT_UP_LEFT);
+
+    solua_new_submodule(L, mod, "keyboard");
+    int hid_submodule = lua_gettop(L);
+    solua_set_func(L, hid_submodule, "press", solua_hid_keyboard_press);
+    solua_set_func(L, hid_submodule, "release", solua_hid_keyboard_release);
+    solua_set_func(L, hid_submodule, "release_all", solua_hid_keyboard_release_all);
+    lua_pop(L, 1);
+    solua_new_submodule(L, mod, "mouse");
+    hid_submodule = lua_gettop(L);
+    solua_set_func(L, hid_submodule, "move", solua_hid_mouse_move);
+    solua_set_func(L, hid_submodule, "button", solua_hid_mouse_button);
+    lua_pop(L, 1);
+    solua_new_submodule(L, mod, "gamepad");
+    hid_submodule = lua_gettop(L);
+    solua_set_func(L, hid_submodule, "axis", solua_hid_gamepad_axis);
+    solua_set_func(L, hid_submodule, "button", solua_hid_gamepad_button);
+    solua_set_func(L, hid_submodule, "hat", solua_hid_gamepad_hat);
+    solua_set_func(L, hid_submodule, "send", solua_hid_gamepad_send);
+    lua_pop(L, 1);
+#endif
+
     solua_new_submodule(L, solaros, "clipboard");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "set", solua_clipboard_set);
@@ -4905,6 +5071,9 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
     lua_close(L);
 
 cleanup:
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+    solar_os_hid_release_all();
+#endif
     solua_runner_control = NULL;
     solua_runtime_release(SOLUA_RUNTIME_OWNER_RUNNER);
     return result->status;
@@ -4975,6 +5144,9 @@ static void solua_task(void *arg)
 
 done:
     if (L != NULL) {
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+        solar_os_hid_release_all();
+#endif
         lua_close(L);
     }
 
@@ -5233,6 +5405,9 @@ static void solua_stop(solar_os_context_t *ctx)
         solua.key_input = NULL;
     }
     solua_gfx_release_target();
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+    solar_os_hid_release_all();
+#endif
     solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
 }
 
