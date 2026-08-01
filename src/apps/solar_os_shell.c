@@ -3691,6 +3691,7 @@ static bool shell_is_path_command(const char *command)
 #endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
            strcmp(command, "edit") == 0 ||
+           strcmp(command, "hexedit") == 0 ||
 #endif
 #if SOLAR_OS_PACKAGE_APP_FILES
            strcmp(command, "files") == 0 ||
@@ -6720,6 +6721,7 @@ static bool shell_prepare_app_launch_args(
 
     if (argc >= 2 &&
         (strcmp(app->name, "edit") == 0 ||
+         strcmp(app->name, "hexedit") == 0 ||
          strcmp(app->name, "less") == 0 ||
          strcmp(app->name, "notes") == 0 ||
          strcmp(app->name, "reader") == 0 ||

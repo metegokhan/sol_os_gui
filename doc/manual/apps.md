@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader less files agent"
+keywords = "apps applications foreground controls usage examples reader less files edit hexedit binary agent"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -267,7 +267,7 @@ downloading and extracting one exact-version signed manual archive.
 Text editor for files on mounted storage. It supports cursor navigation,
 selection, clipboard operations, text-size changes, and syntax highlighting for
 known source files. The editor supports files up to 256 KiB on boards with
-PSRAM and 32 KiB on boards without PSRAM.
+PSRAM and 32 KiB on boards without PSRAM. Use `hexedit` for binary files.
 
 Usage:
 
@@ -283,6 +283,34 @@ Controls:
 - `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V` select all, copy, cut, and paste.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
 - `Esc` saves if needed and exits; app-exit key exits.
+
+## hexedit
+
+Two-pane binary editor for files on mounted storage. Each row shows a file
+offset, hexadecimal bytes, and their synchronized printable ASCII view. The
+number of bytes per row adapts to the terminal width. It uses the same 256 KiB
+PSRAM and 32 KiB internal-memory limits as `edit`.
+
+Usage:
+
+```text
+hexedit <file>
+```
+
+Controls:
+
+- `Tab` switches input focus between the HEX and ASCII panes. The corresponding
+  byte remains highlighted in both panes.
+- Hexadecimal digits replace the active high or low nibble in the HEX pane.
+  Printable characters replace the active byte in the ASCII pane.
+- Arrows, Page Up/Page Down, Home/End, and Ctrl+Home/Ctrl+End navigate by byte,
+  row, page, or file.
+- `Shift` with navigation extends a byte selection. `Ctrl+A`, `Ctrl+C`,
+  `Ctrl+X`, and `Ctrl+V` select all, copy, cut, and paste binary data.
+- Backspace and Delete remove bytes. Typing at end of file appends data.
+- `Ctrl+S` saves in place. `Esc` saves if needed and exits; the app-exit key
+  exits without forcing a save.
+- `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
 
 ## files
 
