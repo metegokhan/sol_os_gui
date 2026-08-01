@@ -404,8 +404,9 @@ server-side read flags are not implemented yet.
 
 ## io
 
-Interactive expansion I/O manager. It presents the board's expansion pins,
-named buses, and resource claims in one TUI and uses the same ownership and
+Interactive expansion I/O manager. Its default Layout view presents the
+board's connectors in their physical arrangement, followed by the existing
+pin, named-bus, and resource-claim views. It uses the same ownership and
 validation services as the `gpio`, `i2c`, `spi`, `uart`, `onewire`, and
 `expansion` commands.
 
@@ -417,8 +418,15 @@ io
 
 Controls:
 
-- `Tab`, `Left`, and `Right` switch between Pins, Buses, and Claims.
-- Arrows, Page Up/Page Down, Home, and End navigate the selected view.
+- `Tab` switches between Layout, Pins, Buses, and Claims. Outside Layout,
+  `Left` and `Right` also switch views.
+- Arrows move through the physical connector grid in Layout and through rows
+  in the other views. Page Up/Page Down, Home, and End make larger moves.
+- Layout adapts to the terminal: compact headers show several pins across,
+  while long headers such as the DevKitC J1/J3 pair scroll vertically with one
+  physical pin pair per row.
+- Layout markers are `*` free, `~` releasable, `@` claimed, `!` fixed/control,
+  `+` power, `-` ground, and `x` not connected.
 - `Enter` opens context-sensitive actions for a pin or bus.
 - `n` creates a board-approved named I2C, SPI, UART, or 1-Wire bus.
 - Bus creation uses arrows to select fields and values; the generated bus name
@@ -426,7 +434,7 @@ Controls:
 - Runtime buses can be attached, detached, or removed when their lease state
   permits it. Their `Autostart` action idempotently appends the matching
   `expansion bus create ...` command to `/.shell/startup`. Direct GPIO and PWM
-  assignments can be created and released from the Pins view.
+  assignments can be created and released from the Pins or Layout view.
 - `r` refreshes; `q`, `Esc`, or the app-exit key exits.
 
 ## invaders

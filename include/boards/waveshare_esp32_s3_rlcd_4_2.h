@@ -50,6 +50,31 @@
 #define SOLAR_OS_BOARD_KEY_PULL_UP 1
 #define SOLAR_OS_BOARD_KEY_PULL_DOWN 0
 
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_TITLE "2x8 expansion header"
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_VIEW \
+    "component side; display facing you"
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_ROWS 2
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_COLUMNS 8
+#define SOLAR_OS_BOARD_CONNECTOR_PIN_COUNT 16
+#define SOLAR_OS_BOARD_CONNECTOR_PINS { \
+    {.connector = "GPIO", .position = 1, .row = 0, .column = 0, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_POWER, .label = "VBUS"}, \
+    {.connector = "GPIO", .position = 2, .row = 0, .column = 1, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_GROUND, .label = "GND"}, \
+    {.connector = "GPIO", .position = 3, .row = 0, .column = 2, .pin = GPIO_NUM_19, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO19/D-"}, \
+    {.connector = "GPIO", .position = 4, .row = 0, .column = 3, .pin = GPIO_NUM_20, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO20/D+"}, \
+    {.connector = "GPIO", .position = 5, .row = 0, .column = 4, .pin = GPIO_NUM_43, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "TXD"}, \
+    {.connector = "GPIO", .position = 6, .row = 0, .column = 5, .pin = GPIO_NUM_44, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "RXD"}, \
+    {.connector = "GPIO", .position = 7, .row = 0, .column = 6, .pin = GPIO_NUM_13, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "SDA"}, \
+    {.connector = "GPIO", .position = 8, .row = 0, .column = 7, .pin = GPIO_NUM_14, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "SCL"}, \
+    {.connector = "GPIO", .position = 9, .row = 1, .column = 0, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_POWER, .label = "3V3"}, \
+    {.connector = "GPIO", .position = 10, .row = 1, .column = 1, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_GROUND, .label = "GND"}, \
+    {.connector = "GPIO", .position = 11, .row = 1, .column = 2, .pin = GPIO_NUM_0, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO0"}, \
+    {.connector = "GPIO", .position = 12, .row = 1, .column = 3, .pin = GPIO_NUM_1, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO1"}, \
+    {.connector = "GPIO", .position = 13, .row = 1, .column = 4, .pin = GPIO_NUM_2, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO2"}, \
+    {.connector = "GPIO", .position = 14, .row = 1, .column = 5, .pin = GPIO_NUM_3, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO3"}, \
+    {.connector = "GPIO", .position = 15, .row = 1, .column = 6, .pin = GPIO_NUM_17, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO17"}, \
+    {.connector = "GPIO", .position = 16, .row = 1, .column = 7, .pin = GPIO_NUM_18, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO18"}, \
+}
+
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_MASK ((1ULL << GPIO_NUM_0) | \
                                             (1ULL << GPIO_NUM_1) | \
                                             (1ULL << GPIO_NUM_2) | \

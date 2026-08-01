@@ -503,6 +503,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `audio` | `audio off` | Stop audio output. |
 | `led` | `led [status|on|off|toggle]` | Inspect or control the built-in status LED when available. |
 | `expansion` | `expansion [status]` | Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims. |
+| `expansion` | `expansion layout [connector]` | Draw the board's physical connector map with live free, releasable, claimed, fixed, power, ground, and NC markers. |
 | `expansion` | `expansion scan` | List expansion resources and probe-capable drivers. |
 | `expansion` | `expansion drivers` | List compiled expansion drivers. |
 | `expansion` | `expansion devices` | List manually attached expansion devices. |

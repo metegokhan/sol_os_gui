@@ -337,6 +337,32 @@ Keep the user GPIO list conservative. Do not mark boot strapping, flash/PSRAM,
 display, SD, system I2C, or key pins free. A releasable pin remains unavailable
 to direct GPIO until a resource-aware service explicitly takes ownership.
 
+Describe the physical placement of every exposed connector contact separately.
+The `io` app and `expansion layout [connector]` render this metadata and combine
+GPIO contacts with the live pin policy and claim registry:
+
+```c
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_TITLE "J1 / J3 pin headers"
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_VIEW \
+    "component side; antenna at top, USB connectors at bottom"
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_ROWS 22
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_COLUMNS 2
+#define SOLAR_OS_BOARD_CONNECTOR_PIN_COUNT 44
+#define SOLAR_OS_BOARD_CONNECTOR_PINS { \
+    {.connector = "J1", .position = 1, .row = 0, .column = 0, \
+     .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_POWER, .label = "3V3"}, \
+    {.connector = "J3", .position = 1, .row = 0, .column = 1, \
+     .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_GROUND, .label = "GND"}, \
+}
+```
+
+`row` and `column` are zero-based display coordinates. `position` is the
+connector manufacturer's pin number and need not increase in screen order.
+Use GPIO, power, ground, control, and NC kinds as appropriate; only GPIO entries
+participate in live resource lookup. Keep the view description explicit about
+which board side is shown and its orientation. A board without this metadata
+still builds, but reports that no physical connector map is available.
+
 Static board bus example:
 
 ```c

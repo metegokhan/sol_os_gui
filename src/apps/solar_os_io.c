@@ -36,6 +36,7 @@
 #define IO_STARTUP_COMMAND_MAX 256
 
 typedef enum {
+    IO_VIEW_LAYOUT,
     IO_VIEW_PINS,
     IO_VIEW_BUSES,
     IO_VIEW_CLAIMS,
@@ -111,6 +112,8 @@ static const uint32_t spi_sizes[] = {256U, 1024U, 4096U, 8192U, 16384U, 65536U};
 static const char *io_view_name(io_view_t view)
 {
     switch (view) {
+    case IO_VIEW_LAYOUT:
+        return "Layout";
     case IO_VIEW_PINS:
         return "Pins";
     case IO_VIEW_BUSES:
@@ -382,6 +385,8 @@ static size_t io_content_rows(void)
 static size_t io_view_count(io_view_t view)
 {
     switch (view) {
+    case IO_VIEW_LAYOUT:
+        return solar_os_connector_pin_count();
     case IO_VIEW_PINS:
         return io_expansion_pin_count();
     case IO_VIEW_BUSES:
@@ -424,7 +429,7 @@ static void io_render_title(void)
     char title[128];
     snprintf(title,
              sizeof(title),
-             " Expansion I/O  [%s]  Pins | Buses | Claims",
+             " Expansion I/O  [%s]  Layout | Pins | Buses | Claims",
              io_view_name(io.view));
     solar_os_tui_fill(&io.tui,
                       0,
@@ -438,6 +443,171 @@ static void io_render_title(void)
                    cols,
                    title,
                    SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+}
+
+static char io_layout_marker(const solar_os_connector_pin_info_t *pin)
+{
+    if (pin == NULL) {
+        return ' ';
+    }
+    if (pin->kind == SOLAR_OS_CONNECTOR_PIN_POWER) {
+        return '+';
+    }
+    if (pin->kind == SOLAR_OS_CONNECTOR_PIN_GROUND) {
+        return '-';
+    }
+    if (pin->kind == SOLAR_OS_CONNECTOR_PIN_NC) {
+        return 'x';
+    }
+    if (pin->kind != SOLAR_OS_CONNECTOR_PIN_GPIO || pin->pin < 0) {
+        return '!';
+    }
+
+    solar_os_resource_claim_t claim;
+    if (solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                     pin->pin,
+                                     -1,
+                                     &claim)) {
+        return '@';
+    }
+    solar_os_pin_info_t info;
+    if (!solar_os_pin_get_info_by_pin(pin->pin, &info) ||
+        info.policy == SOLAR_OS_PIN_POLICY_FIXED) {
+        return '!';
+    }
+    return info.policy == SOLAR_OS_PIN_POLICY_RELEASABLE ? '~' : '*';
+}
+
+static bool io_selected_connector_pin(solar_os_connector_pin_info_t *pin)
+{
+    return solar_os_connector_pin_get_info(io.selected[IO_VIEW_LAYOUT], pin);
+}
+
+static void io_render_layout_detail(size_t row)
+{
+    solar_os_connector_pin_info_t connector_pin;
+    char line[192] = "";
+    if (!io_selected_connector_pin(&connector_pin)) {
+        io_write_row(row, line, SOLAR_OS_TUI_ATTR_NORMAL);
+        return;
+    }
+
+    if (connector_pin.kind == SOLAR_OS_CONNECTOR_PIN_GPIO && connector_pin.pin >= 0) {
+        solar_os_pin_info_t pin;
+        if (solar_os_pin_get_info_by_pin(connector_pin.pin, &pin)) {
+            char assignment[48];
+            char owner[32];
+            io_pin_summary(&pin, assignment, sizeof(assignment), owner, sizeof(owner));
+            snprintf(line,
+                     sizeof(line),
+                     " %s.%u GPIO%d %s  %s  owner=%s  %s",
+                     connector_pin.connector,
+                     (unsigned)connector_pin.position,
+                     connector_pin.pin,
+                     solar_os_pin_policy_name(pin.policy),
+                     assignment,
+                     owner,
+                     pin.role != NULL ? pin.role : "");
+        } else {
+            snprintf(line,
+                     sizeof(line),
+                     " %s.%u GPIO%d %s  fixed / not runtime mapped",
+                     connector_pin.connector,
+                     (unsigned)connector_pin.position,
+                     connector_pin.pin,
+                     connector_pin.label != NULL ? connector_pin.label : "");
+        }
+    } else {
+        snprintf(line,
+                 sizeof(line),
+                 " %s.%u %s  %s",
+                 connector_pin.connector != NULL ? connector_pin.connector : "?",
+                 (unsigned)connector_pin.position,
+                 connector_pin.label != NULL ? connector_pin.label : "?",
+                 solar_os_connector_pin_kind_name(connector_pin.kind));
+    }
+    io_write_row(row, line, SOLAR_OS_TUI_ATTR_BOLD);
+}
+
+static void io_render_layout(void)
+{
+    const size_t rows = solar_os_tui_rows(&io.tui);
+    const size_t cols = solar_os_tui_cols(&io.tui);
+    solar_os_connector_layout_info_t layout;
+    solar_os_connector_pin_info_t selected;
+    if (!solar_os_connector_layout_get_info(&layout) ||
+        !io_selected_connector_pin(&selected)) {
+        io_write_row(2, " No physical connector map for this board.", SOLAR_OS_TUI_ATTR_NORMAL);
+        return;
+    }
+
+    char heading[192];
+    snprintf(heading, sizeof(heading), " %s — %s", layout.title, layout.view);
+    io_write_row(1, heading, SOLAR_OS_TUI_ATTR_BOLD);
+
+    const size_t grid_rows = rows > 6U ? rows - 5U : 1U;
+    const size_t visible_rows = layout.rows < grid_rows ? layout.rows : grid_rows;
+    const size_t row_start = io_scroll_start(selected.row, layout.rows, visible_rows);
+    size_t visible_columns = cols / 8U;
+    if (visible_columns == 0) {
+        visible_columns = 1;
+    }
+    if (visible_columns > layout.columns) {
+        visible_columns = layout.columns;
+    }
+    const size_t column_start = io_scroll_start(selected.column,
+                                                layout.columns,
+                                                visible_columns);
+    const size_t cell_width = cols / visible_columns;
+
+    for (size_t screen_row = 0; screen_row < visible_rows; screen_row++) {
+        const size_t physical_row = row_start + screen_row;
+        const size_t tui_row = 2U + screen_row;
+        solar_os_tui_fill(&io.tui,
+                          tui_row,
+                          0,
+                          1,
+                          cols,
+                          ' ',
+                          SOLAR_OS_TUI_ATTR_NORMAL);
+        for (size_t screen_column = 0; screen_column < visible_columns; screen_column++) {
+            const size_t physical_column = column_start + screen_column;
+            solar_os_connector_pin_info_t pin;
+            if (!solar_os_connector_pin_find(physical_row,
+                                             physical_column,
+                                             &pin,
+                                             NULL)) {
+                continue;
+            }
+            char cell[48];
+            if (layout.columns <= 2U) {
+                snprintf(cell,
+                         sizeof(cell),
+                         " %c%s.%u %s",
+                         io_layout_marker(&pin),
+                         pin.connector != NULL ? pin.connector : "?",
+                         (unsigned)pin.position,
+                         pin.label != NULL ? pin.label : "?");
+            } else {
+                snprintf(cell,
+                         sizeof(cell),
+                         " %c%s",
+                         io_layout_marker(&pin),
+                         pin.label != NULL ? pin.label : "?");
+            }
+            const bool is_selected = pin.row == selected.row &&
+                pin.column == selected.column;
+            io_add_clipped(tui_row,
+                           screen_column * cell_width,
+                           cell_width,
+                           cell,
+                           is_selected ? SOLAR_OS_TUI_ATTR_INVERSE :
+                                         SOLAR_OS_TUI_ATTR_NORMAL);
+        }
+    }
+    if (rows >= 4U) {
+        io_render_layout_detail(rows - 3U);
+    }
 }
 
 static void io_render_pins(void)
@@ -618,6 +788,9 @@ static void io_render_browse(void)
     solar_os_tui_set_cursor_visible(&io.tui, false);
     io_render_title();
     switch (io.view) {
+    case IO_VIEW_LAYOUT:
+        io_render_layout();
+        break;
     case IO_VIEW_PINS:
         io_render_pins();
         break;
@@ -639,11 +812,14 @@ static void io_render_browse(void)
                           cols,
                           ' ',
                           SOLAR_OS_TUI_ATTR_INVERSE);
-        io_add_clipped(rows - 1U,
-                       0,
-                       cols,
-                       " Tab views  arrows select  Enter actions  N new bus  R refresh  Q exit",
-                       SOLAR_OS_TUI_ATTR_INVERSE);
+        io_add_clipped(
+            rows - 1U,
+            0,
+            cols,
+            io.view == IO_VIEW_LAYOUT
+                ? " Tab views  arrows move  Enter actions  N new bus  R refresh  Q exit"
+                : " Tab views  arrows select  Enter actions  N new bus  R refresh  Q exit",
+            SOLAR_OS_TUI_ATTR_INVERSE);
     }
     solar_os_tui_refresh(&io.tui);
 }
@@ -663,6 +839,21 @@ static void io_action_add(io_action_kind_t kind, const char *label)
 static bool io_selected_pin_info(solar_os_pin_info_t *pin)
 {
     return io_expansion_pin_get(io.selected[IO_VIEW_PINS], pin);
+}
+
+static bool io_selected_action_pin_info(solar_os_pin_info_t *pin)
+{
+    if (io.view == IO_VIEW_PINS) {
+        return io_selected_pin_info(pin);
+    }
+    if (io.view == IO_VIEW_LAYOUT) {
+        solar_os_connector_pin_info_t connector_pin;
+        return io_selected_connector_pin(&connector_pin) &&
+            connector_pin.kind == SOLAR_OS_CONNECTOR_PIN_GPIO &&
+            connector_pin.pin >= 0 &&
+            solar_os_pin_get_info_by_pin(connector_pin.pin, pin);
+    }
+    return false;
 }
 
 static bool io_selected_bus_info(solar_os_bus_info_t *bus)
@@ -973,12 +1164,12 @@ static void io_build_actions(void)
         io_action_add(IO_ACTION_NEW_BUS, "Create new bus");
         return;
     }
-    if (io.view != IO_VIEW_PINS) {
+    if (io.view != IO_VIEW_PINS && io.view != IO_VIEW_LAYOUT) {
         return;
     }
 
     solar_os_pin_info_t pin;
-    if (!io_selected_pin_info(&pin)) {
+    if (!io_selected_action_pin_info(&pin)) {
         return;
     }
     io.selected_pin = pin.pin;
@@ -1711,6 +1902,31 @@ static void io_move_selection(int delta)
     }
 }
 
+static void io_move_layout(int row_delta, int column_delta)
+{
+    solar_os_connector_layout_info_t layout;
+    solar_os_connector_pin_info_t current;
+    if (!solar_os_connector_layout_get_info(&layout) ||
+        !io_selected_connector_pin(&current)) {
+        return;
+    }
+
+    int row = (int)current.row + row_delta;
+    int column = (int)current.column + column_delta;
+    if (row < 0) row = 0;
+    if (column < 0) column = 0;
+    if ((size_t)row >= layout.rows) row = (int)layout.rows - 1;
+    if ((size_t)column >= layout.columns) column = (int)layout.columns - 1;
+
+    size_t index = 0;
+    if (solar_os_connector_pin_find((size_t)row,
+                                    (size_t)column,
+                                    NULL,
+                                    &index)) {
+        io.selected[IO_VIEW_LAYOUT] = index;
+    }
+}
+
 static void io_handle_browse_key(uint8_t key)
 {
     switch (key) {
@@ -1721,23 +1937,49 @@ static void io_handle_browse_key(uint8_t key)
         solar_os_context_request_exit(io.ctx);
         return;
     case '\t':
-    case SOLAR_OS_KEY_RIGHT:
         io.view = (io_view_t)((io.view + 1U) % IO_VIEW_COUNT);
         break;
+    case SOLAR_OS_KEY_RIGHT:
+        if (io.view == IO_VIEW_LAYOUT) {
+            io_move_layout(0, 1);
+        } else {
+            io.view = (io_view_t)((io.view + 1U) % IO_VIEW_COUNT);
+        }
+        break;
     case SOLAR_OS_KEY_LEFT:
-        io.view = io.view == 0 ? IO_VIEW_COUNT - 1 : (io_view_t)(io.view - 1);
+        if (io.view == IO_VIEW_LAYOUT) {
+            io_move_layout(0, -1);
+        } else {
+            io.view = io.view == 0 ? IO_VIEW_COUNT - 1 : (io_view_t)(io.view - 1);
+        }
         break;
     case SOLAR_OS_KEY_UP:
-        io_move_selection(-1);
+        if (io.view == IO_VIEW_LAYOUT) {
+            io_move_layout(-1, 0);
+        } else {
+            io_move_selection(-1);
+        }
         break;
     case SOLAR_OS_KEY_DOWN:
-        io_move_selection(1);
+        if (io.view == IO_VIEW_LAYOUT) {
+            io_move_layout(1, 0);
+        } else {
+            io_move_selection(1);
+        }
         break;
     case SOLAR_OS_KEY_PAGE_UP:
-        io_move_selection(-(int)io_content_rows());
+        if (io.view == IO_VIEW_LAYOUT) {
+            io_move_layout(-(int)io_content_rows(), 0);
+        } else {
+            io_move_selection(-(int)io_content_rows());
+        }
         break;
     case SOLAR_OS_KEY_PAGE_DOWN:
-        io_move_selection((int)io_content_rows());
+        if (io.view == IO_VIEW_LAYOUT) {
+            io_move_layout((int)io_content_rows(), 0);
+        } else {
+            io_move_selection((int)io_content_rows());
+        }
         break;
     case SOLAR_OS_KEY_HOME:
         io.selected[io.view] = 0;
@@ -1756,7 +1998,8 @@ static void io_handle_browse_key(uint8_t key)
     case 'N': {
         io.selected_pin = -1;
         solar_os_pin_info_t pin;
-        if (io.view == IO_VIEW_PINS && io_selected_pin_info(&pin) &&
+        if ((io.view == IO_VIEW_PINS || io.view == IO_VIEW_LAYOUT) &&
+            io_selected_action_pin_info(&pin) &&
             io_pin_unclaimed(pin.pin)) {
             io.selected_pin = pin.pin;
         }

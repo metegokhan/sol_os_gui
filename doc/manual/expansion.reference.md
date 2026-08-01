@@ -14,9 +14,11 @@ not as one fixed connector standard. A board may expose individual GPIO pins,
 named I2C, SPI, or UART buses, or free pins that can be routed to an approved
 spare peripheral host at runtime.
 
-Use `expansion status` and `gpio list` on the running device for the authoritative
-view. The available resources depend on the board and the compiled firmware
-flavor.
+Use `expansion layout` for the physical connector arrangement, and use
+`expansion status` and `gpio list` on the running device for the authoritative
+resource view. The layout overlays live pin policy and claims; the available
+resources depend on the board and the compiled firmware flavor. Boards with
+multiple named headers can be filtered, for example with `expansion layout J1`.
 
 ## Resource Model
 
@@ -85,6 +87,7 @@ creating a named expansion bus.
 Start by inspecting the live resource map and compiled drivers:
 
 ```text
+expansion layout
 expansion status
 gpio list
 expansion drivers

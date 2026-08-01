@@ -28,6 +28,7 @@
 #include "solar_os_display.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
+#include "solar_os_pins.h"
 #endif
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
@@ -114,6 +115,7 @@ typedef struct {
     bool complete_endpoint_ids;
     bool complete_playground_apps;
     bool complete_expansion_devices;
+    bool complete_connectors;
     bool complete_display_session_ids;
     bool complete_session_ids;
     bool complete_ports;
@@ -581,6 +583,7 @@ static const char * const spi_fill_values[] = {"0xff", "0x00"};
 
 static const char * const expansion_subcommands[] = {
     "status",
+    "layout",
     "scan",
     "drivers",
     "devices",
@@ -1611,6 +1614,7 @@ static const char * const path_pwm_set_freq[] = {
 };
 static const char * const path_pwm_off[] = {"pwm", "off"};
 static const char * const path_expansion[] = {"expansion"};
+static const char * const path_expansion_layout[] = {"expansion", "layout"};
 static const char * const path_expansion_bus[] = {"expansion", "bus"};
 static const char * const path_expansion_bus_create[] = {"expansion", "bus", "create"};
 static const char * const path_expansion_bus_attach[] = {"expansion", "bus", "attach"};
@@ -1763,6 +1767,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_expansion_devices = true, \
+    }
+#define SHELL_COMPLETION_CONNECTORS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_connectors = true, \
     }
 #define SHELL_COMPLETION_MANUAL(path_array, value_array) \
     { \
@@ -2274,6 +2284,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_pwm_off),
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     SHELL_COMPLETION_STATIC(path_expansion, expansion_subcommands),
+    SHELL_COMPLETION_CONNECTORS(path_expansion_layout),
     SHELL_COMPLETION_STATIC(path_expansion_bus, expansion_bus_subcommands),
     SHELL_COMPLETION_STATIC(path_expansion_bus_create, expansion_bus_protocols),
     SHELL_COMPLETION_BUSES(path_expansion_bus_attach),
@@ -4371,6 +4382,33 @@ static void shell_completion_emit_expansion_devices(shell_completion_match_t *st
 #endif
 }
 
+static void shell_completion_emit_connectors(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    for (size_t i = 0; i < solar_os_connector_pin_count(); i++) {
+        solar_os_connector_pin_info_t pin;
+        if (!solar_os_connector_pin_get_info(i, &pin) || pin.connector == NULL) {
+            continue;
+        }
+        bool seen = false;
+        for (size_t previous = 0; previous < i; previous++) {
+            solar_os_connector_pin_info_t candidate;
+            if (solar_os_connector_pin_get_info(previous, &candidate) &&
+                candidate.connector != NULL &&
+                strcmp(candidate.connector, pin.connector) == 0) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            shell_completion_emit(state, pin.connector);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_manual_aliases(shell_completion_match_t *state,
                                                  const char *aliases,
                                                  const char *prefix)
@@ -5615,6 +5653,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_expansion_devices) {
             shell_completion_emit_expansion_devices(state);
+        }
+        if (rule->complete_connectors) {
+            shell_completion_emit_connectors(state);
         }
         if (rule->complete_manual_pages) {
             shell_completion_emit_manual_pages(state);
