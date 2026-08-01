@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader less files edit hexedit binary agent"
+keywords = "apps applications foreground controls usage examples reader less files edit hexedit binary agent calculator calc graph"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -121,6 +121,60 @@ arecord [-d seconds] file.wav
 Controls:
 
 - App-exit key stops recording.
+
+## calc
+
+Scientific calculator and function plotter. On a graphical display, `calc`
+opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet,
+or any other text-only shell, the same command opens a scientific REPL without
+the plot pane. `calc --text` forces that REPL even when graphics are available.
+
+The expression engine supports `+`, `-`, `*`, `/`, `%`, powers with `^`,
+parentheses, scientific notation, and implicit multiplication such as `2pi` or
+`2(x + 1)`. Built-ins include `sin`, `cos`, `tan`, their inverse functions,
+`sqrt`, `abs`, `exp`, `ln`, `log`, `floor`, `ceil`, `round`, `min`, `max`,
+`pow`, and `atan2`. Trigonometric input is in radians; `rad(degrees)` and
+`deg(radians)` convert explicitly. Constants are `pi` and `e`.
+
+Rows can hold scalar calculations, variables, one-argument functions, or plots:
+
+```text
+a = 2
+f(x) = sin(x) / x
+f(pi / a)
+y = f(x)
+```
+
+For a one-off shell calculation, use:
+
+```text
+calc -e "sqrt(2)^2"
+```
+
+Text REPL commands:
+
+- `:list` or `:vars` shows worksheet rows and scalar results.
+- `:del N` removes a row; `:clear` empties the worksheet.
+- `:save [file]` and `:load [file]` write or restore one expression per line.
+  The default file is `calc.txt` in the current shell directory.
+- `:help` shows the compact reference; `:quit` returns to the shell.
+- Up/Down recalls input history; Left/Right, Home, End, Backspace, and Delete
+  edit the current line.
+
+Graphical controls:
+
+- The expression editor keeps a white background for legible small text and
+  outlines the active row with a thin dark border.
+- Type to edit the selected row; Up/Down changes rows and Enter adds a row.
+- Left/Right, Home, End, Backspace, and Delete edit within a row.
+- Page Up toggles the selected graph row.
+- Tab moves between the expression list and graph.
+- In the graph, arrows pan, `+`/`-` zoom, and Home or `0` resets the view.
+  Press `t` for a numeric trace cursor; Left/Right moves it and Up/Down selects
+  another plotted row. Press `t` again to resume panning.
+- Ctrl+S saves and Ctrl+O loads the default `calc.txt` worksheet.
+- App-exit closes the calculator. The worksheet is kept only when explicitly
+  saved.
 
 ## chat
 

@@ -1058,6 +1058,10 @@ static const char * const path_arecord_duration[] = {"arecord", "-d"};
 static const char * const path_clock[] = {"clock"};
 static const char * const path_clock_alarm[] = {"clock", "-a"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_CALC
+static const char * const calc_options[] = {"--text", "-e", "--eval"};
+static const char * const path_calc[] = {"calc"};
+#endif
 #if SOLAR_OS_PACKAGE_APP_COM
 static const char * const com_options[] = {"--autobaud", "--hex"};
 static const char * const path_com[] = {"com"};
@@ -1966,6 +1970,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_CLOCK
     SHELL_COMPLETION_STATIC(path_clock, clock_options),
     SHELL_COMPLETION_STATIC(path_clock_alarm, clock_alarm_values),
+#endif
+#if SOLAR_OS_PACKAGE_APP_CALC
+    SHELL_COMPLETION_OPTIONS(path_calc, calc_options),
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
     SHELL_COMPLETION_COM_ARGUMENTS(path_com),
