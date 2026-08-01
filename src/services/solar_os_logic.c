@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "esp_cpu.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
@@ -24,6 +25,15 @@ typedef struct {
 
 static logic_state_t logic_state;
 static StaticSemaphore_t logic_mutex_buffer;
+
+static void logic_trigger_isr(void *arg)
+{
+    BaseType_t task_woken = pdFALSE;
+    xSemaphoreGiveFromISR((SemaphoreHandle_t)arg, &task_woken);
+    if (task_woken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
 
 static esp_err_t logic_ensure_init(void)
 {
@@ -54,6 +64,34 @@ static uint8_t logic_read_pins(const solar_os_logic_config_t *config)
         }
     }
     return sample;
+}
+
+static esp_err_t logic_wait_for_trigger(uint8_t pin)
+{
+    StaticSemaphore_t trigger_buffer;
+    SemaphoreHandle_t trigger = xSemaphoreCreateBinaryStatic(&trigger_buffer);
+    if (trigger == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t err = gpio_install_isr_service(0);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+    err = gpio_set_intr_type((gpio_num_t)pin, GPIO_INTR_ANYEDGE);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = gpio_isr_handler_add((gpio_num_t)pin, logic_trigger_isr, trigger);
+    if (err != ESP_OK) {
+        (void)gpio_set_intr_type((gpio_num_t)pin, GPIO_INTR_DISABLE);
+        return err;
+    }
+
+    (void)xSemaphoreTake(trigger, portMAX_DELAY);
+    (void)gpio_isr_handler_remove((gpio_num_t)pin);
+    (void)gpio_set_intr_type((gpio_num_t)pin, GPIO_INTR_DISABLE);
+    return ESP_OK;
 }
 
 static esp_err_t logic_ensure_capacity(size_t sample_count)
@@ -152,6 +190,10 @@ esp_err_t solar_os_logic_validate_config(const solar_os_logic_config_t *config)
             }
         }
     }
+    if (config->trigger_enabled &&
+        !solar_os_gpio_is_runtime_allowed(config->trigger_pin)) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
     return ESP_OK;
 }
 
@@ -179,8 +221,25 @@ esp_err_t solar_os_logic_capture(const solar_os_logic_config_t *config)
             break;
         }
     }
+    if (err == ESP_OK && config->trigger_enabled) {
+        bool trigger_is_channel = false;
+        for (uint8_t i = 0; i < config->channel_count; i++) {
+            if (config->pins[i] == config->trigger_pin) {
+                trigger_is_channel = true;
+                break;
+            }
+        }
+        if (!trigger_is_channel) {
+            err = solar_os_gpio_configure(config->trigger_pin,
+                                          SOLAR_OS_GPIO_MODE_INPUT,
+                                          SOLAR_OS_GPIO_PULL_NONE);
+        }
+    }
     if (err == ESP_OK) {
         err = logic_ensure_capacity(config->sample_count);
+    }
+    if (err == ESP_OK && config->trigger_enabled) {
+        err = logic_wait_for_trigger(config->trigger_pin);
     }
 
     uint64_t started_us = 0;
@@ -203,12 +262,22 @@ esp_err_t solar_os_logic_capture(const solar_os_logic_config_t *config)
     xSemaphoreGive(logic_state.mutex);
 
     if (err == ESP_OK) {
-        SOLAR_OS_LOGI(TAG,
-                      "capture: channels=%u samples=%lu requested=%luHz effective=%luHz",
-                      (unsigned)config->channel_count,
-                      (unsigned long)config->sample_count,
-                      (unsigned long)config->sample_rate_hz,
-                      (unsigned long)effective_rate_hz);
+        if (config->trigger_enabled) {
+            SOLAR_OS_LOGI(TAG,
+                          "capture: channels=%u samples=%lu requested=%luHz effective=%luHz trigger=gpio%u",
+                          (unsigned)config->channel_count,
+                          (unsigned long)config->sample_count,
+                          (unsigned long)config->sample_rate_hz,
+                          (unsigned long)effective_rate_hz,
+                          (unsigned)config->trigger_pin);
+        } else {
+            SOLAR_OS_LOGI(TAG,
+                          "capture: channels=%u samples=%lu requested=%luHz effective=%luHz",
+                          (unsigned)config->channel_count,
+                          (unsigned long)config->sample_count,
+                          (unsigned long)config->sample_rate_hz,
+                          (unsigned long)effective_rate_hz);
+        }
     }
     return err;
 }

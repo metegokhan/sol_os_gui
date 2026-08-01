@@ -21,6 +21,16 @@
 #define EDITOR_INTERNAL_BUFFER_CAPACITY (32 * 1024)
 #define EDITOR_TAB_WIDTH 4
 
+typedef enum {
+    EDITOR_MODE_TEXT = 0,
+    EDITOR_MODE_HEX,
+} editor_mode_t;
+
+typedef enum {
+    EDITOR_HEX_PANE_HEX = 0,
+    EDITOR_HEX_PANE_ASCII,
+} editor_hex_pane_t;
+
 typedef struct {
     solar_os_tui_t tui;
     char *buffer;
@@ -35,6 +45,9 @@ typedef struct {
     bool error_only;
     bool selection_active;
     bool saved_text_size_valid;
+    editor_mode_t mode;
+    editor_hex_pane_t hex_pane;
+    uint8_t hex_nibble;
     solar_os_terminal_text_size_t saved_text_size;
     solar_os_syntax_language_t syntax;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -57,6 +70,11 @@ static bool editor_is_printable(char ch)
     const unsigned char value = (unsigned char)ch;
 
     return isprint(value) || value >= 0xa0;
+}
+
+static const char *editor_app_name(void)
+{
+    return editor.mode == EDITOR_MODE_HEX ? "hexedit" : "edit";
 }
 
 static size_t editor_line_start_for(size_t index)
@@ -125,6 +143,15 @@ static size_t editor_cursor_col(void)
 static void editor_update_preferred_col(void)
 {
     editor.preferred_col = editor_cursor_col();
+}
+
+static void editor_update_cursor_column(void)
+{
+    if (editor.mode == EDITOR_MODE_TEXT) {
+        editor_update_preferred_col();
+    } else {
+        editor.hex_nibble = 0;
+    }
 }
 
 static void editor_set_message(const char *message)
@@ -359,7 +386,7 @@ static void editor_render_error(void)
                             SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
     editor_write_clipped(0,
                          0,
-                         "edit",
+                         editor_app_name(),
                          cols,
                          SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
     if (rows > 1) {
@@ -382,6 +409,211 @@ static void editor_render_error(void)
     solar_os_tui_refresh(&editor.tui);
 }
 
+static size_t editor_hex_bytes_per_row(size_t cols)
+{
+    if (cols >= 75U) {
+        return 16U;
+    }
+    if (cols >= 43U) {
+        return 8U;
+    }
+    if (cols >= 27U) {
+        return 4U;
+    }
+    return 1U;
+}
+
+static void editor_hex_ensure_cursor_visible(size_t text_rows, size_t bytes_per_row)
+{
+    const size_t visible_rows = text_rows > 0 ? text_rows : 1U;
+    const size_t cursor_row = editor.cursor / bytes_per_row;
+
+    if (cursor_row < editor.top_line) {
+        editor.top_line = cursor_row;
+    } else if (cursor_row >= editor.top_line + visible_rows) {
+        editor.top_line = cursor_row - visible_rows + 1U;
+    }
+}
+
+static uint8_t editor_hex_cell_attr(size_t index,
+                                    editor_hex_pane_t pane,
+                                    bool has_selection,
+                                    size_t selection_start,
+                                    size_t selection_end)
+{
+    if (has_selection && index >= selection_start && index < selection_end) {
+        return SOLAR_OS_TUI_ATTR_INVERSE;
+    }
+    if (index != editor.cursor) {
+        return SOLAR_OS_TUI_ATTR_NORMAL;
+    }
+    if (pane == editor.hex_pane) {
+        return SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD;
+    }
+    return SOLAR_OS_TUI_ATTR_BOLD | SOLAR_OS_TUI_ATTR_UNDERLINE;
+}
+
+static void editor_render_hex(void)
+{
+    const size_t rows = solar_os_tui_rows(&editor.tui);
+    const size_t cols = solar_os_tui_cols(&editor.tui);
+    const size_t text_rows = rows > 2U ? rows - 2U : 0U;
+    const size_t bytes_per_row = editor_hex_bytes_per_row(cols);
+    const size_t ascii_col = 9U + bytes_per_row * 3U + 2U;
+    size_t selection_start = 0;
+    size_t selection_end = 0;
+    const bool has_selection = editor_has_selection();
+    char header[192];
+
+    if (rows == 0 || cols == 0) {
+        return;
+    }
+    if (has_selection) {
+        editor_selection_bounds(&selection_start, &selection_end);
+    }
+
+    editor_hex_ensure_cursor_visible(text_rows, bytes_per_row);
+    solar_os_tui_clear(&editor.tui);
+    (void)solar_os_tui_set_cursor_visible(&editor.tui, false);
+
+    snprintf(header,
+             sizeof(header),
+             "hexedit %s%s  %s",
+             editor.display_name,
+             editor.dirty ? " *" : "",
+             editor.hex_pane == EDITOR_HEX_PANE_HEX ? "[HEX] | ASCII" : "HEX | [ASCII]");
+    (void)solar_os_tui_fill(&editor.tui,
+                            0,
+                            0,
+                            1,
+                            cols,
+                            ' ',
+                            SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    editor_write_clipped(0,
+                         0,
+                         header,
+                         cols,
+                         SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+
+    for (size_t row = 0; row < text_rows; row++) {
+        const size_t data_row = editor.top_line + row;
+        const size_t offset = data_row * bytes_per_row;
+        if (offset > editor.len) {
+            continue;
+        }
+
+        char address[12];
+        snprintf(address, sizeof(address), "%08X", (unsigned)offset);
+        editor_write_clipped(row + 1U,
+                             0,
+                             address,
+                             8U,
+                             SOLAR_OS_TUI_ATTR_BOLD);
+        if (ascii_col - 2U < cols) {
+            (void)solar_os_tui_putch(&editor.tui,
+                                     row + 1U,
+                                     ascii_col - 2U,
+                                     '|',
+                                     SOLAR_OS_TUI_ATTR_NORMAL);
+        }
+
+        for (size_t byte_col = 0; byte_col < bytes_per_row; byte_col++) {
+            const size_t index = offset + byte_col;
+            if (index > editor.len) {
+                break;
+            }
+            const uint8_t hex_attr = editor_hex_cell_attr(index,
+                                                           EDITOR_HEX_PANE_HEX,
+                                                           has_selection,
+                                                           selection_start,
+                                                           selection_end);
+            const uint8_t ascii_attr = editor_hex_cell_attr(index,
+                                                             EDITOR_HEX_PANE_ASCII,
+                                                             has_selection,
+                                                             selection_start,
+                                                             selection_end);
+            const size_t hex_col = 9U + byte_col * 3U;
+            if (index < editor.len) {
+                char hex[3];
+                const uint8_t value = (uint8_t)editor.buffer[index];
+                snprintf(hex, sizeof(hex), "%02X", value);
+                editor_write_clipped(row + 1U, hex_col, hex, 2U, hex_attr);
+                if (ascii_col + byte_col < cols) {
+                    const uint32_t codepoint = editor_is_printable((char)value) ? value : '.';
+                    (void)solar_os_tui_putch(&editor.tui,
+                                             row + 1U,
+                                             ascii_col + byte_col,
+                                             codepoint,
+                                             ascii_attr);
+                }
+            } else {
+                editor_write_clipped(row + 1U, hex_col, "  ", 2U, hex_attr);
+                if (ascii_col + byte_col < cols) {
+                    (void)solar_os_tui_putch(&editor.tui,
+                                             row + 1U,
+                                             ascii_col + byte_col,
+                                             ' ',
+                                             ascii_attr);
+                }
+            }
+        }
+    }
+
+    if (rows > 1U) {
+        char footer[192];
+        char value[4] = "--";
+        if (editor.cursor < editor.len) {
+            snprintf(value, sizeof(value), "%02X", (uint8_t)editor.buffer[editor.cursor]);
+        }
+        if (editor.message[0] != '\0') {
+            snprintf(footer,
+                     sizeof(footer),
+                     "Off %08X  %s  %s",
+                     (unsigned)editor.cursor,
+                     value,
+                     editor.message);
+        } else {
+            snprintf(footer,
+                     sizeof(footer),
+                     "Off %08X  %s  %u/%u bytes  Tab pane  ESC save",
+                     (unsigned)editor.cursor,
+                     value,
+                     (unsigned)editor.len,
+                     (unsigned)(editor.capacity - 1U));
+        }
+        (void)solar_os_tui_fill(&editor.tui,
+                                rows - 1U,
+                                0,
+                                1,
+                                cols,
+                                ' ',
+                                SOLAR_OS_TUI_ATTR_INVERSE);
+        editor_write_clipped(rows - 1U,
+                             0,
+                             footer,
+                             cols,
+                             SOLAR_OS_TUI_ATTR_INVERSE);
+    }
+
+    if (text_rows > 0U) {
+        const size_t cursor_row = editor.cursor / bytes_per_row;
+        if (cursor_row >= editor.top_line &&
+            cursor_row < editor.top_line + text_rows) {
+            const size_t byte_col = editor.cursor % bytes_per_row;
+            const size_t cursor_col = editor.hex_pane == EDITOR_HEX_PANE_HEX ?
+                9U + byte_col * 3U + editor.hex_nibble :
+                ascii_col + byte_col;
+            if (cursor_col < cols) {
+                (void)solar_os_tui_move(&editor.tui,
+                                        cursor_row - editor.top_line + 1U,
+                                        cursor_col);
+                (void)solar_os_tui_set_cursor_visible(&editor.tui, true);
+            }
+        }
+    }
+    solar_os_tui_refresh(&editor.tui);
+}
+
 static void editor_render(solar_os_context_t *ctx)
 {
     (void)ctx;
@@ -389,8 +621,8 @@ static void editor_render(solar_os_context_t *ctx)
     const size_t rows = solar_os_tui_rows(&editor.tui);
     const size_t cols = solar_os_tui_cols(&editor.tui);
     const size_t text_rows = rows > 2 ? rows - 2 : 0;
-    const size_t cursor_line = editor_line_for_index(editor.cursor);
-    const size_t cursor_col = editor_cursor_col();
+    size_t cursor_line;
+    size_t cursor_col;
     solar_os_syntax_state_t syntax_state;
     size_t selection_start = 0;
     size_t selection_end = 0;
@@ -404,6 +636,13 @@ static void editor_render(solar_os_context_t *ctx)
     if (rows == 0 || cols == 0) {
         return;
     }
+    if (editor.mode == EDITOR_MODE_HEX) {
+        editor_render_hex();
+        return;
+    }
+
+    cursor_line = editor_line_for_index(editor.cursor);
+    cursor_col = editor_cursor_col();
 
     if (has_selection) {
         editor_selection_bounds(&selection_start, &selection_end);
@@ -544,7 +783,7 @@ static bool editor_delete_range(size_t start, size_t end)
     editor.cursor = start;
     editor.buffer[editor.len] = '\0';
     editor.dirty = true;
-    editor_update_preferred_col();
+    editor_update_cursor_column();
     editor_clear_selection();
     editor_set_message("");
     return true;
@@ -589,7 +828,7 @@ static bool editor_insert_char(char ch)
     editor.len++;
     editor.buffer[editor.len] = '\0';
     editor.dirty = true;
-    editor_update_preferred_col();
+    editor_update_cursor_column();
     editor_set_message("");
     return true;
 }
@@ -611,7 +850,7 @@ static void editor_backspace(void)
     editor.len--;
     editor.buffer[editor.len] = '\0';
     editor.dirty = true;
-    editor_update_preferred_col();
+    editor_update_cursor_column();
     editor_set_message("");
 }
 
@@ -625,6 +864,107 @@ static void editor_delete_forward(void)
     }
 
     editor_delete_range(editor.cursor, editor.cursor + 1);
+}
+
+static bool editor_hex_append_byte(void)
+{
+    if (editor.len + 1U >= editor.capacity) {
+        editor_set_capacity_message("buffer full");
+        return false;
+    }
+    editor.buffer[editor.len++] = '\0';
+    editor.buffer[editor.len] = '\0';
+    return true;
+}
+
+static bool editor_hex_insert_byte(uint8_t value)
+{
+    if (editor.len + 1U >= editor.capacity || editor.cursor > editor.len) {
+        editor_set_capacity_message("buffer full");
+        return false;
+    }
+    memmove(&editor.buffer[editor.cursor + 1U],
+            &editor.buffer[editor.cursor],
+            editor.len - editor.cursor);
+    editor.buffer[editor.cursor] = (char)value;
+    editor.len++;
+    editor.buffer[editor.len] = '\0';
+    return true;
+}
+
+static int editor_hex_digit_value(char ch)
+{
+    const unsigned char value = (unsigned char)ch;
+    if (value >= '0' && value <= '9') {
+        return value - '0';
+    }
+    if (value >= 'a' && value <= 'f') {
+        return value - 'a' + 10;
+    }
+    if (value >= 'A' && value <= 'F') {
+        return value - 'A' + 10;
+    }
+    return -1;
+}
+
+static void editor_hex_write_nibble(uint8_t nibble)
+{
+    const bool replacing = editor_has_selection();
+    if (replacing) {
+        (void)editor_delete_selection();
+        editor.hex_nibble = 0;
+    }
+    if (replacing && !editor_hex_insert_byte(0)) {
+        return;
+    }
+    if (!replacing && editor.cursor == editor.len && !editor_hex_append_byte()) {
+        return;
+    }
+    if (editor.cursor >= editor.len) {
+        return;
+    }
+
+    const size_t index = editor.cursor;
+    uint8_t value = (uint8_t)editor.buffer[index];
+    if (editor.hex_nibble == 0) {
+        value = (uint8_t)((value & 0x0fU) | (nibble << 4U));
+        editor.hex_nibble = 1;
+    } else {
+        value = (uint8_t)((value & 0xf0U) | nibble);
+        editor.hex_nibble = 0;
+        editor.cursor++;
+    }
+    editor.buffer[index] = (char)value;
+    editor.dirty = true;
+    editor_clear_selection();
+    editor_set_message("");
+}
+
+static void editor_hex_write_byte(uint8_t value)
+{
+    const bool replacing = editor_has_selection();
+    if (replacing) {
+        (void)editor_delete_selection();
+    }
+    if (replacing && !editor_hex_insert_byte(value)) {
+        return;
+    }
+    if (!replacing && editor.cursor == editor.len && !editor_hex_append_byte()) {
+        return;
+    }
+    if (editor.cursor >= editor.len) {
+        return;
+    }
+
+    if (!replacing) {
+        editor.buffer[editor.cursor] = (char)value;
+    }
+    editor.cursor++;
+    editor.buffer[editor.len] = '\0';
+    editor.hex_nibble = 0;
+    editor.dirty = true;
+    editor_clear_selection();
+    editor_set_message("");
 }
 
 static void editor_move_left(void)
@@ -646,7 +986,7 @@ static void editor_move_right(void)
 static void editor_move_home(void)
 {
     editor.cursor = editor_line_start_for(editor.cursor);
-    editor_update_preferred_col();
+    editor_update_cursor_column();
 }
 
 static void editor_move_end(void)
@@ -753,6 +1093,90 @@ static void editor_page_down(void)
     }
 }
 
+static size_t editor_hex_current_bytes_per_row(void)
+{
+    return editor_hex_bytes_per_row(solar_os_tui_cols(&editor.tui));
+}
+
+static void editor_hex_set_cursor(size_t cursor)
+{
+    editor.cursor = cursor <= editor.len ? cursor : editor.len;
+    editor.hex_nibble = 0;
+}
+
+static void editor_hex_move_left(void)
+{
+    if (editor.cursor > 0) {
+        editor_hex_set_cursor(editor.cursor - 1U);
+    }
+}
+
+static void editor_hex_move_right(void)
+{
+    if (editor.cursor < editor.len) {
+        editor_hex_set_cursor(editor.cursor + 1U);
+    }
+}
+
+static void editor_hex_move_up(void)
+{
+    const size_t bytes_per_row = editor_hex_current_bytes_per_row();
+    if (editor.cursor >= bytes_per_row) {
+        editor_hex_set_cursor(editor.cursor - bytes_per_row);
+    }
+}
+
+static void editor_hex_move_down(void)
+{
+    const size_t bytes_per_row = editor_hex_current_bytes_per_row();
+    const size_t row = editor.cursor / bytes_per_row;
+    const size_t last_row = editor.len / bytes_per_row;
+    if (row < last_row) {
+        const size_t target = editor.cursor + bytes_per_row;
+        editor_hex_set_cursor(target < editor.len ? target : editor.len);
+    }
+}
+
+static void editor_hex_move_home(void)
+{
+    const size_t bytes_per_row = editor_hex_current_bytes_per_row();
+    editor_hex_set_cursor((editor.cursor / bytes_per_row) * bytes_per_row);
+}
+
+static void editor_hex_move_end(void)
+{
+    const size_t bytes_per_row = editor_hex_current_bytes_per_row();
+    const size_t row_start = (editor.cursor / bytes_per_row) * bytes_per_row;
+    size_t target = row_start + bytes_per_row - 1U;
+    if (target > editor.len) {
+        target = editor.len;
+    }
+    editor_hex_set_cursor(target);
+}
+
+static void editor_hex_move_document_start(void)
+{
+    editor_hex_set_cursor(0);
+}
+
+static void editor_hex_move_document_end(void)
+{
+    editor_hex_set_cursor(editor.len);
+}
+
+static void editor_hex_page(bool down)
+{
+    const size_t rows = solar_os_tui_rows(&editor.tui);
+    const size_t visible_rows = rows > 2U ? rows - 2U : 1U;
+    const size_t distance = visible_rows * editor_hex_current_bytes_per_row();
+    if (down) {
+        const size_t remaining = editor.len - editor.cursor;
+        editor_hex_set_cursor(editor.cursor + (distance < remaining ? distance : remaining));
+    } else {
+        editor_hex_set_cursor(editor.cursor > distance ? editor.cursor - distance : 0U);
+    }
+}
+
 static esp_err_t editor_copy_selection_to_clipboard(size_t *copied_len)
 {
     if (!editor_has_selection()) {
@@ -838,7 +1262,7 @@ static void editor_paste_clipboard(void)
     editor.len += paste_len;
     editor.buffer[editor.len] = '\0';
     editor.dirty = true;
-    editor_update_preferred_col();
+    editor_update_cursor_column();
     editor_clear_selection();
 
     char message[sizeof(editor.message)];
@@ -857,7 +1281,7 @@ static void editor_select_all(void)
     editor.selection_anchor = 0;
     editor.cursor = editor.len;
     editor.selection_active = true;
-    editor_update_preferred_col();
+    editor_update_cursor_column();
     editor_set_message("selected all");
 }
 
@@ -903,6 +1327,8 @@ static void editor_open_empty(void)
     editor.left_col = 0;
     editor.selection_anchor = 0;
     editor.selection_active = false;
+    editor.hex_pane = EDITOR_HEX_PANE_HEX;
+    editor.hex_nibble = 0;
     editor.dirty = false;
     editor.error_only = false;
     editor.buffer[0] = '\0';
@@ -952,6 +1378,8 @@ static esp_err_t editor_open_file(void)
     editor.left_col = 0;
     editor.selection_anchor = 0;
     editor.selection_active = false;
+    editor.hex_pane = EDITOR_HEX_PANE_HEX;
+    editor.hex_nibble = 0;
     editor.dirty = false;
     editor.error_only = false;
     editor_set_message("");
@@ -961,6 +1389,12 @@ static esp_err_t editor_open_file(void)
 static esp_err_t edit_start(solar_os_context_t *ctx)
 {
     memset(&editor, 0, sizeof(editor));
+
+    const int argc = solar_os_context_argc(ctx);
+    const char *command = solar_os_context_argv(ctx, 0);
+    editor.mode = command != NULL && strcmp(command, "hexedit") == 0 ?
+        EDITOR_MODE_HEX :
+        EDITOR_MODE_TEXT;
 
     const bool has_psram = solar_os_board_has(SOLAR_OS_BOARD_CAP_PSRAM);
     editor.capacity = has_psram ?
@@ -984,10 +1418,11 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
     (void)solar_os_tui_enable_diff(&editor.tui, true);
     editor_capture_text_size();
 
-    const int argc = solar_os_context_argc(ctx);
     if (argc != 2) {
         editor.error_only = true;
-        editor_set_message("usage: edit <file>");
+        char usage[sizeof(editor.message)];
+        snprintf(usage, sizeof(usage), "usage: %s <file>", editor_app_name());
+        editor_set_message(usage);
         editor_render(ctx);
         return ESP_OK;
     }
@@ -1010,7 +1445,9 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
         return ESP_OK;
     }
     strlcpy(editor.display_name, arg != NULL ? arg : editor.path, sizeof(editor.display_name));
-    editor.syntax = solar_os_syntax_language_for_path(editor.path);
+    editor.syntax = editor.mode == EDITOR_MODE_TEXT ?
+        solar_os_syntax_language_for_path(editor.path) :
+        SOLAR_OS_SYNTAX_NONE;
 
     const esp_err_t err = editor_open_file();
     if (err != ESP_OK) {
@@ -1050,12 +1487,13 @@ static void edit_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
     if (editor.display_name[0] != '\0') {
         snprintf(buffer,
                  buffer_len,
-                 "edit %s%s",
+                 "%s %s%s",
+                 editor_app_name(),
                  editor.display_name,
                  editor.dirty ? "*" : "");
         return;
     }
-    strlcpy(buffer, "edit", buffer_len);
+    strlcpy(buffer, editor_app_name(), buffer_len);
 }
 
 static void editor_apply_move(bool selecting, void (*move)(void))
@@ -1076,6 +1514,145 @@ static void editor_apply_page_move(bool selecting, bool down)
     editor_finish_selection(selecting);
 }
 
+static void editor_apply_hex_page_move(bool selecting, bool down)
+{
+    editor_begin_selection(selecting);
+    editor_hex_page(down);
+    editor_finish_selection(selecting);
+}
+
+static bool editor_hex_event(solar_os_context_t *ctx, uint8_t key)
+{
+    switch (key) {
+    case SOLAR_OS_KEY_ESCAPE:
+        if (!editor.dirty || editor_save() == ESP_OK) {
+            solar_os_context_request_exit(ctx);
+        }
+        break;
+    case 0x01:
+        editor_select_all();
+        break;
+    case 0x03:
+        editor_copy_selection();
+        break;
+    case 0x13:
+        (void)editor_save();
+        break;
+    case 0x16:
+        editor_paste_clipboard();
+        break;
+    case 0x18:
+        editor_cut_selection();
+        break;
+    case SOLAR_OS_KEY_CTRL_PLUS:
+        editor_adjust_text_size(1);
+        break;
+    case SOLAR_OS_KEY_CTRL_MINUS:
+        editor_adjust_text_size(-1);
+        break;
+    case '\t':
+        editor.hex_pane = editor.hex_pane == EDITOR_HEX_PANE_HEX ?
+            EDITOR_HEX_PANE_ASCII :
+            EDITOR_HEX_PANE_HEX;
+        editor.hex_nibble = 0;
+        editor_set_message("");
+        break;
+    case SOLAR_OS_KEY_LEFT:
+    case SOLAR_OS_KEY_CTRL_LEFT:
+        editor_apply_move(false, editor_hex_move_left);
+        break;
+    case SOLAR_OS_KEY_SHIFT_LEFT:
+    case SOLAR_OS_KEY_CTRL_SHIFT_LEFT:
+        editor_apply_move(true, editor_hex_move_left);
+        break;
+    case SOLAR_OS_KEY_RIGHT:
+    case SOLAR_OS_KEY_CTRL_RIGHT:
+        editor_apply_move(false, editor_hex_move_right);
+        break;
+    case SOLAR_OS_KEY_SHIFT_RIGHT:
+    case SOLAR_OS_KEY_CTRL_SHIFT_RIGHT:
+        editor_apply_move(true, editor_hex_move_right);
+        break;
+    case SOLAR_OS_KEY_UP:
+    case SOLAR_OS_KEY_CTRL_UP:
+        editor_apply_move(false, editor_hex_move_up);
+        break;
+    case SOLAR_OS_KEY_SHIFT_UP:
+    case SOLAR_OS_KEY_CTRL_SHIFT_UP:
+        editor_apply_move(true, editor_hex_move_up);
+        break;
+    case SOLAR_OS_KEY_DOWN:
+    case SOLAR_OS_KEY_CTRL_DOWN:
+        editor_apply_move(false, editor_hex_move_down);
+        break;
+    case SOLAR_OS_KEY_SHIFT_DOWN:
+    case SOLAR_OS_KEY_CTRL_SHIFT_DOWN:
+        editor_apply_move(true, editor_hex_move_down);
+        break;
+    case SOLAR_OS_KEY_HOME:
+        editor_apply_move(false, editor_hex_move_home);
+        break;
+    case SOLAR_OS_KEY_SHIFT_HOME:
+        editor_apply_move(true, editor_hex_move_home);
+        break;
+    case SOLAR_OS_KEY_CTRL_HOME:
+        editor_apply_move(false, editor_hex_move_document_start);
+        break;
+    case SOLAR_OS_KEY_CTRL_SHIFT_HOME:
+        editor_apply_move(true, editor_hex_move_document_start);
+        break;
+    case SOLAR_OS_KEY_END:
+        editor_apply_move(false, editor_hex_move_end);
+        break;
+    case SOLAR_OS_KEY_SHIFT_END:
+        editor_apply_move(true, editor_hex_move_end);
+        break;
+    case SOLAR_OS_KEY_CTRL_END:
+        editor_apply_move(false, editor_hex_move_document_end);
+        break;
+    case SOLAR_OS_KEY_CTRL_SHIFT_END:
+        editor_apply_move(true, editor_hex_move_document_end);
+        break;
+    case SOLAR_OS_KEY_PAGE_UP:
+        editor_apply_hex_page_move(false, false);
+        break;
+    case SOLAR_OS_KEY_SHIFT_PAGE_UP:
+        editor_apply_hex_page_move(true, false);
+        break;
+    case SOLAR_OS_KEY_PAGE_DOWN:
+        editor_apply_hex_page_move(false, true);
+        break;
+    case SOLAR_OS_KEY_SHIFT_PAGE_DOWN:
+        editor_apply_hex_page_move(true, true);
+        break;
+    case SOLAR_OS_KEY_DELETE:
+        editor_delete_forward();
+        break;
+    case '\b':
+        editor_backspace();
+        break;
+    case '\r':
+    case '\n':
+        if (editor.hex_pane == EDITOR_HEX_PANE_ASCII) {
+            editor_hex_write_byte('\n');
+        }
+        break;
+    default:
+        if (editor.hex_pane == EDITOR_HEX_PANE_HEX) {
+            const int digit = editor_hex_digit_value((char)key);
+            if (digit >= 0) {
+                editor_hex_write_nibble((uint8_t)digit);
+            }
+        } else if (editor_is_printable((char)key)) {
+            editor_hex_write_byte(key);
+        }
+        break;
+    }
+
+    editor_render(ctx);
+    return true;
+}
+
 static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL || event->type != SOLAR_OS_EVENT_CHAR) {
@@ -1093,6 +1670,10 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             solar_os_context_request_exit(ctx);
         }
         return true;
+    }
+
+    if (editor.mode == EDITOR_MODE_HEX) {
+        return editor_hex_event(ctx, (uint8_t)ch);
     }
 
     switch ((uint8_t)ch) {
@@ -1226,6 +1807,17 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_edit_app = {
     .name = "edit",
     .summary = "text editor",
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .start = edit_start,
+    .resume = edit_resume,
+    .stop = edit_stop,
+    .event = edit_event,
+    .title = edit_title,
+};
+
+const solar_os_app_t solar_os_hexedit_app = {
+    .name = "hexedit",
+    .summary = "two-pane hex editor",
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = edit_start,
     .resume = edit_resume,

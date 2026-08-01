@@ -48,6 +48,7 @@ Optional API groups follow these package gates:
 - `network.base`: `solaros.net`
 - `network.ssh`: `solaros.ssh_keys`
 - `service.ble`: `solaros.ble`
+- `service.hid`: `solaros.hid`
 - `service.gpio`: `solaros.gpio` and `solaros.led`
 - `service.onewire`: `solaros.onewire`
 - `service.messaging`: `solaros.contacts` and `solaros.messages`
@@ -542,7 +543,8 @@ service is compiled.
 - `detach(name)`: detach a device and release its resource claims and bus leases.
 
 Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `uart`,
-`gpio`, `irq`, `reset` (or `rst`), `dc`, `busy`, `adc`, and `pwm`. `cs`
+`gpio`, `irq`, `reset` (or `rst`), `data`, `dc`, `busy`, `adc`, `pwm`, and
+`count`. `cs`
 requires `spi`, and `addr` requires `i2c`. Unknown keys are rejected.
 
 ```python
@@ -556,6 +558,25 @@ solaros.expansion.attach("pcd8544", "lcd0", {
 })
 print(solaros.expansion.devices())
 solaros.expansion.detach("lcd0")
+```
+
+## `solaros.neopixel`
+
+Available when the NeoPixel expansion package is compiled.
+
+- `list()`: return attached strip dictionaries with `name`, `data_pin`, and `count`.
+- `set(name, index, red, green, blue)`: update one buffered pixel.
+- `fill(name, red, green, blue)`: update every buffered pixel.
+- `show(name)`: transmit the buffered colors in GRB wire order.
+- `clear(name)`: clear the buffer and transmit it immediately.
+
+```python
+import solaros
+
+solaros.expansion.attach("neopixel", "pixels0", {"data": 1, "count": 8})
+solaros.neopixel.fill("pixels0", 0, 0, 8)
+solaros.neopixel.set("pixels0", 3, 16, 0, 0)
+solaros.neopixel.show("pixels0")
 ```
 
 ## `solaros.i2c`
@@ -677,6 +698,45 @@ import solaros
 print(solaros.ble.status())
 print("layout", solaros.ble.layout())
 ```
+
+## `solaros.hid`
+
+`service.hid` is retained as a dormant package and is not compiled into the
+standard SolarOS flavors because the TinyUSB composite stack currently costs
+too much internal SRAM. On an ESP32-S3 build that explicitly enables it, USB
+remains a composite device: the existing `cdc0` serial interface is accompanied
+by standard keyboard, mouse, and gamepad HID reports. The API is typed; scripts
+cannot replace descriptors or send arbitrary report bytes.
+
+```python
+from solaros import hid
+
+hid.keyboard.press(hid.KEY_LEFT_CTRL, hid.KEY_C)
+hid.keyboard.release_all()
+
+hid.mouse.move(10, -4)
+hid.mouse.button(hid.MOUSE_LEFT, True)
+hid.mouse.button(hid.MOUSE_LEFT, False)
+
+hid.gamepad.axis(hid.AXIS_X, -12000)
+hid.gamepad.button(1, True)
+hid.gamepad.hat(hid.HAT_UP)
+hid.gamepad.send()
+```
+
+- `status()` returns `initialized` and `connected`.
+- `keyboard.press(*keys)` and `keyboard.release(*keys)` preserve each accepted
+  keyboard state transition; up to six ordinary keys plus modifiers can be
+  held. `keyboard.release_all()` releases every key.
+- `mouse.move(x, y)` accumulates signed deltas until transmitted.
+  `mouse.button(mask, pressed)` changes one or more standard button bits.
+- Gamepad setters update coalesced state. Axes use `-32768..32767`, buttons are
+  numbered `1..32`, hats use `HAT_CENTERED` or one of eight directions, and
+  `gamepad.send()` queues the current state.
+
+Calls raise `OSError("ESP_ERR_INVALID_STATE")` while USB is disconnected or
+HID is unavailable. SolarOS emits neutral keyboard, mouse, and gamepad reports
+when the Python runtime exits, is interrupted, or is force-stopped.
 
 ## `solaros.clipboard`
 

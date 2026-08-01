@@ -54,6 +54,7 @@ service packages are not available on that board.
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
 - `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat` when Wi-Fi support is compiled
 - `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when `network.mqtt` is compiled
+- `solaros.hid`: typed `keyboard`, `mouse`, and `gamepad` tables when `service.hid` is compiled
 - `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write`, `release` when GPIO support is compiled. Pin tables include `expansion`, `allowed`, `available`, `claimed`, `owner`, and `policy` (`free`, `releasable`, or `fixed`).
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` for the direct-pin compatibility API when OneWire support is compiled
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
@@ -61,6 +62,7 @@ service packages are not available on that board.
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
 - `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `attach`, `detach`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_uart`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
 - `solaros.expansion`: `drivers`, `devices`, `attach`, `detach` when the expansion service is compiled
+- `solaros.neopixel`: `list`, `set`, `fill`, `show`, `clear` when the NeoPixel expansion package is compiled
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg` when I2C support is compiled
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
 - `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
@@ -210,7 +212,7 @@ local reply = solaros.buses.onewire_xfer("onewire0", 9, "\xcc\x44")
 active devices with normalized bindings. `attach(driver, name, bindings)` and
 `detach(name)` mirror the shell lifecycle. Binding tables accept `spi`, `cs`
 (or `ce`), `i2c`, `addr`, `uart`, `gpio`, `irq`, `reset` (or `rst`), `dc`,
-`busy`, `adc`, and `pwm`. `cs` requires `spi`, `addr` requires `i2c`, and
+`busy`, `data`, `adc`, `pwm`, and `count`. `cs` requires `spi`, `addr` requires `i2c`, and
 unknown fields are rejected.
 
 ```lua
@@ -224,6 +226,16 @@ print(#solaros.expansion.devices())
 solaros.expansion.detach("lcd0")
 ```
 
+NeoPixel `set` and `fill` update a buffer; call `show` once after a batch of
+changes. `clear` updates and transmits immediately.
+
+```lua
+solaros.expansion.attach("neopixel", "pixels0", {data = 1, count = 8})
+solaros.neopixel.fill("pixels0", 0, 0, 8)
+solaros.neopixel.set("pixels0", 3, 16, 0, 0)
+solaros.neopixel.show("pixels0")
+```
+
 `solaros.spi` is a compatibility table that selects `spi0` when present,
 otherwise the first registered named SPI bus. On a dynamic-only board its
 `status().available` value remains false until a bus is created. `status()`
@@ -234,6 +246,34 @@ slots. `xfer(cs, data[, mode[, speed_hz]])` performs a full-duplex transaction.
 The `cs` argument accepts a configured slot name or its numeric GPIO. Lua data
 and return values are binary-safe strings. New code should address buses
 explicitly through `solaros.buses.spi_*`.
+
+### USB HID
+
+`service.hid` is retained as a dormant package and is not compiled into the
+standard SolarOS flavors because the TinyUSB composite stack currently costs
+too much internal SRAM. On an ESP32-S3 build that explicitly enables it, the
+same USB connection remains available as `cdc0` while also advertising
+keyboard, mouse, and gamepad HID reports. Lua uses the same typed operations
+and constants as Python:
+
+```lua
+local hid = solaros.hid
+
+hid.keyboard.press(hid.KEY_LEFT_CTRL, hid.KEY_C)
+hid.keyboard.release_all()
+hid.mouse.move(10, -4)
+hid.mouse.button(hid.MOUSE_LEFT, true)
+hid.mouse.button(hid.MOUSE_LEFT, false)
+hid.gamepad.axis(hid.AXIS_X, -12000)
+hid.gamepad.button(1, true)
+hid.gamepad.hat(hid.HAT_UP)
+hid.gamepad.send()
+```
+
+Keyboard transitions are queued, mouse deltas accumulate, and gamepad state is
+coalesced until `send()`. Axes use `-32768..32767`; gamepad buttons are `1..32`.
+Disconnected or unavailable HID calls raise `ESP_ERR_INVALID_STATE`. SolarOS
+sends neutral reports whenever the Lua runtime exits, fails, or is force-stopped.
 
 `solaros.uart` is the default `uart0` compatibility table; use
 `solaros.buses.uart_*` for another named UART and `solaros.buses.attach()` or

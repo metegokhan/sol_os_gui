@@ -4,7 +4,7 @@ title = "Expansion hardware reference"
 section = "hardware"
 summary = "Resource rules, workflows, drivers, bindings, and wiring examples"
 aliases = ["hardware.expansion"]
-keywords = "expansion ports gpio adc pwm buses i2c spi uart wiring displays"
+keywords = "expansion ports gpio adc pwm buses i2c spi uart wiring displays neopixel ws2812 rgb led strip"
 packages_any = []
 +++
 # Expansion Ports
@@ -14,9 +14,11 @@ not as one fixed connector standard. A board may expose individual GPIO pins,
 named I2C, SPI, or UART buses, or free pins that can be routed to an approved
 spare peripheral host at runtime.
 
-Use `expansion status` and `gpio list` on the running device for the authoritative
-view. The available resources depend on the board and the compiled firmware
-flavor.
+Use `expansion layout` for the physical connector arrangement, and use
+`expansion status` and `gpio list` on the running device for the authoritative
+resource view. The layout overlays live pin policy and claims; the available
+resources depend on the board and the compiled firmware flavor. Boards with
+multiple named headers can be filtered, for example with `expansion layout J1`.
 
 ## Resource Model
 
@@ -85,6 +87,7 @@ creating a named expansion bus.
 Start by inspecting the live resource map and compiled drivers:
 
 ```text
+expansion layout
 expansion status
 gpio list
 expansion drivers
@@ -198,6 +201,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
+| `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
 
 Manual profiles are useful when another app or workflow operates the hardware
 but SolarOS still needs to prevent conflicting claims:
@@ -211,6 +215,28 @@ expansion detach radio0
 Binding names may be explicit (`spi=spi0`, `i2c=i2c0`) or, where unambiguous,
 supplied as positional bus names. `ce=` aliases `cs=` and `rst=` aliases
 `reset=` for common module labels.
+
+### WS2812/NeoPixel strip
+
+Use a runtime-safe expansion GPIO for DIN. The driver uses an ESP32 RMT transmit
+channel and supports up to 256 GRB pixels per attached strip:
+
+```text
+5V supply + -> strip 5V       supply GND -> strip GND and SolarOS board GND
+GPIO1 -> level shifter -> strip DIN
+
+expansion attach neopixel pixels0 data=gpio1 count=8
+neopixel set pixels0 0 32 0 0
+neopixel fill pixels0 0 0 16
+neopixel clear pixels0
+expansion detach pixels0
+```
+
+Use an external supply sized for the strip; full-white WS2812 pixels can draw
+roughly 60 mA each. Do not power a multi-pixel strip from a board GPIO. A 3.3 V
+data signal may work with short wiring when the strip supply is low enough, but
+a 3.3-to-5 V logic-level shifter is the reliable arrangement. Put the usual
+bulk capacitor across the strip supply and a small series resistor near DIN.
 
 ## Wiring Examples
 

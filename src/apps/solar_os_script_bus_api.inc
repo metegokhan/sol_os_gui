@@ -11,6 +11,7 @@
 #ifndef SOLAR_OS_SCRIPT_API_MODULE_BEGIN
 #error "SOLAR_OS_SCRIPT_API_MODULE_BEGIN must be defined"
 #endif
+
 #ifndef SOLAR_OS_SCRIPT_API_INT
 #error "SOLAR_OS_SCRIPT_API_INT must be defined"
 #endif
@@ -79,4 +80,14 @@ SOLAR_OS_SCRIPT_API_FUNCTION(expansion, devices, devices);
 SOLAR_OS_SCRIPT_API_FUNCTION(expansion, attach, attach);
 SOLAR_OS_SCRIPT_API_FUNCTION(expansion, detach, detach);
 SOLAR_OS_SCRIPT_API_MODULE_END(expansion);
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(neopixel);
+SOLAR_OS_SCRIPT_API_FUNCTION(neopixel, list, list);
+SOLAR_OS_SCRIPT_API_FUNCTION(neopixel, set, set);
+SOLAR_OS_SCRIPT_API_FUNCTION(neopixel, fill, fill);
+SOLAR_OS_SCRIPT_API_FUNCTION(neopixel, show, show);
+SOLAR_OS_SCRIPT_API_FUNCTION(neopixel, clear, clear);
+SOLAR_OS_SCRIPT_API_MODULE_END(neopixel);
 #endif

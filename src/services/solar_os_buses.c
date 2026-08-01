@@ -1206,9 +1206,10 @@ size_t solar_os_bus_release_owner(const char *owner)
     return released;
 }
 
-static esp_err_t pin_ready_bus(const char *name,
-                               solar_os_bus_protocol_t protocol,
-                               solar_os_bus_ref_t *pin)
+static esp_err_t pin_ready_bus_owned(const char *name,
+                                     solar_os_bus_protocol_t protocol,
+                                     const char *owner,
+                                     solar_os_bus_ref_t *pin)
 {
     if (pin == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -1234,6 +1235,7 @@ static esp_err_t pin_ready_bus(const char *name,
         for (size_t i = 0; i < SOLAR_OS_BUS_LEASE_MAX; i++) {
             if (leases[i].active &&
                 leases[i].bus_index == (size_t)index &&
+                (owner == NULL || strcmp(leases[i].owner, owner) == 0) &&
                 solar_os_port_handle_valid(&leases[i].port)) {
                 pin->uart_port = leases[i].port;
                 found = true;
@@ -1258,6 +1260,13 @@ static esp_err_t pin_ready_bus(const char *name,
 
     xSemaphoreTake(pin->mutex, portMAX_DELAY);
     return ESP_OK;
+}
+
+static esp_err_t pin_ready_bus(const char *name,
+                               solar_os_bus_protocol_t protocol,
+                               solar_os_bus_ref_t *pin)
+{
+    return pin_ready_bus_owned(name, protocol, NULL, pin);
 }
 
 static void unpin_bus(solar_os_bus_ref_t *pin)
@@ -1436,6 +1445,100 @@ esp_err_t solar_os_bus_uart_read(const char *name,
 #if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
     if (ret == ESP_OK) {
         ret = solar_os_port_read(&pin.uart_port, data, len, timeout_ms, read_len);
+    }
+#else
+    if (ret == ESP_OK) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    if (pin.mutex != NULL) {
+        unpin_bus(&pin);
+    }
+    return ret;
+}
+
+esp_err_t solar_os_bus_uart_autobaud_start(const char *name, const char *owner)
+{
+    if (!name_valid(name) || !owner_valid(owner)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    solar_os_bus_ref_t pin;
+    ret = pin_ready_bus_owned(name, SOLAR_OS_BUS_PROTOCOL_UART, owner, &pin);
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    if (ret == ESP_OK) {
+        ret = solar_os_uart_bus_autobaud_start(pin.info.name);
+    }
+#else
+    if (ret == ESP_OK) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    if (pin.mutex != NULL) {
+        unpin_bus(&pin);
+    }
+    return ret;
+}
+
+esp_err_t solar_os_bus_uart_autobaud_finish(const char *name,
+                                            const char *owner,
+                                            solar_os_bus_uart_autobaud_result_t *result)
+{
+    if (result != NULL) {
+        *result = (solar_os_bus_uart_autobaud_result_t) {0};
+    }
+    if (!name_valid(name) || !owner_valid(owner) || result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    solar_os_bus_ref_t pin;
+    ret = pin_ready_bus_owned(name, SOLAR_OS_BUS_PROTOCOL_UART, owner, &pin);
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    if (ret == ESP_OK) {
+        solar_os_uart_autobaud_result_t uart_result;
+        ret = solar_os_uart_bus_autobaud_finish(pin.info.name, &uart_result);
+        if (ret == ESP_OK) {
+            *result = (solar_os_bus_uart_autobaud_result_t) {
+                .baud_rate = uart_result.baud_rate,
+                .measured_baud_rate = uart_result.measured_baud_rate,
+                .edge_count = uart_result.edge_count,
+            };
+        }
+    }
+#else
+    if (ret == ESP_OK) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    if (pin.mutex != NULL) {
+        unpin_bus(&pin);
+    }
+    return ret;
+}
+
+esp_err_t solar_os_bus_uart_autobaud_cancel(const char *name, const char *owner)
+{
+    if (!name_valid(name) || !owner_valid(owner)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    solar_os_bus_ref_t pin;
+    ret = pin_ready_bus_owned(name, SOLAR_OS_BUS_PROTOCOL_UART, owner, &pin);
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    if (ret == ESP_OK) {
+        ret = solar_os_uart_bus_autobaud_cancel(pin.info.name);
     }
 #else
     if (ret == ESP_OK) {

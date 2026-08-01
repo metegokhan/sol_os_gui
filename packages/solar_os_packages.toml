@@ -40,6 +40,7 @@ members = [
   "expansion_rfm95",
   "expansion_pcd8544",
   "expansion_ssd1306",
+  "expansion_neopixel",
   "job_pocsag",
   "job_radio_link",
   "job_meshcore",
@@ -412,6 +413,14 @@ sources = ["services/solar_os_ble_keyboard.c"]
 requires = ["bt", "esp_hid", "nvs_flash"]
 capabilities = ["ble"]
 
+[packages.service_hid]
+# Dormant by default: TinyUSB composite HID currently costs too much internal
+# SRAM. Keep the package available for explicit future builds, but do not add it
+# to a standard package group.
+label = "service.hid"
+sources = ["services/solar_os_hid.c"]
+capabilities = ["cdc"]
+
 [packages.service_sd]
 label = "service.sd"
 capabilities = ["sd"]
@@ -585,6 +594,17 @@ sources = [
 ]
 requires = ["esp_driver_i2c", "u8g2"]
 capabilities = ["expansion_i2c"]
+
+[packages.expansion_neopixel]
+label = "expansion.neopixel"
+depends = ["service_expansion"]
+sources = [
+  "drivers/neopixel.c",
+  "services/solar_os_neopixel.c",
+  "shell/solar_os_shell_neopixel.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_rmt"]
+capabilities = ["expansion_gpio"]
 
 [packages.service_json]
 label = "service.json"

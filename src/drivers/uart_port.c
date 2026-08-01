@@ -10,6 +10,7 @@ static const char *TAG = "uart_port";
 
 static uart_port_config_t active_configs[UART_NUM_MAX];
 static bool ready[UART_NUM_MAX];
+static bool autobaud_active[UART_NUM_MAX];
 
 static bool valid_port(uart_port_t port_num)
 {
@@ -78,6 +79,10 @@ esp_err_t uart_port_deinit(uart_port_t port_num)
         return ESP_OK;
     }
 
+    if (autobaud_active[port_num]) {
+        (void)uart_port_autobaud_cancel(port_num);
+    }
+
     const uart_port_config_t config = active_configs[port_num];
     ESP_RETURN_ON_ERROR(uart_wait_tx_done(port_num, pdMS_TO_TICKS(100)),
                         TAG,
@@ -109,6 +114,67 @@ esp_err_t uart_port_set_baud_rate(uart_port_t port_num, uint32_t baud_rate)
                         "UART baud config failed");
     active_configs[port_num].baud_rate = baud_rate;
     return ESP_OK;
+}
+
+esp_err_t uart_port_autobaud_start(uart_port_t port_num)
+{
+    if (!uart_port_is_ready(port_num)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (autobaud_active[port_num]) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    (void)uart_flush_input(port_num);
+    const esp_err_t ret = uart_detect_bitrate_start(port_num, NULL);
+    if (ret == ESP_OK) {
+        autobaud_active[port_num] = true;
+    }
+    return ret;
+}
+
+esp_err_t uart_port_autobaud_stop(uart_port_t port_num,
+                                  uart_port_autobaud_result_t *result)
+{
+    if (!uart_port_is_ready(port_num) || !autobaud_active[port_num]) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uart_bitrate_res_t measured = {0};
+    const esp_err_t ret = uart_detect_bitrate_stop(port_num, false, &measured);
+    autobaud_active[port_num] = false;
+    (void)uart_flush_input(port_num);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    *result = (uart_port_autobaud_result_t) {
+        .low_period = measured.low_period,
+        .high_period = measured.high_period,
+        .pos_period = measured.pos_period,
+        .neg_period = measured.neg_period,
+        .edge_count = measured.edge_cnt,
+        .clock_hz = measured.clk_freq_hz,
+    };
+    return ESP_OK;
+}
+
+esp_err_t uart_port_autobaud_cancel(uart_port_t port_num)
+{
+    if (!uart_port_is_ready(port_num)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!autobaud_active[port_num]) {
+        return ESP_OK;
+    }
+
+    uart_bitrate_res_t ignored = {0};
+    const esp_err_t ret = uart_detect_bitrate_stop(port_num, false, &ignored);
+    autobaud_active[port_num] = false;
+    return ret;
 }
 
 esp_err_t uart_port_write(uart_port_t port_num,

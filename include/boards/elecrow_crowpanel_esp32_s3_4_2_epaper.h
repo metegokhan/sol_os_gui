@@ -77,6 +77,35 @@
     {.pin = GPIO_NUM_5, .name = "ROTARY-OK", .key = '\n', .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
 }
 
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_TITLE "U5 2x10 GPIO header"
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_VIEW \
+    "component side; display facing you"
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_ROWS 2
+#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_COLUMNS 10
+#define SOLAR_OS_BOARD_CONNECTOR_PIN_COUNT 20
+#define SOLAR_OS_BOARD_CONNECTOR_PINS { \
+    {.connector = "U5", .position = 1, .row = 0, .column = 0, .pin = GPIO_NUM_3, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO3"}, \
+    {.connector = "U5", .position = 2, .row = 0, .column = 1, .pin = GPIO_NUM_9, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO9"}, \
+    {.connector = "U5", .position = 3, .row = 0, .column = 2, .pin = GPIO_NUM_15, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO15"}, \
+    {.connector = "U5", .position = 4, .row = 0, .column = 3, .pin = GPIO_NUM_17, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO17"}, \
+    {.connector = "U5", .position = 5, .row = 0, .column = 4, .pin = GPIO_NUM_19, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO19"}, \
+    {.connector = "U5", .position = 6, .row = 0, .column = 5, .pin = GPIO_NUM_21, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO21"}, \
+    {.connector = "U5", .position = 7, .row = 0, .column = 6, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_GROUND, .label = "GND"}, \
+    {.connector = "U5", .position = 8, .row = 0, .column = 7, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_GROUND, .label = "GND"}, \
+    {.connector = "U5", .position = 9, .row = 0, .column = 8, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_GROUND, .label = "GND"}, \
+    {.connector = "U5", .position = 10, .row = 0, .column = 9, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_GROUND, .label = "GND"}, \
+    {.connector = "U5", .position = 20, .row = 1, .column = 0, .pin = GPIO_NUM_8, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO8"}, \
+    {.connector = "U5", .position = 19, .row = 1, .column = 1, .pin = GPIO_NUM_14, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO14"}, \
+    {.connector = "U5", .position = 18, .row = 1, .column = 2, .pin = GPIO_NUM_16, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO16"}, \
+    {.connector = "U5", .position = 17, .row = 1, .column = 3, .pin = GPIO_NUM_18, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO18"}, \
+    {.connector = "U5", .position = 16, .row = 1, .column = 4, .pin = GPIO_NUM_20, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO20"}, \
+    {.connector = "U5", .position = 15, .row = 1, .column = 5, .pin = GPIO_NUM_38, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO38"}, \
+    {.connector = "U5", .position = 14, .row = 1, .column = 6, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_POWER, .label = "VBUS"}, \
+    {.connector = "U5", .position = 13, .row = 1, .column = 7, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_POWER, .label = "VBUS"}, \
+    {.connector = "U5", .position = 12, .row = 1, .column = 8, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_POWER, .label = "VBUS"}, \
+    {.connector = "U5", .position = 11, .row = 1, .column = 9, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_POWER, .label = "VBUS"}, \
+}
+
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_MASK ((1ULL << GPIO_NUM_3) | \
                                             (1ULL << GPIO_NUM_8) | \
                                             (1ULL << GPIO_NUM_9) | \

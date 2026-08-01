@@ -2,7 +2,22 @@
 
 ## 4.x
 
-  - **4.4.9** — 2026-07-31 — Added an optional SolarOS Link provider for unified Chat. `radio-link
+- **4.4.12** — 2026-08-01 — Added a two-pane `hexedit` application with
+  synchronized hexadecimal and ASCII editing. Extended `com` with optional
+  hardware UART autobaud detection and an offset/hex/ASCII receive view while
+  preserving its normal text-terminal mode, named-bus leasing, and display and
+  port-shell support.
+- **4.4.11** — 2026-08-01 — Added physical connector-layout views to the `io`
+  application and shell commands, including compact board connectors and
+  paged DevKit headers. Fixed SPI teardown for transient devices. Retained the
+  working TinyUSB HID implementation as a dormant package excluded from
+  standard builds because of its internal-SRAM cost, and restored the original
+  USB Serial/JTAG FIFO sizing.
+- **4.4.10** — 2026-07-31 — Fixed Wi-Fi and BLE radio recovery after light
+  sleep, made long KEY presses replace the remembered BLE keyboard, added a
+  NeoPixel expansion driver with Python and Lua bindings, added edge-triggered
+  logic-analyzer capture, and let live plots request faster scheduler ticks.
+- **4.4.9** — 2026-07-31 — Added an optional SolarOS Link provider for unified Chat. `radio-link
   ... chat=on` creates a broadcast conversation, discovers 32-bit Link source
   IDs as Contacts, projects incoming text without consuming the Link receive
   queue, sends packet-sized direct and broadcast text, and maps unicast

@@ -105,7 +105,10 @@ esp_err_t solar_os_routed_spi_transfer(const solar_os_bus_spi_config_t *config,
         .tx_buffer = tx_data,
         .rx_buffer = rx_data,
     };
-    ret = spi_device_transmit(device, &transaction);
+    /* This API creates a short-lived device for one serialized transfer.
+     * Complete it in the caller so the handle cannot be removed while the
+     * interrupt-driven completion path is still clearing its bus request. */
+    ret = spi_device_polling_transmit(device, &transaction);
     const esp_err_t remove_ret = spi_bus_remove_device(device);
     return ret == ESP_OK ? remove_ret : ret;
 }

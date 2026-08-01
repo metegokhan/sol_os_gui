@@ -8,6 +8,12 @@
 #include "esp_err.h"
 #include "solar_os_bus_types.h"
 
+typedef struct {
+    uint32_t baud_rate;
+    uint32_t measured_baud_rate;
+    uint32_t edge_count;
+} solar_os_bus_uart_autobaud_result_t;
+
 esp_err_t solar_os_buses_init(void);
 esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition);
 esp_err_t solar_os_bus_unregister(const char *name);
@@ -53,6 +59,11 @@ esp_err_t solar_os_bus_uart_read(const char *name,
                                  size_t len,
                                  uint32_t timeout_ms,
                                  size_t *read_len);
+esp_err_t solar_os_bus_uart_autobaud_start(const char *name, const char *owner);
+esp_err_t solar_os_bus_uart_autobaud_finish(const char *name,
+                                            const char *owner,
+                                            solar_os_bus_uart_autobaud_result_t *result);
+esp_err_t solar_os_bus_uart_autobaud_cancel(const char *name, const char *owner);
 esp_err_t solar_os_bus_uart_write_once(const char *name,
                                        const uint8_t *data,
                                        size_t len,

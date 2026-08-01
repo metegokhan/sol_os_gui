@@ -56,11 +56,17 @@
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_gpio.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+#include "solar_os_hid.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
 #include "solar_os_i2c.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+#include "solar_os_neopixel.h"
 #endif
 #include "solar_os_identity.h"
 #include "solar_os_jobs.h"
@@ -2547,7 +2553,7 @@ static bool python_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
         "spi", "cs", "ce", "i2c", "addr", "uart", "gpio", "irq", "reset",
-        "rst", "dc", "busy", "adc", "pwm",
+        "rst", "data", "dc", "busy", "adc", "pwm", "count",
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         if (strcmp(key, keys[i]) == 0) {
@@ -2683,6 +2689,7 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
         {"irq", "irq", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"reset", "reset", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"rst", "reset", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"data", "data", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"dc", "dc", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"busy", "busy", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"adc", "adc", SOLAR_OS_EXPANSION_BINDING_ADC},
@@ -2691,6 +2698,17 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
     if (python_get_dict_obj(config_obj, "reset", false) != MP_OBJ_NULL &&
         python_get_dict_obj(config_obj, "rst", false) != MP_OBJ_NULL) {
         mp_raise_ValueError(MP_ERROR_TEXT("use reset or rst, not both"));
+    }
+
+    const mp_obj_t count_obj = python_get_dict_obj(config_obj, "count", false);
+    if (count_obj != MP_OBJ_NULL) {
+        python_expansion_add_binding(bindings,
+                                     &binding_count,
+                                     SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                                     "count",
+                                     "",
+                                     mp_obj_get_int(count_obj),
+                                     -1);
     }
     for (size_t i = 0; i < sizeof(pin_bindings) / sizeof(pin_bindings[0]); i++) {
         const mp_obj_t value = python_get_dict_obj(config_obj, pin_bindings[i].key, false);
@@ -2720,6 +2738,64 @@ static mp_obj_t solaros_expansion_detach(mp_obj_t name_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_expansion_detach_obj, solaros_expansion_detach);
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+static mp_obj_t solaros_neopixel_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    const size_t count = solar_os_neopixel_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_neopixel_info_t info;
+        if (!solar_os_neopixel_get(i, &info)) {
+            continue;
+        }
+        mp_obj_t item = mp_obj_new_dict(3);
+        python_dict_store_cstr(item, "name", info.name);
+        python_dict_store_int(item, "data_pin", info.data_pin);
+        python_dict_store_uint(item, "count", info.pixel_count);
+        mp_obj_list_append(list, item);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_neopixel_list_obj, solaros_neopixel_list);
+
+static mp_obj_t solaros_neopixel_set(size_t n_args, const mp_obj_t *args)
+{
+    (void)n_args;
+    python_check_esp(solar_os_neopixel_set(mp_obj_str_get_str(args[0]),
+                                           python_size_from_obj(args[1]),
+                                           python_u8_from_obj(args[2]),
+                                           python_u8_from_obj(args[3]),
+                                           python_u8_from_obj(args[4])));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_neopixel_set_obj, 5, 5, solaros_neopixel_set);
+
+static mp_obj_t solaros_neopixel_fill(size_t n_args, const mp_obj_t *args)
+{
+    (void)n_args;
+    python_check_esp(solar_os_neopixel_fill(mp_obj_str_get_str(args[0]),
+                                            python_u8_from_obj(args[1]),
+                                            python_u8_from_obj(args[2]),
+                                            python_u8_from_obj(args[3])));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_neopixel_fill_obj, 4, 4, solaros_neopixel_fill);
+
+static mp_obj_t solaros_neopixel_show(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_neopixel_show(mp_obj_str_get_str(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_neopixel_show_obj, solaros_neopixel_show);
+
+static mp_obj_t solaros_neopixel_clear(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_neopixel_clear(mp_obj_str_get_str(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_neopixel_clear_obj, solaros_neopixel_clear);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
@@ -3191,6 +3267,121 @@ static mp_obj_t solaros_ble_read(size_t n_args, const mp_obj_t *args)
     return mp_obj_new_bytes((const byte *)buffer, read_len);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_read_obj, 0, 1, solaros_ble_read);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+static mp_obj_t solaros_hid_status(void)
+{
+    solar_os_hid_status_t status;
+    solar_os_hid_get_status(&status);
+    mp_obj_t result = mp_obj_new_dict(2);
+    python_dict_store_bool(result, "initialized", status.initialized);
+    python_dict_store_bool(result, "connected", status.connected);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_hid_status_obj, solaros_hid_status);
+
+static size_t python_hid_keys(size_t n_args,
+                              const mp_obj_t *args,
+                              uint16_t *keys,
+                              size_t capacity)
+{
+    if (n_args == 0 || n_args > capacity) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected 1..8 keys"));
+    }
+    for (size_t index = 0; index < n_args; index++) {
+        const mp_int_t value = mp_obj_get_int(args[index]);
+        if (value < 0 || value > UINT16_MAX) {
+            mp_raise_ValueError(MP_ERROR_TEXT("invalid HID key"));
+        }
+        keys[index] = (uint16_t)value;
+    }
+    return n_args;
+}
+
+static mp_obj_t solaros_hid_keyboard_press(size_t n_args, const mp_obj_t *args)
+{
+    uint16_t keys[8];
+    python_check_esp(solar_os_hid_keyboard_press(
+        keys, python_hid_keys(n_args, args, keys, 8)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_hid_keyboard_press_obj,
+                                    1,
+                                    8,
+                                    solaros_hid_keyboard_press);
+
+static mp_obj_t solaros_hid_keyboard_release(size_t n_args, const mp_obj_t *args)
+{
+    uint16_t keys[8];
+    python_check_esp(solar_os_hid_keyboard_release(
+        keys, python_hid_keys(n_args, args, keys, 8)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_hid_keyboard_release_obj,
+                                    1,
+                                    8,
+                                    solaros_hid_keyboard_release);
+
+static mp_obj_t solaros_hid_keyboard_release_all(void)
+{
+    python_check_esp(solar_os_hid_keyboard_release_all());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_hid_keyboard_release_all_obj,
+                          solaros_hid_keyboard_release_all);
+
+static mp_obj_t solaros_hid_mouse_move(mp_obj_t x_obj, mp_obj_t y_obj)
+{
+    python_check_esp(solar_os_hid_mouse_move(python_i32_from_obj(x_obj),
+                                              python_i32_from_obj(y_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_hid_mouse_move_obj, solaros_hid_mouse_move);
+
+static mp_obj_t solaros_hid_mouse_button(mp_obj_t button_obj, mp_obj_t pressed_obj)
+{
+    python_check_esp(solar_os_hid_mouse_button(python_u8_from_obj(button_obj),
+                                                mp_obj_is_true(pressed_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_hid_mouse_button_obj, solaros_hid_mouse_button);
+
+static mp_obj_t solaros_hid_gamepad_axis(mp_obj_t axis_obj, mp_obj_t value_obj)
+{
+    const mp_int_t axis = mp_obj_get_int(axis_obj);
+    const mp_int_t value = mp_obj_get_int(value_obj);
+    if (value < INT16_MIN || value > INT16_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected axis value -32768..32767"));
+    }
+    python_check_esp(solar_os_hid_gamepad_axis((solar_os_hid_axis_t)axis,
+                                                (int16_t)value));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_hid_gamepad_axis_obj, solaros_hid_gamepad_axis);
+
+static mp_obj_t solaros_hid_gamepad_button(mp_obj_t button_obj, mp_obj_t pressed_obj)
+{
+    python_check_esp(solar_os_hid_gamepad_button(python_u8_from_obj(button_obj),
+                                                  mp_obj_is_true(pressed_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_hid_gamepad_button_obj, solaros_hid_gamepad_button);
+
+static mp_obj_t solaros_hid_gamepad_hat(mp_obj_t hat_obj)
+{
+    python_check_esp(solar_os_hid_gamepad_hat(
+        (solar_os_hid_hat_t)mp_obj_get_int(hat_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_hid_gamepad_hat_obj, solaros_hid_gamepad_hat);
+
+static mp_obj_t solaros_hid_gamepad_send(void)
+{
+    python_check_esp(solar_os_hid_gamepad_send());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_hid_gamepad_send_obj, solaros_hid_gamepad_send);
 #endif
 
 static mp_obj_t solaros_clipboard_set(mp_obj_t data_obj)
@@ -4653,6 +4844,58 @@ static void python_register_solaros_module(void)
     python_module_store(ble, "read", MP_OBJ_FROM_PTR(&solaros_ble_read_obj));
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+    mp_obj_t hid_module = python_new_submodule(module, "hid");
+    python_module_store(hid_module, "status", MP_OBJ_FROM_PTR(&solaros_hid_status_obj));
+#define SOLAR_OS_HID_KEY_CONSTANT(name, value) \
+    python_module_store(hid_module, #name, mp_obj_new_int(value));
+#include "solar_os_hid_keycodes.inc"
+#undef SOLAR_OS_HID_KEY_CONSTANT
+    python_module_store(hid_module, "KEY_LEFT_CTRL", mp_obj_new_int(SOLAR_OS_HID_KEY_LEFT_CTRL));
+    python_module_store(hid_module, "KEY_LEFT_SHIFT", mp_obj_new_int(SOLAR_OS_HID_KEY_LEFT_SHIFT));
+    python_module_store(hid_module, "KEY_LEFT_ALT", mp_obj_new_int(SOLAR_OS_HID_KEY_LEFT_ALT));
+    python_module_store(hid_module, "KEY_LEFT_GUI", mp_obj_new_int(SOLAR_OS_HID_KEY_LEFT_GUI));
+    python_module_store(hid_module, "KEY_RIGHT_CTRL", mp_obj_new_int(SOLAR_OS_HID_KEY_RIGHT_CTRL));
+    python_module_store(hid_module, "KEY_RIGHT_SHIFT", mp_obj_new_int(SOLAR_OS_HID_KEY_RIGHT_SHIFT));
+    python_module_store(hid_module, "KEY_RIGHT_ALT", mp_obj_new_int(SOLAR_OS_HID_KEY_RIGHT_ALT));
+    python_module_store(hid_module, "KEY_RIGHT_GUI", mp_obj_new_int(SOLAR_OS_HID_KEY_RIGHT_GUI));
+    python_module_store(hid_module, "MOUSE_LEFT", mp_obj_new_int(SOLAR_OS_HID_MOUSE_LEFT));
+    python_module_store(hid_module, "MOUSE_RIGHT", mp_obj_new_int(SOLAR_OS_HID_MOUSE_RIGHT));
+    python_module_store(hid_module, "MOUSE_MIDDLE", mp_obj_new_int(SOLAR_OS_HID_MOUSE_MIDDLE));
+    python_module_store(hid_module, "MOUSE_BACK", mp_obj_new_int(SOLAR_OS_HID_MOUSE_BACK));
+    python_module_store(hid_module, "MOUSE_FORWARD", mp_obj_new_int(SOLAR_OS_HID_MOUSE_FORWARD));
+    python_module_store(hid_module, "AXIS_X", mp_obj_new_int(SOLAR_OS_HID_AXIS_X));
+    python_module_store(hid_module, "AXIS_Y", mp_obj_new_int(SOLAR_OS_HID_AXIS_Y));
+    python_module_store(hid_module, "AXIS_Z", mp_obj_new_int(SOLAR_OS_HID_AXIS_Z));
+    python_module_store(hid_module, "AXIS_RZ", mp_obj_new_int(SOLAR_OS_HID_AXIS_RZ));
+    python_module_store(hid_module, "AXIS_RX", mp_obj_new_int(SOLAR_OS_HID_AXIS_RX));
+    python_module_store(hid_module, "AXIS_RY", mp_obj_new_int(SOLAR_OS_HID_AXIS_RY));
+    python_module_store(hid_module, "HAT_CENTERED", mp_obj_new_int(SOLAR_OS_HID_HAT_CENTERED));
+    python_module_store(hid_module, "HAT_UP", mp_obj_new_int(SOLAR_OS_HID_HAT_UP));
+    python_module_store(hid_module, "HAT_UP_RIGHT", mp_obj_new_int(SOLAR_OS_HID_HAT_UP_RIGHT));
+    python_module_store(hid_module, "HAT_RIGHT", mp_obj_new_int(SOLAR_OS_HID_HAT_RIGHT));
+    python_module_store(hid_module, "HAT_DOWN_RIGHT", mp_obj_new_int(SOLAR_OS_HID_HAT_DOWN_RIGHT));
+    python_module_store(hid_module, "HAT_DOWN", mp_obj_new_int(SOLAR_OS_HID_HAT_DOWN));
+    python_module_store(hid_module, "HAT_DOWN_LEFT", mp_obj_new_int(SOLAR_OS_HID_HAT_DOWN_LEFT));
+    python_module_store(hid_module, "HAT_LEFT", mp_obj_new_int(SOLAR_OS_HID_HAT_LEFT));
+    python_module_store(hid_module, "HAT_UP_LEFT", mp_obj_new_int(SOLAR_OS_HID_HAT_UP_LEFT));
+
+    mp_obj_t hid_keyboard = python_new_submodule(hid_module, "keyboard");
+    python_module_store(hid_keyboard, "press", MP_OBJ_FROM_PTR(&solaros_hid_keyboard_press_obj));
+    python_module_store(hid_keyboard, "release", MP_OBJ_FROM_PTR(&solaros_hid_keyboard_release_obj));
+    python_module_store(hid_keyboard,
+                        "release_all",
+                        MP_OBJ_FROM_PTR(&solaros_hid_keyboard_release_all_obj));
+    mp_obj_t hid_mouse = python_new_submodule(hid_module, "mouse");
+    python_module_store(hid_mouse, "move", MP_OBJ_FROM_PTR(&solaros_hid_mouse_move_obj));
+    python_module_store(hid_mouse, "button", MP_OBJ_FROM_PTR(&solaros_hid_mouse_button_obj));
+    mp_obj_t hid_gamepad = python_new_submodule(hid_module, "gamepad");
+    python_module_store(hid_gamepad, "axis", MP_OBJ_FROM_PTR(&solaros_hid_gamepad_axis_obj));
+    python_module_store(hid_gamepad, "button", MP_OBJ_FROM_PTR(&solaros_hid_gamepad_button_obj));
+    python_module_store(hid_gamepad, "hat", MP_OBJ_FROM_PTR(&solaros_hid_gamepad_hat_obj));
+    python_module_store(hid_gamepad, "send", MP_OBJ_FROM_PTR(&solaros_hid_gamepad_send_obj));
+#endif
+
     mp_obj_t clipboard = python_new_submodule(module, "clipboard");
     python_module_store(clipboard, "set", MP_OBJ_FROM_PTR(&solaros_clipboard_set_obj));
     python_module_store(clipboard, "get", MP_OBJ_FROM_PTR(&solaros_clipboard_get_obj));
@@ -5009,6 +5252,9 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
     solar_os_memory_free(heap);
 
 cleanup:
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+    solar_os_hid_release_all();
+#endif
     python_runner_control = NULL;
     solar_os_memory_free(loaded_source);
     python_runtime_release(PYTHON_RUNTIME_OWNER_RUNNER);
@@ -5160,6 +5406,9 @@ static void python_task(void *arg)
     }
 
     if (python_app.vm_active) {
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+        solar_os_hid_release_all();
+#endif
         mp_embed_deinit();
         python_app.vm_active = false;
     }
@@ -5575,6 +5824,9 @@ static void python_stop(solar_os_context_t *ctx)
         python_app.key_input = NULL;
     }
     python_gfx_release_target();
+#if SOLAR_OS_PACKAGE_SERVICE_HID
+    solar_os_hid_release_all();
+#endif
     python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
 }
 

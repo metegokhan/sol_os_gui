@@ -28,6 +28,7 @@
 #include "solar_os_display.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
+#include "solar_os_pins.h"
 #endif
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
@@ -114,6 +115,7 @@ typedef struct {
     bool complete_endpoint_ids;
     bool complete_playground_apps;
     bool complete_expansion_devices;
+    bool complete_connectors;
     bool complete_display_session_ids;
     bool complete_session_ids;
     bool complete_ports;
@@ -131,6 +133,7 @@ typedef struct {
     bool complete_onewire_buses;
     bool complete_spi_buses;
     bool complete_uart_buses;
+    bool complete_com_arguments;
     bool complete_uart_arguments;
     bool complete_buses;
     bool complete_spi_cs;
@@ -312,6 +315,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     {"expansion", "manage expansion hardware", solar_os_shell_cmd_expansion},
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+    {"neopixel", "control attached NeoPixel strips", solar_os_shell_cmd_neopixel},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
     {"radio", "packet radio tools", solar_os_shell_cmd_radio},
@@ -578,6 +584,7 @@ static const char * const spi_fill_values[] = {"0xff", "0x00"};
 
 static const char * const expansion_subcommands[] = {
     "status",
+    "layout",
     "scan",
     "drivers",
     "devices",
@@ -615,7 +622,21 @@ static const char * const expansion_driver_values[] = {
     "ssd1306",
     "sh1106",
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+    "neopixel",
+#endif
 };
+
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+static const char * const neopixel_subcommands[] = {
+    "status",
+    "list",
+    "set",
+    "fill",
+    "clear",
+    "show",
+};
+#endif
 
 static const char * const radio_subcommands[] = {
     "status",
@@ -991,6 +1012,7 @@ static const char * const curl_options[] = {"-L", "-o"};
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const logic_rate_values[] = {"10000", "100000", "500000", "1000000", "2000000"};
 static const char * const logic_sample_values[] = {"1024", "4096", "16384", "32768"};
+static const char * const logic_trigger_options[] = {"trigger="};
 #endif
 #if SOLAR_OS_PACKAGE_APP_SCP
 static const char * const scp_options[] = {"-P"};
@@ -1037,7 +1059,14 @@ static const char * const path_clock[] = {"clock"};
 static const char * const path_clock_alarm[] = {"clock", "-a"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
+static const char * const com_options[] = {"--autobaud", "--hex"};
 static const char * const path_com[] = {"com"};
+static const char * const path_com_arg[] = {"com", SHELL_COMPLETION_ANY};
+static const char * const path_com_arg2[] = {
+    "com",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CURL
 static const char * const path_curl[] = {"curl"};
@@ -1048,6 +1077,12 @@ static const char * const path_logic[] = {"logic"};
 static const char * const path_logic_pins[] = {"logic", SHELL_COMPLETION_ANY};
 static const char * const path_logic_rate[] = {
     "logic",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
+static const char * const path_logic_samples[] = {
+    "logic",
+    SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
@@ -1587,6 +1622,7 @@ static const char * const path_pwm_set_freq[] = {
 };
 static const char * const path_pwm_off[] = {"pwm", "off"};
 static const char * const path_expansion[] = {"expansion"};
+static const char * const path_expansion_layout[] = {"expansion", "layout"};
 static const char * const path_expansion_bus[] = {"expansion", "bus"};
 static const char * const path_expansion_bus_create[] = {"expansion", "bus", "create"};
 static const char * const path_expansion_bus_attach[] = {"expansion", "bus", "attach"};
@@ -1594,6 +1630,15 @@ static const char * const path_expansion_bus_detach[] = {"expansion", "bus", "de
 static const char * const path_expansion_bus_remove[] = {"expansion", "bus", "remove"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_expansion_detach[] = {"expansion", "detach"};
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+static const char * const path_neopixel[] = {"neopixel"};
+static const char * const path_neopixel_status[] = {"neopixel", "status"};
+static const char * const path_neopixel_list[] = {"neopixel", "list"};
+static const char * const path_neopixel_set[] = {"neopixel", "set"};
+static const char * const path_neopixel_fill[] = {"neopixel", "fill"};
+static const char * const path_neopixel_clear[] = {"neopixel", "clear"};
+static const char * const path_neopixel_show[] = {"neopixel", "show"};
+#endif
 static const char * const path_radio[] = {"radio"};
 static const char * const path_radio_status[] = {"radio", "status"};
 static const char * const path_radio_config[] = {"radio", "config"};
@@ -1731,6 +1776,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_expansion_devices = true, \
     }
+#define SHELL_COMPLETION_CONNECTORS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_connectors = true, \
+    }
 #define SHELL_COMPLETION_MANUAL(path_array, value_array) \
     { \
         .path = path_array, \
@@ -1848,6 +1899,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_uart_buses = true, \
     }
+#define SHELL_COMPLETION_COM_ARGUMENTS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_com_arguments = true, \
+    }
 #define SHELL_COMPLETION_UART_ARGUMENTS(path_array) \
     { \
         .path = path_array, \
@@ -1911,7 +1968,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_clock_alarm, clock_alarm_values),
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
-    SHELL_COMPLETION_UART_BUSES(path_com),
+    SHELL_COMPLETION_COM_ARGUMENTS(path_com),
+    SHELL_COMPLETION_COM_ARGUMENTS(path_com_arg),
+    SHELL_COMPLETION_COM_ARGUMENTS(path_com_arg2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CURL
     SHELL_COMPLETION_OPTIONS(path_curl, curl_options),
@@ -1921,6 +1980,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_logic),
     SHELL_COMPLETION_STATIC(path_logic_pins, logic_rate_values),
     SHELL_COMPLETION_STATIC(path_logic_rate, logic_sample_values),
+    SHELL_COMPLETION_STATIC(path_logic_samples, logic_trigger_options),
 #endif
 #if SOLAR_OS_PACKAGE_APP_SCP
     SHELL_COMPLETION_OPTIONS(path_scp, scp_options),
@@ -2240,6 +2300,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_pwm_off),
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     SHELL_COMPLETION_STATIC(path_expansion, expansion_subcommands),
+    SHELL_COMPLETION_CONNECTORS(path_expansion_layout),
     SHELL_COMPLETION_STATIC(path_expansion_bus, expansion_bus_subcommands),
     SHELL_COMPLETION_STATIC(path_expansion_bus_create, expansion_bus_protocols),
     SHELL_COMPLETION_BUSES(path_expansion_bus_attach),
@@ -2247,6 +2308,15 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
     SHELL_COMPLETION_STATIC(path_expansion_attach, expansion_driver_values),
     SHELL_COMPLETION_EXPANSION_DEVICES(path_expansion_detach),
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
+    SHELL_COMPLETION_STATIC(path_neopixel, neopixel_subcommands),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_status),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_list),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_set),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_fill),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_clear),
+    SHELL_COMPLETION_EXPANSION_DEVICES(path_neopixel_show),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
     SHELL_COMPLETION_STATIC(path_radio, radio_subcommands),
@@ -3637,6 +3707,7 @@ static bool shell_is_path_command(const char *command)
 #endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
            strcmp(command, "edit") == 0 ||
+           strcmp(command, "hexedit") == 0 ||
 #endif
 #if SOLAR_OS_PACKAGE_APP_FILES
            strcmp(command, "files") == 0 ||
@@ -4328,6 +4399,33 @@ static void shell_completion_emit_expansion_devices(shell_completion_match_t *st
 #endif
 }
 
+static void shell_completion_emit_connectors(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    for (size_t i = 0; i < solar_os_connector_pin_count(); i++) {
+        solar_os_connector_pin_info_t pin;
+        if (!solar_os_connector_pin_get_info(i, &pin) || pin.connector == NULL) {
+            continue;
+        }
+        bool seen = false;
+        for (size_t previous = 0; previous < i; previous++) {
+            solar_os_connector_pin_info_t candidate;
+            if (solar_os_connector_pin_get_info(previous, &candidate) &&
+                candidate.connector != NULL &&
+                strcmp(candidate.connector, pin.connector) == 0) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            shell_completion_emit(state, pin.connector);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_manual_aliases(shell_completion_match_t *state,
                                                  const char *aliases,
                                                  const char *prefix)
@@ -4712,6 +4810,39 @@ static void shell_completion_emit_uart_buses(shell_completion_match_t *state)
     }
 #else
     (void)state;
+#endif
+}
+
+static void shell_completion_emit_com_arguments(shell_completion_match_t *state,
+                                                const char * const *tokens,
+                                                size_t token_count)
+{
+#if SOLAR_OS_PACKAGE_APP_COM
+    bool bus_seen = false;
+    bool autobaud_seen = false;
+    bool hex_seen = false;
+    for (size_t i = 1; i < token_count; i++) {
+        if (strcmp(tokens[i], "--autobaud") == 0) {
+            autobaud_seen = true;
+        } else if (strcmp(tokens[i], "--hex") == 0) {
+            hex_seen = true;
+        } else if (tokens[i][0] != '-') {
+            bus_seen = true;
+        }
+    }
+    if (!autobaud_seen) {
+        shell_completion_emit(state, com_options[0]);
+    }
+    if (!hex_seen) {
+        shell_completion_emit(state, com_options[1]);
+    }
+    if (!bus_seen) {
+        shell_completion_emit_uart_buses(state);
+    }
+#else
+    (void)state;
+    (void)tokens;
+    (void)token_count;
 #endif
 }
 
@@ -5573,6 +5704,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         if (rule->complete_expansion_devices) {
             shell_completion_emit_expansion_devices(state);
         }
+        if (rule->complete_connectors) {
+            shell_completion_emit_connectors(state);
+        }
         if (rule->complete_manual_pages) {
             shell_completion_emit_manual_pages(state);
         }
@@ -5629,6 +5763,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_uart_buses) {
             shell_completion_emit_uart_buses(state);
+        }
+        if (rule->complete_com_arguments) {
+            shell_completion_emit_com_arguments(state, tokens, token_count);
         }
         if (rule->complete_uart_arguments) {
             shell_completion_emit_uart_arguments(state, tokens, token_count);
@@ -6636,6 +6773,7 @@ static bool shell_prepare_app_launch_args(
 
     if (argc >= 2 &&
         (strcmp(app->name, "edit") == 0 ||
+         strcmp(app->name, "hexedit") == 0 ||
          strcmp(app->name, "less") == 0 ||
          strcmp(app->name, "notes") == 0 ||
          strcmp(app->name, "reader") == 0 ||

@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader less files agent"
+keywords = "apps applications foreground controls usage examples reader less files edit hexedit binary agent"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -204,19 +204,37 @@ Controls:
 
 ## com
 
-Serial terminal for the expansion UART. Display-keyboard or port-shell input is
+Serial terminal for a named UART bus. Display-keyboard or port-shell input is
 forwarded to the UART, and UART RX is drawn in the active terminal.
 
 Usage:
 
 ```text
-com [bus]
+com [--autobaud] [--hex] [bus]
 ```
 
 The bus defaults to `uart0`. For example, `com gps` connects to an existing
 runtime UART bus named `gps`. The selected bus remains leased by the app until
 the session exits. `com` works from both display and port shells; when launched
 from a port shell, its terminal output is returned through that same port.
+
+`--autobaud` samples the RX signal for three seconds before opening the
+terminal. Send a repeating `0x55` or `0xaa` pattern during that interval. A
+reliable measurement is matched to a standard UART rate and applied to the
+current bus connection without overwriting the saved baud setting. UART input
+forwarding begins when sampling completes. If measurement fails, the configured
+rate is kept.
+
+`--hex` displays received bytes as eight-byte offset, hexadecimal, and ASCII
+rows instead of interpreting them as terminal text. Both options can be used
+together.
+
+Examples:
+
+```text
+com --hex gps
+com --autobaud --hex uart0
+```
 
 Controls:
 
@@ -267,7 +285,7 @@ downloading and extracting one exact-version signed manual archive.
 Text editor for files on mounted storage. It supports cursor navigation,
 selection, clipboard operations, text-size changes, and syntax highlighting for
 known source files. The editor supports files up to 256 KiB on boards with
-PSRAM and 32 KiB on boards without PSRAM.
+PSRAM and 32 KiB on boards without PSRAM. Use `hexedit` for binary files.
 
 Usage:
 
@@ -283,6 +301,34 @@ Controls:
 - `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V` select all, copy, cut, and paste.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
 - `Esc` saves if needed and exits; app-exit key exits.
+
+## hexedit
+
+Two-pane binary editor for files on mounted storage. Each row shows a file
+offset, hexadecimal bytes, and their synchronized printable ASCII view. The
+number of bytes per row adapts to the terminal width. It uses the same 256 KiB
+PSRAM and 32 KiB internal-memory limits as `edit`.
+
+Usage:
+
+```text
+hexedit <file>
+```
+
+Controls:
+
+- `Tab` switches input focus between the HEX and ASCII panes. The corresponding
+  byte remains highlighted in both panes.
+- Hexadecimal digits replace the active high or low nibble in the HEX pane.
+  Printable characters replace the active byte in the ASCII pane.
+- Arrows, Page Up/Page Down, Home/End, and Ctrl+Home/Ctrl+End navigate by byte,
+  row, page, or file.
+- `Shift` with navigation extends a byte selection. `Ctrl+A`, `Ctrl+C`,
+  `Ctrl+X`, and `Ctrl+V` select all, copy, cut, and paste binary data.
+- Backspace and Delete remove bytes. Typing at end of file appends data.
+- `Ctrl+S` saves in place. `Esc` saves if needed and exits; the app-exit key
+  exits without forcing a save.
+- `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
 
 ## files
 
@@ -404,8 +450,9 @@ server-side read flags are not implemented yet.
 
 ## io
 
-Interactive expansion I/O manager. It presents the board's expansion pins,
-named buses, and resource claims in one TUI and uses the same ownership and
+Interactive expansion I/O manager. Its default Layout view presents the
+board's connectors in their physical arrangement, followed by the existing
+pin, named-bus, and resource-claim views. It uses the same ownership and
 validation services as the `gpio`, `i2c`, `spi`, `uart`, `onewire`, and
 `expansion` commands.
 
@@ -417,8 +464,15 @@ io
 
 Controls:
 
-- `Tab`, `Left`, and `Right` switch between Pins, Buses, and Claims.
-- Arrows, Page Up/Page Down, Home, and End navigate the selected view.
+- `Tab` switches between Layout, Pins, Buses, and Claims. Outside Layout,
+  `Left` and `Right` also switch views.
+- Arrows move through the physical connector grid in Layout and through rows
+  in the other views. Page Up/Page Down, Home, and End make larger moves.
+- Layout adapts to the terminal: compact headers show several pins across,
+  while long headers such as the DevKitC J1/J3 pair scroll vertically with one
+  physical pin pair per row.
+- Layout markers are `*` free, `~` releasable, `@` claimed, `!` fixed/control,
+  `+` power, `-` ground, and `x` not connected.
 - `Enter` opens context-sensitive actions for a pin or bus.
 - `n` creates a board-approved named I2C, SPI, UART, or 1-Wire bus.
 - Bus creation uses arrows to select fields and values; the generated bus name
@@ -426,7 +480,7 @@ Controls:
 - Runtime buses can be attached, detached, or removed when their lease state
   permits it. Their `Autostart` action idempotently appends the matching
   `expansion bus create ...` command to `/.shell/startup`. Direct GPIO and PWM
-  assignments can be created and released from the Pins view.
+  assignments can be created and released from the Pins or Layout view.
 - `r` refreshes; `q`, `Esc`, or the app-exit key exits.
 
 ## invaders
@@ -474,7 +528,7 @@ Usage:
 
 ```text
 logic
-logic <pin[,pin...]> [rate-hz] [samples]
+logic <pin[,pin...]> [rate-hz] [samples] [trigger=<pin>]
 ```
 
 Examples:
@@ -483,7 +537,12 @@ Examples:
 logic
 logic 1,2,3,17
 logic 1,2 500000 8192
+logic 1,2,3,17 10000 4096 trigger=1
 ```
+
+`trigger=<pin>` waits for the next rising or falling edge on that runtime-safe
+GPIO before sampling. The trigger pin may be one of the captured data pins, as
+in the last example, or a separate GPIO that is not displayed as a channel.
 
 Controls:
 
@@ -557,6 +616,11 @@ Examples:
 plot temperature humidity --rate 1000
 plot -f /logs/env.csv temperature humidity
 ```
+
+`--rate` is a best-effort live sampling interval in milliseconds. Rates below
+25 ms request faster runtime ticks while the screen redraws no more often than
+once every 25 ms, so fast acquisition does not force an equally fast display
+refresh.
 
 Controls:
 

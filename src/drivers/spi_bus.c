@@ -164,7 +164,10 @@ esp_err_t solar_os_spi_bus_transfer(int cs_pin,
             .tx_buffer = tx_data,
             .rx_buffer = rx_data,
         };
-        err = spi_device_transmit(device, &transaction);
+        /* The device exists only for this serialized transfer.  Polling keeps
+         * completion and removal in the same task, avoiding an ISR teardown
+         * race for the short-lived handle. */
+        err = spi_device_polling_transmit(device, &transaction);
         const esp_err_t remove_err = spi_bus_remove_device(device);
         if (err == ESP_OK) {
             err = remove_err;

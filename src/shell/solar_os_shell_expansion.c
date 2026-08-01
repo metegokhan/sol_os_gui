@@ -11,8 +11,10 @@
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "esp_err.h"
+#include "solar_os_board.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_pins.h"
 #include "solar_os_resources.h"
 #if SOLAR_OS_PACKAGE_SERVICE_UART
 #include "solar_os_uart.h"
@@ -27,6 +29,7 @@ static void expansion_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  expansion [status]");
+    solar_os_shell_io_writeln(term, "  expansion layout [connector]");
     solar_os_shell_io_writeln(term, "  expansion scan");
     solar_os_shell_io_writeln(term, "  expansion drivers");
     solar_os_shell_io_writeln(term, "  expansion devices");
@@ -327,6 +330,8 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
     }
     for (size_t i = 0; i < driver->binding_spec_count; i++) {
         switch (driver->binding_specs[i].kind) {
+        case SOLAR_OS_EXPANSION_BINDING_GPIO:
+            return "GPIO";
         case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
             return "I2C";
         case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
@@ -385,6 +390,9 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         break;
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         solar_os_shell_io_printf(term, " uart=%s", binding->target);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+        solar_os_shell_io_printf(term, " %s=%d", binding->role, binding->value);
         break;
     default:
         break;
@@ -479,6 +487,162 @@ static void expansion_cmd_status(solar_os_shell_io_t *term)
     expansion_print_claims(term);
 }
 
+static bool expansion_layout_pin_matches(const solar_os_connector_pin_info_t *pin,
+                                         const char *connector)
+{
+    return pin != NULL &&
+        (connector == NULL ||
+         (pin->connector != NULL && strcmp(pin->connector, connector) == 0));
+}
+
+static char expansion_layout_marker(const solar_os_connector_pin_info_t *pin)
+{
+    if (pin == NULL) {
+        return ' ';
+    }
+    if (pin->kind == SOLAR_OS_CONNECTOR_PIN_POWER) {
+        return '+';
+    }
+    if (pin->kind == SOLAR_OS_CONNECTOR_PIN_GROUND) {
+        return '-';
+    }
+    if (pin->kind == SOLAR_OS_CONNECTOR_PIN_NC) {
+        return 'x';
+    }
+    if (pin->kind != SOLAR_OS_CONNECTOR_PIN_GPIO || pin->pin < 0) {
+        return '!';
+    }
+
+    solar_os_resource_claim_t claim;
+    if (solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                     pin->pin,
+                                     -1,
+                                     &claim)) {
+        return '@';
+    }
+    solar_os_pin_info_t info;
+    if (!solar_os_pin_get_info_by_pin(pin->pin, &info) ||
+        info.policy == SOLAR_OS_PIN_POLICY_FIXED) {
+        return '!';
+    }
+    return info.policy == SOLAR_OS_PIN_POLICY_RELEASABLE ? '~' : '*';
+}
+
+static void expansion_layout_print_rule(solar_os_shell_io_t *term,
+                                        size_t columns,
+                                        int cell_width)
+{
+    for (size_t column = 0; column < columns; column++) {
+        solar_os_shell_io_put_char(term, '+');
+        for (int i = 0; i < cell_width; i++) {
+            solar_os_shell_io_put_char(term, '-');
+        }
+    }
+    solar_os_shell_io_writeln(term, "+");
+}
+
+static void expansion_layout_list_connectors(solar_os_shell_io_t *term)
+{
+    solar_os_shell_io_write(term, "connectors:");
+    const char *last = NULL;
+    for (size_t i = 0; i < solar_os_connector_pin_count(); i++) {
+        solar_os_connector_pin_info_t pin;
+        if (!solar_os_connector_pin_get_info(i, &pin) || pin.connector == NULL ||
+            (last != NULL && strcmp(last, pin.connector) == 0)) {
+            continue;
+        }
+        bool seen = false;
+        for (size_t previous = 0; previous < i; previous++) {
+            solar_os_connector_pin_info_t candidate;
+            if (solar_os_connector_pin_get_info(previous, &candidate) &&
+                candidate.connector != NULL &&
+                strcmp(candidate.connector, pin.connector) == 0) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            solar_os_shell_io_printf(term, " %s", pin.connector);
+            last = pin.connector;
+        }
+    }
+    solar_os_shell_io_put_char(term, '\n');
+}
+
+static void expansion_cmd_layout(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    solar_os_connector_layout_info_t layout;
+    if (!solar_os_connector_layout_get_info(&layout)) {
+        solar_os_shell_io_writeln(term, "expansion layout: no physical connector map for this board");
+        return;
+    }
+    if (argc > 3) {
+        solar_os_shell_io_writeln(term, "usage: expansion layout [connector]");
+        return;
+    }
+
+    const char *connector = argc == 3 ? argv[2] : NULL;
+    if (connector != NULL && !solar_os_connector_exists(connector)) {
+        solar_os_shell_io_printf(term, "expansion layout: connector '%s' not found\n", connector);
+        expansion_layout_list_connectors(term);
+        return;
+    }
+
+    size_t min_row = layout.rows;
+    size_t max_row = 0;
+    size_t min_column = layout.columns;
+    size_t max_column = 0;
+    for (size_t i = 0; i < solar_os_connector_pin_count(); i++) {
+        solar_os_connector_pin_info_t pin;
+        if (!solar_os_connector_pin_get_info(i, &pin) ||
+            !expansion_layout_pin_matches(&pin, connector)) {
+            continue;
+        }
+        if (pin.row < min_row) min_row = pin.row;
+        if (pin.row > max_row) max_row = pin.row;
+        if (pin.column < min_column) min_column = pin.column;
+        if (pin.column > max_column) max_column = pin.column;
+    }
+
+    const size_t visible_columns = max_column - min_column + 1U;
+    const int cell_width = visible_columns <= 2U ? 18 : visible_columns <= 8U ? 8 : 6;
+    solar_os_shell_io_printf(term, "%s — %s\n", SOLAR_OS_BOARD_NAME, layout.title);
+    solar_os_shell_io_printf(term, "View: %s\n", layout.view);
+    expansion_layout_print_rule(term, visible_columns, cell_width);
+    for (size_t row = min_row; row <= max_row; row++) {
+        for (size_t column = min_column; column <= max_column; column++) {
+            solar_os_connector_pin_info_t pin;
+            const bool found = solar_os_connector_pin_find(row, column, &pin, NULL) &&
+                expansion_layout_pin_matches(&pin, connector);
+            char cell[32] = "";
+            if (found && visible_columns <= 2U) {
+                snprintf(cell,
+                         sizeof(cell),
+                         "%c%s.%u %s",
+                         expansion_layout_marker(&pin),
+                         pin.connector != NULL ? pin.connector : "?",
+                         (unsigned)pin.position,
+                         pin.label != NULL ? pin.label : "?");
+            } else if (found) {
+                snprintf(cell,
+                         sizeof(cell),
+                         "%c%s",
+                         expansion_layout_marker(&pin),
+                         pin.label != NULL ? pin.label : "?");
+            }
+            solar_os_shell_io_printf(term,
+                                     "| %-*.*s",
+                                     cell_width - 1,
+                                     cell_width - 1,
+                                     cell);
+        }
+        solar_os_shell_io_writeln(term, "|");
+        expansion_layout_print_rule(term, visible_columns, cell_width);
+    }
+    solar_os_shell_io_writeln(term,
+                              "Legend: * free  ~ releasable  @ claimed  ! fixed/control  + power  - ground  x NC");
+}
+
 static bool binding_store(solar_os_expansion_binding_t *bindings,
                           size_t *binding_count,
                           solar_os_expansion_binding_kind_t kind,
@@ -563,6 +727,17 @@ static bool parse_binding_token(const char *arg,
         return parse_int_arg(value, 0x03, 0x77, &address) &&
             binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, "", "", address, -1);
     }
+    if (strcmp(key, "count") == 0) {
+        int count = 0;
+        return parse_int_arg(value, 1, 4096, &count) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                          "count",
+                          "",
+                          count,
+                          -1);
+    }
 
     int pin = -1;
     if (!parse_int_arg(value, 0, 63, &pin)) {
@@ -594,6 +769,7 @@ static bool parse_binding_token(const char *arg,
         strcmp(key, "irq") == 0 ||
         strcmp(key, "reset") == 0 ||
         strcmp(key, "rst") == 0 ||
+        strcmp(key, "data") == 0 ||
         strcmp(key, "dc") == 0 ||
         strcmp(key, "busy") == 0) {
         const char *role = strcmp(key, "rst") == 0 ? "reset" : key;
@@ -1253,6 +1429,10 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
     if (strcmp(argv[1], "scan") == 0) {
         expansion_print_resources(term);
         expansion_print_probe_drivers(term);
+        return;
+    }
+    if (strcmp(argv[1], "layout") == 0) {
+        expansion_cmd_layout(term, argc, argv);
         return;
     }
     if (strcmp(argv[1], "drivers") == 0) {

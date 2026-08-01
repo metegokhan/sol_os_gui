@@ -33,6 +33,12 @@ typedef struct {
     char port_owner[SOLAR_OS_PORT_OWNER_MAX];
 } solar_os_uart_status_t;
 
+typedef struct {
+    uint32_t baud_rate;
+    uint32_t measured_baud_rate;
+    uint32_t edge_count;
+} solar_os_uart_autobaud_result_t;
+
 esp_err_t solar_os_uart_init(void);
 esp_err_t solar_os_uart_register_bus(const char *name,
                                      const solar_os_bus_uart_config_t *config,
@@ -44,6 +50,10 @@ esp_err_t solar_os_uart_start_bus(const char *name);
 esp_err_t solar_os_uart_stop_bus(const char *name);
 bool solar_os_uart_is_valid_baud_rate(uint32_t baud_rate);
 esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate);
+esp_err_t solar_os_uart_bus_autobaud_start(const char *name);
+esp_err_t solar_os_uart_bus_autobaud_finish(const char *name,
+                                            solar_os_uart_autobaud_result_t *result);
+esp_err_t solar_os_uart_bus_autobaud_cancel(const char *name);
 esp_err_t solar_os_uart_bus_set_mode(const char *name, solar_os_uart_mode_t mode);
 esp_err_t solar_os_uart_set_baud_rate(uint32_t baud_rate);
 esp_err_t solar_os_uart_set_mode(solar_os_uart_mode_t mode);

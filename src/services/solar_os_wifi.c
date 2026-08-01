@@ -52,6 +52,11 @@ static bool wifi_nat_enabled;
 static bool wifi_nat_active;
 static bool wifi_ap_enabled;
 static bool wifi_ap_running;
+static bool wifi_suspended;
+static bool wifi_sleep_was_started;
+static bool wifi_sleep_sta_enabled;
+static bool wifi_sleep_ap_enabled;
+static bool wifi_sleep_reconnect_sta;
 static solar_os_wifi_state_t wifi_state = SOLAR_OS_WIFI_STATE_OFF;
 static char wifi_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
 static char wifi_saved_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
@@ -1012,7 +1017,9 @@ static void wifi_event_handler(void *arg,
         case WIFI_EVENT_STA_STOP:
             wifi_lock();
             wifi_clear_link_state();
-            wifi_sta_enabled = false;
+            if (!wifi_suspended) {
+                wifi_sta_enabled = false;
+            }
             if (!wifi_ap_enabled) {
                 wifi_set_started_state(false);
             } else {
@@ -1306,6 +1313,106 @@ esp_err_t solar_os_wifi_stop(void)
     wifi_unlock();
 
     return wifi_apply_mode();
+}
+
+esp_err_t solar_os_wifi_prepare_sleep(void)
+{
+    if (!wifi_initialized) {
+        return ESP_OK;
+    }
+
+    wifi_lock();
+    if (wifi_suspended) {
+        wifi_unlock();
+        return ESP_OK;
+    }
+
+    wifi_sleep_was_started = wifi_started;
+    wifi_sleep_sta_enabled = wifi_sta_enabled;
+    wifi_sleep_ap_enabled = wifi_ap_enabled;
+    wifi_sleep_reconnect_sta = wifi_sta_enabled &&
+        (wifi_connected ||
+         wifi_has_ip ||
+         wifi_state == SOLAR_OS_WIFI_STATE_CONNECTING ||
+         wifi_state == SOLAR_OS_WIFI_STATE_DISCONNECTED);
+    wifi_suspended = true;
+    wifi_unlock();
+
+    if (!wifi_sleep_was_started) {
+        return ESP_OK;
+    }
+
+    const esp_err_t ret = esp_wifi_stop();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STARTED) {
+        wifi_lock();
+        wifi_suspended = false;
+        wifi_unlock();
+        return ret;
+    }
+
+    wifi_lock();
+    wifi_set_started_state(false);
+    wifi_sta_enabled = wifi_sleep_sta_enabled;
+    wifi_ap_enabled = wifi_sleep_ap_enabled;
+    wifi_ap_running = false;
+    wifi_ap_station_count = 0;
+    wifi_unlock();
+
+    SOLAR_OS_LOGI(TAG,
+                  "sleep: Wi-Fi radio stopped, sta=%s ap=%s reconnect=%s",
+                  wifi_sleep_sta_enabled ? "on" : "off",
+                  wifi_sleep_ap_enabled ? "on" : "off",
+                  wifi_sleep_reconnect_sta ? "yes" : "no");
+    return ESP_OK;
+}
+
+esp_err_t solar_os_wifi_resume(void)
+{
+    wifi_lock();
+    if (!wifi_suspended) {
+        wifi_unlock();
+        return ESP_OK;
+    }
+
+    const bool was_started = wifi_sleep_was_started;
+    const bool reconnect_sta = wifi_sleep_reconnect_sta;
+    wifi_sta_enabled = wifi_sleep_sta_enabled;
+    wifi_ap_enabled = wifi_sleep_ap_enabled;
+    wifi_suspended = false;
+    wifi_unlock();
+
+    if (!was_started) {
+        return ESP_OK;
+    }
+
+    esp_err_t ret = wifi_apply_mode();
+    if (ret != ESP_OK) {
+        wifi_lock();
+        wifi_state = SOLAR_OS_WIFI_STATE_FAILED;
+        wifi_unlock();
+        return ret;
+    }
+
+    if (reconnect_sta) {
+        wifi_lock();
+        wifi_state = SOLAR_OS_WIFI_STATE_CONNECTING;
+        wifi_unlock();
+
+        ret = esp_wifi_connect();
+        if (ret != ESP_OK) {
+            wifi_lock();
+            wifi_state = SOLAR_OS_WIFI_STATE_FAILED;
+            wifi_unlock();
+            return ret;
+        }
+    }
+
+    SOLAR_OS_LOGI(TAG,
+                  "resume: Wi-Fi radio restored, sta=%s ap=%s reconnect=%s",
+                  wifi_sta_enabled ? "on" : "off",
+                  wifi_ap_enabled ? "on" : "off",
+                  reconnect_sta ? "yes" : "no");
+    return ESP_OK;
 }
 
 esp_err_t solar_os_wifi_connect(const char *ssid, const char *password)

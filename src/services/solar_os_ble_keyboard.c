@@ -1035,6 +1035,17 @@ static bool close_pending_open_attempt(const char *reason, uint32_t timeout_ms)
     esp_hidh_dev_t *dev = pending_dev;
     pending_dev = NULL;
     pending_open_started_tick = 0;
+    if (esp_hidh_dev_exists(dev) && (dev->close == NULL || dev->ble.conn_id < 0)) {
+        SOLAR_OS_LOGI(TAG,
+                      "%s: dropping pending keyboard without an active link",
+                      reason != NULL ? reason : "ble");
+        (void)esp_hidh_dev_free_inner(dev);
+        if (!connected && state == BLE_KEYBOARD_CONNECTING) {
+            set_status(BLE_KEYBOARD_IDLE, "%s", reason != NULL ? reason : "idle");
+        }
+        return true;
+    }
+
     esp_err_t err = ESP_FAIL;
     if (esp_hidh_dev_exists(dev)) {
         err = esp_hidh_dev_close(dev);
@@ -1044,6 +1055,9 @@ static bool close_pending_open_attempt(const char *reason, uint32_t timeout_ms)
                       "%s: pending keyboard close failed: %s",
                       reason != NULL ? reason : "ble",
                       esp_err_to_name(err));
+        if (esp_hidh_dev_exists(dev) && !dev->connected) {
+            (void)esp_hidh_dev_free_inner(dev);
+        }
         if (!connected) {
             clear_runtime_connection_state(reason);
         }
@@ -1054,6 +1068,9 @@ static bool close_pending_open_attempt(const char *reason, uint32_t timeout_ms)
         close_done_sem != NULL &&
         xSemaphoreTake(close_done_sem, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
         SOLAR_OS_LOGW(TAG, "%s: pending keyboard close timeout", reason != NULL ? reason : "ble");
+        if (esp_hidh_dev_exists(dev)) {
+            (void)esp_hidh_dev_free_inner(dev);
+        }
         if (!connected) {
             clear_runtime_connection_state(reason);
         }
@@ -2406,7 +2423,11 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                      ESP_BD_ADDR_HEX(bda),
                      connected_name);
             log_conn_params("open", &params);
-            save_remembered_peer(bda, pending_addr_type, connected_name);
+            if (pairing_retry_pending && remembered_peer_count() == 0) {
+                SOLAR_OS_LOGI(TAG, "not remembering keyboard superseded by pairing request");
+            } else {
+                save_remembered_peer(bda, pending_addr_type, connected_name);
+            }
             esp_hidh_dev_dump(param->open.dev, stdout);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name);
             if (pairing_retry_pending) {
@@ -3410,9 +3431,20 @@ esp_err_t solar_os_ble_keyboard_prepare_sleep(uint32_t timeout_ms)
     reset_gatt_runtime_state("sleep");
     hid_gattc_if = ESP_GATT_IF_NONE;
 
+    for (size_t i = 0; i < BLE_KEYBOARD_MAX_REMEMBERED; i++) {
+        if (!remembered_peer_valid_at(i)) {
+            continue;
+        }
+        if (!drop_existing_hidh_device(remembered_peers[i].bda,
+                                       "sleep cleanup",
+                                       timeout_ms)) {
+            result = ESP_ERR_TIMEOUT;
+        }
+    }
+
     if (hidh_initialized) {
         const esp_err_t deinit_ret = esp_hidh_deinit();
-        if (deinit_ret == ESP_OK || deinit_ret == ESP_ERR_INVALID_STATE) {
+        if (deinit_ret == ESP_OK) {
             hidh_initialized = false;
         } else {
             SOLAR_OS_LOGW(TAG, "sleep: HIDH deinit failed: %s", esp_err_to_name(deinit_ret));
@@ -3486,10 +3518,12 @@ void solar_os_ble_keyboard_resume(void)
     schedule_reconnect(0);
 }
 
-esp_err_t solar_os_ble_keyboard_forget(void)
+static esp_err_t forget_remembered_keyboard(bool disconnect_connected,
+                                            bool update_status,
+                                            bool *disconnect_started)
 {
-    if (!initialized) {
-        return ESP_ERR_INVALID_STATE;
+    if (disconnect_started != NULL) {
+        *disconnect_started = false;
     }
 
     ble_keyboard_peer_t forgotten_peers[BLE_KEYBOARD_MAX_REMEMBERED];
@@ -3516,12 +3550,63 @@ esp_err_t solar_os_ble_keyboard_forget(void)
         }
     }
 
-    if (connected_dev != NULL) {
-        esp_hidh_dev_close(connected_dev);
-        set_status(BLE_KEYBOARD_IDLE, "forgetting keyboard");
-    } else {
+    if (disconnect_connected && connected_dev != NULL) {
+        const esp_err_t close_ret = esp_hidh_dev_close(connected_dev);
+        if (disconnect_started != NULL) {
+            *disconnect_started = close_ret == ESP_OK;
+        }
+        if (close_ret != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "forget keyboard close failed: %s", esp_err_to_name(close_ret));
+        }
+        if (update_status) {
+            set_status(BLE_KEYBOARD_IDLE, "forgetting keyboard");
+        }
+    } else if (disconnect_connected && update_status) {
         set_status(BLE_KEYBOARD_IDLE, "forgot keyboard");
     }
 
     return ret;
+}
+
+esp_err_t solar_os_ble_keyboard_forget(void)
+{
+    if (!initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return forget_remembered_keyboard(true, true, NULL);
+}
+
+esp_err_t solar_os_ble_keyboard_forget_and_start_pairing(void)
+{
+    if (!initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const bool pairing_active = solar_os_ble_keyboard_is_pairing();
+    const bool disconnect_before_pairing = !pairing_active && connected_dev != NULL;
+    if (disconnect_before_pairing) {
+        pairing_retry_pending = true;
+        reconnect_suppressed_for_pairing = true;
+        set_status(BLE_KEYBOARD_PAIRING_PENDING, "pairing pending");
+    }
+
+    bool disconnect_started = false;
+    const esp_err_t forget_ret = forget_remembered_keyboard(!pairing_active,
+                                                            false,
+                                                            &disconnect_started);
+
+    esp_err_t pairing_ret = ESP_OK;
+    if (disconnect_before_pairing && !disconnect_started) {
+        pairing_retry_pending = false;
+        reconnect_suppressed_for_pairing = false;
+        set_status(BLE_KEYBOARD_IDLE, "pairing");
+        pairing_ret = start_pairing_scan_now();
+    } else if (disconnect_before_pairing && pairing_retry_pending && connected_dev == NULL) {
+        pairing_ret = start_pairing_scan_now();
+    } else if (!pairing_active && !disconnect_before_pairing) {
+        pairing_ret = solar_os_ble_keyboard_start_pairing();
+    }
+
+    return forget_ret != ESP_OK ? forget_ret : pairing_ret;
 }
