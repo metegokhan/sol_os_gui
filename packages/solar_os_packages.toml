@@ -147,6 +147,7 @@ triggers = ["app_lua"]
 [groups.utils]
 members = [
   "app_clock",
+  "app_calc",
   "app_reader",
   "app_files",
   "app_notes",
@@ -156,6 +157,7 @@ members = [
 ]
 triggers = [
   "app_clock",
+  "app_calc",
   "app_reader",
   "app_files",
   "app_notes",
@@ -832,6 +834,15 @@ capabilities = ["gpio"]
 [packages.app_notes]
 label = "app.notes"
 sources = ["apps/solar_os_notes.c"]
+
+[packages.service_expr]
+label = "service.expr"
+sources = ["services/solar_os_expr.c"]
+
+[packages.app_calc]
+label = "app.calc"
+depends = ["service_expr"]
+sources = ["apps/solar_os_calc.c"]
 
 [packages.app_plot]
 label = "app.plot"

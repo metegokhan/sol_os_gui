@@ -2,6 +2,12 @@
 
 ## 4.x
 
+- **4.4.13** — 2026-08-01 — Added `calc`, a bounded scientific calculator with
+  variables, one-argument functions, worksheet save/load, and a Desmos-style
+  expression-and-plot view on graphical displays. Its expression editor uses a
+  white background and a thin active-row outline to keep small text legible.
+  The same app provides an interactive text REPL and `calc -e` one-shot
+  evaluation on UART, USB CDC, Telnet, and other text-only shells.
 - **4.4.12** — 2026-08-01 — Added a two-pane `hexedit` application with
   synchronized hexadecimal and ASCII editing. Extended `com` with optional
   hardware UART autobaud detection and an offset/hex/ASCII receive view while
