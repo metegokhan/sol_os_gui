@@ -12,8 +12,8 @@
 #include "freertos/semphr.h"
 #include "solar_os_log.h"
 
-#define CDC_RX_BUFFER_SIZE 1024
-#define CDC_TX_BUFFER_SIZE 512
+#define CDC_RX_BUFFER_SIZE 4096
+#define CDC_TX_BUFFER_SIZE 2048
 
 static const char *TAG = "solar_os_cdc";
 
