@@ -17,10 +17,23 @@ typedef struct {
     size_t tx_buffer_size;
 } uart_port_config_t;
 
+typedef struct {
+    uint32_t low_period;
+    uint32_t high_period;
+    uint32_t pos_period;
+    uint32_t neg_period;
+    uint32_t edge_count;
+    uint32_t clock_hz;
+} uart_port_autobaud_result_t;
+
 esp_err_t uart_port_init(const uart_port_config_t *config);
 esp_err_t uart_port_deinit(uart_port_t port_num);
 bool uart_port_is_ready(uart_port_t port_num);
 esp_err_t uart_port_set_baud_rate(uart_port_t port_num, uint32_t baud_rate);
+esp_err_t uart_port_autobaud_start(uart_port_t port_num);
+esp_err_t uart_port_autobaud_stop(uart_port_t port_num,
+                                  uart_port_autobaud_result_t *result);
+esp_err_t uart_port_autobaud_cancel(uart_port_t port_num);
 esp_err_t uart_port_write(uart_port_t port_num,
                           const uint8_t *data,
                           size_t len,

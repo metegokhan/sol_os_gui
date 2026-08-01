@@ -204,19 +204,37 @@ Controls:
 
 ## com
 
-Serial terminal for the expansion UART. Display-keyboard or port-shell input is
+Serial terminal for a named UART bus. Display-keyboard or port-shell input is
 forwarded to the UART, and UART RX is drawn in the active terminal.
 
 Usage:
 
 ```text
-com [bus]
+com [--autobaud] [--hex] [bus]
 ```
 
 The bus defaults to `uart0`. For example, `com gps` connects to an existing
 runtime UART bus named `gps`. The selected bus remains leased by the app until
 the session exits. `com` works from both display and port shells; when launched
 from a port shell, its terminal output is returned through that same port.
+
+`--autobaud` samples the RX signal for three seconds before opening the
+terminal. Send a repeating `0x55` or `0xaa` pattern during that interval. A
+reliable measurement is matched to a standard UART rate and applied to the
+current bus connection without overwriting the saved baud setting. UART input
+forwarding begins when sampling completes. If measurement fails, the configured
+rate is kept.
+
+`--hex` displays received bytes as eight-byte offset, hexadecimal, and ASCII
+rows instead of interpreting them as terminal text. Both options can be used
+together.
+
+Examples:
+
+```text
+com --hex gps
+com --autobaud --hex uart0
+```
 
 Controls:
 

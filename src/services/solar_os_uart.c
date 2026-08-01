@@ -231,6 +231,60 @@ bool solar_os_uart_is_valid_baud_rate(uint32_t baud_rate)
         baud_rate <= SOLAR_OS_UART_MAX_BAUD_RATE;
 }
 
+static bool uart_autobaud_rate(const uart_port_autobaud_result_t *measured,
+                               uint32_t *raw_rate,
+                               uint32_t *baud_rate)
+{
+    static const uint32_t standard_rates[] = {
+        300U, 600U, 1200U, 2400U, 4800U, 9600U, 14400U, 19200U,
+        28800U, 38400U, 57600U, 76800U, 115200U, 128000U, 230400U,
+        250000U, 256000U, 460800U, 500000U, 576000U, 921600U,
+    };
+
+    if (measured == NULL || raw_rate == NULL || baud_rate == NULL ||
+        measured->clock_hz == 0 || measured->edge_count < 8) {
+        return false;
+    }
+
+    const uint64_t periods[] = {
+        (uint64_t)measured->low_period + (uint64_t)measured->high_period,
+        measured->pos_period,
+        measured->neg_period,
+    };
+    const uint64_t numerator = (uint64_t)measured->clock_hz * 2ULL;
+    for (size_t period_index = 0;
+         period_index < sizeof(periods) / sizeof(periods[0]);
+         period_index++) {
+        const uint64_t period = periods[period_index];
+        if (period == 0) {
+            continue;
+        }
+        const uint32_t rate = (uint32_t)((numerator + period / 2ULL) / period);
+        if (!solar_os_uart_is_valid_baud_rate(rate)) {
+            continue;
+        }
+
+        uint32_t nearest = standard_rates[0];
+        uint32_t nearest_delta = rate > nearest ? rate - nearest : nearest - rate;
+        for (size_t i = 1; i < sizeof(standard_rates) / sizeof(standard_rates[0]); i++) {
+            const uint32_t candidate = standard_rates[i];
+            const uint32_t delta = rate > candidate ? rate - candidate : candidate - rate;
+            if (delta < nearest_delta) {
+                nearest = candidate;
+                nearest_delta = delta;
+            }
+        }
+        const uint32_t error_ppm =
+            (uint32_t)(((uint64_t)nearest_delta * 1000000ULL) / nearest);
+        if (error_ppm <= 50000U) {
+            *raw_rate = rate;
+            *baud_rate = nearest;
+            return true;
+        }
+    }
+    return false;
+}
+
 const char *solar_os_uart_mode_name(solar_os_uart_mode_t mode)
 {
     switch (mode) {
@@ -644,12 +698,105 @@ esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate)
     }
     if (ret == ESP_OK) {
         instance->config.baud_rate = baud_rate;
+    }
+    uart_unpin(&ref);
+    return ret;
+}
+
+esp_err_t solar_os_uart_bus_autobaud_start(const char *name)
+{
+#if !SOLAR_OS_BOARD_HAS_UART
+    (void)name;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (name == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_name(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (!ref.instance->initialized) {
+        ret = ESP_ERR_INVALID_STATE;
+    } else {
+        ret = uart_port_autobaud_start((uart_port_t)ref.instance->config.port);
+    }
+    uart_unpin(&ref);
+    return ret;
+#endif
+}
+
+esp_err_t solar_os_uart_bus_autobaud_finish(const char *name,
+                                            solar_os_uart_autobaud_result_t *result)
+{
+#if !SOLAR_OS_BOARD_HAS_UART
+    (void)name;
+    (void)result;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (name == NULL || result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *result = (solar_os_uart_autobaud_result_t) {0};
+
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_name(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    solar_os_uart_instance_t *instance = ref.instance;
+    uart_port_autobaud_result_t measured = {0};
+    ret = uart_port_autobaud_stop((uart_port_t)instance->config.port, &measured);
+    uint32_t measured_rate = 0;
+    uint32_t baud_rate = 0;
+    if (ret == ESP_OK && !uart_autobaud_rate(&measured, &measured_rate, &baud_rate)) {
+        ret = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (ret == ESP_OK) {
+        ret = uart_port_set_baud_rate((uart_port_t)instance->config.port, baud_rate);
+    }
+    if (ret == ESP_OK) {
+        instance->config.baud_rate = baud_rate;
         if (instance->persistent) {
             ret = uart_save_config(instance);
         }
     }
+    if (ret == ESP_OK) {
+        *result = (solar_os_uart_autobaud_result_t) {
+            .baud_rate = baud_rate,
+            .measured_baud_rate = measured_rate,
+            .edge_count = measured.edge_count,
+        };
+    }
     uart_unpin(&ref);
     return ret;
+#endif
+}
+
+esp_err_t solar_os_uart_bus_autobaud_cancel(const char *name)
+{
+#if !SOLAR_OS_BOARD_HAS_UART
+    (void)name;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (name == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_name(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (!ref.instance->initialized) {
+        ret = ESP_ERR_INVALID_STATE;
+    } else {
+        ret = uart_port_autobaud_cancel((uart_port_t)ref.instance->config.port);
+    }
+    uart_unpin(&ref);
+    return ret;
+#endif
 }
 
 esp_err_t solar_os_uart_set_baud_rate(uint32_t baud_rate)

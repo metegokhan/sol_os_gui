@@ -133,6 +133,7 @@ typedef struct {
     bool complete_onewire_buses;
     bool complete_spi_buses;
     bool complete_uart_buses;
+    bool complete_com_arguments;
     bool complete_uart_arguments;
     bool complete_buses;
     bool complete_spi_cs;
@@ -1058,7 +1059,14 @@ static const char * const path_clock[] = {"clock"};
 static const char * const path_clock_alarm[] = {"clock", "-a"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
+static const char * const com_options[] = {"--autobaud", "--hex"};
 static const char * const path_com[] = {"com"};
+static const char * const path_com_arg[] = {"com", SHELL_COMPLETION_ANY};
+static const char * const path_com_arg2[] = {
+    "com",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CURL
 static const char * const path_curl[] = {"curl"};
@@ -1891,6 +1899,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_uart_buses = true, \
     }
+#define SHELL_COMPLETION_COM_ARGUMENTS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_com_arguments = true, \
+    }
 #define SHELL_COMPLETION_UART_ARGUMENTS(path_array) \
     { \
         .path = path_array, \
@@ -1954,7 +1968,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_clock_alarm, clock_alarm_values),
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
-    SHELL_COMPLETION_UART_BUSES(path_com),
+    SHELL_COMPLETION_COM_ARGUMENTS(path_com),
+    SHELL_COMPLETION_COM_ARGUMENTS(path_com_arg),
+    SHELL_COMPLETION_COM_ARGUMENTS(path_com_arg2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CURL
     SHELL_COMPLETION_OPTIONS(path_curl, curl_options),
@@ -4797,6 +4813,39 @@ static void shell_completion_emit_uart_buses(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_com_arguments(shell_completion_match_t *state,
+                                                const char * const *tokens,
+                                                size_t token_count)
+{
+#if SOLAR_OS_PACKAGE_APP_COM
+    bool bus_seen = false;
+    bool autobaud_seen = false;
+    bool hex_seen = false;
+    for (size_t i = 1; i < token_count; i++) {
+        if (strcmp(tokens[i], "--autobaud") == 0) {
+            autobaud_seen = true;
+        } else if (strcmp(tokens[i], "--hex") == 0) {
+            hex_seen = true;
+        } else if (tokens[i][0] != '-') {
+            bus_seen = true;
+        }
+    }
+    if (!autobaud_seen) {
+        shell_completion_emit(state, com_options[0]);
+    }
+    if (!hex_seen) {
+        shell_completion_emit(state, com_options[1]);
+    }
+    if (!bus_seen) {
+        shell_completion_emit_uart_buses(state);
+    }
+#else
+    (void)state;
+    (void)tokens;
+    (void)token_count;
+#endif
+}
+
 static void shell_completion_emit_buses(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
@@ -5714,6 +5763,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_uart_buses) {
             shell_completion_emit_uart_buses(state);
+        }
+        if (rule->complete_com_arguments) {
+            shell_completion_emit_com_arguments(state, tokens, token_count);
         }
         if (rule->complete_uart_arguments) {
             shell_completion_emit_uart_arguments(state, tokens, token_count);

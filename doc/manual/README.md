@@ -101,7 +101,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [arecord application](apps.md#arecord) — Record microphone input to a WAV file. This requires the audio package and board microphone hardware.
 - [chat application](apps.md#chat) — Two-pane chat client. The left pane lists channels, the right pane shows conversation history, and the bottom line is the message/command input.
 - [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch.
-- [com application](apps.md#com) — Serial terminal for the expansion UART. Display-keyboard or port-shell input is forwarded to the UART, and UART RX is drawn in the active terminal.
+- [com application](apps.md#com) — Serial terminal for named UART buses, with optional hardware autobaud detection and an offset/hex/ASCII receive view. It works from display and port shells.
 - [curl application](apps.md#curl) — HTTP client for quick text downloads and diagnostics. It can print response data to the terminal or save it to a file.
 - [edit application](apps.md#edit) — Text editor for files on mounted storage. It supports cursor navigation, selection, clipboard operations, text-size changes, and syntax highlighting for known source files. The editor supports files up to 256 KiB on boards with PSRAM and 32 KiB on boards without PSRAM.
 - [email application](apps.md#email) — Receive-only IMAPS client for the configured mailbox. The app shows the provider-specific message list while every newly synchronized message is also published to the universal inbox and its shared status-bar unread counter.
