@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "solar_os_shell_common.h"
+
 #if SOLAR_OS_PACKAGE_APP_DOCS
 #include "solar_os_docs_app.h"
 #endif
@@ -134,7 +136,7 @@ static bool man_launch_pager(solar_os_context_t *ctx,
     }
     solar_os_shell_io_printf(io,
                              "man: pager unavailable: %s\n",
-                             esp_err_to_name(err));
+                             solar_os_shell_error_text(err));
 #else
     (void)ctx;
     (void)io;
@@ -153,18 +155,28 @@ void solar_os_shell_cmd_man(solar_os_context_t *ctx, int argc, char **argv)
         man_list(io);
         return;
     }
+    if (argc == 2 && (strcmp(argv[1], "-k") == 0 || strcmp(argv[1], "--apropos") == 0)) {
+        solar_os_shell_diag_missing(io, "man -k", "search query", "man -k QUERY");
+        return;
+    }
     if (argc >= 3 && (strcmp(argv[1], "-k") == 0 ||
                       strcmp(argv[1], "--apropos") == 0)) {
         char query[MAN_QUERY_MAX];
         if (!man_join_args(argc, argv, 2, query, sizeof(query))) {
-            man_usage(io);
+            solar_os_shell_diag_problem(io, "man -k", "search query is too long",
+                                        "man -k QUERY", NULL);
             return;
         }
         (void)man_search(io, query);
         return;
     }
     if (argc != 2) {
-        man_usage(io);
+        if (argc < 2) {
+            solar_os_shell_diag_missing(io, "man", "topic", "man TOPIC | man -k QUERY | man --list");
+        } else {
+            solar_os_shell_diag_unexpected(io, "man", argv[2],
+                                           "man TOPIC | man -k QUERY | man --list");
+        }
         return;
     }
 
@@ -384,7 +396,7 @@ static void docs_print_status(solar_os_shell_io_t *io)
     solar_os_docs_status_t status;
     const esp_err_t err = solar_os_docs_get_status(&status);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io, "help: status failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "help: status failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
     solar_os_shell_io_printf(io, "Firmware: %s\n", status.version);
@@ -413,7 +425,7 @@ static bool docs_launch_browser(solar_os_context_t *ctx,
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "help: launch failed: %s\n",
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
         return false;
     }
     solar_os_shell_session_prepare_foreground_launch(ctx, false);
@@ -443,7 +455,7 @@ void solar_os_shell_cmd_help(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(io,
                                      "help: update failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -454,7 +466,7 @@ void solar_os_shell_cmd_help(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(io,
                                      "help: reset failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -491,5 +503,13 @@ void solar_os_shell_cmd_help(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 #endif
-    solar_os_shell_io_writeln(io, "usage: help [TOPIC]|status|update|reset");
+    if (argc > 2) {
+        solar_os_shell_diag_unexpected(io, "help", argv[2], "help [TOPIC|status|update|reset]");
+        return;
+    }
+    static const char * const help_keywords[] = {"status", "update", "reset"};
+    const char *suggestion = solar_os_shell_suggest(argv[1], help_keywords,
+                                                    sizeof(help_keywords) / sizeof(help_keywords[0]));
+    solar_os_shell_diag_unknown(io, "help", "topic or subcommand", argv[1], suggestion,
+                                "help [TOPIC|status|update|reset]");
 }

@@ -20,6 +20,9 @@ typedef struct {
     const char *summary;
     const solar_os_app_t *app;
     uint32_t capabilities;
+    const char *usage;
+    uint8_t min_argc;
+    uint8_t max_argc;
 } solar_os_app_registry_entry_t;
 
 size_t solar_os_app_registry_count(void);

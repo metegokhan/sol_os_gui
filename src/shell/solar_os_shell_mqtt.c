@@ -19,6 +19,10 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
+static const char * const mqtt_commands[] = {
+    "status", "connect", "disconnect", "publish", "subscribe",
+};
+
 static void mqtt_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
@@ -84,7 +88,7 @@ static void mqtt_print_status(solar_os_shell_io_t *term)
     solar_os_mqtt_status_t status;
     const esp_err_t err = solar_os_mqtt_get_status(&status);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "mqtt status failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "mqtt status failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -110,7 +114,7 @@ static void mqtt_print_status(solar_os_shell_io_t *term)
         solar_os_shell_io_printf(term,
                                  "Last error: %s (%s)\n",
                                  status.last_error,
-                                 esp_err_to_name(status.last_esp_error));
+                                 solar_os_shell_error_text(status.last_esp_error));
     }
 }
 
@@ -137,7 +141,8 @@ static void mqtt_wait_and_print_connect(solar_os_shell_io_t *term)
 static void mqtt_cmd_connect(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc > 5) {
-        solar_os_shell_io_writeln(term, "usage: mqtt connect [url [username [password]]]");
+        solar_os_shell_diag_problem(term, "mqtt connect", "too many connection arguments",
+                                    "mqtt connect [url [username [password]]]", NULL);
         return;
     }
 
@@ -146,16 +151,20 @@ static void mqtt_cmd_connect(solar_os_shell_io_t *term, int argc, char **argv)
     const char *password = argc >= 5 ? argv[4] : NULL;
     const esp_err_t err = solar_os_mqtt_connect(url, username, password);
     if (err == ESP_ERR_INVALID_STATE) {
-        solar_os_shell_io_writeln(term, "mqtt: no saved broker URL");
-        solar_os_shell_io_writeln(term, "usage: mqtt connect mqtt[s]://host[:port] [username [password]]");
+        solar_os_shell_diag_problem(
+            term, "mqtt connect", "no saved broker URL",
+            "mqtt connect mqtt[s]://host[:port] [username [password]]", NULL);
         return;
     }
     if (err == ESP_ERR_INVALID_ARG) {
-        solar_os_shell_io_writeln(term, "mqtt: invalid URL, username, or password");
+        solar_os_shell_diag_problem(
+            term, "mqtt connect", "invalid URL, username, or password",
+            "mqtt connect mqtt[s]://host[:port] [username [password]]",
+            "credential values are intentionally not repeated");
         return;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "mqtt connect failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "mqtt connect failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -167,12 +176,30 @@ static void mqtt_cmd_publish(solar_os_shell_io_t *term, int argc, char **argv)
     int qos = 0;
     bool retain = false;
 
-    if (argc < 4 ||
-        argc > 6 ||
-        (argc >= 5 && !mqtt_parse_qos(argv[4], &qos)) ||
-        (argc >= 6 && !mqtt_parse_retain(argv[5], &retain))) {
-        solar_os_shell_io_writeln(term, "usage: mqtt publish <topic> <payload> [qos] [retain]");
-        solar_os_shell_io_writeln(term, "qos: 0..2, retain: 0|1|on|off|retain");
+    if (argc < 3) {
+        solar_os_shell_diag_missing(term, "mqtt publish", "topic",
+                                    "mqtt publish <topic> <payload> [qos] [retain]");
+        return;
+    }
+    if (argc < 4) {
+        solar_os_shell_diag_missing(term, "mqtt publish", "payload",
+                                    "mqtt publish <topic> <payload> [qos] [retain]");
+        return;
+    }
+    if (argc > 6) {
+        solar_os_shell_diag_unexpected(term, "mqtt publish", argv[6],
+                                       "mqtt publish <topic> <payload> [qos] [retain]");
+        return;
+    }
+    if (argc >= 5 && !mqtt_parse_qos(argv[4], &qos)) {
+        solar_os_shell_diag_invalid(term, "mqtt publish", "QoS", argv[4], "0, 1, or 2",
+                                    "mqtt publish <topic> <payload> [qos] [retain]", false);
+        return;
+    }
+    if (argc >= 6 && !mqtt_parse_retain(argv[5], &retain)) {
+        solar_os_shell_diag_invalid(term, "mqtt publish", "retain flag", argv[5],
+                                    "0, 1, on, off, or retain",
+                                    "mqtt publish <topic> <payload> [qos] [retain]", false);
         return;
     }
 
@@ -193,7 +220,7 @@ static void mqtt_cmd_publish(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "mqtt publish failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "mqtt publish failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -214,9 +241,19 @@ static void mqtt_cmd_subscribe(solar_os_shell_io_t *term, int argc, char **argv)
 {
     int qos = 0;
 
-    if (argc < 3 || argc > 4 || (argc == 4 && !mqtt_parse_qos(argv[3], &qos))) {
-        solar_os_shell_io_writeln(term, "usage: mqtt subscribe <topic> [qos]");
-        solar_os_shell_io_writeln(term, "qos: 0..2");
+    if (argc < 3) {
+        solar_os_shell_diag_missing(term, "mqtt subscribe", "topic",
+                                    "mqtt subscribe <topic> [qos]");
+        return;
+    }
+    if (argc > 4) {
+        solar_os_shell_diag_unexpected(term, "mqtt subscribe", argv[4],
+                                       "mqtt subscribe <topic> [qos]");
+        return;
+    }
+    if (argc == 4 && !mqtt_parse_qos(argv[3], &qos)) {
+        solar_os_shell_diag_invalid(term, "mqtt subscribe", "QoS", argv[3], "0, 1, or 2",
+                                    "mqtt subscribe <topic> [qos]", false);
         return;
     }
 
@@ -231,7 +268,7 @@ static void mqtt_cmd_subscribe(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "mqtt subscribe failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "mqtt subscribe failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -256,7 +293,7 @@ static void mqtt_cmd_subscribe(solar_os_shell_io_t *term, int argc, char **argv)
             mqtt_print_message(term, &message);
             solar_os_shell_io_flush(term);
         } else if (read_err != ESP_ERR_TIMEOUT) {
-            solar_os_shell_io_printf(term, "mqtt read failed: %s\n", esp_err_to_name(read_err));
+            solar_os_shell_io_printf(term, "mqtt read failed: %s\n", solar_os_shell_error_text(read_err));
             break;
         }
     }
@@ -270,7 +307,7 @@ void solar_os_shell_cmd_mqtt(solar_os_context_t *ctx, int argc, char **argv)
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
         if (argc > 2) {
-            solar_os_shell_io_writeln(term, "usage: mqtt status");
+            solar_os_shell_diag_unexpected(term, "mqtt status", argv[2], "mqtt status");
             return;
         }
         mqtt_print_status(term);
@@ -281,12 +318,12 @@ void solar_os_shell_cmd_mqtt(solar_os_context_t *ctx, int argc, char **argv)
         mqtt_cmd_connect(term, argc, argv);
     } else if (strcmp(argv[1], "disconnect") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: mqtt disconnect");
+            solar_os_shell_diag_unexpected(term, "mqtt disconnect", argv[2], "mqtt disconnect");
             return;
         }
         const esp_err_t err = solar_os_mqtt_disconnect();
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "mqtt disconnect failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "mqtt disconnect failed: %s\n", solar_os_shell_error_text(err));
             return;
         }
         solar_os_shell_io_writeln(term, "mqtt: disconnected");
@@ -295,7 +332,13 @@ void solar_os_shell_cmd_mqtt(solar_os_context_t *ctx, int argc, char **argv)
     } else if (strcmp(argv[1], "subscribe") == 0) {
         mqtt_cmd_subscribe(term, argc, argv);
     } else {
-        mqtt_print_usage(term);
+        solar_os_shell_diag_subcommand(term,
+                                       "mqtt",
+                                       argc,
+                                       argv,
+                                       "mqtt status|connect|disconnect|publish|subscribe",
+                                       mqtt_commands,
+                                       sizeof(mqtt_commands) / sizeof(mqtt_commands[0]));
     }
 }
 

@@ -2,6 +2,10 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
+static const char * const neopixel_commands[] = {
+    "status", "list", "set", "fill", "clear", "show",
+};
+
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,7 +68,7 @@ static void print_error(solar_os_shell_io_t *term, esp_err_t err)
     } else if (err == ESP_ERR_INVALID_ARG) {
         solar_os_shell_io_writeln(term, "neopixel: invalid pixel index or color");
     } else {
-        solar_os_shell_io_printf(term, "neopixel failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "neopixel failed: %s\n", solar_os_shell_error_text(err));
     }
 }
 
@@ -137,7 +141,13 @@ void solar_os_shell_cmd_neopixel(solar_os_context_t *ctx, int argc, char **argv)
     } else if (strcmp(argv[1], "show") == 0 && argc == 3) {
         err = solar_os_neopixel_show(argv[2]);
     } else {
-        neopixel_usage(term);
+        solar_os_shell_diag_subcommand(term,
+                                       "neopixel",
+                                       argc,
+                                       argv,
+                                       "neopixel status|list|set|fill|clear|show",
+                                       neopixel_commands,
+                                       sizeof(neopixel_commands) / sizeof(neopixel_commands[0]));
         return;
     }
 

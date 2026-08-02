@@ -5,7 +5,12 @@
 
 #include "solar_os_credentials.h"
 #include "solar_os_meshcore.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+
+static const char * const meshcore_commands[] = {
+    "status", "identity", "name", "advert", "channel",
+};
 
 static void meshcore_usage(solar_os_shell_io_t *io)
 {
@@ -36,7 +41,7 @@ static void meshcore_error(solar_os_shell_io_t *io,
                            esp_err_t error)
 {
     solar_os_shell_io_printf(
-        io, "meshcore %s: %s\n", operation, esp_err_to_name(error));
+        io, "meshcore %s: %s\n", operation, solar_os_shell_error_text(error));
 }
 
 static void meshcore_status(solar_os_shell_io_t *io)
@@ -95,7 +100,7 @@ static void meshcore_status(solar_os_shell_io_t *io)
         "Errors: send %" PRIu32 ", receive %" PRIu32 ", last %s\n",
         status.send_errors,
         status.receive_errors,
-        esp_err_to_name(status.last_error));
+        solar_os_shell_error_text(status.last_error));
     solar_os_shell_io_printf(
         io,
         "Context in PSRAM: %s, stack watermark: %" PRIu32 " bytes\n",
@@ -253,5 +258,11 @@ void solar_os_shell_cmd_meshcore(solar_os_context_t *ctx,
         meshcore_channel(io, argc, argv)) {
         return;
     }
-    meshcore_usage(io);
+    solar_os_shell_diag_subcommand(io,
+                                   "meshcore",
+                                   argc,
+                                   argv,
+                                   "meshcore status|identity|name|advert|channel",
+                                   meshcore_commands,
+                                   sizeof(meshcore_commands) / sizeof(meshcore_commands[0]));
 }

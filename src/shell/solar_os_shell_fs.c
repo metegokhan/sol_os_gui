@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_shell.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
@@ -261,7 +262,7 @@ void solar_os_shell_cmd_cd(solar_os_context_t *ctx, int argc, char **argv)
     char path[SHELL_PATH_MAX];
 
     if (argc > 2) {
-        solar_os_shell_io_writeln(term, "usage: cd [path]");
+        solar_os_shell_diag_unexpected(term, "cd", argv[2], "cd [path]");
         return;
     }
 
@@ -433,7 +434,9 @@ static bool shell_ls_parse_options(solar_os_shell_io_t *term,
                 } else if (*p == 'h') {
                     options->human = true;
                 } else {
-                    solar_os_shell_io_writeln(term, "usage: ls [-a] [-h] [path|pattern]");
+                    char option[3] = {'-', *p, '\0'};
+                    solar_os_shell_diag_invalid(term, "ls", "option", option, "-a or -h",
+                                                "ls [-a] [-h] [path|pattern]", false);
                     return false;
                 }
             }
@@ -441,7 +444,7 @@ static bool shell_ls_parse_options(solar_os_shell_io_t *term,
         }
 
         if (*path_arg != NULL) {
-            solar_os_shell_io_writeln(term, "usage: ls [-a] [-h] [path|pattern]");
+            solar_os_shell_diag_unexpected(term, "ls", arg, "ls [-a] [-h] [path|pattern]");
             return false;
         }
         *path_arg = arg;
@@ -532,7 +535,11 @@ void solar_os_shell_cmd_cat(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc != 2) {
-        solar_os_shell_io_writeln(term, "usage: cat <path|pattern>");
+        if (argc < 2) {
+            solar_os_shell_diag_missing(term, "cat", "path or pattern", "cat <path|pattern>");
+        } else {
+            solar_os_shell_diag_unexpected(term, "cat", argv[2], "cat <path|pattern>");
+        }
         return;
     }
 
@@ -579,7 +586,7 @@ void solar_os_shell_cmd_mkdir(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc < 2) {
-        solar_os_shell_io_writeln(term, "usage: mkdir <path> [path...]");
+        solar_os_shell_diag_missing(term, "mkdir", "path", "mkdir <path> [path...]");
         return;
     }
 
@@ -782,7 +789,8 @@ static bool shell_rm_parse_options(solar_os_shell_io_t *term,
     }
 
     if (*first_path >= argc) {
-        solar_os_shell_io_writeln(term, "usage: rm [-f|-rf] <path|pattern> [path|pattern...]");
+        solar_os_shell_diag_missing(term, "rm", "path or pattern",
+                                    "rm [-f|-rf] <path|pattern> [path|pattern...]");
         return false;
     }
 
@@ -899,9 +907,15 @@ static void shell_cmd_copy_move(solar_os_context_t *ctx, int argc, char **argv, 
     const char *command = move ? "mv" : "cp";
 
     if (argc != 3) {
-        solar_os_shell_io_printf(term,
-                                 "usage: %s <source|pattern> <dest>\n",
-                                 command);
+        char usage[48];
+        snprintf(usage, sizeof(usage), "%s <source|pattern> <dest>", command);
+        if (argc < 2) {
+            solar_os_shell_diag_missing(term, command, "source or pattern", usage);
+        } else if (argc < 3) {
+            solar_os_shell_diag_missing(term, command, "destination", usage);
+        } else {
+            solar_os_shell_diag_unexpected(term, command, argv[3], usage);
+        }
         return;
     }
     if (shell_arg_has_wildcards(argv[2])) {
@@ -1220,13 +1234,15 @@ void solar_os_shell_cmd_zip(solar_os_context_t *ctx, int argc, char **argv)
             continue;
         }
 
-        solar_os_shell_io_printf(term, "zip: unsupported option: %s\n", argv[first_arg]);
-        solar_os_shell_io_writeln(term, "usage: zip [-0] <archive.zip> <path|pattern> [path|pattern...]");
+        solar_os_shell_diag_invalid(term, "zip", "option", argv[first_arg], "-0",
+                                    "zip [-0] <archive.zip> <path|pattern> [path|pattern...]", false);
         return;
     }
 
     if (argc - first_arg < 2) {
-        solar_os_shell_io_writeln(term, "usage: zip [-0] <archive.zip> <path|pattern> [path|pattern...]");
+        solar_os_shell_diag_missing(term, "zip",
+                                    argc - first_arg == 0 ? "archive path" : "source path or pattern",
+                                    "zip [-0] <archive.zip> <path|pattern> [path|pattern...]");
         return;
     }
     if (shell_arg_has_wildcards(argv[first_arg])) {
@@ -1305,13 +1321,18 @@ void solar_os_shell_cmd_unzip(solar_os_context_t *ctx, int argc, char **argv)
             continue;
         }
 
-        solar_os_shell_io_printf(term, "unzip: unsupported option: %s\n", argv[first_arg]);
-        solar_os_shell_io_writeln(term, "usage: unzip [-l] <archive.zip> [dest]");
+        solar_os_shell_diag_invalid(term, "unzip", "option", argv[first_arg], "-l",
+                                    "unzip [-l] <archive.zip> [dest]", false);
         return;
     }
 
     if ((list_only && argc - first_arg != 1) || (!list_only && (argc - first_arg < 1 || argc - first_arg > 2))) {
-        solar_os_shell_io_writeln(term, "usage: unzip [-l] <archive.zip> [dest]");
+        if (argc - first_arg < 1) {
+            solar_os_shell_diag_missing(term, "unzip", "archive path", "unzip [-l] <archive.zip> [dest]");
+        } else {
+            solar_os_shell_diag_unexpected(term, "unzip", argv[first_arg + (list_only ? 1 : 2)],
+                                           "unzip [-l] <archive.zip> [dest]");
+        }
         return;
     }
 

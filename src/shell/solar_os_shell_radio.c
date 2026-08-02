@@ -3,6 +3,15 @@
 #include "solar_os_shell_io.h"
 #include "solar_os_shell_tui_apps.h"
 
+static const char * const radio_commands[] = {
+    "status", "list", "config", "profile", "state", "send", "recv",
+};
+static const char * const radio_config_fields[] = {
+    "frequency", "modulation", "bitrate", "deviation", "bandwidth", "sf",
+    "coding-rate", "power", "crc", "variable", "length", "preamble", "node",
+    "network", "sync",
+};
+
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -262,7 +271,7 @@ static void radio_print_error(solar_os_shell_io_t *term, const char *prefix, esp
         solar_os_shell_io_printf(term, "%s: radio is owned by a job\n", prefix);
         break;
     default:
-        solar_os_shell_io_printf(term, "%s failed: %s\n", prefix, esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "%s failed: %s\n", prefix, solar_os_shell_error_text(err));
         break;
     }
 }
@@ -386,7 +395,8 @@ static void radio_cmd_status(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
     if (argc != 3) {
-        solar_os_shell_io_writeln(term, "usage: radio status <name>");
+        solar_os_shell_diag_unexpected(term, "radio status", argv[3],
+                                       "radio status [name]");
         return;
     }
 
@@ -437,7 +447,8 @@ static bool parse_sync_args(int argc, char **argv, int first, solar_os_radio_con
 static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc < 3) {
-        solar_os_shell_io_writeln(term, "usage: radio config <name> [field value]");
+        solar_os_shell_diag_missing(term, "radio config", "<name>",
+                                    "radio config <name> [field value]");
         return;
     }
 
@@ -453,12 +464,18 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
     if (argc < 5) {
-        solar_os_shell_io_writeln(term, "usage: radio config <name> <field> <value>");
+        solar_os_shell_diag_missing(term, "radio config", "<value>",
+                                    "radio config <name> <field> <value>");
         return;
     }
 
     solar_os_radio_config_t config = status.config;
     const char *field = argv[3];
+    if (strcmp(field, "sync") != 0 && argc > 5) {
+        solar_os_shell_diag_unexpected(term, "radio config", argv[5],
+                                       "radio config <name> <field> <value>");
+        return;
+    }
     uint32_t u32 = 0;
     int32_t i32 = 0;
     bool bit = false;
@@ -555,7 +572,11 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
     } else {
-        radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
+        const char *suggestion = solar_os_shell_suggest(
+            field, radio_config_fields,
+            sizeof(radio_config_fields) / sizeof(radio_config_fields[0]));
+        solar_os_shell_diag_unknown(term, "radio config", "field", field, suggestion,
+                                    "radio config <name> <field> <value>");
         return;
     }
 
@@ -617,6 +638,52 @@ static void radio_cmd_profile_list(solar_os_shell_io_t *term)
 
 static void radio_cmd_profile(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    if (argc < 3) {
+        solar_os_shell_diag_missing(term, "radio profile", "<subcommand>",
+                                    "radio profile list|show|apply|save|remove ...");
+        return;
+    }
+    if (strcmp(argv[2], "list") == 0 && argc != 3) {
+        solar_os_shell_diag_unexpected(term, "radio profile list", argv[3],
+                                       "radio profile list");
+        return;
+    }
+    if (strcmp(argv[2], "show") == 0 && argc != 4) {
+        if (argc < 4) {
+            solar_os_shell_diag_missing(term, "radio profile show", "<profile>",
+                                        "radio profile show <profile>");
+        } else {
+            solar_os_shell_diag_unexpected(term, "radio profile show", argv[4],
+                                           "radio profile show <profile>");
+        }
+        return;
+    }
+    if ((strcmp(argv[2], "apply") == 0 || strcmp(argv[2], "save") == 0) && argc != 5) {
+        const char *command = strcmp(argv[2], "apply") == 0 ?
+            "radio profile apply" : "radio profile save";
+        if (argc < 4) {
+            solar_os_shell_diag_missing(term, command, "<radio>",
+                                        "radio profile apply|save <radio> <profile>");
+        } else if (argc < 5) {
+            solar_os_shell_diag_missing(term, command, "<profile>",
+                                        "radio profile apply|save <radio> <profile>");
+        } else {
+            solar_os_shell_diag_unexpected(term, command, argv[5],
+                                           "radio profile apply|save <radio> <profile>");
+        }
+        return;
+    }
+    if (strcmp(argv[2], "remove") == 0 && argc != 4) {
+        if (argc < 4) {
+            solar_os_shell_diag_missing(term, "radio profile remove", "<profile>",
+                                        "radio profile remove <profile>");
+        } else {
+            solar_os_shell_diag_unexpected(term, "radio profile remove", argv[4],
+                                           "radio profile remove <profile>");
+        }
+        return;
+    }
+
     if (argc == 3 && strcmp(argv[2], "list") == 0) {
         radio_cmd_profile_list(term);
         return;
@@ -673,18 +740,27 @@ static void radio_cmd_profile(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
 
-    solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  radio profile list");
-    solar_os_shell_io_writeln(term, "  radio profile show <profile>");
-    solar_os_shell_io_writeln(term, "  radio profile apply <radio> <profile>");
-    solar_os_shell_io_writeln(term, "  radio profile save <radio> <profile>");
-    solar_os_shell_io_writeln(term, "  radio profile remove <profile>");
+    static const char * const profile_commands[] = {
+        "list", "show", "apply", "save", "remove",
+    };
+    const char *suggestion = solar_os_shell_suggest(
+        argv[2], profile_commands,
+        sizeof(profile_commands) / sizeof(profile_commands[0]));
+    solar_os_shell_diag_unknown(term, "radio profile", "subcommand", argv[2],
+                                suggestion,
+                                "radio profile list|show|apply|save|remove ...");
 }
 
 static void radio_cmd_state(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc < 3 || argc > 4) {
-        solar_os_shell_io_writeln(term, "usage: radio state <name> [sleep|standby|rx|tx]");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "radio state", "<name>",
+                                        "radio state <name> [sleep|standby|rx|tx]");
+        } else {
+            solar_os_shell_diag_unexpected(term, "radio state", argv[4],
+                                           "radio state <name> [sleep|standby|rx|tx]");
+        }
         return;
     }
 
@@ -701,7 +777,9 @@ static void radio_cmd_state(solar_os_shell_io_t *term, int argc, char **argv)
 
     const solar_os_radio_state_t state = solar_os_radio_state_from_name(argv[3]);
     if (state == SOLAR_OS_RADIO_STATE_UNKNOWN) {
-        radio_print_error(term, "radio state", ESP_ERR_INVALID_ARG);
+        solar_os_shell_diag_invalid(term, "radio state", "state", argv[3],
+                                    "sleep, standby, rx, or tx",
+                                    "radio state <name> [sleep|standby|rx|tx]", false);
         return;
     }
 
@@ -757,7 +835,8 @@ static bool packet_from_args(int argc, char **argv, int first, solar_os_radio_pa
 static void radio_cmd_send(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc < 4) {
-        solar_os_shell_io_writeln(term, "usage: radio send <name> <text|byte...>");
+        solar_os_shell_diag_missing(term, "radio send", argc < 3 ? "<name>" : "<payload>",
+                                    "radio send <name> <text|byte...>");
         return;
     }
 
@@ -811,11 +890,19 @@ static void radio_cmd_recv(solar_os_shell_io_t *term, int argc, char **argv)
     uint32_t timeout_ms = 1000;
 
     if (argc < 3 || argc > 4) {
-        solar_os_shell_io_writeln(term, "usage: radio recv <name> [timeout-ms]");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "radio recv", "<name>",
+                                        "radio recv <name> [timeout-ms]");
+        } else {
+            solar_os_shell_diag_unexpected(term, "radio recv", argv[4],
+                                           "radio recv <name> [timeout-ms]");
+        }
         return;
     }
     if (argc == 4 && !parse_u32_arg(argv[3], 0, UINT32_MAX, &timeout_ms)) {
-        radio_print_error(term, "radio recv", ESP_ERR_INVALID_ARG);
+        solar_os_shell_diag_invalid(term, "radio recv", "timeout-ms", argv[3],
+                                    "a non-negative integer",
+                                    "radio recv <name> [timeout-ms]", false);
         return;
     }
 
@@ -835,7 +922,7 @@ void solar_os_shell_cmd_radio(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 1) {
         const esp_err_t err = solar_os_shell_launch_radio_tui(ctx);
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "radio: launch failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "radio: launch failed: %s\n", solar_os_shell_error_text(err));
         } else {
             solar_os_shell_session_prepare_foreground_launch(ctx, true);
         }
@@ -871,5 +958,11 @@ void solar_os_shell_cmd_radio(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    radio_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "radio",
+                                   argc,
+                                   argv,
+                                   "radio status|list|config|profile|state|send|recv",
+                                   radio_commands,
+                                   sizeof(radio_commands) / sizeof(radio_commands[0]));
 }

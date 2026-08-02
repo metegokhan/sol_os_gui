@@ -9,6 +9,10 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
+static const char * const link_commands[] = {
+    "status", "list", "send", "send-binary", "receive", "recv",
+};
+
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
     return solar_os_shell_command_io(ctx);
@@ -76,7 +80,7 @@ static void link_print_error(solar_os_shell_io_t *term, const char *operation, e
         solar_os_shell_io_printf(term, "%s: no message\n", operation);
         break;
     default:
-        solar_os_shell_io_printf(term, "%s failed: %s\n", operation, esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "%s failed: %s\n", operation, solar_os_shell_error_text(err));
         break;
     }
 }
@@ -108,7 +112,7 @@ static void link_print_status(solar_os_shell_io_t *term, const solar_os_link_sta
                              status->acknowledgements_sent,
                              status->acknowledgements_received,
                              status->dropped,
-                             esp_err_to_name(status->last_error));
+                             solar_os_shell_error_text(status->last_error));
 }
 
 static void link_status(solar_os_shell_io_t *term, int argc, char **argv)
@@ -128,7 +132,8 @@ static void link_status(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
     if (argc != 3) {
-        solar_os_shell_io_writeln(term, "usage: link status <link>");
+        solar_os_shell_diag_unexpected(term, "link status", argv[3],
+                                       "link status [link]");
         return;
     }
     solar_os_link_status_t status;
@@ -143,13 +148,17 @@ static void link_status(solar_os_shell_io_t *term, int argc, char **argv)
 static void link_send_text(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc < 5) {
-        solar_os_shell_io_writeln(term,
-                                  "usage: link send <link> <broadcast|destination-id> <text>");
+        const char *missing = argc < 3 ? "<link>" :
+                              argc < 4 ? "<destination>" : "<text>";
+        solar_os_shell_diag_missing(term, "link send", missing,
+                                    "link send <link> <broadcast|destination-id> <text>");
         return;
     }
     uint32_t destination = 0;
     if (!parse_destination(argv[3], &destination)) {
-        link_print_error(term, "link send", ESP_ERR_INVALID_ARG);
+        solar_os_shell_diag_invalid(term, "link send", "destination", argv[3],
+                                    "broadcast or a numeric destination ID",
+                                    "link send <link> <broadcast|destination-id> <text>", false);
         return;
     }
 
@@ -181,13 +190,19 @@ static void link_send_text(solar_os_shell_io_t *term, int argc, char **argv)
 static void link_send_binary(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc < 5) {
-        solar_os_shell_io_writeln(
-            term, "usage: link send-binary <link> <broadcast|destination-id> <byte...>");
+        const char *missing = argc < 3 ? "<link>" :
+                              argc < 4 ? "<destination>" : "<byte>";
+        solar_os_shell_diag_missing(
+            term, "link send-binary", missing,
+            "link send-binary <link> <broadcast|destination-id> <byte...>");
         return;
     }
     uint32_t destination = 0;
     if (!parse_destination(argv[3], &destination)) {
-        link_print_error(term, "link send-binary", ESP_ERR_INVALID_ARG);
+        solar_os_shell_diag_invalid(
+            term, "link send-binary", "destination", argv[3],
+            "broadcast or a numeric destination ID",
+            "link send-binary <link> <broadcast|destination-id> <byte...>", false);
         return;
     }
 
@@ -195,7 +210,9 @@ static void link_send_binary(solar_os_shell_io_t *term, int argc, char **argv)
     size_t len = 0;
     for (int i = 4; i < argc; i++) {
         if (len >= sizeof(payload) || !parse_byte(argv[i], &payload[len++])) {
-            link_print_error(term, "link send-binary", ESP_ERR_INVALID_ARG);
+            solar_os_shell_diag_invalid(
+                term, "link send-binary", "byte", argv[i], "a byte from 0 to 255",
+                "link send-binary <link> <broadcast|destination-id> <byte...>", false);
             return;
         }
     }
@@ -212,12 +229,20 @@ static void link_send_binary(solar_os_shell_io_t *term, int argc, char **argv)
 static void link_receive(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc < 3 || argc > 4) {
-        solar_os_shell_io_writeln(term, "usage: link receive <link> [timeout-ms]");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "link receive", "<link>",
+                                        "link receive <link> [timeout-ms]");
+        } else {
+            solar_os_shell_diag_unexpected(term, "link receive", argv[4],
+                                           "link receive <link> [timeout-ms]");
+        }
         return;
     }
     uint32_t timeout_ms = 0;
     if (argc == 4 && (!parse_u32(argv[3], &timeout_ms) || timeout_ms > 1000U)) {
-        link_print_error(term, "link receive", ESP_ERR_INVALID_ARG);
+        solar_os_shell_diag_invalid(term, "link receive", "timeout-ms", argv[3],
+                                    "an integer from 0 to 1000",
+                                    "link receive <link> [timeout-ms]", false);
         return;
     }
 
@@ -274,6 +299,12 @@ void solar_os_shell_cmd_link(solar_os_context_t *ctx, int argc, char **argv)
     } else if (strcmp(argv[1], "receive") == 0 || strcmp(argv[1], "recv") == 0) {
         link_receive(term, argc, argv);
     } else {
-        link_usage(term);
+        solar_os_shell_diag_subcommand(term,
+                                       "link",
+                                       argc,
+                                       argv,
+                                       "link status|list|send|send-binary|receive|recv",
+                                       link_commands,
+                                       sizeof(link_commands) / sizeof(link_commands[0]));
     }
 }

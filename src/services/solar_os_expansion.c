@@ -103,12 +103,22 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
     {
         .name = "rfm69",
-        .summary = "HopeRF RFM69 SPI packet radio",
+        .summary = "HopeRF RFM69W/CW SPI packet radio",
         .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI,
         .probe_supported = true,
         .binding_specs = rfm69_binding_specs,
         .binding_spec_count = sizeof(rfm69_binding_specs) / sizeof(rfm69_binding_specs[0]),
         .attach = solar_os_rfm69_attach,
+        .detach = solar_os_rfm69_detach,
+    },
+    {
+        .name = "rfm69h",
+        .summary = "HopeRF RFM69HW/HCW high-power SPI packet radio",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI,
+        .probe_supported = true,
+        .binding_specs = rfm69_binding_specs,
+        .binding_spec_count = sizeof(rfm69_binding_specs) / sizeof(rfm69_binding_specs[0]),
+        .attach = solar_os_rfm69h_attach,
         .detach = solar_os_rfm69_detach,
     },
 #endif

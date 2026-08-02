@@ -36,6 +36,12 @@
 #define NETSCAN_MAX_HOSTS 256
 #define NETSCAN_TIMEOUT_MS 350U
 
+static const char * const wifi_subcommands[] = {
+    "status", "on", "off", "scan", "connect", "disconnect", "known", "forget", "nat", "ap",
+};
+static const char * const wifi_ap_subcommands[] = {"status", "on", "off"};
+static const char * const wifi_nat_subcommands[] = {"status", "on", "off"};
+
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
     return solar_os_shell_command_io(ctx);
@@ -80,7 +86,7 @@ static void wifi_print_nat_status(solar_os_shell_io_t *term, const solar_os_wifi
     if (status->nat_last_error != ESP_OK) {
         solar_os_shell_io_printf(term,
                                  "NAT: error %s\n",
-                                 esp_err_to_name(status->nat_last_error));
+                                 solar_os_shell_error_text(status->nat_last_error));
         return;
     }
 
@@ -158,7 +164,7 @@ static void wifi_cmd_scan(solar_os_shell_io_t *term)
     const esp_err_t err = solar_os_wifi_scan(aps, sizeof(aps) / sizeof(aps[0]), &found);
 
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "wifi scan failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "wifi scan failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -187,7 +193,7 @@ static void wifi_cmd_known(solar_os_shell_io_t *term)
                                               sizeof(profiles) / sizeof(profiles[0]),
                                               &count);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "wifi known failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "wifi known failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -213,7 +219,8 @@ static void wifi_cmd_ap(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc == 2 || strcmp(argv[2], "status") == 0) {
         if (argc > 3) {
-            solar_os_shell_io_writeln(term, "usage: wifi ap [status]");
+            solar_os_shell_diag_unexpected(term, "wifi ap status", argv[3],
+                                           "wifi ap [status]");
             return;
         }
         wifi_print_status(term);
@@ -222,9 +229,9 @@ static void wifi_cmd_ap(solar_os_shell_io_t *term, int argc, char **argv)
 
     if (strcmp(argv[2], "on") == 0) {
         if (argc > 6) {
-            solar_os_shell_io_writeln(
-                term,
-                "usage: wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]");
+            solar_os_shell_diag_unexpected(
+                term, "wifi ap on", argv[6],
+                "wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]");
             return;
         }
 
@@ -244,14 +251,14 @@ static void wifi_cmd_ap(solar_os_shell_io_t *term, int argc, char **argv)
         } else if (err == ESP_ERR_INVALID_ARG) {
             solar_os_shell_io_writeln(term, "wifi ap: invalid SSID, password, or auth mode");
         } else {
-            solar_os_shell_io_printf(term, "wifi ap on failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "wifi ap on failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (strcmp(argv[2], "off") == 0) {
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: wifi ap off");
+            solar_os_shell_diag_unexpected(term, "wifi ap off", argv[3], "wifi ap off");
             return;
         }
 
@@ -259,19 +266,23 @@ static void wifi_cmd_ap(solar_os_shell_io_t *term, int argc, char **argv)
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(term, "WiFi AP off");
         } else {
-            solar_os_shell_io_printf(term, "wifi ap off failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "wifi ap off failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
-    wifi_print_usage(term);
+    const char *suggestion = solar_os_shell_suggest(argv[2], wifi_ap_subcommands,
+                                                    sizeof(wifi_ap_subcommands) / sizeof(wifi_ap_subcommands[0]));
+    solar_os_shell_diag_unknown(term, "wifi ap", "subcommand", argv[2], suggestion,
+                                "wifi ap [status|on|off] ...");
 }
 
 static void wifi_cmd_nat(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc == 2 || strcmp(argv[2], "status") == 0) {
         if (argc > 3) {
-            solar_os_shell_io_writeln(term, "usage: wifi nat [status|on|off]");
+            solar_os_shell_diag_unexpected(term, "wifi nat status", argv[3],
+                                           "wifi nat [status|on|off]");
             return;
         }
         solar_os_wifi_status_t status;
@@ -282,7 +293,8 @@ static void wifi_cmd_nat(solar_os_shell_io_t *term, int argc, char **argv)
 
     if (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "off") == 0) {
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: wifi nat [status|on|off]");
+            solar_os_shell_diag_unexpected(term, "wifi nat", argv[3],
+                                           "wifi nat [status|on|off]");
             return;
         }
 
@@ -295,12 +307,15 @@ static void wifi_cmd_nat(solar_os_shell_io_t *term, int argc, char **argv)
         } else if (err == ESP_ERR_NOT_SUPPORTED) {
             solar_os_shell_io_writeln(term, "wifi nat: NAT is not supported in this build");
         } else {
-            solar_os_shell_io_printf(term, "wifi nat failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "wifi nat failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
-    solar_os_shell_io_writeln(term, "usage: wifi nat [status|on|off]");
+    const char *suggestion = solar_os_shell_suggest(argv[2], wifi_nat_subcommands,
+                                                    sizeof(wifi_nat_subcommands) / sizeof(wifi_nat_subcommands[0]));
+    solar_os_shell_diag_unknown(term, "wifi nat", "subcommand", argv[2], suggestion,
+                                "wifi nat [status|on|off]");
 }
 
 static void wifi_cmd_connect(solar_os_shell_io_t *term, int argc, char **argv)
@@ -318,13 +333,14 @@ static void wifi_cmd_connect(solar_os_shell_io_t *term, int argc, char **argv)
                                      "WiFi connecting to %s\n",
                                      status.ssid[0] != '\0' ? status.ssid : status.saved_ssid);
         } else {
-            solar_os_shell_io_printf(term, "wifi connect failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "wifi connect failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (argc < 3 || argc > 4) {
-        solar_os_shell_io_writeln(term, "usage: wifi connect [ssid [password]]");
+        solar_os_shell_diag_unexpected(term, "wifi connect", argv[4],
+                                       "wifi connect [ssid [password]]");
         return;
     }
 
@@ -336,7 +352,7 @@ static void wifi_cmd_connect(solar_os_shell_io_t *term, int argc, char **argv)
     } else if (err == ESP_ERR_INVALID_ARG) {
         solar_os_shell_io_writeln(term, "wifi: invalid SSID or password length");
     } else {
-        solar_os_shell_io_printf(term, "wifi connect failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "wifi connect failed: %s\n", solar_os_shell_error_text(err));
     }
 }
 
@@ -344,7 +360,7 @@ static void wifi_cmd_on(solar_os_shell_io_t *term)
 {
     esp_err_t err = solar_os_wifi_start();
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "wifi on failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "wifi on failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -369,7 +385,7 @@ static void wifi_cmd_on(solar_os_shell_io_t *term)
     } else if (err == ESP_ERR_NOT_FOUND) {
         solar_os_shell_io_writeln(term, "WiFi radio on");
     } else {
-        solar_os_shell_io_printf(term, "wifi connect failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "wifi connect failed: %s\n", solar_os_shell_error_text(err));
     }
 }
 
@@ -380,7 +396,7 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 1) {
         const esp_err_t err = solar_os_shell_launch_wifi_tui(ctx);
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "wifi: launch failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "wifi: launch failed: %s\n", solar_os_shell_error_text(err));
         } else {
             solar_os_shell_session_prepare_foreground_launch(ctx, true);
         }
@@ -388,21 +404,33 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (strcmp(argv[1], "status") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "wifi status", argv[2], "wifi status");
+            return;
+        }
         wifi_print_status(term);
         return;
     }
 
     if (strcmp(argv[1], "on") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "wifi on", argv[2], "wifi on");
+            return;
+        }
         wifi_cmd_on(term);
         return;
     }
 
     if (strcmp(argv[1], "off") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "wifi off", argv[2], "wifi off");
+            return;
+        }
         const esp_err_t err = solar_os_wifi_stop();
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(term, "WiFi radio off");
         } else {
-            solar_os_shell_io_printf(term, "wifi off failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "wifi off failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
@@ -419,7 +447,7 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "scan") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: wifi scan");
+            solar_os_shell_diag_unexpected(term, "wifi scan", argv[2], "wifi scan");
             return;
         }
         wifi_cmd_scan(term);
@@ -432,18 +460,22 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (strcmp(argv[1], "disconnect") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "wifi disconnect", argv[2], "wifi disconnect");
+            return;
+        }
         const esp_err_t err = solar_os_wifi_disconnect();
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(term, "WiFi disconnected");
         } else {
-            solar_os_shell_io_printf(term, "wifi disconnect failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "wifi disconnect failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (strcmp(argv[1], "known") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: wifi known");
+            solar_os_shell_diag_unexpected(term, "wifi known", argv[2], "wifi known");
             return;
         }
         wifi_cmd_known(term);
@@ -461,7 +493,8 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
         } else if (argc == 3) {
             err = solar_os_wifi_forget_ssid(argv[2]);
         } else {
-            solar_os_shell_io_writeln(term, "usage: wifi forget [ssid|all]");
+            solar_os_shell_diag_unexpected(term, "wifi forget", argv[3],
+                                           "wifi forget [ssid|all]");
             return;
         }
 
@@ -473,12 +506,15 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
         } else if (err == ESP_ERR_INVALID_ARG) {
             solar_os_shell_io_writeln(term, "wifi: invalid SSID");
         } else {
-            solar_os_shell_io_printf(term, "wifi forget failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "wifi forget failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
-    wifi_print_usage(term);
+    solar_os_shell_diag_subcommand(term, "wifi", argc, argv,
+                                   "wifi [status|on|off|scan|connect|disconnect|known|forget|nat|ap] ...",
+                                   wifi_subcommands,
+                                   sizeof(wifi_subcommands) / sizeof(wifi_subcommands[0]));
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_NET
@@ -563,16 +599,22 @@ void solar_os_shell_cmd_ping(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
     size_t count = SOLAR_OS_NET_PING_FOREVER;
 
-    if (argc < 2 || argc > 3) {
-        ping_print_usage(term);
+    if (argc < 2) {
+        solar_os_shell_diag_missing(term, "ping", "host", "ping <host> [count]");
+        return;
+    }
+    if (argc > 3) {
+        solar_os_shell_diag_unexpected(term, "ping", argv[3], "ping <host> [count]");
         return;
     }
 
     if (argc == 3 &&
         !parse_size_arg(argv[2], 1, SOLAR_OS_NET_PING_MAX_COUNT, &count)) {
-        solar_os_shell_io_printf(term,
-                                 "ping count: 1..%u\n",
-                                 (unsigned)SOLAR_OS_NET_PING_MAX_COUNT);
+        char expected[32];
+        snprintf(expected, sizeof(expected), "integer from 1 to %u",
+                 (unsigned)SOLAR_OS_NET_PING_MAX_COUNT);
+        solar_os_shell_diag_invalid(term, "ping", "count", argv[2], expected,
+                                    "ping <host> [count]", false);
         return;
     }
 
@@ -608,11 +650,12 @@ void solar_os_shell_cmd_ping(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (err == ESP_ERR_INVALID_ARG) {
-        ping_print_usage(term);
+        solar_os_shell_diag_invalid(term, "ping", "host", host, "hostname or IP address",
+                                    "ping <host> [count]", false);
         return;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "ping failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "ping failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -1063,8 +1106,14 @@ void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc < 2 || argc > 3) {
-        netscan_print_usage(term);
+    if (argc < 2) {
+        solar_os_shell_diag_missing(term, "netscan", "host or range",
+                                    "netscan <host|range> [ports]");
+        return;
+    }
+    if (argc > 3) {
+        solar_os_shell_diag_unexpected(term, "netscan", argv[3],
+                                       "netscan <host|range> [ports]");
         return;
     }
 
@@ -1078,9 +1127,9 @@ void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv)
     uint16_t ports[NETSCAN_MAX_PORTS];
     size_t port_count = 0;
     if (!netscan_parse_ports(argc == 3 ? argv[2] : NULL, ports, &port_count)) {
-        solar_os_shell_io_printf(term,
-                                 "netscan: invalid ports or too many ports, max %u\n",
-                                 (unsigned)NETSCAN_MAX_PORTS);
+        solar_os_shell_diag_invalid(term, "netscan", "ports", argv[2],
+                                    "comma list or range (maximum 128 ports)",
+                                    "netscan <host|range> [ports]", false);
         return;
     }
 
@@ -1101,7 +1150,7 @@ void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (target_err != ESP_OK) {
-        solar_os_shell_io_printf(term, "netscan: invalid target: %s\n", esp_err_to_name(target_err));
+        solar_os_shell_io_printf(term, "netscan: invalid target: %s\n", solar_os_shell_error_text(target_err));
         return;
     }
 
@@ -1194,7 +1243,7 @@ void solar_os_shell_cmd_ntp(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc > 2) {
-        solar_os_shell_io_writeln(term, "usage: ntp [server]");
+        solar_os_shell_diag_unexpected(term, "ntp", argv[2], "ntp [server]");
         return;
     }
 
@@ -1219,7 +1268,8 @@ void solar_os_shell_cmd_ntp(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (err == ESP_ERR_INVALID_ARG) {
-        solar_os_shell_io_writeln(term, "usage: ntp [server]");
+        solar_os_shell_diag_invalid(term, "ntp", "server", server,
+                                    "hostname or IP address", "ntp [server]", false);
         return;
     }
     if (err == ESP_ERR_NOT_SUPPORTED) {
@@ -1227,7 +1277,7 @@ void solar_os_shell_cmd_ntp(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "ntp: sync failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "ntp: sync failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 

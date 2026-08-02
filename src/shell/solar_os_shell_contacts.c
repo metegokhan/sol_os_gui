@@ -9,7 +9,12 @@
 #include "solar_os_credentials.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+
+static const char * const contacts_commands[] = {
+    "status", "list", "show", "rename", "trust", "block", "remove", "link",
+};
 
 static void contacts_usage(solar_os_shell_io_t *io)
 {
@@ -46,7 +51,7 @@ static void contacts_status(solar_os_shell_io_t *io)
     if (error != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "contacts: unavailable: %s\n",
-                                 esp_err_to_name(error));
+                                 solar_os_shell_error_text(error));
         return;
     }
     solar_os_shell_io_printf(io,
@@ -68,7 +73,7 @@ static void contacts_status(solar_os_shell_io_t *io)
     if (contacts.storage_error != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "Storage error: %s\n",
-                                 esp_err_to_name(contacts.storage_error));
+                                 solar_os_shell_error_text(contacts.storage_error));
     }
 
     solar_os_credentials_status_t credentials;
@@ -82,7 +87,7 @@ static void contacts_status(solar_os_shell_io_t *io)
             solar_os_shell_io_printf(
                 io,
                 "Credential storage error: %s\n",
-                esp_err_to_name(credentials.storage_error));
+                solar_os_shell_error_text(credentials.storage_error));
         }
     }
 }
@@ -141,7 +146,7 @@ static void contacts_show(solar_os_shell_io_t *io,
         solar_os_shell_io_printf(io,
                                  "contacts: %" PRIu32 ": %s\n",
                                  contact_id,
-                                 esp_err_to_name(error));
+                                 solar_os_shell_error_text(error));
         return;
     }
     solar_os_shell_io_printf(io,
@@ -198,7 +203,7 @@ static void contacts_result(solar_os_shell_io_t *io,
         solar_os_shell_io_printf(io,
                                  "contacts: %s failed: %s\n",
                                  operation,
-                                 esp_err_to_name(error));
+                                 solar_os_shell_error_text(error));
     }
 }
 
@@ -218,7 +223,7 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx,
         } else {
             solar_os_shell_io_printf(io,
                                      "contacts: launch failed: %s\n",
-                                     esp_err_to_name(error));
+                                     solar_os_shell_error_text(error));
         }
         return;
     }
@@ -238,7 +243,13 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx,
             } else if (strcmp(argv[2], "blocked") == 0) {
                 trust = SOLAR_OS_CONTACT_TRUST_BLOCKED;
             } else {
-                contacts_usage(io);
+                solar_os_shell_diag_invalid(io,
+                                            "contacts list",
+                                            "filter",
+                                            argv[2],
+                                            "all, discovered, trusted, or blocked",
+                                            "contacts list [all|discovered|trusted|blocked]",
+                                            false);
                 return;
             }
         }
@@ -248,7 +259,13 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx,
 
     uint32_t first_id = 0U;
     if (argc >= 3 && !contacts_parse_id(argv[2], &first_id)) {
-        solar_os_shell_io_writeln(io, "contacts: invalid contact ID");
+        solar_os_shell_diag_invalid(io,
+                                    "contacts",
+                                    "contact ID",
+                                    argv[2],
+                                    "a decimal contact ID",
+                                    NULL,
+                                    false);
         return;
     }
     if (argc == 3 && strcmp(argv[1], "show") == 0) {
@@ -266,7 +283,13 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx,
          strcmp(argv[1], "block") == 0)) {
         uint32_t endpoint_id = 0U;
         if (argc == 4 && !contacts_parse_id(argv[3], &endpoint_id)) {
-            solar_os_shell_io_writeln(io, "contacts: invalid endpoint ID");
+            solar_os_shell_diag_invalid(io,
+                                        "contacts",
+                                        "endpoint ID",
+                                        argv[3],
+                                        "a decimal endpoint ID",
+                                        NULL,
+                                        false);
             return;
         }
         const bool block = strcmp(argv[1], "block") == 0;
@@ -289,7 +312,13 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx,
     if (argc == 4 && strcmp(argv[1], "link") == 0) {
         uint32_t source_id = 0U;
         if (!contacts_parse_id(argv[3], &source_id)) {
-            solar_os_shell_io_writeln(io, "contacts: invalid source contact ID");
+            solar_os_shell_diag_invalid(io,
+                                        "contacts link",
+                                        "source contact ID",
+                                        argv[3],
+                                        "a decimal contact ID",
+                                        "contacts link <target-contact-id> <source-contact-id>",
+                                        false);
             return;
         }
         contacts_result(io,
@@ -297,5 +326,11 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx,
                         solar_os_contacts_link(first_id, source_id));
         return;
     }
-    contacts_usage(io);
+    solar_os_shell_diag_subcommand(io,
+                                   "contacts",
+                                   argc,
+                                   argv,
+                                   "contacts status|list|show|rename|trust|block|remove|link",
+                                   contacts_commands,
+                                   sizeof(contacts_commands) / sizeof(contacts_commands[0]));
 }

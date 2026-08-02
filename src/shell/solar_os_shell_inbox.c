@@ -10,6 +10,9 @@
 #include "solar_os_inbox.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell.h"
+#include "solar_os_shell_common.h"
+
+static const char * const inbox_commands[] = {"status", "list", "read", "clear", "post"};
 #include "solar_os_shell_io.h"
 
 #define INBOX_LIST_MAX 16
@@ -51,7 +54,7 @@ static void inbox_cmd_status(solar_os_shell_io_t *io)
     solar_os_inbox_status_t status;
     const esp_err_t err = solar_os_inbox_get_status(&status);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io, "inbox: unavailable: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "inbox: unavailable: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -72,7 +75,7 @@ static void inbox_cmd_status(solar_os_shell_io_t *io)
     } else {
         solar_os_shell_io_printf(io,
                                  "Persistence: unavailable (%s)\n",
-                                 esp_err_to_name(status.storage_error));
+                                 solar_os_shell_error_text(status.storage_error));
     }
     solar_os_shell_io_printf(io, "Dropped: %lu\n", (unsigned long)status.dropped);
 }
@@ -148,7 +151,7 @@ static void inbox_cmd_read(solar_os_shell_io_t *io, uint32_t id)
         return;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io, "inbox: read failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "inbox: read failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -203,7 +206,7 @@ static void inbox_cmd_post(solar_os_shell_io_t *io, int argc, char **argv)
     uint32_t id = 0;
     const esp_err_t err = solar_os_inbox_publish(&message, &id);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io, "inbox: post failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "inbox: post failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
     solar_os_shell_io_printf(io, "posted message %lu\n", (unsigned long)id);
@@ -219,7 +222,7 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 1) {
         const esp_err_t err = solar_os_context_request_launch(ctx, &solar_os_inbox_app, 0, NULL);
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(io, "inbox: launch failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(io, "inbox: launch failed: %s\n", solar_os_shell_error_text(err));
         } else {
             solar_os_shell_session_prepare_foreground_launch(ctx, false);
         }
@@ -235,7 +238,13 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
             if (strcmp(argv[2], "unread") == 0) {
                 unread_only = true;
             } else if (strcmp(argv[2], "all") != 0) {
-                inbox_print_usage(io);
+                solar_os_shell_diag_invalid(io,
+                                            "inbox list",
+                                            "filter",
+                                            argv[2],
+                                            "all or unread",
+                                            "inbox list [all|unread]",
+                                            false);
                 return;
             }
         }
@@ -245,7 +254,13 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
     if (strcmp(argv[1], "read") == 0 && argc == 3) {
         uint32_t id = 0;
         if (!inbox_parse_id(argv[2], &id)) {
-            inbox_print_usage(io);
+            solar_os_shell_diag_invalid(io,
+                                        "inbox read",
+                                        "message ID",
+                                        argv[2],
+                                        "a decimal message ID",
+                                        "inbox read <id>",
+                                        false);
             return;
         }
         inbox_cmd_read(io, id);
@@ -258,7 +273,7 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_OK) {
             solar_os_shell_io_printf(io, "cleared %u messages\n", (unsigned)status.count);
         } else {
-            solar_os_shell_io_printf(io, "inbox: clear failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(io, "inbox: clear failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
@@ -267,5 +282,11 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    inbox_print_usage(io);
+    solar_os_shell_diag_subcommand(io,
+                                   "inbox",
+                                   argc,
+                                   argv,
+                                   "inbox status|list|read|clear|post",
+                                   inbox_commands,
+                                   sizeof(inbox_commands) / sizeof(inbox_commands[0]));
 }

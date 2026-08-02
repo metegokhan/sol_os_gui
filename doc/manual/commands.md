@@ -27,6 +27,17 @@ Wildcard patterns are supported by selected filesystem commands, for example
 Tab completion covers commands, subcommands, filesystem paths, job names, port
 names, and stream IDs where the command exposes enough structure.
 
+Invalid input is reported as a specific problem followed by only the relevant
+usage line. Close, unambiguous command and subcommand typos include a `did you
+mean` hint; SolarOS never runs the suggested command automatically. Missing,
+unexpected, and invalid arguments identify the affected argument and its
+expected form. Passwords, tokens, and other credential values are redacted.
+
+Quotes and backslash escapes are checked before a command runs. Unterminated
+quotes, a trailing backslash, too many arguments, and unsupported shell
+operators such as `|`, `>`, `&&`, and `;` reject the complete line. URLs and
+ordinary argument text containing punctuation remain valid.
+
 History is kept in memory and cached at `/.shell/history` when storage is
 available. Optional startup and alias files:
 
@@ -105,8 +116,10 @@ SLIP, DAQ, and HTTP serving are jobs and are controlled with `job`.
 
 Scripts are intentionally simple. `sh` skips blank lines and lines whose first
 non-space character is `#`, then executes each remaining line as a normal shell
-command. `exit` stops the script and closes its port shell. There are no
-variables, pipes, redirects, or conditionals yet.
+command. Diagnostics produced through the common command parser include the
+script path and line number. A failed or malformed command does not execute, and
+the script continues with its next line; `exit` stops the script and closes its
+port shell. There are no variables, pipes, redirects, or conditionals yet.
 
 `man TOPIC` opens one manual entry in the `less` pager when that app is
 installed. Use `q`, `Esc`, or the app-exit key to return to the shell. `man -k`

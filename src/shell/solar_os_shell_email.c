@@ -6,7 +6,10 @@
 #include "solar_os_email_app.h"
 #include "solar_os_jobs.h"
 #include "solar_os_shell.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+
+static const char * const email_commands[] = {"status", "configure", "sync", "forget"};
 
 static void email_usage(solar_os_shell_io_t *io)
 {
@@ -23,7 +26,7 @@ static void email_status(solar_os_shell_io_t *io)
     solar_os_email_status_t status;
     const esp_err_t err = solar_os_email_get_status(&status);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io, "email: unavailable: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "email: unavailable: %s\n", solar_os_shell_error_text(err));
         return;
     }
     solar_os_shell_io_printf(io, "Configured: %s\n", status.configured ? "yes" : "no");
@@ -45,7 +48,7 @@ static void email_status(solar_os_shell_io_t *io)
     if (status.last_error != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "Last error: %s%s%s\n",
-                                 esp_err_to_name(status.last_error),
+                                 solar_os_shell_error_text(status.last_error),
                                  status.last_error_text[0] != '\0' ? ": " : "",
                                  status.last_error_text);
     }
@@ -62,7 +65,7 @@ void solar_os_shell_cmd_email(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_OK) {
             solar_os_shell_session_prepare_foreground_launch(ctx, false);
         } else {
-            solar_os_shell_io_printf(io, "email: launch failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(io, "email: launch failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
@@ -78,7 +81,7 @@ void solar_os_shell_cmd_email(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(io, "email account saved");
         } else {
-            solar_os_shell_io_printf(io, "email: configure failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(io, "email: configure failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
@@ -89,7 +92,7 @@ void solar_os_shell_cmd_email(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(io, "email sync started");
         } else {
-            solar_os_shell_io_printf(io, "email: sync failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(io, "email: sync failed: %s\n", solar_os_shell_error_text(err));
         }
 #else
         solar_os_shell_io_writeln(io, "email: sync job is not compiled in");
@@ -101,9 +104,23 @@ void solar_os_shell_cmd_email(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(io, "email account forgotten");
         } else {
-            solar_os_shell_io_printf(io, "email: forget failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(io, "email: forget failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
-    email_usage(io);
+    if (argc >= 2 && strcmp(argv[1], "configure") == 0) {
+        solar_os_shell_diag_problem(io,
+                                    "email configure",
+                                    argc < 5 ? "missing account details" : "too many account details",
+                                    "email configure <imaps://host[:port]> <user> <password> [mailbox]",
+                                    NULL);
+        return;
+    }
+    solar_os_shell_diag_subcommand(io,
+                                   "email",
+                                   argc,
+                                   argv,
+                                   "email status|configure|sync|forget",
+                                   email_commands,
+                                   sizeof(email_commands) / sizeof(email_commands[0]));
 }

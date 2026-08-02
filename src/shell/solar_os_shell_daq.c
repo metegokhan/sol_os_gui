@@ -9,6 +9,8 @@
 #include "solar_os_port.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+
+static const char * const daq_commands[] = {"help", "status", "streams", "start", "stop"};
 #include "solar_os_stream.h"
 
 static void daq_print_usage(solar_os_shell_io_t *term)
@@ -62,7 +64,7 @@ static void daq_print_status(solar_os_shell_io_t *term)
         solar_os_shell_io_printf(term,
                                  "DAQ: stopped%s%s\n",
                                  status.last_error == ESP_OK ? "" : ", last error ",
-                                 status.last_error == ESP_OK ? "" : esp_err_to_name(status.last_error));
+                                 status.last_error == ESP_OK ? "" : solar_os_shell_error_text(status.last_error));
         return;
     }
 
@@ -92,7 +94,7 @@ static void daq_print_status(solar_os_shell_io_t *term)
                                  status.failed_records);
     }
     if (status.last_error != ESP_OK) {
-        solar_os_shell_io_printf(term, "Last error: %s\n", esp_err_to_name(status.last_error));
+        solar_os_shell_io_printf(term, "Last error: %s\n", solar_os_shell_error_text(status.last_error));
     }
 }
 
@@ -116,7 +118,8 @@ static void daq_print_start_error(solar_os_shell_io_t *term,
         }
     }
     if (err == ESP_ERR_INVALID_ARG) {
-        daq_print_usage(term);
+        solar_os_shell_diag_problem(term, "daq start", "invalid capture arguments",
+                                    "daq start <file> <stream...> [options]", NULL);
         return;
     }
     if (err == ESP_ERR_NOT_SUPPORTED) {
@@ -124,7 +127,7 @@ static void daq_print_start_error(solar_os_shell_io_t *term,
         return;
     }
 
-    solar_os_shell_io_printf(term, "daq start failed: %s\n", esp_err_to_name(err));
+    solar_os_shell_io_printf(term, "daq start failed: %s\n", solar_os_shell_error_text(err));
 }
 
 void solar_os_shell_cmd_daq(solar_os_context_t *ctx, int argc, char **argv)
@@ -148,21 +151,23 @@ void solar_os_shell_cmd_daq(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "stop") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: daq stop");
+            solar_os_shell_diag_unexpected(term, "daq stop", argv[2], "daq stop");
             return;
         }
         const esp_err_t err = solar_os_jobs_stop(ctx, "daq");
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(term, "daq: stopped");
         } else {
-            solar_os_shell_io_printf(term, "daq stop failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "daq stop failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (strcmp(argv[1], "start") == 0) {
         if (argc < 4 || argc > SOLAR_OS_APP_ARG_MAX + 1) {
-            daq_print_usage(term);
+            solar_os_shell_diag_problem(term, "daq start",
+                                        argc < 4 ? "missing file or stream" : "too many arguments",
+                                        "daq start <file> <stream...> [options]", NULL);
             return;
         }
 
@@ -181,5 +186,11 @@ void solar_os_shell_cmd_daq(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    daq_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "daq",
+                                   argc,
+                                   argv,
+                                   "daq help|status|streams|start|stop",
+                                   daq_commands,
+                                   sizeof(daq_commands) / sizeof(daq_commands[0]));
 }

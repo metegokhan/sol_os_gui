@@ -239,9 +239,10 @@ static const solar_os_radio_ops_t radio_ops = {
     .receive = op_receive,
 };
 
-esp_err_t solar_os_rfm69_attach(const char *name,
+static esp_err_t attach_variant(const char *name,
                                 const solar_os_expansion_binding_t *bindings,
-                                size_t binding_count)
+                                size_t binding_count,
+                                rfm69_variant_t variant)
 {
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
     int cs_pin = -1;
@@ -278,7 +279,8 @@ esp_err_t solar_os_rfm69_attach(const char *name,
         ret = rfm69_init(&device->radio,
                          spi_bus,
                          cs_pin,
-                         RFM69_DEFAULT_SPEED_HZ);
+                         RFM69_DEFAULT_SPEED_HZ,
+                         variant);
     }
     uint8_t version = 0;
     if (ret == ESP_OK) {
@@ -291,8 +293,10 @@ esp_err_t solar_os_rfm69_attach(const char *name,
     if (ret == ESP_OK) {
         const solar_os_radio_registration_t registration = {
             .name = name,
-            .driver = "rfm69",
-            .summary = "HopeRF RFM69 433 MHz SPI radio",
+            .driver = variant == RFM69_VARIANT_HIGH_POWER ? "rfm69h" : "rfm69",
+            .summary = variant == RFM69_VARIANT_HIGH_POWER
+                ? "HopeRF RFM69H 433 MHz high-power SPI radio"
+                : "HopeRF RFM69 433 MHz SPI radio",
             .modulations = SOLAR_OS_RADIO_MODULATION_FSK |
                 SOLAR_OS_RADIO_MODULATION_GFSK |
                 SOLAR_OS_RADIO_MODULATION_MSK |
@@ -326,13 +330,28 @@ esp_err_t solar_os_rfm69_attach(const char *name,
     }
 
     ESP_LOGI(TAG,
-             "%s attached on %s CS GPIO%d%s%s",
+             "%s attached as %s on %s CS GPIO%d%s%s",
              name,
+             variant == RFM69_VARIANT_HIGH_POWER ? "rfm69h" : "rfm69",
              spi_bus,
              cs_pin,
              irq_pin >= 0 ? " irq" : "",
              reset_pin >= 0 ? " reset" : "");
     return ESP_OK;
+}
+
+esp_err_t solar_os_rfm69_attach(const char *name,
+                                const solar_os_expansion_binding_t *bindings,
+                                size_t binding_count)
+{
+    return attach_variant(name, bindings, binding_count, RFM69_VARIANT_STANDARD);
+}
+
+esp_err_t solar_os_rfm69h_attach(const char *name,
+                                 const solar_os_expansion_binding_t *bindings,
+                                 size_t binding_count)
+{
+    return attach_variant(name, bindings, binding_count, RFM69_VARIANT_HIGH_POWER);
 }
 
 esp_err_t solar_os_rfm69_detach(const char *name)
