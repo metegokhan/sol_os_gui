@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test
 
 .PHONY: all test clean
 
@@ -24,10 +24,15 @@ writer_files_test: writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c $(W
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I. -I$(ROOT)/src/services -I$(WRITER_DIR) \
 		writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c -o $@
 
+shell_parse_test: shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c $(ROOT)/src/shell/solar_os_shell_parse.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
+		shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
 	./doc_layout_test
+	./shell_parse_test
 
 clean:
 	$(RM) $(TARGETS)

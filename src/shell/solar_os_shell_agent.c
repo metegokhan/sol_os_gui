@@ -10,6 +10,14 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
+static const char * const agent_commands[] = {
+    "help", "new", "list", "resume", "delete", "status", "tools",
+    "config", "forget", "ask", "script",
+};
+static const char * const agent_config_fields[] = {
+    "endpoint", "model", "key", "reasoning", "tools", "max-tools",
+};
+
 static void agent_usage(solar_os_shell_io_t *io)
 {
     solar_os_shell_io_write_bold(io, "agent");
@@ -52,7 +60,7 @@ static void agent_conversations(solar_os_shell_io_t *io)
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "agent: list failed: %s\n",
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
         return;
     }
     if (count == 0) {
@@ -114,7 +122,7 @@ static void agent_launch(solar_os_context_t *ctx,
     } else {
         solar_os_shell_io_printf(io,
                                  "agent: launch failed: %s\n",
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
     }
 }
 
@@ -202,7 +210,7 @@ static void agent_status(solar_os_shell_io_t *io)
     solar_os_shell_io_printf(
         io,
         "Last: %s, HTTP %d, %" PRIu32 " ms, %" PRIu32 " bytes\n",
-        esp_err_to_name(status.last_error),
+        solar_os_shell_error_text(status.last_error),
         status.last_http_status,
         status.last_duration_ms,
         status.last_bytes_received);
@@ -229,7 +237,10 @@ static void agent_status(solar_os_shell_io_t *io)
 static void agent_configure(solar_os_shell_io_t *io, int argc, char **argv)
 {
     if (argc != 4) {
-        agent_usage(io);
+        solar_os_shell_diag_problem(io, "agent config",
+                                    argc < 4 ? "missing field or value" : "too many arguments",
+                                    "agent config <endpoint|model|key|reasoning|tools|max-tools> <value>",
+                                    NULL);
         return;
     }
 
@@ -258,7 +269,15 @@ static void agent_configure(solar_os_shell_io_t *io, int argc, char **argv)
             err = solar_os_agent_set_max_tools(max_tools);
         }
     } else {
-        agent_usage(io);
+        solar_os_shell_diag_unknown(
+            io,
+            "agent config",
+            "field",
+            field,
+            solar_os_shell_suggest(field,
+                                   agent_config_fields,
+                                   sizeof(agent_config_fields) / sizeof(agent_config_fields[0])),
+            "agent config endpoint|model|key|reasoning|tools|max-tools <value>");
         return;
     }
 
@@ -273,7 +292,7 @@ static void agent_configure(solar_os_shell_io_t *io, int argc, char **argv)
         solar_os_shell_io_printf(io,
                                  "agent: invalid %s: %s\n",
                                  field,
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
     }
 }
 
@@ -309,7 +328,7 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(io,
                                      "agent: delete failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -336,7 +355,7 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(io,
                                      "agent: erase failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -348,5 +367,11 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
         agent_launch(ctx, io, argc, argv);
         return;
     }
-    agent_usage(io);
+    solar_os_shell_diag_subcommand(io,
+                                   "agent",
+                                   argc,
+                                   argv,
+                                   "agent help|new|list|resume|delete|status|tools|config|forget|ask|script",
+                                   agent_commands,
+                                   sizeof(agent_commands) / sizeof(agent_commands[0]));
 }

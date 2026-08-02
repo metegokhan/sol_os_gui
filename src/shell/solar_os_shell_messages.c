@@ -6,7 +6,12 @@
 
 #include "solar_os_memory.h"
 #include "solar_os_messaging.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+
+static const char * const messages_commands[] = {
+    "status", "conversations", "list", "send", "read", "cancel",
+};
 
 static void messages_usage(solar_os_shell_io_t *io)
 {
@@ -57,7 +62,7 @@ static void messages_status(solar_os_shell_io_t *io)
     if (error != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "messages: unavailable: %s\n",
-                                 esp_err_to_name(error));
+                                 solar_os_shell_error_text(error));
         return;
     }
     solar_os_shell_io_printf(
@@ -91,7 +96,7 @@ static void messages_status(solar_os_shell_io_t *io)
     if (status.storage_error != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "Storage error: %s\n",
-                                 esp_err_to_name(status.storage_error));
+                                 solar_os_shell_error_text(status.storage_error));
     }
     for (solar_os_messaging_provider_id_t provider =
              SOLAR_OS_MESSAGING_PROVIDER_GATEWAY;
@@ -238,7 +243,7 @@ static void messages_send(solar_os_shell_io_t *io,
     } else {
         solar_os_shell_io_printf(io,
                                  "messages: send failed: %s\n",
-                                 esp_err_to_name(error));
+                                 solar_os_shell_error_text(error));
     }
 }
 
@@ -276,7 +281,7 @@ void solar_os_shell_cmd_messages(solar_os_context_t *ctx,
         solar_os_shell_io_printf(io,
                                  "messages: %s\n",
                                  error == ESP_OK ? "read" :
-                                     esp_err_to_name(error));
+                                     solar_os_shell_error_text(error));
         return;
     }
     uint64_t message_id = 0;
@@ -286,8 +291,14 @@ void solar_os_shell_cmd_messages(solar_os_context_t *ctx,
         solar_os_shell_io_printf(io,
                                  "messages: %s\n",
                                  error == ESP_OK ? "cancelled" :
-                                     esp_err_to_name(error));
+                                     solar_os_shell_error_text(error));
         return;
     }
-    messages_usage(io);
+    solar_os_shell_diag_subcommand(io,
+                                   "messages",
+                                   argc,
+                                   argv,
+                                   "messages status|conversations|list|send|read|cancel",
+                                   messages_commands,
+                                   sizeof(messages_commands) / sizeof(messages_commands[0]));
 }

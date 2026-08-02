@@ -98,103 +98,109 @@
 #include "solar_os_view.h"
 #endif
 
+#define APP_ENTRY(app_name, app_summary, app_ptr, app_caps, app_usage, app_min, app_max) \
+    {.name = app_name, .summary = app_summary, .app = app_ptr, .capabilities = app_caps, \
+     .usage = app_usage, .min_argc = app_min, .max_argc = app_max}
+
 static const solar_os_app_registry_entry_t registered_apps[] = {
 #if SOLAR_OS_PACKAGE_APP_APLAY
-    {"aplay", "play WAV/MP3 audio", &solar_os_aplay_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("aplay", "play WAV/MP3 audio", &solar_os_aplay_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "aplay [-v volume] <file.wav|file.mp3>", 2, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_ARECORD
-    {"arecord", "record WAV audio", &solar_os_arecord_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("arecord", "record WAV audio", &solar_os_arecord_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "arecord [-d seconds] <file.wav>", 2, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
-    {"chat", "shared chat client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("chat", "shared chat client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "chat [url [nickname [channel [password]]]]", 1, 5),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
-    {"contacts", "provider-neutral contact browser", &solar_os_contacts_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("contacts", "provider-neutral contact browser", &solar_os_contacts_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "contacts", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
-    {"agent", "native LLM agent", &solar_os_agent_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("agent", "native LLM agent", &solar_os_agent_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "agent [new|resume <id>|ask <prompt...>|script <file> [args...]]", 1, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CURL
-    {"curl", "HTTP client", &solar_os_curl_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("curl", "HTTP client", &solar_os_curl_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "curl [-L] [-o file] <URL>", 2, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_TELNET
-    {"telnet", "Telnet client", &solar_os_telnet_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("telnet", "Telnet client", &solar_os_telnet_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "telnet [-r] <host> [port]", 2, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_SCP
-    {"scp", "SCP file copy", &solar_os_scp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("scp", "SCP file copy", &solar_os_scp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "scp [-P port] <source> <destination>", 3, 5),
 #endif
 #if SOLAR_OS_PACKAGE_APP_SSH
-    {"ssh", "SSH client", &solar_os_ssh_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("ssh", "SSH client", &solar_os_ssh_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "ssh [user@]host [port]", 2, 3),
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEB
-    {"web", "simple web browser", &solar_os_web_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("web", "simple web browser", &solar_os_web_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "web <URL>", 2, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
-    {"clock", "clock, countdown alarm, stopwatch", &solar_os_clock_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("clock", "clock, countdown alarm, stopwatch", &solar_os_clock_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "clock [-s | -a MM:SS]", 1, 3),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CALC
-    {"calc", "scientific calculator and function plotter", &solar_os_calc_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("calc", "scientific calculator and function plotter", &solar_os_calc_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "calc [--text | -e expression]", 1, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
-    {"com", "serial terminal", &solar_os_com_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("com", "serial terminal", &solar_os_com_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "com [--autobaud] [--hex] [bus]", 1, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
-    {"edit", "text editor", &solar_os_edit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
-    {"hexedit", "two-pane hex editor", &solar_os_hexedit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("edit", "text editor", &solar_os_edit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "edit <file>", 2, 2),
+    APP_ENTRY("hexedit", "two-pane hex editor", &solar_os_hexedit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "hexedit <file>", 2, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_DOCS
-    {"help", "browse the SolarOS manual", &solar_os_docs_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("help", "browse the SolarOS manual", &solar_os_docs_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "help [topic]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
-    {"email", "IMAP email client", &solar_os_email_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("email", "IMAP email client", &solar_os_email_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "email", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_FILES
-    {"files", "two-pane file manager", &solar_os_files_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("files", "two-pane file manager", &solar_os_files_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "files", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_IO
-    {"io", "expansion pin and bus manager", &solar_os_io_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("io", "expansion pin and bus manager", &solar_os_io_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "io", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_INBOX
-    {"inbox", "universal incoming-message browser", &solar_os_inbox_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("inbox", "universal incoming-message browser", &solar_os_inbox_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "inbox", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LESS
-    {"less", "text file pager", &solar_os_less_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("less", "text file pager", &solar_os_less_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "less <file>", 2, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_NOTES
-    {"notes", "Markdown checklist notes", &solar_os_notes_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("notes", "Markdown checklist notes", &solar_os_notes_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "notes [file.md]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLOT
-    {"plot", "plot DAQ CSV files or scalar streams", &solar_os_plot_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("plot", "plot DAQ CSV files or scalar streams", &solar_os_plot_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "plot <stream...> [--rate ms] | plot -f <file.csv> [column...]", 2, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
-    {"playground", "browse and run community scripts", &solar_os_playground_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("playground", "browse and run community scripts", &solar_os_playground_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "playground [source|storage|reload|install|delete] ...", 1, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
-    {"logic", "logic analyzer waveform viewer", &solar_os_logic_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("logic", "logic analyzer waveform viewer", &solar_os_logic_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "logic <pin[,pin...]> [rate] [samples] [trigger=pin]", 2, 5),
 #endif
 #if SOLAR_OS_PACKAGE_APP_READER
-    {"reader", "graphics text/Markdown/EPUB reader", &solar_os_reader_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("reader", "graphics text/Markdown/EPUB reader", &solar_os_reader_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "reader <file.txt|file.md|file.epub|man:topic>", 2, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_WRITER
-    {"writer", "hybrid WYSIWYG Markdown editor", &solar_os_writer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("writer", "hybrid WYSIWYG Markdown editor", &solar_os_writer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "writer [file.md]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_SHEET
-    {"sheet", "CSV sheet viewer", &solar_os_sheet_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("sheet", "CSV sheet viewer", &solar_os_sheet_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "sheet <file.csv>", 2, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_INVADERS
-    {"invaders", "arcade shooter", &solar_os_invaders_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("invaders", "arcade shooter", &solar_os_invaders_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "invaders", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PYTHON
-    {"python", "MicroPython runtime", &solar_os_python_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("python", "MicroPython runtime", &solar_os_python_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "python [script.py [args...]]", 1, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LUA
-    {"lua", "Lua runtime", &solar_os_lua_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    APP_ENTRY("lua", "Lua runtime", &solar_os_lua_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "lua [script.lua [args...]]", 1, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_VIEW
-    {"view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+    APP_ENTRY("view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "view [-fit|-actual] <image>", 2, 3),
 #endif
-    {NULL, NULL, NULL, 0},
+    {0},
 };
+
+#undef APP_ENTRY
 
 #define REGISTERED_APP_STORAGE_COUNT (sizeof(registered_apps) / sizeof(registered_apps[0]))
 

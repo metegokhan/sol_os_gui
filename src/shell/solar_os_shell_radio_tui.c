@@ -13,6 +13,7 @@
 #include "esp_err.h"
 #include "solar_os_keys.h"
 #include "solar_os_radio.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_tui.h"
 
 #define RADIO_TUI_STATUS_MAX 96
@@ -575,7 +576,7 @@ static bool radio_tui_apply_config(const char *name, solar_os_radio_config_t *co
     }
 
     char message[RADIO_TUI_STATUS_MAX];
-    snprintf(message, sizeof(message), "configure failed: %s", esp_err_to_name(err));
+    snprintf(message, sizeof(message), "configure failed: %s", solar_os_shell_error_text(err));
     radio_tui_set_status(message);
     return false;
 }
@@ -846,7 +847,7 @@ static void radio_tui_cycle_selected(int direction)
 
     if (err != ESP_OK) {
         char message[RADIO_TUI_STATUS_MAX];
-        snprintf(message, sizeof(message), "state failed: %s", esp_err_to_name(err));
+        snprintf(message, sizeof(message), "state failed: %s", solar_os_shell_error_text(err));
         radio_tui_set_status(message);
     }
     radio_tui_render();

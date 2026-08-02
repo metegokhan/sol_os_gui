@@ -20,6 +20,11 @@
 #include "solar_os_uart.h"
 #endif
 
+static const char * const expansion_subcommands[] = {
+    "status", "layout", "scan", "drivers", "devices", "bus", "attach", "detach",
+};
+static const char * const expansion_bus_subcommands[] = {"create", "attach", "detach", "remove"};
+
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
     return solar_os_shell_command_io(ctx);
@@ -577,7 +582,8 @@ static void expansion_cmd_layout(solar_os_shell_io_t *term, int argc, char **arg
         return;
     }
     if (argc > 3) {
-        solar_os_shell_io_writeln(term, "usage: expansion layout [connector]");
+        solar_os_shell_diag_unexpected(term, "expansion layout", argv[3],
+                                       "expansion layout [connector]");
         return;
     }
 
@@ -801,7 +807,7 @@ static void expansion_print_attach_error(solar_os_shell_io_t *term, esp_err_t er
         solar_os_shell_io_writeln(term, "expansion attach: device probe failed");
         break;
     default:
-        solar_os_shell_io_printf(term, "expansion attach failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "expansion attach failed: %s\n", solar_os_shell_error_text(err));
         break;
     }
 }
@@ -813,7 +819,8 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
     solar_os_expansion_driver_t driver;
 
     if (argc < 3) {
-        expansion_print_driver_usage(term, NULL);
+        solar_os_shell_diag_missing(term, "expansion attach", "driver",
+                                    "expansion attach <driver> <name> <resource...>");
         return;
     }
     if (!expansion_find_driver(argv[2], &driver)) {
@@ -887,7 +894,13 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
 static void expansion_cmd_detach(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc != 3) {
-        solar_os_shell_io_writeln(term, "usage: expansion detach <name>");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "expansion detach", "device name",
+                                        "expansion detach <name>");
+        } else {
+            solar_os_shell_diag_unexpected(term, "expansion detach", argv[3],
+                                           "expansion detach <name>");
+        }
         return;
     }
 
@@ -899,7 +912,7 @@ static void expansion_cmd_detach(solar_os_shell_io_t *term, int argc, char **arg
     } else if (err == ESP_ERR_INVALID_STATE) {
         solar_os_shell_io_printf(term, "expansion detach: %s is busy\n", argv[2]);
     } else {
-        solar_os_shell_io_printf(term, "expansion detach failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "expansion detach failed: %s\n", solar_os_shell_error_text(err));
     }
 }
 
@@ -948,7 +961,7 @@ static void expansion_print_bus_error(solar_os_shell_io_t *term,
         solar_os_shell_io_printf(term,
                                  "expansion bus %s failed: %s\n",
                                  operation,
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
         break;
     }
 }
@@ -1102,7 +1115,11 @@ static void expansion_cmd_bus_create_i2c(solar_os_shell_io_t *term,
                                          char **argv)
 {
     if (argc < 8) {
-        expansion_print_usage(term);
+        solar_os_shell_diag_problem(
+            term, "expansion bus create i2c",
+            "not enough arguments; port, sda, and scl options are required",
+            "expansion bus create i2c <name> port=<i2c0|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]",
+            NULL);
         return;
     }
 
@@ -1122,7 +1139,8 @@ static void expansion_cmd_bus_create_i2c(solar_os_shell_io_t *term,
     for (int i = 5; i < argc; i++) {
         const char *eq = strchr(argv[i], '=');
         if (eq == NULL || eq == argv[i] || eq[1] == '\0') {
-            solar_os_shell_io_printf(term, "expansion bus create: invalid option '%s'\n", argv[i]);
+            solar_os_shell_diag_invalid(term, "expansion bus create i2c", "option", argv[i],
+                                        "key=value", NULL, false);
             return;
         }
         const size_t key_len = (size_t)(eq - argv[i]);
@@ -1151,7 +1169,8 @@ static void expansion_cmd_bus_create_i2c(solar_os_shell_io_t *term,
             }
             definition.config.i2c.speed_hz = (uint32_t)parsed;
         } else {
-            solar_os_shell_io_printf(term, "expansion bus create: unknown option '%s'\n", argv[i]);
+            solar_os_shell_diag_unknown(term, "expansion bus create i2c", "option", argv[i],
+                                        NULL, NULL);
             return;
         }
     }
@@ -1172,7 +1191,16 @@ static void expansion_cmd_bus_create_onewire(solar_os_shell_io_t *term,
                                              char **argv)
 {
     if (argc != 6) {
-        expansion_print_usage(term);
+        if (argc < 5) {
+            solar_os_shell_diag_missing(term, "expansion bus create onewire", "<name>",
+                                        "expansion bus create onewire <name> pin=<gpio>");
+        } else if (argc < 6) {
+            solar_os_shell_diag_missing(term, "expansion bus create onewire", "pin=<gpio>",
+                                        "expansion bus create onewire <name> pin=<gpio>");
+        } else {
+            solar_os_shell_diag_unexpected(term, "expansion bus create onewire", argv[6],
+                                           "expansion bus create onewire <name> pin=<gpio>");
+        }
         return;
     }
 
@@ -1210,7 +1238,11 @@ static void expansion_cmd_bus_create_uart(solar_os_shell_io_t *term,
                                           char **argv)
 {
     if (argc < 8) {
-        expansion_print_usage(term);
+        solar_os_shell_diag_problem(
+            term, "expansion bus create uart",
+            "not enough arguments; port, tx, and rx options are required",
+            "expansion bus create uart <name> port=<uart1|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]",
+            NULL);
         return;
     }
 
@@ -1230,7 +1262,8 @@ static void expansion_cmd_bus_create_uart(solar_os_shell_io_t *term,
     for (int i = 5; i < argc; i++) {
         const char *eq = strchr(argv[i], '=');
         if (eq == NULL || eq == argv[i] || eq[1] == '\0') {
-            solar_os_shell_io_printf(term, "expansion bus create: invalid option '%s'\n", argv[i]);
+            solar_os_shell_diag_invalid(term, "expansion bus create uart", "option", argv[i],
+                                        "key=value", NULL, false);
             return;
         }
         const size_t key_len = (size_t)(eq - argv[i]);
@@ -1262,7 +1295,8 @@ static void expansion_cmd_bus_create_uart(solar_os_shell_io_t *term,
             }
             definition.config.uart.baud_rate = (uint32_t)parsed;
         } else {
-            solar_os_shell_io_printf(term, "expansion bus create: unknown option '%s'\n", argv[i]);
+            solar_os_shell_diag_unknown(term, "expansion bus create uart", "option", argv[i],
+                                        NULL, NULL);
             return;
         }
     }
@@ -1284,7 +1318,10 @@ static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
                                          char **argv)
 {
     if (argc < 6) {
-        expansion_print_usage(term);
+        solar_os_shell_diag_problem(
+            term, "expansion bus create spi", "missing bus name or SPI options",
+            "expansion bus create spi <name> host=<spi2|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio|none>] cs=<gpio> ...",
+            NULL);
         return;
     }
 
@@ -1305,7 +1342,8 @@ static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
     for (int i = 5; i < argc; i++) {
         const char *eq = strchr(argv[i], '=');
         if (eq == NULL || eq == argv[i] || eq[1] == '\0') {
-            solar_os_shell_io_printf(term, "expansion bus create: invalid option '%s'\n", argv[i]);
+            solar_os_shell_diag_invalid(term, "expansion bus create spi", "option", argv[i],
+                                        "key=value", NULL, false);
             return;
         }
         const size_t key_len = (size_t)(eq - argv[i]);
@@ -1350,7 +1388,8 @@ static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
             }
             definition.config.spi.max_transfer_size = (uint32_t)parsed;
         } else {
-            solar_os_shell_io_printf(term, "expansion bus create: unknown option '%s'\n", argv[i]);
+            solar_os_shell_diag_unknown(term, "expansion bus create spi", "option", argv[i],
+                                        NULL, NULL);
             return;
         }
     }
@@ -1368,7 +1407,17 @@ static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
 
 static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    if (argc >= 5 && strcmp(argv[2], "create") == 0) {
+    if (argc >= 3 && strcmp(argv[2], "create") == 0) {
+        if (argc < 4) {
+            solar_os_shell_diag_missing(term, "expansion bus create", "<protocol>",
+                                        "expansion bus create <i2c|onewire|spi|uart> ...");
+            return;
+        }
+        if (argc < 5) {
+            solar_os_shell_diag_missing(term, "expansion bus create", "<name>",
+                                        "expansion bus create <protocol> <name> <options...>");
+            return;
+        }
         if (strcmp(argv[3], "i2c") == 0) {
             expansion_cmd_bus_create_i2c(term, argc, argv);
             return;
@@ -1387,8 +1436,25 @@ static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
 #endif
+        static const char * const protocols[] = {"i2c", "onewire", "spi", "uart"};
+        const char *suggestion = solar_os_shell_suggest(
+            argv[3], protocols, sizeof(protocols) / sizeof(protocols[0]));
+        solar_os_shell_diag_unknown(term, "expansion bus create", "protocol", argv[3],
+                                    suggestion,
+                                    "expansion bus create <i2c|onewire|spi|uart> ...");
+        return;
     }
-    if (argc == 4 && strcmp(argv[2], "attach") == 0) {
+    if (argc >= 3 && strcmp(argv[2], "attach") == 0) {
+        if (argc != 4) {
+            if (argc < 4) {
+                solar_os_shell_diag_missing(term, "expansion bus attach", "<name>",
+                                            "expansion bus attach <name>");
+            } else {
+                solar_os_shell_diag_unexpected(term, "expansion bus attach", argv[4],
+                                               "expansion bus attach <name>");
+            }
+            return;
+        }
         const esp_err_t err = solar_os_bus_attach(argv[3]);
         if (err != ESP_OK) {
             expansion_print_bus_attach_error(term, argv[3], err);
@@ -1397,7 +1463,17 @@ static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
         solar_os_shell_io_printf(term, "attached bus %s\n", argv[3]);
         return;
     }
-    if (argc == 4 && strcmp(argv[2], "detach") == 0) {
+    if (argc >= 3 && strcmp(argv[2], "detach") == 0) {
+        if (argc != 4) {
+            if (argc < 4) {
+                solar_os_shell_diag_missing(term, "expansion bus detach", "<name>",
+                                            "expansion bus detach <name>");
+            } else {
+                solar_os_shell_diag_unexpected(term, "expansion bus detach", argv[4],
+                                               "expansion bus detach <name>");
+            }
+            return;
+        }
         const esp_err_t err = solar_os_bus_detach(argv[3]);
         if (err != ESP_OK) {
             expansion_print_bus_error(term, "detach", err);
@@ -1406,7 +1482,17 @@ static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
         solar_os_shell_io_printf(term, "detached bus %s\n", argv[3]);
         return;
     }
-    if (argc == 4 && strcmp(argv[2], "remove") == 0) {
+    if (argc >= 3 && strcmp(argv[2], "remove") == 0) {
+        if (argc != 4) {
+            if (argc < 4) {
+                solar_os_shell_diag_missing(term, "expansion bus remove", "<name>",
+                                            "expansion bus remove <name>");
+            } else {
+                solar_os_shell_diag_unexpected(term, "expansion bus remove", argv[4],
+                                               "expansion bus remove <name>");
+            }
+            return;
+        }
         const esp_err_t err = solar_os_bus_unregister(argv[3]);
         if (err != ESP_OK) {
             expansion_print_bus_error(term, "remove", err);
@@ -1415,7 +1501,16 @@ static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
         solar_os_shell_io_printf(term, "removed bus %s\n", argv[3]);
         return;
     }
-    expansion_print_usage(term);
+    if (argc < 3) {
+        solar_os_shell_diag_missing(term, "expansion bus", "subcommand",
+                                    "expansion bus <create|attach|detach|remove> ...");
+    } else {
+        const char *suggestion = solar_os_shell_suggest(argv[2], expansion_bus_subcommands,
+                                                        sizeof(expansion_bus_subcommands) /
+                                                            sizeof(expansion_bus_subcommands[0]));
+        solar_os_shell_diag_unknown(term, "expansion bus", "subcommand", argv[2], suggestion,
+                                    "expansion bus <create|attach|detach|remove> ...");
+    }
 }
 
 void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv)
@@ -1423,10 +1518,18 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
+        if (argc > 2) {
+            solar_os_shell_diag_unexpected(term, "expansion status", argv[2], "expansion status");
+            return;
+        }
         expansion_cmd_status(term);
         return;
     }
     if (strcmp(argv[1], "scan") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "expansion scan", argv[2], "expansion scan");
+            return;
+        }
         expansion_print_resources(term);
         expansion_print_probe_drivers(term);
         return;
@@ -1436,10 +1539,18 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
         return;
     }
     if (strcmp(argv[1], "drivers") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "expansion drivers", argv[2], "expansion drivers");
+            return;
+        }
         expansion_print_drivers(term);
         return;
     }
     if (strcmp(argv[1], "devices") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "expansion devices", argv[2], "expansion devices");
+            return;
+        }
         expansion_print_devices(term);
         return;
     }
@@ -1456,5 +1567,8 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
         return;
     }
 
-    expansion_print_usage(term);
+    solar_os_shell_diag_subcommand(term, "expansion", argc, argv,
+                                   "expansion [status|layout|scan|drivers|devices|bus|attach|detach] ...",
+                                   expansion_subcommands,
+                                   sizeof(expansion_subcommands) / sizeof(expansion_subcommands[0]));
 }

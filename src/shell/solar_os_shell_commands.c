@@ -1,5 +1,27 @@
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
+
+static const char * const display_commands[] = {"list", "test", "mode"};
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
+static const char * const ota_commands[] = {"status", "check", "upgrade", "url", "flavor", "boot"};
+#endif
+static const char * const job_commands[] = {"status", "start", "stop"};
+static const char * const setterm_commands[] = {
+    "orientation", "font", "textsize", "palette", "brightness", "backlight",
+    "profile", "charset", "keyboard", "keymap", "keyrate", "typerate",
+    "repeat", "timezone", "otaurl", "ota",
+};
+static const char * const stream_commands[] = {"list", "status"};
+static const char * const log_commands[] = {"status", "show", "follow", "clear", "level", "sink"};
+static const char * const port_commands[] = {"list", "status"};
+static const char * const xfer_commands[] = {"protocols", "send", "recv"};
+static const char * const xfer_options[] = {
+    "--raw", "--zmodem", "--kermit", "--protocol", "-d", "--delay-ms",
+    "--idle-ms", "--append", "--replace",
+};
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
+static const char * const sshkey_commands[] = {"status", "gen", "pub", "rm"};
+#endif
 #include "solar_os_shell_io.h"
 #include "solar_os_shell_tui_apps.h"
 
@@ -310,7 +332,13 @@ static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)
     static const char owner[] = "shell:display-test";
 
     if (argc != 3) {
-        solar_os_shell_io_writeln(term, "usage: display test <target>");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "display test", "<target>",
+                                        "display test <target>");
+        } else {
+            solar_os_shell_diag_unexpected(term, "display test", argv[3],
+                                           "display test <target>");
+        }
         return;
     }
 
@@ -338,7 +366,7 @@ static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)
         solar_os_shell_io_printf(term,
                                  "display test: %s claim failed: %s\n",
                                  target.name,
-                                 esp_err_to_name(claim_err));
+                                 solar_os_shell_error_text(claim_err));
         return;
     }
 
@@ -350,7 +378,13 @@ static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)
 static void display_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc != 3 && argc != 4) {
-        solar_os_shell_io_writeln(term, "usage: display mode <target> [mode]");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "display mode", "<target>",
+                                        "display mode <target> [mode]");
+        } else {
+            solar_os_shell_diag_unexpected(term, "display mode", argv[4],
+                                           "display mode <target> [mode]");
+        }
         return;
     }
 
@@ -369,7 +403,7 @@ static void display_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
         solar_os_shell_io_printf(term,
                                  "display mode: %s unavailable: %s\n",
                                  argv[2],
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
         return;
     }
 
@@ -389,7 +423,7 @@ static void display_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
         solar_os_shell_io_printf(term,
                                  "display mode: %s failed: %s\n",
                                  argv[3],
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
         return;
     }
 
@@ -413,7 +447,13 @@ void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    display_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "display",
+                                   argc,
+                                   argv,
+                                   "display list|test|mode",
+                                   display_commands,
+                                   sizeof(display_commands) / sizeof(display_commands[0]));
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
@@ -452,7 +492,7 @@ static void ota_print_status(solar_os_shell_io_t *term)
     solar_os_ota_status_t status;
     const esp_err_t err = solar_os_ota_get_status(&status);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "ota: status failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "ota: status failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -694,7 +734,7 @@ static bool ota_parse_slot(const char *text, uint8_t *slot)
     }
 
     size_t parsed = 0;
-    if (!parse_size_arg(text, 0, 15, &parsed)) {
+    if (!parse_size_arg(text, 0, 1, &parsed)) {
         return false;
     }
 
@@ -707,13 +747,14 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc < 2) {
-        ota_print_usage(term);
+        solar_os_shell_diag_missing(term, "ota", "<subcommand>",
+                                    "ota status|check|upgrade|url|flavor|boot");
         return;
     }
 
     if (strcmp(argv[1], "status") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: ota status");
+            solar_os_shell_diag_unexpected(term, "ota status", argv[2], "ota status");
             return;
         }
         ota_print_status(term);
@@ -724,7 +765,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_ota_check_result_t result;
 
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: ota check");
+            solar_os_shell_diag_unexpected(term, "ota check", argv[2], "ota check");
             return;
         }
         if (!ota_wifi_ready(term)) {
@@ -741,7 +782,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "ota: check failed: %s",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
             if (result.status_code > 0) {
                 solar_os_shell_io_printf(term, " HTTP %d", result.status_code);
             }
@@ -752,7 +793,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "upgrade") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: ota upgrade");
+            solar_os_shell_diag_unexpected(term, "ota upgrade", argv[2], "ota upgrade");
             return;
         }
         if (!ota_wifi_ready(term)) {
@@ -780,7 +821,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "ota: upgrade failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -793,7 +834,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: ota url [url]");
+            solar_os_shell_diag_unexpected(term, "ota url", argv[3], "ota url [url]");
             return;
         }
 
@@ -803,7 +844,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         } else if (err == ESP_ERR_INVALID_ARG) {
             solar_os_shell_io_printf(term, "ota url: invalid URL: %s\n", argv[2]);
         } else {
-            solar_os_shell_io_printf(term, "ota url: save failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "ota url: save failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
@@ -816,7 +857,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
             if (err != ESP_OK) {
                 solar_os_shell_io_printf(term,
                                          "ota flavor: status failed: %s\n",
-                                         esp_err_to_name(err));
+                                         solar_os_shell_error_text(err));
                 return;
             }
             solar_os_shell_io_printf(term, "compiled: %s\n", status.compiled_flavor);
@@ -827,7 +868,8 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: ota flavor [flavor]");
+            solar_os_shell_diag_unexpected(term, "ota flavor", argv[3],
+                                           "ota flavor [flavor]");
             return;
         }
 
@@ -840,15 +882,24 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "ota flavor: save failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (strcmp(argv[1], "boot") == 0) {
         uint8_t slot = 0;
-        if (argc != 3 || !ota_parse_slot(argv[2], &slot)) {
-            solar_os_shell_io_writeln(term, "usage: ota boot 0|1");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "ota boot", "<slot>", "ota boot 0|1");
+            return;
+        }
+        if (argc > 3) {
+            solar_os_shell_diag_unexpected(term, "ota boot", argv[3], "ota boot 0|1");
+            return;
+        }
+        if (!ota_parse_slot(argv[2], &slot)) {
+            solar_os_shell_diag_invalid(term, "ota boot", "slot", argv[2], "0 or 1",
+                                        "ota boot 0|1", false);
             return;
         }
 
@@ -865,12 +916,18 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "ota: boot slot failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
 
-    ota_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "ota",
+                                   argc,
+                                   argv,
+                                   "ota status|check|upgrade|url|flavor|boot",
+                                   ota_commands,
+                                   sizeof(ota_commands) / sizeof(ota_commands[0]));
 }
 #endif
 
@@ -878,10 +935,8 @@ void solar_os_shell_cmd_apps(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    (void)argv;
-
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: apps");
+        solar_os_shell_diag_unexpected(term, "apps", argv[1], "apps");
         return;
     }
 
@@ -920,7 +975,7 @@ void solar_os_shell_cmd_identity(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "identity user failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -939,7 +994,7 @@ void solar_os_shell_cmd_identity(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "identity hostname failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -1016,7 +1071,7 @@ static void job_print_status(solar_os_shell_io_t *term,
     if (status->state == SOLAR_OS_JOB_FAILED && status->last_error != ESP_OK) {
         solar_os_shell_io_printf(term,
                                  "  last error: %s\n",
-                                 esp_err_to_name(status->last_error));
+                                 solar_os_shell_error_text(status->last_error));
     }
     if (!detail) {
         return;
@@ -1180,10 +1235,8 @@ void solar_os_shell_cmd_jobs(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    (void)argv;
-
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: jobs");
+        solar_os_shell_diag_unexpected(term, "jobs", argv[1], "jobs");
         return;
     }
 
@@ -1207,7 +1260,8 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc < 2) {
-        job_print_usage(term);
+        solar_os_shell_diag_missing(term, "job", "<subcommand>",
+                                    "job status|start|stop");
         return;
     }
 
@@ -1217,7 +1271,8 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: job status [name]");
+            solar_os_shell_diag_unexpected(term, "job status", argv[3],
+                                           "job status [name]");
             return;
         }
 
@@ -1233,7 +1288,8 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "start") == 0) {
         if (argc < 3) {
-            solar_os_shell_io_writeln(term, "usage: job start <name> [args...]");
+            solar_os_shell_diag_missing(term, "job start", "<name>",
+                                        "job start <name> [args...]");
             return;
         }
 
@@ -1261,16 +1317,18 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
                 } else {
                     solar_os_shell_io_printf(term,
                                              "session create failed: %s\n",
-                                             esp_err_to_name(err));
+                                             solar_os_shell_error_text(err));
                 }
                 return;
             }
 
             solar_os_port_shell_options_t options;
             if (argc < 4 || !parse_port_shell_options(argc, argv, 4, &options)) {
-                solar_os_shell_io_writeln(
-                    term,
-                    "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]");
+                solar_os_shell_diag_problem(
+                    term, "job start shell", argc < 4 ? "missing argument <port>" :
+                                                        "invalid port shell option",
+                    "job start shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]",
+                    "job start shell is retained for compatibility; 'session create shell' is preferred");
                 return;
             }
             uint8_t session_id = 0;
@@ -1286,7 +1344,7 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
             } else {
                 solar_os_shell_io_printf(term,
                                          "session create failed: %s\n",
-                                         esp_err_to_name(err));
+                                         solar_os_shell_error_text(err));
             }
             return;
         }
@@ -1317,14 +1375,18 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "job start failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (strcmp(argv[1], "stop") == 0) {
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: job stop <name>");
+            if (argc < 3) {
+                solar_os_shell_diag_missing(term, "job stop", "<name>", "job stop <name>");
+            } else {
+                solar_os_shell_diag_unexpected(term, "job stop", argv[3], "job stop <name>");
+            }
             return;
         }
 
@@ -1341,12 +1403,18 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "job stop failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
 
-    job_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "job",
+                                   argc,
+                                   argv,
+                                   "job status|start|stop",
+                                   job_commands,
+                                   sizeof(job_commands) / sizeof(job_commands[0]));
 }
 
 static void setterm_print_usage(solar_os_shell_io_t *term)
@@ -1383,7 +1451,7 @@ static void setterm_print_save_result(solar_os_shell_io_t *term,
         solar_os_shell_io_printf(term,
                                  "%s: applied but save failed: %s\n",
                                  setting,
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
     }
 }
 
@@ -1414,7 +1482,7 @@ static void setterm_print_keyrate_result(solar_os_shell_io_t *term, esp_err_t er
     } else {
         solar_os_shell_io_printf(term,
                                  "keyrate: applied but save failed: %s\n",
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
     }
 }
 #endif
@@ -1427,7 +1495,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 1) {
         const esp_err_t err = solar_os_shell_launch_setterm_tui(ctx);
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "setterm: launch failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "setterm: launch failed: %s\n", solar_os_shell_error_text(err));
         } else {
             solar_os_shell_session_prepare_foreground_launch(ctx, true);
         }
@@ -1443,14 +1511,17 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm orientation [0|90|180|270]");
+            solar_os_shell_diag_unexpected(term, "setterm orientation", argv[3],
+                                           "setterm orientation [0|90|180|270]");
             return;
         }
 
         size_t degrees = 0;
         if (!parse_size_arg(argv[2], 0, 270, &degrees) ||
             !(degrees == 0 || degrees == 90 || degrees == 180 || degrees == 270)) {
-            solar_os_shell_io_writeln(term, "orientation values: 0 90 180 270");
+            solar_os_shell_diag_invalid(term, "setterm orientation", "orientation", argv[2],
+                                        "0, 90, 180, or 270 degrees",
+                                        "setterm orientation [0|90|180|270]", false);
             return;
         }
 
@@ -1469,13 +1540,15 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm font [mono|compact]");
+            solar_os_shell_diag_unexpected(term, "setterm font", argv[3],
+                                           "setterm font [mono|compact]");
             return;
         }
 
         solar_os_terminal_font_t font;
         if (!solar_os_terminal_parse_font(argv[2], &font)) {
-            solar_os_shell_io_writeln(term, "font values: mono compact");
+            solar_os_shell_diag_invalid(term, "setterm font", "font", argv[2],
+                                        "mono or compact", "setterm font [mono|compact]", false);
             return;
         }
 
@@ -1494,13 +1567,16 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm textsize [12|14|16|18|20]");
+            solar_os_shell_diag_unexpected(term, "setterm textsize", argv[3],
+                                           "setterm textsize [12|14|16|18|20]");
             return;
         }
 
         solar_os_terminal_text_size_t text_size;
         if (!solar_os_terminal_parse_text_size(argv[2], &text_size)) {
-            solar_os_shell_io_writeln(term, "textsize values: 12 14 16 18 20");
+            solar_os_shell_diag_invalid(term, "setterm textsize", "size", argv[2],
+                                        "12, 14, 16, 18, or 20",
+                                        "setterm textsize [12|14|16|18|20]", false);
             return;
         }
 
@@ -1522,10 +1598,15 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_writeln(term, "values: normal inverted");
             return;
         }
-        if (argc != 3 ||
-            (strcmp(argv[2], "normal") != 0 && strcmp(argv[2], "inverted") != 0)) {
-            solar_os_shell_io_writeln(term,
-                                      "usage: setterm palette [normal|inverted]");
+        if (argc != 3) {
+            solar_os_shell_diag_unexpected(term, "setterm palette", argv[3],
+                                           "setterm palette [normal|inverted]");
+            return;
+        }
+        if (strcmp(argv[2], "normal") != 0 && strcmp(argv[2], "inverted") != 0) {
+            solar_os_shell_diag_invalid(term, "setterm palette", "palette", argv[2],
+                                        "normal or inverted",
+                                        "setterm palette [normal|inverted]", false);
             return;
         }
 
@@ -1547,7 +1628,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             if (err != ESP_OK) {
                 solar_os_shell_io_printf(term,
                                          "brightness: unavailable: %s\n",
-                                         esp_err_to_name(err));
+                                         solar_os_shell_error_text(err));
                 return;
             }
             solar_os_shell_io_printf(term, "brightness: %u\n", (unsigned)percent);
@@ -1555,13 +1636,16 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm brightness [0..100]");
+            solar_os_shell_diag_unexpected(term, "setterm brightness", argv[3],
+                                           "setterm brightness [0..100]");
             return;
         }
 
         size_t percent = 0;
         if (!parse_size_arg(argv[2], 0, 100, &percent)) {
-            solar_os_shell_io_writeln(term, "brightness values: 0..100");
+            solar_os_shell_diag_invalid(term, "setterm brightness", "percent", argv[2],
+                                        "an integer from 0 to 100",
+                                        "setterm brightness [0..100]", false);
             return;
         }
 
@@ -1590,14 +1674,17 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm profile [vt100|ansi|dumb]");
+            solar_os_shell_diag_unexpected(term, "setterm profile", argv[3],
+                                           "setterm profile [vt100|ansi|dumb]");
             return;
         }
 
         solar_os_shell_terminal_profile_t profile;
         if (!solar_os_shell_parse_terminal_profile(argv[2], &profile) ||
             profile == SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO) {
-            solar_os_shell_io_writeln(term, "profile values: vt100 ansi dumb");
+            solar_os_shell_diag_invalid(term, "setterm profile", "profile", argv[2],
+                                        "vt100, ansi, or dumb",
+                                        "setterm profile [vt100|ansi|dumb]", false);
             return;
         }
 
@@ -1624,13 +1711,15 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm charset [utf8|ascii]");
+            solar_os_shell_diag_unexpected(term, "setterm charset", argv[3],
+                                           "setterm charset [utf8|ascii]");
             return;
         }
 
         solar_os_shell_charset_t charset;
         if (!solar_os_shell_parse_charset(argv[2], &charset)) {
-            solar_os_shell_io_writeln(term, "charset values: utf8 ascii");
+            solar_os_shell_diag_invalid(term, "setterm charset", "charset", argv[2],
+                                        "utf8 or ascii", "setterm charset [utf8|ascii]", false);
             return;
         }
 
@@ -1651,13 +1740,15 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm keyboard [us|de]");
+            solar_os_shell_diag_unexpected(term, "setterm keyboard", argv[3],
+                                           "setterm keyboard [us|de]");
             return;
         }
 
         solar_os_ble_keyboard_layout_t layout;
         if (!solar_os_ble_keyboard_parse_layout(argv[2], &layout)) {
-            solar_os_shell_io_writeln(term, "keyboard values: us de");
+            solar_os_shell_diag_invalid(term, "setterm keyboard", "layout", argv[2],
+                                        "us or de", "setterm keyboard [us|de]", false);
             return;
         }
 
@@ -1680,7 +1771,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc < 3 || argc > 4) {
-            solar_os_shell_io_writeln(term, "usage: setterm keyrate [off|1..60 [delay-ms]]");
+            solar_os_shell_diag_unexpected(term, "setterm keyrate", argv[4],
+                                           "setterm keyrate [off|1..60 [delay-ms]]");
             return;
         }
 
@@ -1689,7 +1781,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 
         if (strcmp(argv[2], "off") == 0) {
             if (argc != 3) {
-                solar_os_shell_io_writeln(term, "usage: setterm keyrate off");
+                solar_os_shell_diag_unexpected(term, "setterm keyrate off", argv[3],
+                                               "setterm keyrate off");
                 return;
             }
 
@@ -1703,7 +1796,9 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                             SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MIN,
                             SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MAX,
                             &rate)) {
-            solar_os_shell_io_writeln(term, "keyrate values: off or 1..60");
+            solar_os_shell_diag_invalid(term, "setterm keyrate", "rate", argv[2],
+                                        "off or an integer from 1 to 60",
+                                        "setterm keyrate [off|1..60 [delay-ms]]", false);
             return;
         }
 
@@ -1713,7 +1808,9 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                             SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MIN_MS,
                             SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MAX_MS,
                             &delay_ms)) {
-            solar_os_shell_io_writeln(term, "keyrate delay values: 100..2000 ms");
+            solar_os_shell_diag_invalid(term, "setterm keyrate", "delay-ms", argv[3],
+                                        "an integer from 100 to 2000",
+                                        "setterm keyrate [off|1..60 [delay-ms]]", false);
             return;
         }
 
@@ -1738,15 +1835,18 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term,
-                                      "usage: setterm timezone [UTC|Europe/Berlin|POSIX-TZ]");
+            solar_os_shell_diag_unexpected(
+                term, "setterm timezone", argv[3],
+                "setterm timezone [UTC|Europe/Berlin|POSIX-TZ]");
             return;
         }
 
         const esp_err_t err = solar_os_time_set_timezone(argv[2]);
         if (err == ESP_ERR_INVALID_ARG) {
-            solar_os_shell_io_printf(term, "timezone: invalid value: %s\n", argv[2]);
-            solar_os_shell_io_writeln(term, "values: UTC Europe/Berlin or POSIX TZ");
+            solar_os_shell_diag_invalid(
+                term, "setterm timezone", "timezone", argv[2],
+                "UTC, Europe/Berlin, or a POSIX timezone",
+                "setterm timezone [UTC|Europe/Berlin|POSIX-TZ]", false);
             return;
         }
 
@@ -1772,7 +1872,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm otaurl [url]");
+            solar_os_shell_diag_unexpected(term, "setterm otaurl", argv[3],
+                                           "setterm otaurl [url]");
             return;
         }
 
@@ -1786,7 +1887,13 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
     }
 #endif
 
-    setterm_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "setterm",
+                                   argc,
+                                   argv,
+                                   "setterm orientation|font|textsize|palette|brightness|backlight|profile|charset|keyboard|keyrate|timezone|otaurl",
+                                   setterm_commands,
+                                   sizeof(setterm_commands) / sizeof(setterm_commands[0]));
 }
 
 static void stream_print_usage(solar_os_shell_io_t *term)
@@ -1837,7 +1944,7 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "stream status failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "stream status failed: %s\n", solar_os_shell_error_text(err));
             return;
         }
 
@@ -1853,7 +1960,13 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    stream_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "stream",
+                                   argc,
+                                   argv,
+                                   "stream list|status",
+                                   stream_commands,
+                                   sizeof(stream_commands) / sizeof(stream_commands[0]));
 }
 
 
@@ -1904,7 +2017,7 @@ static void log_print_status(solar_os_shell_io_t *term)
     solar_os_log_status_t status;
     const esp_err_t err = solar_os_log_get_status(&status);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "log status failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "log status failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -1927,7 +2040,7 @@ static void log_cmd_show(solar_os_shell_io_t *term, int argc, char **argv)
     solar_os_log_status_t status;
     esp_err_t err = solar_os_log_get_status(&status);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "log show failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "log show failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -1938,7 +2051,7 @@ static void log_cmd_show(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
     } else if (argc > 3) {
-        solar_os_shell_io_writeln(term, "usage: log show [count]");
+        solar_os_shell_diag_unexpected(term, "log show", argv[3], "log show [count]");
         return;
     }
 
@@ -1997,17 +2110,20 @@ static void log_cmd_follow(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_log_status_t status;
         const esp_err_t err = solar_os_log_get_status(&status);
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "log follow failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "log follow failed: %s\n", solar_os_shell_error_text(err));
             return;
         }
         level = status.level;
     } else if (argc == 3) {
         if (!solar_os_log_parse_level(argv[2], &level)) {
-            solar_os_shell_io_writeln(term, "levels: error warn info debug");
+            solar_os_shell_diag_invalid(term, "log follow", "level", argv[2],
+                                        "error, warn, info, or debug",
+                                        "log follow [error|warn|info|debug]", false);
             return;
         }
     } else {
-        solar_os_shell_io_writeln(term, "usage: log follow [error|warn|info|debug]");
+        solar_os_shell_diag_unexpected(term, "log follow", argv[3],
+                                       "log follow [error|warn|info|debug]");
         return;
     }
 
@@ -2015,7 +2131,7 @@ static void log_cmd_follow(solar_os_context_t *ctx, int argc, char **argv)
     if (err == ESP_ERR_INVALID_STATE) {
         solar_os_shell_io_writeln(term, "log follow: another foreground shell mode is active");
     } else if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "log follow failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "log follow failed: %s\n", solar_os_shell_error_text(err));
     }
 }
 
@@ -2025,7 +2141,7 @@ void solar_os_shell_cmd_log(solar_os_context_t *ctx, int argc, char **argv)
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
         if (argc > 2) {
-            solar_os_shell_io_writeln(term, "usage: log status");
+            solar_os_shell_diag_unexpected(term, "log status", argv[2], "log status");
             return;
         }
         log_print_status(term);
@@ -2044,12 +2160,12 @@ void solar_os_shell_cmd_log(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "clear") == 0) {
         if (argc > 2) {
-            solar_os_shell_io_writeln(term, "usage: log clear");
+            solar_os_shell_diag_unexpected(term, "log clear", argv[2], "log clear");
             return;
         }
         const esp_err_t err = solar_os_log_clear();
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "log clear failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "log clear failed: %s\n", solar_os_shell_error_text(err));
             return;
         }
         solar_os_shell_io_writeln(term, "log: cleared");
@@ -2061,26 +2177,29 @@ void solar_os_shell_cmd_log(solar_os_context_t *ctx, int argc, char **argv)
         if (argc == 2) {
             const esp_err_t err = solar_os_log_get_status(&status);
             if (err != ESP_OK) {
-                solar_os_shell_io_printf(term, "log level failed: %s\n", esp_err_to_name(err));
+                solar_os_shell_io_printf(term, "log level failed: %s\n", solar_os_shell_error_text(err));
                 return;
             }
             solar_os_shell_io_printf(term, "level: %s\n", solar_os_log_level_name(status.level));
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: log level [error|warn|info|debug]");
+            solar_os_shell_diag_unexpected(term, "log level", argv[3],
+                                           "log level [error|warn|info|debug]");
             return;
         }
 
         solar_os_log_level_t level;
         if (!solar_os_log_parse_level(argv[2], &level)) {
-            solar_os_shell_io_writeln(term, "levels: error warn info debug");
+            solar_os_shell_diag_invalid(term, "log level", "level", argv[2],
+                                        "error, warn, info, or debug",
+                                        "log level [error|warn|info|debug]", false);
             return;
         }
 
         const esp_err_t err = solar_os_log_set_level(level);
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "log level failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "log level failed: %s\n", solar_os_shell_error_text(err));
             return;
         }
         solar_os_shell_io_printf(term, "level: %s\n", solar_os_log_level_name(level));
@@ -2092,33 +2211,52 @@ void solar_os_shell_cmd_log(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_log_status_t status;
             const esp_err_t err = solar_os_log_get_status(&status);
             if (err != ESP_OK) {
-                solar_os_shell_io_printf(term, "log sink failed: %s\n", esp_err_to_name(err));
+                solar_os_shell_io_printf(term, "log sink failed: %s\n", solar_os_shell_error_text(err));
                 return;
             }
             solar_os_shell_io_printf(term, "cdc: %s\n", status.cdc_enabled ? "on" : "off");
             return;
         }
         if (argc != 4 || strcmp(argv[2], "cdc") != 0) {
-            solar_os_shell_io_writeln(term, "usage: log sink cdc [on|off]");
+            if (argc < 3) {
+                solar_os_shell_diag_missing(term, "log sink", "<sink>",
+                                            "log sink cdc [on|off]");
+            } else if (strcmp(argv[2], "cdc") != 0) {
+                solar_os_shell_diag_invalid(term, "log sink", "sink", argv[2], "cdc",
+                                            "log sink cdc [on|off]", false);
+            } else if (argc < 4) {
+                solar_os_shell_diag_missing(term, "log sink cdc", "<state>",
+                                            "log sink cdc [on|off]");
+            } else {
+                solar_os_shell_diag_unexpected(term, "log sink cdc", argv[4],
+                                               "log sink cdc [on|off]");
+            }
             return;
         }
 
         bool enabled = false;
         if (!parse_on_off_arg(argv[3], &enabled)) {
-            solar_os_shell_io_writeln(term, "cdc values: on off");
+            solar_os_shell_diag_invalid(term, "log sink cdc", "state", argv[3],
+                                        "on or off", "log sink cdc [on|off]", false);
             return;
         }
 
         const esp_err_t err = solar_os_log_set_cdc_enabled(enabled);
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "log sink failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "log sink failed: %s\n", solar_os_shell_error_text(err));
             return;
         }
         solar_os_shell_io_printf(term, "cdc: %s\n", enabled ? "on" : "off");
         return;
     }
 
-    log_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "log",
+                                   argc,
+                                   argv,
+                                   "log status|show|follow|clear|level|sink",
+                                   log_commands,
+                                   sizeof(log_commands) / sizeof(log_commands[0]));
 }
 
 static void port_print_info(solar_os_shell_io_t *term, const solar_os_port_info_t *info)
@@ -2146,6 +2284,11 @@ void solar_os_shell_cmd_port(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
+    if (argc > 2 && strcmp(argv[1], "list") == 0) {
+        solar_os_shell_diag_unexpected(term, "port list", argv[2], "port list");
+        return;
+    }
+
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "list") == 0)) {
         solar_os_port_info_t ports[PORT_LIST_MAX];
         const size_t count = solar_os_port_list(ports, PORT_LIST_MAX);
@@ -2165,6 +2308,17 @@ void solar_os_shell_cmd_port(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+    if (argc == 2 && strcmp(argv[1], "status") == 0) {
+        solar_os_shell_diag_missing(term, "port status", "<name>",
+                                    "port status <name>");
+        return;
+    }
+    if (argc > 3 && strcmp(argv[1], "status") == 0) {
+        solar_os_shell_diag_unexpected(term, "port status", argv[3],
+                                       "port status <name>");
+        return;
+    }
+
     if (argc == 3 && strcmp(argv[1], "status") == 0) {
         solar_os_port_info_t info;
         const esp_err_t err = solar_os_port_get_info(argv[2], &info);
@@ -2173,7 +2327,7 @@ void solar_os_shell_cmd_port(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term, "port status failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "port status failed: %s\n", solar_os_shell_error_text(err));
             return;
         }
 
@@ -2182,7 +2336,13 @@ void solar_os_shell_cmd_port(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    port_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "port",
+                                   argc,
+                                   argv,
+                                   "port list|status",
+                                   port_commands,
+                                   sizeof(port_commands) / sizeof(port_commands[0]));
 }
 
 typedef struct {
@@ -2236,25 +2396,30 @@ static bool xfer_parse_args(solar_os_shell_io_t *term,
     config->protocol = SOLAR_OS_TRANSFER_PROTOCOL_RAW;
 
     if (argc < 2) {
-        xfer_print_usage(term);
+        solar_os_shell_diag_missing(term, "xfer", "subcommand",
+                                    "xfer <protocols|send|recv> ...");
         return false;
     }
 
     config->direction = argv[1];
     if (strcmp(argv[1], "protocols") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: xfer protocols");
+            solar_os_shell_diag_unexpected(term, "xfer protocols", argv[2], "xfer protocols");
             return false;
         }
         return true;
     }
 
     if (!xfer_is_send(config->direction) && !xfer_is_recv(config->direction)) {
-        xfer_print_usage(term);
+        solar_os_shell_diag_unknown(term, "xfer", "subcommand", argv[1],
+                                    solar_os_shell_suggest(argv[1], xfer_commands,
+                                                           sizeof(xfer_commands) / sizeof(xfer_commands[0])),
+                                    "xfer <protocols|send|recv> ...");
         return false;
     }
     if (argc < 4) {
-        xfer_print_usage(term);
+        solar_os_shell_diag_missing(term, "xfer", argc < 3 ? "port" : "file",
+                                    "xfer <send|recv> <port> <file> [options]");
         return false;
     }
 
@@ -2297,7 +2462,10 @@ static bool xfer_parse_args(solar_os_shell_io_t *term,
         } else if (strcmp(argv[i], "--replace") == 0) {
             config->append = false;
         } else {
-            solar_os_shell_io_printf(term, "xfer: unknown option: %s\n", argv[i]);
+            solar_os_shell_diag_unknown(term, "xfer", "option", argv[i],
+                                        solar_os_shell_suggest(argv[i], xfer_options,
+                                                               sizeof(xfer_options) / sizeof(xfer_options[0])),
+                                        "xfer <send|recv> <port> <file> [options]");
             return false;
         }
     }
@@ -2392,11 +2560,12 @@ static void xfer_print_error(solar_os_shell_io_t *term,
     }
 
     if (err == ESP_ERR_INVALID_ARG) {
-        xfer_print_usage(term);
+        solar_os_shell_diag_problem(term, "xfer", "invalid transfer arguments",
+                                    "xfer <send|recv> <port> <file> [options]", NULL);
         return;
     }
 
-    solar_os_shell_io_printf(term, "xfer failed: %s\n", esp_err_to_name(err));
+    solar_os_shell_io_printf(term, "xfer failed: %s\n", solar_os_shell_error_text(err));
 }
 
 void solar_os_shell_cmd_xfer(solar_os_context_t *ctx, int argc, char **argv)
@@ -2486,7 +2655,7 @@ static void sshkey_print_status(solar_os_shell_io_t *term)
         return;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "sshkey: status failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "sshkey: status failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -2514,7 +2683,7 @@ static void sshkey_print_public(solar_os_shell_io_t *term)
         return;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "sshkey: status failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term, "sshkey: status failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
     if (!status.public_key_exists) {
@@ -2554,7 +2723,7 @@ void solar_os_shell_cmd_sshkey(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "pub") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: sshkey pub");
+            solar_os_shell_diag_unexpected(term, "sshkey pub", argv[2], "sshkey pub");
             return;
         }
         sshkey_print_public(term);
@@ -2563,7 +2732,7 @@ void solar_os_shell_cmd_sshkey(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "rm") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: sshkey rm");
+            solar_os_shell_diag_unexpected(term, "sshkey rm", argv[2], "sshkey rm");
             return;
         }
 
@@ -2575,7 +2744,7 @@ void solar_os_shell_cmd_sshkey(solar_os_context_t *ctx, int argc, char **argv)
         } else if (err == ESP_ERR_INVALID_STATE) {
             solar_os_shell_io_writeln(term, "sshkey: storage is not mounted");
         } else {
-            solar_os_shell_io_printf(term, "sshkey: remove failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "sshkey: remove failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
@@ -2599,7 +2768,9 @@ void solar_os_shell_cmd_sshkey(solar_os_context_t *ctx, int argc, char **argv)
                                 SOLAR_OS_SSH_KEY_MAX_BITS,
                                 &bits) ||
                 bits % 1024U != 0) {
-                solar_os_shell_io_writeln(term, "usage: sshkey gen [-f] [2048|3072|4096]");
+                solar_os_shell_diag_invalid(term, "sshkey gen", "option or key size", argv[i],
+                                            "-f, 2048, 3072, or 4096",
+                                            "sshkey gen [-f] [2048|3072|4096]", false);
                 return;
             }
         }
@@ -2615,11 +2786,17 @@ void solar_os_shell_cmd_sshkey(solar_os_context_t *ctx, int argc, char **argv)
         } else if (err == ESP_ERR_INVALID_ARG) {
             solar_os_shell_io_writeln(term, "sshkey: RSA bits must be 2048, 3072, or 4096");
         } else {
-            solar_os_shell_io_printf(term, "sshkey: generate failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "sshkey: generate failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
-    sshkey_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "sshkey",
+                                   argc,
+                                   argv,
+                                   "sshkey status|gen|pub|rm",
+                                   sshkey_commands,
+                                   sizeof(sshkey_commands) / sizeof(sshkey_commands[0]));
 }
 #endif

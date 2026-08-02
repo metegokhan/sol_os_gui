@@ -28,6 +28,13 @@
 #include "solar_os_power.h"
 #include "solar_os_ramfs.h"
 #include "solar_os_shell_common.h"
+
+static const char * const power_commands[] = {"status", "profile", "idle", "key", "sleep"};
+static const char * const nvs_commands[] = {"status", "clear"};
+#if SOLAR_OS_PACKAGE_SERVICE_ENGINES
+static const char * const engine_commands[] = {"status", "list", "reset"};
+#endif
+static const char * const ramfs_commands[] = {"status", "mount", "unmount"};
 #include "solar_os_shell_io.h"
 #include "solar_os_spi.h"
 #include "solar_os_storage.h"
@@ -97,7 +104,7 @@ void solar_os_shell_cmd_board(solar_os_context_t *ctx, int argc, char **argv)
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: board");
+        solar_os_shell_diag_unexpected(term, "board", argv[1], "board");
         return;
     }
 
@@ -127,7 +134,7 @@ void solar_os_shell_cmd_version(solar_os_context_t *ctx, int argc, char **argv)
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: version");
+        solar_os_shell_diag_unexpected(term, "version", argv[1], "version");
         return;
     }
 
@@ -339,7 +346,7 @@ void solar_os_shell_cmd_pkg(solar_os_context_t *ctx, int argc, char **argv)
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: pkg");
+        solar_os_shell_diag_unexpected(term, "pkg", argv[1], "pkg");
         return;
     }
 
@@ -354,8 +361,10 @@ void solar_os_shell_cmd_pkg(solar_os_context_t *ctx, int argc, char **argv)
 
 void solar_os_shell_cmd_clear(solar_os_context_t *ctx, int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
+    if (argc != 1) {
+        solar_os_shell_diag_unexpected(terminal(ctx), "clear", argv[1], "clear");
+        return;
+    }
     solar_os_shell_io_clear(terminal(ctx));
 }
 
@@ -366,7 +375,7 @@ void solar_os_shell_cmd_sleep(solar_os_context_t *ctx, int argc, char **argv)
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: sleep");
+        solar_os_shell_diag_unexpected(term, "sleep", argv[1], "sleep");
         return;
     }
 
@@ -458,13 +467,13 @@ static void power_print_status(solar_os_shell_io_t *term)
                              "PM: %s%s%s\n",
                              status.pm_configured ? "configured" : "not configured",
                              status.pm_last_error == ESP_OK ? "" : " ",
-                             status.pm_last_error == ESP_OK ? "" : esp_err_to_name(status.pm_last_error));
+                             status.pm_last_error == ESP_OK ? "" : solar_os_shell_error_text(status.pm_last_error));
     solar_os_shell_io_printf(term,
                              "BT modem sleep: %s%s%s\n",
                              status.bt_sleep_enabled ? "on" : "off",
                              status.bt_sleep_last_error == ESP_OK ? "" : " ",
                              status.bt_sleep_last_error == ESP_OK ?
-                                "" : esp_err_to_name(status.bt_sleep_last_error));
+                                "" : solar_os_shell_error_text(status.bt_sleep_last_error));
     solar_os_shell_io_printf(term,
                              "KEY short press: %s\n",
                              solar_os_power_key_action_name(status.key_action));
@@ -486,7 +495,7 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
         if (argc > 2) {
-            solar_os_shell_io_writeln(term, "usage: power status");
+            solar_os_shell_diag_unexpected(term, "power status", argv[2], "power status");
             return;
         }
         power_print_status(term);
@@ -504,15 +513,16 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term,
-                                      "usage: power profile [performance|balanced|solar|offline]");
+            solar_os_shell_diag_unexpected(term, "power profile", argv[3],
+                                           "power profile [performance|balanced|solar|offline]");
             return;
         }
 
         solar_os_power_profile_t profile;
         if (!solar_os_power_parse_profile(argv[2], &profile)) {
-            solar_os_shell_io_printf(term, "power profile: invalid value: %s\n", argv[2]);
-            solar_os_shell_io_writeln(term, "values: performance balanced solar offline");
+            solar_os_shell_diag_invalid(term, "power profile", "profile", argv[2],
+                                        "performance, balanced, solar, or offline",
+                                        "power profile [performance|balanced|solar|offline]", false);
             return;
         }
 
@@ -524,7 +534,7 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "power profile: save failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -543,7 +553,8 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: power idle [off|seconds]");
+            solar_os_shell_diag_unexpected(term, "power idle", argv[3],
+                                           "power idle [off|seconds]");
             return;
         }
 
@@ -551,7 +562,9 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
         if (strcmp(argv[2], "off") != 0 && strcmp(argv[2], "0") != 0) {
             size_t seconds = 0;
             if (!solar_os_shell_parse_size_arg(argv[2], 1, 86400, &seconds)) {
-                solar_os_shell_io_printf(term, "power idle: invalid seconds: %s\n", argv[2]);
+                solar_os_shell_diag_invalid(term, "power idle", "seconds", argv[2],
+                                            "off or an integer from 1 to 86400",
+                                            "power idle [off|seconds]", false);
                 return;
             }
             idle_ms = (uint32_t)seconds * 1000U;
@@ -569,7 +582,7 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "power idle: save failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -585,14 +598,15 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: power key [off|light]");
+            solar_os_shell_diag_unexpected(term, "power key", argv[3],
+                                           "power key [off|light]");
             return;
         }
 
         solar_os_power_key_action_t action;
         if (!solar_os_power_parse_key_action(argv[2], &action)) {
-            solar_os_shell_io_printf(term, "power key: invalid value: %s\n", argv[2]);
-            solar_os_shell_io_writeln(term, "values: off light");
+            solar_os_shell_diag_invalid(term, "power key", "action", argv[2],
+                                        "off or light", "power key [off|light]", false);
             return;
         }
 
@@ -604,14 +618,14 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "power key: save failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (strcmp(argv[1], "sleep") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(term, "usage: power sleep");
+            solar_os_shell_diag_unexpected(term, "power sleep", argv[2], "power sleep");
             return;
         }
         if (solar_os_shell_io_kind(term) == SOLAR_OS_SHELL_IO_KIND_PORT) {
@@ -623,7 +637,13 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    power_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "power",
+                                   argc,
+                                   argv,
+                                   "power status|profile|idle|key|sleep",
+                                   power_commands,
+                                   sizeof(power_commands) / sizeof(power_commands[0]));
 }
 
 void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
@@ -650,8 +670,10 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
 #endif
     solar_os_shell_io_t *term = terminal(ctx);
 
-    (void)argc;
-    (void)argv;
+    if (argc != 1) {
+        solar_os_shell_diag_unexpected(term, "status", argv[1], "status");
+        return;
+    }
 
     solar_os_storage_get_status(storage_status, sizeof(storage_status));
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -681,7 +703,7 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
     } else if (battery_err == ESP_ERR_NOT_SUPPORTED) {
         solar_os_shell_io_writeln(term, "Battery: not available on this board");
     } else {
-        solar_os_shell_io_printf(term, "Battery: unavailable (%s)\n", esp_err_to_name(battery_err));
+        solar_os_shell_io_printf(term, "Battery: unavailable (%s)\n", solar_os_shell_error_text(battery_err));
     }
 #endif
     solar_os_shell_io_printf(term,
@@ -777,7 +799,7 @@ void solar_os_shell_cmd_uptime(solar_os_context_t *ctx, int argc, char **argv)
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: uptime");
+        solar_os_shell_diag_unexpected(term, "uptime", argv[1], "uptime");
         return;
     }
 
@@ -792,7 +814,17 @@ void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
     if (argc != 2 ||
         (strcmp(argv[1], "status") != 0 &&
          strcmp(argv[1], "clear") != 0)) {
-        solar_os_shell_io_writeln(term, "usage: nvs status|clear");
+        if (argc > 2) {
+            solar_os_shell_diag_unexpected(term, "nvs", argv[2], "nvs status|clear");
+        } else {
+            solar_os_shell_diag_subcommand(term,
+                                           "nvs",
+                                           argc,
+                                           argv,
+                                           "nvs status|clear",
+                                           nvs_commands,
+                                           sizeof(nvs_commands) / sizeof(nvs_commands[0]));
+        }
         return;
     }
 
@@ -801,7 +833,7 @@ void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
         const esp_err_t error = nvs_get_stats(NULL, &stats);
         if (error != ESP_OK) {
             solar_os_shell_io_printf(
-                term, "nvs status: %s\n", esp_err_to_name(error));
+                term, "nvs status: %s\n", solar_os_shell_error_text(error));
             return;
         }
 
@@ -831,7 +863,7 @@ void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
     if (error != ESP_OK) {
         (void)nvs_flash_init();
         solar_os_shell_io_printf(
-            term, "nvs clear: %s\n", esp_err_to_name(error));
+            term, "nvs clear: %s\n", solar_os_shell_error_text(error));
         return;
     }
 
@@ -916,7 +948,8 @@ void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc > 2) {
-        solar_os_shell_io_writeln(term, "usage: engine [status|reset]");
+        solar_os_shell_diag_unexpected(term, "engine", argv[2],
+                                       "engine [status|list|reset]");
         return;
     }
 
@@ -927,7 +960,13 @@ void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (strcmp(action, "status") != 0 && strcmp(action, "list") != 0) {
-        solar_os_shell_io_writeln(term, "usage: engine [status|reset]");
+        solar_os_shell_diag_subcommand(term,
+                                       "engine",
+                                       argc,
+                                       argv,
+                                       "engine [status|list|reset]",
+                                       engine_commands,
+                                       sizeof(engine_commands) / sizeof(engine_commands[0]));
         return;
     }
 
@@ -952,7 +991,17 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_memory_status_t status;
 
     if (argc > 2 || (argc == 2 && strcmp(argv[1], "policy") != 0)) {
-        solar_os_shell_io_writeln(term, "usage: mem [policy]");
+        if (argc > 2) {
+            solar_os_shell_diag_unexpected(term, "mem", argv[2], "mem [policy]");
+        } else {
+            static const char * const values[] = {"policy"};
+            solar_os_shell_diag_unknown(term,
+                                        "mem",
+                                        "argument",
+                                        argv[1],
+                                        solar_os_shell_suggest(argv[1], values, 1),
+                                        "mem [policy]");
+        }
         return;
     }
 
@@ -1134,7 +1183,7 @@ void solar_os_shell_cmd_ramfs(solar_os_context_t *ctx, int argc, char **argv)
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
         if (argc > 2) {
-            solar_os_shell_io_writeln(term, "usage: ramfs [status]");
+            solar_os_shell_diag_unexpected(term, "ramfs status", argv[2], "ramfs [status]");
             return;
         }
         ramfs_print_status(term);
@@ -1143,8 +1192,25 @@ void solar_os_shell_cmd_ramfs(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "mount") == 0) {
         size_t quota = 0;
-        if (argc != 4 || !ramfs_parse_size(argv[3], &quota)) {
-            solar_os_shell_io_writeln(term, "usage: ramfs mount /path size");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "ramfs mount", "<path>",
+                                        "ramfs mount <path> <size>");
+            return;
+        }
+        if (argc < 4) {
+            solar_os_shell_diag_missing(term, "ramfs mount", "<size>",
+                                        "ramfs mount <path> <size>");
+            return;
+        }
+        if (argc > 4) {
+            solar_os_shell_diag_unexpected(term, "ramfs mount", argv[4],
+                                           "ramfs mount <path> <size>");
+            return;
+        }
+        if (!ramfs_parse_size(argv[3], &quota)) {
+            solar_os_shell_diag_invalid(term, "ramfs mount", "size", argv[3],
+                                        "a byte count, optionally suffixed K or M",
+                                        "ramfs mount <path> <size>", false);
             return;
         }
 
@@ -1158,14 +1224,20 @@ void solar_os_shell_cmd_ramfs(solar_os_context_t *ctx, int argc, char **argv)
         } else if (err == ESP_ERR_INVALID_SIZE) {
             solar_os_shell_io_writeln(term, "ramfs: invalid size or mount path too long");
         } else {
-            solar_os_shell_io_printf(term, "ramfs mount failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "ramfs mount failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (strcmp(argv[1], "unmount") == 0) {
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: ramfs unmount /path");
+            if (argc < 3) {
+                solar_os_shell_diag_missing(term, "ramfs unmount", "<path>",
+                                            "ramfs unmount <path>");
+            } else {
+                solar_os_shell_diag_unexpected(term, "ramfs unmount", argv[3],
+                                               "ramfs unmount <path>");
+            }
             return;
         }
 
@@ -1179,12 +1251,18 @@ void solar_os_shell_cmd_ramfs(solar_os_context_t *ctx, int argc, char **argv)
         } else if (err == ESP_ERR_INVALID_STATE) {
             solar_os_shell_io_printf(term, "ramfs: mount is busy: %s\n", argv[2]);
         } else {
-            solar_os_shell_io_printf(term, "ramfs unmount failed: %s\n", esp_err_to_name(err));
+            solar_os_shell_io_printf(term, "ramfs unmount failed: %s\n", solar_os_shell_error_text(err));
         }
         return;
     }
 
-    ramfs_print_usage(term);
+    solar_os_shell_diag_subcommand(term,
+                                   "ramfs",
+                                   argc,
+                                   argv,
+                                   "ramfs status|mount|unmount",
+                                   ramfs_commands,
+                                   sizeof(ramfs_commands) / sizeof(ramfs_commands[0]));
 }
 
 void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
@@ -1194,7 +1272,7 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: df");
+        solar_os_shell_diag_unexpected(term, "df", argv[1], "df");
         return;
     }
 
@@ -1203,7 +1281,7 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
 
     const esp_err_t scan_err = solar_os_storage_rescan();
     if (scan_err != ESP_OK && scan_err != ESP_ERR_NOT_SUPPORTED) {
-        solar_os_shell_io_printf(term, "sd         read failed: %s\n", esp_err_to_name(scan_err));
+        solar_os_shell_io_printf(term, "sd         read failed: %s\n", solar_os_shell_error_text(scan_err));
         any = true;
     }
 
@@ -1224,7 +1302,7 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_printf(term,
                                      "%-10s read failed: %s\n",
                                      mount.name,
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
             any = true;
             continue;
         }
@@ -1278,7 +1356,7 @@ void solar_os_shell_cmd_top(solar_os_context_t *ctx, int argc, char **argv)
     (void)argv;
 
     if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: top");
+        solar_os_shell_diag_unexpected(term, "top", argv[1], "top");
         return;
     }
 

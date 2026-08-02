@@ -1,6 +1,7 @@
 #include "solar_os_shell.h"
 
 #include "solar_os_shell_commands.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
 #include <ctype.h>
@@ -2444,10 +2445,8 @@ static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = shell_io(ctx);
 
-    (void)argv;
-
     if (argc != 1) {
-        solar_os_shell_io_writeln(io, "usage: commands");
+        solar_os_shell_diag_unexpected(io, "commands", argv[1], "commands");
         return;
     }
 
@@ -2619,56 +2618,6 @@ static void shell_prompt(solar_os_context_t *ctx)
     solar_os_shell_io_write_bold(io, prompt);
     shell_session(ctx)->input_row = solar_os_shell_io_cursor_row(io);
     shell_session(ctx)->input_col = solar_os_shell_io_cursor_col(io);
-}
-
-static int tokenize(char *line, char **argv, int argv_max)
-{
-    int argc = 0;
-
-    if (line == NULL || argv == NULL || argv_max <= 0) {
-        return 0;
-    }
-
-    char *read = line;
-    char *write = line;
-    while (*read != '\0') {
-        while (isspace((unsigned char)*read)) {
-            read++;
-        }
-        if (*read == '\0') {
-            break;
-        }
-        if (argc >= argv_max) {
-            break;
-        }
-
-        argv[argc++] = write;
-        char quote = '\0';
-        while (*read != '\0') {
-            const char ch = *read;
-            if (quote == '\0' && isspace((unsigned char)ch)) {
-                break;
-            }
-            if ((ch == '"' || ch == '\'') && (quote == '\0' || quote == ch)) {
-                quote = quote == '\0' ? ch : '\0';
-                read++;
-                continue;
-            }
-            if (ch == '\\' && quote != '\'' && read[1] != '\0') {
-                read++;
-                *write++ = *read++;
-                continue;
-            }
-
-            *write++ = *read++;
-        }
-        if (isspace((unsigned char)*read)) {
-            read++;
-        }
-        *write++ = '\0';
-    }
-
-    return argc;
 }
 
 static char *shell_trim_line(char *line)
@@ -3200,12 +3149,13 @@ static bool shell_for_each_alias(shell_alias_callback_t callback, void *user)
         }
 
         char *alias_argv[SHELL_ARG_MAX];
-        const int alias_argc = tokenize(alias_line, alias_argv, SHELL_ARG_MAX);
-        if (alias_argc < 2) {
+        const solar_os_shell_parse_result_t parsed =
+            solar_os_shell_tokenize(alias_line, alias_argv, SHELL_ARG_MAX);
+        if (parsed.error != SOLAR_OS_SHELL_PARSE_OK || parsed.argc < 2) {
             continue;
         }
 
-        if (!callback(alias_argv[0], alias_argc, alias_argv, user)) {
+        if (!callback(alias_argv[0], parsed.argc, alias_argv, user)) {
             fclose(file);
             return true;
         }
@@ -3369,6 +3319,47 @@ typedef struct {
     size_t count;
     char match[SHELL_INPUT_MAX];
 } shell_alias_complete_t;
+
+typedef struct {
+    const char *input;
+    int limit;
+    int best_distance;
+    bool ambiguous;
+    char best[SHELL_INPUT_MAX];
+} shell_alias_suggest_t;
+
+static bool shell_alias_suggest_callback(const char *name, int argc, char **argv, void *user)
+{
+    shell_alias_suggest_t *state = (shell_alias_suggest_t *)user;
+    (void)argc;
+    (void)argv;
+
+    const int distance = solar_os_shell_edit_distance(state->input, name, state->limit);
+    if (distance < state->best_distance) {
+        strlcpy(state->best, name, sizeof(state->best));
+        state->best_distance = distance;
+        state->ambiguous = false;
+    } else if (distance == state->best_distance && distance <= state->limit &&
+               state->best[0] != '\0' && strcmp(state->best, name) != 0) {
+        state->ambiguous = true;
+    }
+    return true;
+}
+
+static const char *shell_alias_suggestion(const char *input, char *result, size_t result_len)
+{
+    shell_alias_suggest_t state = {
+        .input = input,
+        .limit = strlen(input) >= 5 ? 2 : 1,
+        .best_distance = 3,
+    };
+    (void)shell_for_each_alias(shell_alias_suggest_callback, &state);
+    if (state.best[0] == '\0' || state.best_distance > state.limit || state.ambiguous) {
+        return NULL;
+    }
+    strlcpy(result, state.best, result_len);
+    return result;
+}
 
 static bool shell_alias_complete_callback(const char *name, int argc, char **argv, void *user)
 {
@@ -3633,24 +3624,40 @@ static void cmd_watch(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (argc < 2) {
-        shell_watch_print_usage(term);
+        solar_os_shell_diag_missing(term, "watch", "command",
+                                    "watch [-n seconds] <command> [args...]");
         return;
     }
 
     if (strcmp(argv[first_command_arg], "-n") == 0) {
-        if (argc < 4 || !shell_watch_parse_interval(argv[first_command_arg + 1], &interval_ms)) {
-            shell_watch_print_usage(term);
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term, "watch -n", "seconds",
+                                        "watch -n <seconds> <command> [args...]");
+            return;
+        }
+        if (!shell_watch_parse_interval(argv[first_command_arg + 1], &interval_ms)) {
+            solar_os_shell_diag_invalid(term, "watch", "interval", argv[first_command_arg + 1],
+                                        "integer seconds from 1 to 86400",
+                                        "watch [-n seconds] <command> [args...]", false);
+            return;
+        }
+        if (argc < 4) {
+            solar_os_shell_diag_missing(term, "watch", "command",
+                                        "watch -n <seconds> <command> [args...]");
             return;
         }
         first_command_arg += 2;
     } else if (starts_with(argv[first_command_arg], "-n") && argv[first_command_arg][2] != '\0') {
         if (!shell_watch_parse_interval(&argv[first_command_arg][2], &interval_ms)) {
-            shell_watch_print_usage(term);
+            solar_os_shell_diag_invalid(term, "watch", "interval", &argv[first_command_arg][2],
+                                        "integer seconds from 1 to 86400",
+                                        "watch [-n seconds] <command> [args...]", false);
             return;
         }
         first_command_arg++;
     } else if (argv[first_command_arg][0] == '-' && argv[first_command_arg][1] != '\0') {
-        shell_watch_print_usage(term);
+        solar_os_shell_diag_invalid(term, "watch", "option", argv[first_command_arg], "-n",
+                                    "watch [-n seconds] <command> [args...]", false);
         return;
     }
 
@@ -6050,7 +6057,7 @@ static bool shell_run_script(solar_os_context_t *ctx,
                                      "sh: %s:%u: line too long\n",
                                      display_path,
                                      (unsigned)line_number);
-            break;
+            continue;
         }
 
         line[strcspn(line, "\r\n")] = '\0';
@@ -6063,7 +6070,7 @@ static bool shell_run_script(solar_os_context_t *ctx,
                                      "sh: %s:%u: line too long\n",
                                      display_path,
                                      (unsigned)line_number);
-            break;
+            continue;
         }
 
         if (!shell_execute_line(ctx, command, false, display_path, line_number)) {
@@ -6088,7 +6095,11 @@ static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv)
     char path[SHELL_PATH_MAX];
 
     if (argc != 2) {
-        solar_os_shell_io_writeln(term, "usage: sh <file>");
+        if (argc < 2) {
+            solar_os_shell_diag_missing(term, "sh", "file", "sh <file>");
+        } else {
+            solar_os_shell_diag_unexpected(term, "sh", argv[2], "sh <file>");
+        }
         return;
     }
     if (!solar_os_shell_resolve_path_for_command(ctx, term, "sh", argv[1], path, sizeof(path))) {
@@ -6102,8 +6113,10 @@ static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    (void)argc;
-    (void)argv;
+    if (argc != 1) {
+        solar_os_shell_diag_unexpected(term, "reboot", argv[1], "reboot");
+        return;
+    }
     solar_os_shell_io_writeln(term, "rebooting");
     solar_os_shell_io_flush(term);
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -6114,8 +6127,10 @@ static void cmd_exit(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = terminal(ctx);
 
-    (void)argc;
-    (void)argv;
+    if (argc != 1) {
+        solar_os_shell_diag_unexpected(io, "exit", argv[1], "exit");
+        return;
+    }
     if (solar_os_shell_io_kind(io) != SOLAR_OS_SHELL_IO_KIND_PORT) {
         solar_os_shell_io_writeln(io, "exit: cannot close the display shell");
         return;
@@ -6248,10 +6263,8 @@ static bool parse_port_shell_options(int argc,
 
 static void cmd_sessions(solar_os_context_t *ctx, int argc, char **argv)
 {
-    (void)argv;
-
     if (argc != 1) {
-        solar_os_shell_io_writeln(terminal(ctx), "usage: sessions");
+        solar_os_shell_diag_unexpected(terminal(ctx), "sessions", argv[1], "sessions");
         return;
     }
 
@@ -6259,7 +6272,7 @@ static void cmd_sessions(solar_os_context_t *ctx, int argc, char **argv)
     if (err != ESP_OK) {
         solar_os_shell_io_printf(terminal(ctx),
                                  "sessions: unavailable: %s\n",
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
     }
 }
 
@@ -6302,7 +6315,7 @@ static void session_request_fg(solar_os_context_t *ctx, uint8_t session_id)
         } else {
             solar_os_shell_io_printf(terminal(ctx),
                                      "fg: failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -6365,7 +6378,7 @@ static void session_create_display_shell(solar_os_context_t *ctx, const char *ta
     } else {
         solar_os_shell_io_printf(caller_io,
                                  "session create failed: %s\n",
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
     }
 }
 
@@ -6438,7 +6451,7 @@ static void session_create_display_app(solar_os_context_t *ctx,
         }
         solar_os_shell_io_printf(caller_io,
                                  "session create failed: %s\n",
-                                 esp_err_to_name(request_err));
+                                 solar_os_shell_error_text(request_err));
         return;
     }
 
@@ -6483,7 +6496,7 @@ static void session_create_display_app(solar_os_context_t *ctx,
     } else {
         solar_os_shell_io_printf(caller_io,
                                  "session create failed: %s\n",
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
     }
 }
 
@@ -6492,20 +6505,21 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *io = terminal(ctx);
 
     if (argc < 2) {
-        session_print_usage(io);
+        solar_os_shell_diag_missing(io, "session", "subcommand",
+                                    "session <list|create|fg|switch|close|focus> ...");
         return;
     }
 
     if (strcmp(argv[1], "list") == 0 || strcmp(argv[1], "ls") == 0) {
         if (argc != 2) {
-            solar_os_shell_io_writeln(io, "usage: session list");
+            solar_os_shell_diag_unexpected(io, "session list", argv[2], "session list");
             return;
         }
         const esp_err_t err = solar_os_context_print_session_list(ctx);
         if (err != ESP_OK) {
             solar_os_shell_io_printf(io,
                                      "session list: unavailable: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -6513,7 +6527,9 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
     if (strcmp(argv[1], "create") == 0) {
         solar_os_port_shell_options_t options;
         if (argc < 4) {
-            session_print_usage(io);
+            solar_os_shell_diag_problem(io, "session create", "missing app, port, or display target",
+                                        "session create <shell|app> <port|display-target> [options|args...]",
+                                        NULL);
             return;
         }
 
@@ -6525,8 +6541,8 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_display_target_t display_target;
         if (solar_os_display_find_target(argv[3], &display_target)) {
             if (argc != 4) {
-                solar_os_shell_io_writeln(io,
-                                          "usage: session create shell <display-target>");
+                solar_os_shell_diag_unexpected(io, "session create shell", argv[4],
+                                               "session create shell <display-target>");
                 return;
             }
             session_create_display_shell(ctx, argv[3]);
@@ -6534,9 +6550,10 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
         }
 
         if (!parse_port_shell_options(argc, argv, 4, &options)) {
-            solar_os_shell_io_writeln(
-                io,
-                "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]");
+            solar_os_shell_diag_problem(
+                io, "session create shell", "invalid terminal option or value",
+                "session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]",
+                NULL);
             return;
         }
 
@@ -6553,7 +6570,7 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(io,
                                      "session create failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -6572,8 +6589,8 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(io,
-                                      "usage: session focus [display-target]");
+            solar_os_shell_diag_unexpected(io, "session focus", argv[3],
+                                           "session focus [display-target]");
             return;
         }
 
@@ -6593,7 +6610,7 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(io,
                                      "session focus failed: %s\n",
-                                     esp_err_to_name(err));
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
@@ -6617,7 +6634,13 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3 || !parse_session_id(argv[2], &session_id)) {
-            solar_os_shell_io_writeln(io, "usage: session fg [session-id]");
+            if (argc != 3) {
+                solar_os_shell_diag_problem(io, "session fg", "expected one session ID",
+                                            "session fg [session-id]", NULL);
+            } else {
+                solar_os_shell_diag_invalid(io, "session fg", "session ID", argv[2],
+                                            "integer from 0 to 255", "session fg [session-id]", false);
+            }
             return;
         }
         if (solar_os_port_shell_is_session_id(session_id)) {
@@ -6631,7 +6654,16 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
     if (strcmp(argv[1], "close") == 0) {
         uint8_t session_id = 0;
         if (argc != 3 || !parse_session_id(argv[2], &session_id)) {
-            solar_os_shell_io_writeln(io, "usage: session close <session-id>");
+            if (argc < 3) {
+                solar_os_shell_diag_missing(io, "session close", "session ID",
+                                            "session close <session-id>");
+            } else if (argc > 3) {
+                solar_os_shell_diag_unexpected(io, "session close", argv[3],
+                                               "session close <session-id>");
+            } else {
+                solar_os_shell_diag_invalid(io, "session close", "session ID", argv[2],
+                                            "integer from 0 to 255", "session close <session-id>", false);
+            }
             return;
         }
         session_request_close(ctx, session_id);
@@ -6645,7 +6677,13 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    session_print_usage(io);
+    static const char * const session_subcommands[] = {
+        "list", "create", "fg", "foreground", "switch", "close", "focus", "background", "bg",
+    };
+    solar_os_shell_diag_subcommand(io, "session", argc, argv,
+                                   "session <list|create|fg|switch|close|focus> ...",
+                                   session_subcommands,
+                                   sizeof(session_subcommands) / sizeof(session_subcommands[0]));
 }
 
 static void cmd_fg(solar_os_context_t *ctx, int argc, char **argv)
@@ -6668,7 +6706,14 @@ static void cmd_fg(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (argc != 2 || !parse_session_id(argv[1], &session_id)) {
-        solar_os_shell_io_writeln(terminal(ctx), "usage: fg [session-id]");
+        if (argc < 2) {
+            solar_os_shell_diag_missing(terminal(ctx), "fg", "session ID", "fg [session-id]");
+        } else if (argc > 2) {
+            solar_os_shell_diag_unexpected(terminal(ctx), "fg", argv[2], "fg [session-id]");
+        } else {
+            solar_os_shell_diag_invalid(terminal(ctx), "fg", "session ID", argv[1],
+                                        "integer from 0 to 255", "fg [session-id]", false);
+        }
         return;
     }
 
@@ -6684,7 +6729,14 @@ static void cmd_close(solar_os_context_t *ctx, int argc, char **argv)
     uint8_t session_id = 0;
 
     if (argc != 2 || !parse_session_id(argv[1], &session_id)) {
-        solar_os_shell_io_writeln(terminal(ctx), "usage: close <session-id>");
+        if (argc < 2) {
+            solar_os_shell_diag_missing(terminal(ctx), "close", "session ID", "close <session-id>");
+        } else if (argc > 2) {
+            solar_os_shell_diag_unexpected(terminal(ctx), "close", argv[2], "close <session-id>");
+        } else {
+            solar_os_shell_diag_invalid(terminal(ctx), "close", "session ID", argv[1],
+                                        "integer from 0 to 255", "close <session-id>", false);
+        }
         return;
     }
 
@@ -6784,6 +6836,17 @@ static bool shell_prepare_app_launch_args(
         return false;
     }
 
+    if (argc < app->min_argc) {
+        solar_os_shell_diag_problem(terminal(ctx), app->name,
+                                    "not enough arguments", app->usage, NULL);
+        return false;
+    }
+    if (app->max_argc != 0 && argc > app->max_argc) {
+        solar_os_shell_diag_unexpected(terminal(ctx), app->name,
+                                       argv[app->max_argc], app->usage);
+        return false;
+    }
+
     for (int i = 0; i < argc; i++) {
         launch_argv[i] = argv[i];
     }
@@ -6838,7 +6901,13 @@ static bool shell_launch_playground_script(solar_os_context_t *ctx,
 {
     solar_os_shell_io_t *io = terminal(ctx);
     if (argc != 3) {
-        solar_os_shell_io_writeln(io, "usage: playground run APP-ID");
+        if (argc < 3) {
+            solar_os_shell_diag_missing(io, "playground run", "app ID",
+                                        "playground run <APP-ID>");
+        } else {
+            solar_os_shell_diag_unexpected(io, "playground run", argv[3],
+                                           "playground run <APP-ID>");
+        }
         return true;
     }
     if (shell_session(ctx)->watch_executing) {
@@ -6899,7 +6968,7 @@ static bool shell_launch_playground_script(solar_os_context_t *ctx,
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "playground: launch failed: %s\n",
-                                 esp_err_to_name(err));
+                                 solar_os_shell_error_text(err));
         return true;
     }
     shell_session(ctx)->prompt_on_resume = true;
@@ -6920,8 +6989,46 @@ static bool shell_execute_line(solar_os_context_t *ctx,
 
     shell_session(ctx)->builtin_suppressed_prompt = false;
 
+    solar_os_shell_io_t *io = terminal(ctx);
+    if (line == NULL || strlen(line) >= sizeof(command)) {
+        if (source != NULL) {
+            solar_os_shell_io_printf(io, "%s:%u: ", source, (unsigned)line_number);
+        }
+        solar_os_shell_diag_problem(io,
+                                    "shell",
+                                    "command line is too long; maximum is 191 characters",
+                                    NULL,
+                                    NULL);
+        return true;
+    }
+
     strlcpy(command, line, sizeof(command));
-    const int argc = tokenize(command, argv, SHELL_ARG_MAX);
+    const solar_os_shell_parse_result_t parsed =
+        solar_os_shell_tokenize(command, argv, SHELL_ARG_MAX);
+    if (parsed.error != SOLAR_OS_SHELL_PARSE_OK) {
+        char problem[128];
+        if (parsed.error == SOLAR_OS_SHELL_PARSE_TOO_MANY_ARGUMENTS) {
+            snprintf(problem, sizeof(problem), "too many arguments; maximum is %u",
+                     (unsigned)SHELL_ARG_MAX);
+        } else if (parsed.error == SOLAR_OS_SHELL_PARSE_UNSUPPORTED_OPERATOR) {
+            snprintf(problem,
+                     sizeof(problem),
+                     "operator '%s' is not supported; run commands separately",
+                     parsed.operator_text);
+        } else {
+            snprintf(problem,
+                     sizeof(problem),
+                     "%s at column %u",
+                     solar_os_shell_parse_error_text(parsed.error),
+                     (unsigned)(parsed.column + 1U));
+        }
+        if (source != NULL) {
+            solar_os_shell_io_printf(io, "%s:%u: ", source, (unsigned)line_number);
+        }
+        solar_os_shell_diag_problem(io, "shell", problem, NULL, NULL);
+        return true;
+    }
+    const int argc = parsed.argc;
     if (argc == 0) {
         return true;
     }
@@ -6932,7 +7039,9 @@ static bool shell_execute_line(solar_os_context_t *ctx,
 
     for (size_t i = 0; i < shell_builtin_command_count; i++) {
         if (strcmp(argv[0], shell_builtin_commands[i].name) == 0) {
+            solar_os_shell_diag_set_source(io, source, line_number);
             shell_builtin_commands[i].handler(ctx, argc, argv);
+            solar_os_shell_diag_set_source(io, NULL, 0);
             const bool should_prompt = !shell_session(ctx)->builtin_suppressed_prompt;
             return should_prompt;
         }
@@ -6974,14 +7083,17 @@ static bool shell_execute_line(solar_os_context_t *ctx,
             return true;
         }
 
+        solar_os_shell_diag_set_source(io, source, line_number);
         if (!shell_prepare_app_launch_args(ctx,
                                            app,
                                            argc,
                                            argv,
                                            launch_argv,
                                            &launch_storage)) {
+            solar_os_shell_diag_set_source(io, NULL, 0);
             return true;
         }
+        solar_os_shell_diag_set_source(io, NULL, 0);
 
         const esp_err_t err = solar_os_context_request_launch(ctx, app->app, argc, launch_argv);
         if (err == ESP_OK) {
@@ -6991,10 +7103,14 @@ static bool shell_execute_line(solar_os_context_t *ctx,
             return false;
         }
 
-        solar_os_shell_io_printf(terminal(ctx),
-                                 "%s: launch failed: %s\n",
-                                 app->name,
-                                 esp_err_to_name(err));
+        solar_os_shell_diag_set_source(io, source, line_number);
+        if (err == ESP_ERR_INVALID_ARG && app->usage != NULL) {
+            solar_os_shell_diag_problem(io, app->name, "invalid launch arguments",
+                                        app->usage, NULL);
+        } else {
+            solar_os_shell_diag_esp(io, app->name, err, "application could not start", NULL);
+        }
+        solar_os_shell_diag_set_source(io, NULL, 0);
         return true;
     }
 
@@ -7005,15 +7121,29 @@ static bool shell_execute_line(solar_os_context_t *ctx,
         return alias_should_prompt;
     }
 
-    if (source != NULL) {
-        solar_os_shell_io_printf(terminal(ctx),
-                                 "%s:%u: %s: unknown command\n",
-                                 source,
-                                 (unsigned)line_number,
-                                 argv[0]);
-    } else {
-        solar_os_shell_io_printf(terminal(ctx), "%s: unknown command\n", argv[0]);
+    const char *candidate_names[128];
+    size_t candidate_count = 0;
+    for (size_t i = 0; i < shell_builtin_command_count &&
+                       candidate_count < SHELL_ARRAY_COUNT(candidate_names); i++) {
+        candidate_names[candidate_count++] = shell_builtin_commands[i].name;
     }
+    for (size_t i = 0; i < solar_os_app_registry_count() &&
+                       candidate_count < SHELL_ARRAY_COUNT(candidate_names); i++) {
+        const solar_os_app_registry_entry_t *candidate = solar_os_app_registry_get(i);
+        if (candidate != NULL && !shell_builtin_command_exists(candidate->name)) {
+            candidate_names[candidate_count++] = candidate->name;
+        }
+    }
+    const char *suggestion =
+        solar_os_shell_suggest(argv[0], candidate_names, candidate_count);
+    char alias_suggestion[SHELL_INPUT_MAX];
+    if (suggestion == NULL) {
+        suggestion = shell_alias_suggestion(argv[0], alias_suggestion,
+                                            sizeof(alias_suggestion));
+    }
+    solar_os_shell_diag_set_source(io, source, line_number);
+    solar_os_shell_diag_unknown(io, "shell", "command", argv[0], suggestion, NULL);
+    solar_os_shell_diag_set_source(io, NULL, 0);
     return true;
 }
 

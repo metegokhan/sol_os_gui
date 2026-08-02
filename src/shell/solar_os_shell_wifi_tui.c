@@ -100,7 +100,7 @@ static void wifi_tui_nat_value(const solar_os_wifi_status_t *status,
     } else if (status->nat_active) {
         strlcpy(buffer, "active", buffer_len);
     } else if (status->nat_last_error != ESP_OK) {
-        snprintf(buffer, buffer_len, "error %s", esp_err_to_name(status->nat_last_error));
+        snprintf(buffer, buffer_len, "error %s", solar_os_shell_error_text(status->nat_last_error));
     } else {
         strlcpy(buffer, "waiting", buffer_len);
     }
@@ -293,7 +293,7 @@ static void wifi_tui_start_radio(void)
     esp_err_t err = solar_os_wifi_start();
     if (err != ESP_OK) {
         char message[WIFI_TUI_STATUS_MAX];
-        snprintf(message, sizeof(message), "wifi on failed: %s", esp_err_to_name(err));
+        snprintf(message, sizeof(message), "wifi on failed: %s", solar_os_shell_error_text(err));
         wifi_tui_set_status(message);
         return;
     }
@@ -318,7 +318,7 @@ static void wifi_tui_start_radio(void)
         wifi_tui_set_status("radio on");
     } else {
         char message[WIFI_TUI_STATUS_MAX];
-        snprintf(message, sizeof(message), "connect failed: %s", esp_err_to_name(err));
+        snprintf(message, sizeof(message), "connect failed: %s", solar_os_shell_error_text(err));
         wifi_tui_set_status(message);
     }
 }
@@ -332,7 +332,7 @@ static void wifi_tui_apply_selected(void)
     case WIFI_TUI_RADIO:
         if (status.started) {
             const esp_err_t err = solar_os_wifi_stop();
-            wifi_tui_set_status(err == ESP_OK ? "radio off" : esp_err_to_name(err));
+            wifi_tui_set_status(err == ESP_OK ? "radio off" : solar_os_shell_error_text(err));
         } else {
             wifi_tui_start_radio();
         }
@@ -351,14 +351,14 @@ static void wifi_tui_apply_selected(void)
             wifi_tui_set_status("no saved station");
         } else {
             char message[WIFI_TUI_STATUS_MAX];
-            snprintf(message, sizeof(message), "connect failed: %s", esp_err_to_name(err));
+            snprintf(message, sizeof(message), "connect failed: %s", solar_os_shell_error_text(err));
             wifi_tui_set_status(message);
         }
         break;
     }
     case WIFI_TUI_DISCONNECT: {
         const esp_err_t err = solar_os_wifi_disconnect();
-        wifi_tui_set_status(err == ESP_OK ? "station disconnected" : esp_err_to_name(err));
+        wifi_tui_set_status(err == ESP_OK ? "station disconnected" : solar_os_shell_error_text(err));
         break;
     }
     case WIFI_TUI_AP: {
@@ -370,7 +370,7 @@ static void wifi_tui_apply_selected(void)
             wifi_tui_set_status(status.ap_running || status.ap_enabled ? "ap off" : "ap on");
         } else {
             char message[WIFI_TUI_STATUS_MAX];
-            snprintf(message, sizeof(message), "ap failed: %s", esp_err_to_name(err));
+            snprintf(message, sizeof(message), "ap failed: %s", solar_os_shell_error_text(err));
             wifi_tui_set_status(message);
         }
         break;
@@ -383,7 +383,7 @@ static void wifi_tui_apply_selected(void)
             wifi_tui_set_status("nat unsupported");
         } else {
             char message[WIFI_TUI_STATUS_MAX];
-            snprintf(message, sizeof(message), "nat failed: %s", esp_err_to_name(err));
+            snprintf(message, sizeof(message), "nat failed: %s", solar_os_shell_error_text(err));
             wifi_tui_set_status(message);
         }
         break;
@@ -404,7 +404,7 @@ static void wifi_tui_apply_selected(void)
             wifi_tui_set_status(message);
         } else {
             char message[WIFI_TUI_STATUS_MAX];
-            snprintf(message, sizeof(message), "scan failed: %s", esp_err_to_name(err));
+            snprintf(message, sizeof(message), "scan failed: %s", solar_os_shell_error_text(err));
             wifi_tui_set_status(message);
         }
         break;

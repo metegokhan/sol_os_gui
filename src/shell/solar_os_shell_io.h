@@ -45,6 +45,8 @@ struct solar_os_shell_io {
     bool footer_enabled;
     bool ascii_only;
     uint32_t screen_generation;
+    const char *diagnostic_source;
+    size_t diagnostic_line;
 };
 
 void solar_os_shell_io_init_terminal(solar_os_shell_io_t *io, solar_os_terminal_t *terminal);

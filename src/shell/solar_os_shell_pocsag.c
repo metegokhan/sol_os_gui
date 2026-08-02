@@ -7,9 +7,12 @@
 
 #include "solar_os_pocsag_job.h"
 #include "solar_os_memory.h"
+#include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
 #define POCSAG_DEFAULT_DEVIATION_HZ 4500U
+
+static const char * const pocsag_commands[] = {"status", "send"};
 #define POCSAG_DEFAULT_BANDWIDTH_HZ 10500U
 #define POCSAG_PREAMBLE_BYTES 72U
 #define POCSAG_RIC_MAX 2097151U
@@ -29,17 +32,6 @@ static bool parse_u32(const char *text, uint32_t minimum, uint32_t maximum, uint
     return true;
 }
 
-static void print_usage(solar_os_shell_io_t *io)
-{
-    solar_os_shell_io_writeln(io, "usage: pocsag status");
-    solar_os_shell_io_writeln(
-        io,
-        "       pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha|numeric] [normal|inverted] [function]");
-    solar_os_shell_io_writeln(
-        io,
-        "start: job start pocsag <radio> <frequency-hz> <baud> <ric> [alpha|numeric] [normal|inverted]");
-}
-
 static esp_err_t restore_radio(const char *radio, const solar_os_radio_status_t *saved)
 {
     (void)solar_os_radio_set_state(radio, SOLAR_OS_RADIO_STATE_STANDBY);
@@ -53,7 +45,16 @@ static esp_err_t restore_radio(const char *radio, const solar_os_radio_status_t 
 static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
 {
     if (argc < 7 || argc > 10) {
-        print_usage(io);
+        if (argc < 7) {
+            static const char * const required[] = {
+                "", "", "<radio>", "<frequency-hz>", "<baud>", "<ric>", "<message>",
+            };
+            solar_os_shell_diag_missing(io, "pocsag send", required[argc],
+                "pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha|numeric] [normal|inverted] [function]");
+        } else {
+            solar_os_shell_diag_unexpected(io, "pocsag send", argv[10],
+                "pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha|numeric] [normal|inverted] [function]");
+        }
         return;
     }
 
@@ -63,11 +64,23 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
     uint32_t baud = 0;
     uint32_t ric = 0;
     uint32_t function_value = 0;
-    if (!parse_u32(argv[3], 290000000U, 1020000000U, &frequency_hz) ||
-        !parse_u32(argv[4], 512U, 2400U, &baud) ||
-        (baud != 512U && baud != 1200U && baud != 2400U) ||
-        !parse_u32(argv[5], 0, POCSAG_RIC_MAX, &ric)) {
-        print_usage(io);
+    if (!parse_u32(argv[3], 290000000U, 1020000000U, &frequency_hz)) {
+        solar_os_shell_diag_invalid(io, "pocsag send", "frequency-hz", argv[3],
+                                    "an integer from 290000000 to 1020000000",
+                                    "pocsag send <radio> <frequency-hz> <baud> <ric> <message> ...", false);
+        return;
+    }
+    if (!parse_u32(argv[4], 512U, 2400U, &baud) ||
+        (baud != 512U && baud != 1200U && baud != 2400U)) {
+        solar_os_shell_diag_invalid(io, "pocsag send", "baud", argv[4],
+                                    "512, 1200, or 2400",
+                                    "pocsag send <radio> <frequency-hz> <baud> <ric> <message> ...", false);
+        return;
+    }
+    if (!parse_u32(argv[5], 0, POCSAG_RIC_MAX, &ric)) {
+        solar_os_shell_diag_invalid(io, "pocsag send", "RIC", argv[5],
+                                    "a valid POCSAG receiver identity code",
+                                    "pocsag send <radio> <frequency-hz> <baud> <ric> <message> ...", false);
         return;
     }
 
@@ -77,7 +90,8 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
         if (strcmp(argv[7], "numeric") == 0) {
             format = SOLAR_OS_POCSAG_FORMAT_NUMERIC;
         } else if (strcmp(argv[7], "alpha") != 0) {
-            print_usage(io);
+            solar_os_shell_diag_invalid(io, "pocsag send", "format", argv[7],
+                                        "alpha or numeric", NULL, false);
             return;
         }
     }
@@ -85,14 +99,16 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
         if (strcmp(argv[8], "inverted") == 0) {
             inverted = true;
         } else if (strcmp(argv[8], "normal") != 0) {
-            print_usage(io);
+            solar_os_shell_diag_invalid(io, "pocsag send", "polarity", argv[8],
+                                        "normal or inverted", NULL, false);
             return;
         }
     }
     uint8_t function = format == SOLAR_OS_POCSAG_FORMAT_ALPHA ? 3U : 0U;
     if (argc == 10) {
         if (!parse_u32(argv[9], 0, 3, &function_value)) {
-            print_usage(io);
+            solar_os_shell_diag_invalid(io, "pocsag send", "function", argv[9],
+                                        "an integer from 0 to 3", NULL, false);
             return;
         }
         function = (uint8_t)function_value;
@@ -101,7 +117,7 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
     solar_os_radio_info_t info;
     esp_err_t err = solar_os_radio_get_info(radio, &info);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io, "pocsag send: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "pocsag send: %s\n", solar_os_shell_error_text(err));
         return;
     }
     if ((info.modulations & SOLAR_OS_RADIO_MODULATION_FSK) == 0 ||
@@ -121,7 +137,8 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
                                              SOLAR_OS_MEMORY_TRANSIENT,
                                              "pocsag.payload");
     if (payload == NULL) {
-        solar_os_shell_io_writeln(io, "pocsag send: ESP_ERR_NO_MEM");
+        solar_os_shell_io_printf(io, "pocsag send: %s\n",
+                                 solar_os_shell_error_text(ESP_ERR_NO_MEM));
         return;
     }
     size_t payload_len = 0;
@@ -136,7 +153,7 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
                                          &batches);
     if (err != ESP_OK) {
         solar_os_memory_free(payload);
-        solar_os_shell_io_printf(io, "pocsag send: invalid message: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "pocsag send: invalid message: %s\n", solar_os_shell_error_text(err));
         return;
     }
     if (inverted) {
@@ -149,7 +166,7 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
     err = solar_os_radio_get_status(radio, &saved);
     if (err != ESP_OK) {
         solar_os_memory_free(payload);
-        solar_os_shell_io_printf(io, "pocsag send: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "pocsag send: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -182,7 +199,7 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
         err = restore_err;
     }
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io, "pocsag send: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(io, "pocsag send: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
@@ -205,7 +222,13 @@ void solar_os_shell_cmd_pocsag(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (argc != 2 || strcmp(argv[1], "status") != 0) {
-        print_usage(io);
+        solar_os_shell_diag_subcommand(io,
+                                       "pocsag",
+                                       argc,
+                                       argv,
+                                       "pocsag status|send",
+                                       pocsag_commands,
+                                       sizeof(pocsag_commands) / sizeof(pocsag_commands[0]));
         return;
     }
 
@@ -238,5 +261,5 @@ void solar_os_shell_cmd_pocsag(solar_os_context_t *ctx, int argc, char **argv)
                              status.corrected_codewords,
                              status.uncorrectable_codewords,
                              status.last_rssi_dbm,
-                             esp_err_to_name(status.last_error));
+                             solar_os_shell_error_text(status.last_error));
 }
