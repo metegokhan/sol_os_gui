@@ -79,6 +79,9 @@
 #if SOLAR_OS_PACKAGE_APP_READER
 #include "solar_os_reader.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_WRITER
+#include "solar_os_writer.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_SHEET
 #include "solar_os_sheet.h"
 #endif
@@ -171,6 +174,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_READER
     {"reader", "graphics text/Markdown/EPUB reader", &solar_os_reader_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+#endif
+#if SOLAR_OS_PACKAGE_APP_WRITER
+    {"writer", "hybrid WYSIWYG Markdown editor", &solar_os_writer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
 #endif
 #if SOLAR_OS_PACKAGE_APP_SHEET
     {"sheet", "CSV sheet viewer", &solar_os_sheet_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},

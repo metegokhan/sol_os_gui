@@ -1125,6 +1125,9 @@ static const char * const path_notes[] = {"notes"};
 static const char * const path_plot[] = {"plot"};
 static const char * const path_plot_file[] = {"plot", "-f"};
 static const char * const path_reader[] = {"reader"};
+#if SOLAR_OS_PACKAGE_APP_WRITER
+static const char * const path_writer[] = {"writer"};
+#endif
 static const char * const path_plot_long_file[] = {"plot", "--file"};
 static const char * const path_plot_stream[] = {"plot", SHELL_COMPLETION_ANY};
 #endif
@@ -2024,6 +2027,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PATH(path_plot_long_file, false),
     SHELL_COMPLETION_PATH(path_reader, false),
     SHELL_COMPLETION_MANUAL_REFERENCES(path_reader),
+#if SOLAR_OS_PACKAGE_APP_WRITER
+    SHELL_COMPLETION_PATH(path_writer, false),
+#endif
 #endif
     SHELL_COMPLETION_STATIC(path_watch, watch_subcommands),
     SHELL_COMPLETION_COMMANDS(path_watch),
@@ -3724,6 +3730,9 @@ static bool shell_is_path_command(const char *command)
 #endif
 #if SOLAR_OS_PACKAGE_APP_READER
            strcmp(command, "reader") == 0 ||
+#endif
+#if SOLAR_OS_PACKAGE_APP_WRITER
+           strcmp(command, "writer") == 0 ||
 #endif
 #if SOLAR_OS_PACKAGE_APP_SHEET
            strcmp(command, "sheet") == 0 ||
@@ -6784,6 +6793,9 @@ static bool shell_prepare_app_launch_args(
          strcmp(app->name, "less") == 0 ||
          strcmp(app->name, "notes") == 0 ||
          strcmp(app->name, "reader") == 0 ||
+#if SOLAR_OS_PACKAGE_APP_WRITER
+         strcmp(app->name, "writer") == 0 ||
+#endif
          strcmp(app->name, "sheet") == 0)) {
         if (!solar_os_shell_resolve_path_for_command(ctx,
                                                      terminal(ctx),

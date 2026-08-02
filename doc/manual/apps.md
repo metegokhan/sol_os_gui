@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader less files edit hexedit binary agent calculator calc graph"
+keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -774,6 +774,48 @@ Controls:
 - `/` starts search, `n`/`N` repeat search.
 - `Esc` exits search state first; otherwise exits.
 - `q` or app-exit key exits.
+
+## writer
+
+Resumable graphical Markdown editor for PSRAM display boards. Inactive blocks
+are formatted like `reader`; the block containing the cursor and every block
+touched by a selection show their exact Markdown source. `edit` remains the
+portable text editor for port shells and boards without graphics or PSRAM.
+
+Usage:
+
+```text
+writer [file.md]
+```
+
+Without a path, Writer opens an untitled document and asks for a path on the
+first save. Existing files larger than 256 KiB are rejected without changing
+them. Saves use a synced same-directory staging file, backup rename, verified
+replacement, and rollback. Cursor, scroll anchor, and zoom metadata plus idle
+recovery snapshots live centrally under `/.writer` or the active persistent
+storage root. Writer offers a differing recovery snapshot when the document is
+opened again. Recovery uses `R` to recover, `D` to discard the snapshot, or `C`
+to cancel; the unsaved-changes dialog similarly uses `S`, `D`, and `C`.
+
+Controls:
+
+- Left/Right move by UTF-8 codepoint; Up/Down move to the adjacent editable
+  visual line or Markdown block, including directly adjacent headings.
+  `Ctrl+Left`/`Ctrl+Right` move by word. The insertion cursor blinks while idle.
+- `Shift` with arrows, Page Up/Page Down, Home/End, or document movement extends
+  the selection. `Ctrl+Home`/`Ctrl+End` jump to the document boundaries.
+- `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, and `Ctrl+V` select all, copy, cut, and paste
+  through the shared SolarOS clipboard.
+- `Ctrl+B`, `Ctrl+I`, and `Ctrl+K` add or remove bold, italic, and link source.
+- `F1` opens formatting for inline code, headings 1–4, bullet or numbered
+  lists, quotes, fenced code, and rules. `Esc` closes the active menu/dialog;
+  from the editor it exits, using the save/discard/cancel prompt when dirty.
+- `Ctrl+F` finds text; `Ctrl+R` prompts for find and replacement text.
+- `Ctrl+S` saves, `Ctrl+Z`/`Ctrl+Y` undo and redo, and `Ctrl++`/`Ctrl+-` adjust
+  zoom.
+- `Esc` and the app-exit key open the save/discard/cancel prompt when the
+  document is dirty. Writer writes recovery before suspend or stop and resumes
+  in place.
 
 ## scp
 

@@ -568,6 +568,8 @@ static esp_err_t doc_add_block(solar_os_doc_t *doc,
     *block = (solar_os_doc_block_t){
         .type = type,
         .level = level,
+        .raw_source_start = source_start,
+        .raw_source_end = source_end,
         .source_start = source_start,
         .source_end = source_end,
         .run_start = doc->run_count,
@@ -607,6 +609,8 @@ static esp_err_t doc_add_plain_block(solar_os_doc_t *doc,
     *block = (solar_os_doc_block_t){
         .type = type,
         .level = level,
+        .raw_source_start = source_start,
+        .raw_source_end = source_end,
         .source_start = source_start,
         .source_end = source_end,
         .run_start = doc->run_count,
@@ -644,6 +648,8 @@ static esp_err_t doc_add_empty_block(solar_os_doc_t *doc,
     doc->blocks[doc->block_count++] = (solar_os_doc_block_t){
         .type = type,
         .level = level,
+        .raw_source_start = source_start,
+        .raw_source_end = source_end,
         .source_start = source_start,
         .source_end = source_end,
         .run_start = doc->run_count,
@@ -668,6 +674,8 @@ static esp_err_t doc_add_image_block(solar_os_doc_t *doc,
     *block = (solar_os_doc_block_t){
         .type = SOLAR_OS_DOC_BLOCK_IMAGE,
         .level = 0,
+        .raw_source_start = source_start,
+        .raw_source_end = source_end,
         .source_start = source_start,
         .source_end = source_end,
         .run_start = doc->run_count,
@@ -677,6 +685,19 @@ static esp_err_t doc_add_image_block(solar_os_doc_t *doc,
 
     (void)doc_decode_image_asset(doc, target, &block->image);
     return ESP_OK;
+}
+
+static void doc_set_last_raw_range(solar_os_doc_t *doc, size_t start, size_t end)
+{
+    if (doc == NULL || doc->block_count == 0) {
+        return;
+    }
+    solar_os_doc_block_t *block = &doc->blocks[doc->block_count - 1U];
+    block->raw_source_start = start <= doc->source_len ? start : doc->source_len;
+    block->raw_source_end = end <= doc->source_len ? end : doc->source_len;
+    if (block->raw_source_end < block->raw_source_start) {
+        block->raw_source_end = block->raw_source_start;
+    }
 }
 
 static size_t doc_line_end(const char *source, size_t len, size_t offset)
@@ -1260,6 +1281,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
     size_t pre_len = 0;
     size_t pre_cap = 0;
     size_t pre_start = 0;
+    size_t pre_raw_start = 0;
 
     for (size_t offset = 0; offset < source_len;) {
         const size_t line_start = offset;
@@ -1279,6 +1301,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
                     doc_free(pre);
                     return ret;
                 }
+                doc_set_last_raw_range(doc, pre_raw_start, next_line);
                 pre = NULL;
                 pre_len = 0;
                 pre_cap = 0;
@@ -1312,6 +1335,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             }
             in_fence = true;
             pre_start = next_line;
+            pre_raw_start = line_start;
             offset = next_line;
             continue;
         }
@@ -1426,6 +1450,9 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             if (ret != ESP_OK) {
                 return ret;
             }
+            doc_set_last_raw_range(doc,
+                                   line_start,
+                                   doc_next_line(source, source_len, after_header));
 
             size_t scan = doc_next_line(source, source_len, after_header);
             while (scan < source_len) {
@@ -1523,6 +1550,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             if (ret != ESP_OK) {
                 return ret;
             }
+            doc_set_last_raw_range(doc, line_start, next_line);
         } else if (doc_parse_list(source, line_start, line_end, &text_start)) {
             esp_err_t ret = doc_flush_paragraph(doc,
                                                 &paragraph,
@@ -1543,6 +1571,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             if (ret != ESP_OK) {
                 return ret;
             }
+            doc_set_last_raw_range(doc, line_start, next_line);
         } else if (doc_parse_quote(source, line_start, line_end, &text_start)) {
             esp_err_t ret = doc_flush_paragraph(doc,
                                                 &paragraph,
@@ -1563,6 +1592,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             if (ret != ESP_OK) {
                 return ret;
             }
+            doc_set_last_raw_range(doc, line_start, next_line);
         } else {
             if (paragraph_len == 0) {
                 paragraph_start = line_start;
@@ -1594,6 +1624,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             doc_free(pre);
             return ret;
         }
+        doc_set_last_raw_range(doc, pre_raw_start, source_len);
         pre = NULL;
     }
 
@@ -2591,12 +2622,160 @@ static esp_err_t doc_layout_image_block(solar_os_doc_layout_t *layout,
     return ESP_OK;
 }
 
-esp_err_t solar_os_doc_layout_build(solar_os_doc_layout_t *layout,
-                                    const solar_os_doc_t *doc,
-                                    int width,
-                                    int zoom)
+static bool doc_block_is_revealed(const solar_os_doc_t *doc,
+                                  const solar_os_doc_block_t *block,
+                                  const solar_os_doc_reveal_range_t *ranges,
+                                  size_t range_count)
 {
-    if (layout == NULL || doc == NULL || width <= 0) {
+    if (doc == NULL || block == NULL || ranges == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < range_count; i++) {
+        size_t start = ranges[i].start;
+        size_t end = ranges[i].end;
+        if (end < start) {
+            const size_t swap = start;
+            start = end;
+            end = swap;
+        }
+        if (start == end) {
+            if (start >= block->raw_source_start &&
+                (start < block->raw_source_end ||
+                 (start == doc->source_len && block->raw_source_end == doc->source_len))) {
+                return true;
+            }
+        } else if (start < block->raw_source_end && end > block->raw_source_start) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool doc_utf8_continuation(unsigned char ch)
+{
+    return (ch & 0xc0U) == 0x80U;
+}
+
+static esp_err_t doc_layout_raw_block(solar_os_doc_layout_t *layout,
+                                      const solar_os_doc_t *doc,
+                                      size_t block_index,
+                                      int *y,
+                                      int width)
+{
+    const solar_os_doc_block_t *block = &doc->blocks[block_index];
+    size_t start = block->raw_source_start;
+    size_t end = block->raw_source_end;
+    if (start > doc->source_len) {
+        start = doc->source_len;
+    }
+    if (end > doc->source_len) {
+        end = doc->source_len;
+    }
+    if (end < start) {
+        end = start;
+    }
+
+    const doc_style_t style = doc_style_for(layout->zoom, SOLAR_OS_DOC_RUN_CODE);
+    int max_chars_i = width / style.char_w;
+    if (max_chars_i < 1) {
+        max_chars_i = 1;
+    }
+    const size_t max_chars = (size_t)max_chars_i;
+    size_t line_start = start;
+    bool emitted_any = false;
+
+    while (line_start < end || !emitted_any) {
+        size_t line_end = line_start;
+        while (line_end < end && doc->source[line_end] != '\n' && doc->source[line_end] != '\r') {
+            line_end++;
+        }
+        size_t next_line = line_end;
+        if (next_line < end && doc->source[next_line] == '\r') {
+            next_line++;
+            if (next_line < end && doc->source[next_line] == '\n') {
+                next_line++;
+            }
+        } else if (next_line < end && doc->source[next_line] == '\n') {
+            next_line++;
+        }
+
+        size_t chunk = line_start;
+        bool emitted_line = false;
+        while (chunk < line_end || !emitted_line) {
+            size_t chunk_len = line_end - chunk;
+            if (chunk_len > max_chars) {
+                chunk_len = max_chars;
+            }
+            if (chunk + chunk_len < line_end) {
+                while (chunk_len > 0 &&
+                       doc_utf8_continuation((unsigned char)doc->source[chunk + chunk_len])) {
+                    chunk_len--;
+                }
+                if (chunk_len == 0) {
+                    chunk_len = 1;
+                    while (chunk + chunk_len < line_end &&
+                           doc_utf8_continuation((unsigned char)doc->source[chunk + chunk_len])) {
+                        chunk_len++;
+                    }
+                }
+            }
+            size_t line_index = 0;
+            esp_err_t ret = doc_layout_begin_line(layout,
+                                                  block_index,
+                                                  0,
+                                                  *y,
+                                                  &style,
+                                                  &line_index);
+            if (ret != ESP_OK) {
+                return ret;
+            }
+            size_t mapped_end = chunk + chunk_len;
+            if (mapped_end == line_end && next_line > line_end) {
+                mapped_end = next_line;
+            }
+            ret = doc_layout_add_run(layout,
+                                     line_index,
+                                     block_index,
+                                     block->run_start,
+                                     chunk,
+                                     chunk_len,
+                                     chunk,
+                                     mapped_end,
+                                     SOLAR_OS_DOC_RUN_CODE,
+                                     layout->zoom,
+                                     0,
+                                     *y,
+                                     NULL);
+            if (ret != ESP_OK) {
+                return ret;
+            }
+            layout->runs[layout->run_count - 1U].raw_source = true;
+            *y += layout->lines[line_index].height;
+            emitted_line = true;
+            emitted_any = true;
+            if (chunk_len == 0) {
+                break;
+            }
+            chunk += chunk_len;
+        }
+
+        if (next_line <= line_start || next_line >= end) {
+            break;
+        }
+        line_start = next_line;
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_doc_layout_build_ex(solar_os_doc_layout_t *layout,
+                                       const solar_os_doc_t *doc,
+                                       int width,
+                                       int zoom,
+                                       const solar_os_doc_reveal_range_t *reveal_ranges,
+                                       size_t reveal_range_count)
+{
+    if (layout == NULL || doc == NULL || width <= 0 ||
+        (reveal_ranges == NULL && reveal_range_count > 0)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -2612,6 +2791,17 @@ esp_err_t solar_os_doc_layout_build(solar_os_doc_layout_t *layout,
     for (size_t i = 0; i < doc->block_count; i++) {
         const solar_os_doc_block_t *block = &doc->blocks[i];
         esp_err_t ret = ESP_OK;
+
+        if (doc_block_is_revealed(doc,
+                                  block,
+                                  reveal_ranges,
+                                  reveal_range_count)) {
+            ret = doc_layout_raw_block(layout, doc, i, &y, width);
+            if (ret != ESP_OK) {
+                return ret;
+            }
+            continue;
+        }
 
         switch (block->type) {
         case SOLAR_OS_DOC_BLOCK_HEADING:
@@ -2667,6 +2857,14 @@ esp_err_t solar_os_doc_layout_build(solar_os_doc_layout_t *layout,
 
     layout->height = y;
     return ESP_OK;
+}
+
+esp_err_t solar_os_doc_layout_build(solar_os_doc_layout_t *layout,
+                                    const solar_os_doc_t *doc,
+                                    int width,
+                                    int zoom)
+{
+    return solar_os_doc_layout_build_ex(layout, doc, width, zoom, NULL, 0);
 }
 
 static void doc_render_text_slice_clipped(solar_os_gfx_t *gfx,
@@ -2933,6 +3131,10 @@ static void doc_render_line_decor(solar_os_gfx_t *gfx,
                                   size_t line_index)
 {
     const solar_os_doc_layout_line_t *line = &layout->lines[line_index];
+    if (line->run_count > 0 &&
+        layout->runs[line->run_start].raw_source) {
+        return;
+    }
     const solar_os_doc_block_t *block = &doc->blocks[line->block_index];
     const int screen_y = view->y + line->y - view->scroll_y;
 
@@ -3077,7 +3279,13 @@ void solar_os_doc_layout_render(solar_os_gfx_t *gfx,
             }
 
             const solar_os_doc_block_t *block = &doc->blocks[run->block_index];
-            const char *text = block->text != NULL ? block->text : "";
+            const char *text = run->raw_source ? doc->source :
+                (block->text != NULL ? block->text : "");
+            const size_t text_len = run->raw_source ? doc->source_len :
+                (block->text != NULL ? strlen(block->text) : 0U);
+            if (run->text_offset > text_len || run->text_len > text_len - run->text_offset) {
+                continue;
+            }
             doc_render_text_run(gfx,
                                 run,
                                 view,
@@ -3115,7 +3323,10 @@ bool solar_os_doc_layout_source_to_xy(const solar_os_doc_layout_t *layout,
         if (run->text_offset == SIZE_MAX || run->source_start == SIZE_MAX) {
             continue;
         }
-        if (source_offset >= run->source_start && source_offset <= run->source_end) {
+        const bool contains = run->source_end > run->source_start ?
+            source_offset >= run->source_start && source_offset < run->source_end :
+            source_offset == run->source_start;
+        if (contains) {
             const size_t span = run->source_end > run->source_start ?
                 run->source_end - run->source_start :
                 1U;
@@ -3236,6 +3447,74 @@ bool solar_os_doc_layout_hit_test(const solar_os_doc_layout_t *layout,
     }
     *source_offset = 0;
     return true;
+}
+
+static bool doc_layout_line_has_source(const solar_os_doc_layout_t *layout,
+                                       size_t line_index)
+{
+    if (layout == NULL || line_index >= layout->line_count) {
+        return false;
+    }
+    const solar_os_doc_layout_line_t *line = &layout->lines[line_index];
+    for (size_t r = 0; r < line->run_count; r++) {
+        const size_t run_index = line->run_start + r;
+        if (run_index >= layout->run_count) {
+            break;
+        }
+        const solar_os_doc_layout_run_t *run = &layout->runs[run_index];
+        if (run->text_offset != SIZE_MAX && run->source_start != SIZE_MAX) {
+            return true;
+        }
+    }
+    return line->source_start != SIZE_MAX;
+}
+
+bool solar_os_doc_layout_adjacent_source(const solar_os_doc_layout_t *layout,
+                                         size_t source_offset,
+                                         bool down,
+                                         size_t *target_offset)
+{
+    if (layout == NULL || target_offset == NULL || layout->line_count == 0) {
+        return false;
+    }
+    int x = 0;
+    int y = 0;
+    if (!solar_os_doc_layout_source_to_xy(layout, source_offset, &x, &y, NULL)) {
+        return false;
+    }
+
+    size_t current = 0;
+    for (size_t i = 0; i < layout->line_count; i++) {
+        const solar_os_doc_layout_line_t *line = &layout->lines[i];
+        if (y < line->y) {
+            break;
+        }
+        current = i;
+        if (y < line->y + line->height) {
+            break;
+        }
+    }
+
+    size_t adjacent = current;
+    if (down) {
+        do {
+            if (adjacent + 1U >= layout->line_count) {
+                return false;
+            }
+            adjacent++;
+        } while (!doc_layout_line_has_source(layout, adjacent));
+    } else {
+        do {
+            if (adjacent == 0) {
+                return false;
+            }
+            adjacent--;
+        } while (!doc_layout_line_has_source(layout, adjacent));
+    }
+
+    const solar_os_doc_layout_line_t *line = &layout->lines[adjacent];
+    const int target_y = line->y + (line->height > 1 ? line->height / 2 : 0);
+    return solar_os_doc_layout_hit_test(layout, x, target_y, target_offset);
 }
 
 int solar_os_doc_measure_height(const solar_os_doc_t *doc, int width, int zoom)

@@ -1,0 +1,5 @@
+#pragma once
+
+#define SOLAR_OS_PACKAGE_APP_READER 0
+#define SOLAR_OS_PACKAGE_APP_WEB 0
+
