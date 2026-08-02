@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "rfm69", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral radio rfm69 rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -49,6 +49,18 @@ radio profile apply radio0 lora-eu868
 
 Connect an antenna suitable for the module band before transmitting. See the
 expansion reference for the complete wiring and modulation configuration.
+
+Use `rfm69` for the 13 dBm RFM69W/CW modules and `rfm69h` for the 20 dBm
+RFM69HW/HCW variants. For example:
+
+```text
+expansion attach rfm69h radio0 spi=spi0 cs=gpio4 reset=gpio5
+radio config radio0 power 20
+```
+
+Both variants are 3.3 V devices. High-power transmission requires a supply that
+can sustain the module's transmit-current peak and an antenna appropriate for
+the selected band.
 
 A WS2812/NeoPixel strip uses one runtime-safe GPIO and a declared pixel count:
 

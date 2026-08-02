@@ -196,7 +196,8 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | Driver | Device | Required bindings | Result after attach |
 | --- | --- | --- | --- |
 | `manual` | Resource-only profile | Any valid bus, address, chip-select, GPIO, ADC, or PWM bindings | Claims resources without initializing hardware. |
-| `rfm69` | HopeRF RFM69 packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target for the `radio` command. |
+| `rfm69` | HopeRF RFM69W/CW packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target with PA0 power from -18 through 13 dBm. |
+| `rfm69h` | HopeRF RFM69HW/HCW high-power packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target with PA_BOOST power from -2 through 20 dBm. |
 | `rfm95` | HopeRF RFM95W multimode radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers an FSK/GFSK/MSK/GMSK/OOK/LoRa target for the `radio` command. |
 | `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
@@ -215,6 +216,12 @@ expansion detach radio0
 Binding names may be explicit (`spi=spi0`, `i2c=i2c0`) or, where unambiguous,
 supplied as positional bus names. `ce=` aliases `cs=` and `rst=` aliases
 `reset=` for common module labels.
+
+Select the RFM69 driver from the module variant, not from the requested power.
+The `rfm69h` driver uses PA1 through 13 dBm, PA1+PA2 through 17 dBm, and applies
+the datasheet high-power OCP/TestPA settings only during 18-20 dBm transmit.
+Those settings are restored before standby, receive, or sleep. Both module
+families require 3.3 V power and a band-appropriate antenna.
 
 ### WS2812/NeoPixel strip
 

@@ -611,6 +611,7 @@ static const char * const expansion_driver_values[] = {
     "manual",
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
     "rfm69",
+    "rfm69h",
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM95
     "rfm95",

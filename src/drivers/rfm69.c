@@ -23,6 +23,7 @@
 #define REG_FRF_LSB 0x09
 #define REG_VERSION 0x10
 #define REG_PA_LEVEL 0x11
+#define REG_OCP 0x13
 #define REG_LNA 0x18
 #define REG_RX_BW 0x19
 #define REG_AFC_BW 0x1A
@@ -41,6 +42,8 @@
 #define REG_BROADCAST_ADRS 0x3A
 #define REG_FIFO_THRESH 0x3C
 #define REG_PACKET_CONFIG2 0x3D
+#define REG_TEST_PA1 0x5A
+#define REG_TEST_PA2 0x5C
 #define REG_TEST_DAGC 0x6F
 
 #define OP_MODE_SLEEP 0x00
@@ -59,6 +62,16 @@
 #define PACKET_CONFIG1_VARIABLE 0x80
 #define PACKET_CONFIG1_CRC_ON 0x10
 #define PACKET_CONFIG1_ADDRESS_NODE 0x02
+
+#define PA_LEVEL_PA0_ON 0x80
+#define PA_LEVEL_PA1_ON 0x40
+#define PA_LEVEL_PA2_ON 0x20
+#define OCP_NORMAL 0x1A
+#define OCP_HIGH_POWER 0x0F
+#define TEST_PA1_NORMAL 0x55
+#define TEST_PA1_HIGH_POWER 0x5D
+#define TEST_PA2_NORMAL 0x70
+#define TEST_PA2_HIGH_POWER 0x7C
 
 #define FIFO_WRITE_BIT 0x80
 #define RFM69_MODE_WAIT_MS 100
@@ -299,7 +312,7 @@ static esp_err_t rfm69_wait_flag_locked(rfm69_t *dev,
     }
 }
 
-static esp_err_t rfm69_set_state_locked(rfm69_t *dev, solar_os_radio_state_t state)
+static esp_err_t rfm69_write_state_locked(rfm69_t *dev, solar_os_radio_state_t state)
 {
     const uint8_t opmode = rfm69_opmode_for_state(state);
     esp_err_t ret = rfm69_write_reg_locked(dev, REG_OP_MODE, opmode);
@@ -319,7 +332,75 @@ static esp_err_t rfm69_set_state_locked(rfm69_t *dev, solar_os_radio_state_t sta
     return ESP_OK;
 }
 
-static bool rfm69_config_valid(const solar_os_radio_config_t *config)
+static esp_err_t rfm69_set_high_power_regs_locked(rfm69_t *dev, bool enabled)
+{
+    if (dev->variant != RFM69_VARIANT_HIGH_POWER) {
+        return ESP_OK;
+    }
+
+    esp_err_t ret = ESP_OK;
+    if (enabled) {
+        ret = rfm69_write_reg_locked(dev, REG_OCP, OCP_HIGH_POWER);
+        if (ret == ESP_OK) {
+            ret = rfm69_write_reg_locked(dev, REG_TEST_PA1, TEST_PA1_HIGH_POWER);
+        }
+        if (ret == ESP_OK) {
+            ret = rfm69_write_reg_locked(dev, REG_TEST_PA2, TEST_PA2_HIGH_POWER);
+        }
+        if (ret != ESP_OK) {
+            (void)rfm69_write_reg_locked(dev, REG_TEST_PA1, TEST_PA1_NORMAL);
+            (void)rfm69_write_reg_locked(dev, REG_TEST_PA2, TEST_PA2_NORMAL);
+            (void)rfm69_write_reg_locked(dev, REG_OCP, OCP_NORMAL);
+        }
+    } else {
+        ret = rfm69_write_reg_locked(dev, REG_TEST_PA1, TEST_PA1_NORMAL);
+        if (ret == ESP_OK) {
+            ret = rfm69_write_reg_locked(dev, REG_TEST_PA2, TEST_PA2_NORMAL);
+        }
+        if (ret == ESP_OK) {
+            ret = rfm69_write_reg_locked(dev, REG_OCP, OCP_NORMAL);
+        }
+    }
+    return ret;
+}
+
+static esp_err_t rfm69_set_state_locked(rfm69_t *dev, solar_os_radio_state_t state)
+{
+    if (dev->state == SOLAR_OS_RADIO_STATE_TX && state != SOLAR_OS_RADIO_STATE_TX) {
+        esp_err_t ret = rfm69_write_state_locked(dev, SOLAR_OS_RADIO_STATE_STANDBY);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        ret = rfm69_set_high_power_regs_locked(dev, false);
+        if (ret != ESP_OK || state == SOLAR_OS_RADIO_STATE_STANDBY) {
+            return ret;
+        }
+    } else if (state != SOLAR_OS_RADIO_STATE_TX) {
+        const esp_err_t ret = rfm69_set_high_power_regs_locked(dev, false);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
+    if (state == SOLAR_OS_RADIO_STATE_TX) {
+        const bool high_power = dev->variant == RFM69_VARIANT_HIGH_POWER &&
+            dev->config.tx_power_dbm > 17;
+        const esp_err_t ret = rfm69_set_high_power_regs_locked(dev, high_power);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
+    const esp_err_t ret = rfm69_write_state_locked(dev, state);
+    if (ret != ESP_OK && state == SOLAR_OS_RADIO_STATE_TX) {
+        (void)rfm69_write_reg_locked(dev, REG_OP_MODE, OP_MODE_STANDBY);
+        (void)rfm69_set_high_power_regs_locked(dev, false);
+        dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
+    }
+    return ret;
+}
+
+static bool rfm69_config_valid(const rfm69_t *dev, const solar_os_radio_config_t *config)
 {
     if (config == NULL ||
         config->frequency_hz < 290000000U ||
@@ -327,9 +408,14 @@ static bool rfm69_config_valid(const solar_os_radio_config_t *config)
         config->bitrate_bps == 0 ||
         config->bitrate_bps > 300000U ||
         config->sync_word_len > SOLAR_OS_RADIO_SYNC_WORD_MAX ||
-        config->payload_length > RFM69_MAX_PACKET_LEN ||
-        config->tx_power_dbm < -18 ||
-        config->tx_power_dbm > 13) {
+        config->payload_length > RFM69_MAX_PACKET_LEN) {
+        return false;
+    }
+    if (dev != NULL && dev->variant == RFM69_VARIANT_HIGH_POWER) {
+        if (config->tx_power_dbm < -2 || config->tx_power_dbm > 20) {
+            return false;
+        }
+    } else if (config->tx_power_dbm < -18 || config->tx_power_dbm > 13) {
         return false;
     }
     if (config->payload_length == 0 &&
@@ -354,11 +440,12 @@ static bool rfm69_config_valid(const solar_os_radio_config_t *config)
 esp_err_t rfm69_init(rfm69_t *dev,
                      const char *spi_bus,
                      int cs_pin,
-                     uint32_t speed_hz)
+                     uint32_t speed_hz,
+                     rfm69_variant_t variant)
 {
     if (dev == NULL || spi_bus == NULL || spi_bus[0] == '\0' ||
         strnlen(spi_bus, sizeof(dev->spi_bus)) >= sizeof(dev->spi_bus) ||
-        cs_pin < 0) {
+        cs_pin < 0 || variant > RFM69_VARIANT_HIGH_POWER) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -371,6 +458,7 @@ esp_err_t rfm69_init(rfm69_t *dev,
     strlcpy(dev->spi_bus, spi_bus, sizeof(dev->spi_bus));
     dev->cs_pin = cs_pin;
     dev->speed_hz = speed_hz != 0 ? speed_hz : SOLAR_OS_SPI_DEFAULT_SPEED_HZ;
+    dev->variant = variant;
     dev->state = SOLAR_OS_RADIO_STATE_UNKNOWN;
     return ESP_OK;
 }
@@ -396,7 +484,7 @@ esp_err_t rfm69_probe(rfm69_t *dev, uint8_t *version)
 
 esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
 {
-    if (!rfm69_config_valid(config)) {
+    if (!rfm69_config_valid(dev, config)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -445,8 +533,23 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
         ret = rfm69_write_reg_locked(dev, REG_FRF_LSB, (uint8_t)frf);
     }
     if (ret == ESP_OK) {
-        const uint8_t power = (uint8_t)(config->tx_power_dbm + 18);
-        ret = rfm69_write_reg_locked(dev, REG_PA_LEVEL, (uint8_t)(0x80 | (power & 0x1F)));
+        uint8_t power = 0;
+        uint8_t pa = PA_LEVEL_PA0_ON;
+        if (dev->variant == RFM69_VARIANT_HIGH_POWER) {
+            pa = PA_LEVEL_PA1_ON;
+            if (config->tx_power_dbm <= 13) {
+                power = (uint8_t)(config->tx_power_dbm + 18);
+            } else if (config->tx_power_dbm <= 17) {
+                pa |= PA_LEVEL_PA2_ON;
+                power = (uint8_t)(config->tx_power_dbm + 14);
+            } else {
+                pa |= PA_LEVEL_PA2_ON;
+                power = (uint8_t)(config->tx_power_dbm + 11);
+            }
+        } else {
+            power = (uint8_t)(config->tx_power_dbm + 18);
+        }
+        ret = rfm69_write_reg_locked(dev, REG_PA_LEVEL, (uint8_t)(pa | (power & 0x1F)));
     }
     if (ret == ESP_OK) {
         ret = rfm69_write_reg_locked(dev, REG_LNA, 0x88);
