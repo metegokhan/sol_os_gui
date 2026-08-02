@@ -2,6 +2,13 @@
 
 ## 4.x
 
+- **4.5.0** — 2026-08-02 — Added `writer`, a resumable graphical Markdown
+  editor with hybrid source reveal: inactive blocks stay formatted while the
+  active or selected blocks expose their exact Markdown. Added PSRAM-backed
+  UTF-8 editing up to 256 KiB, bounded undo/redo, shared clipboard,
+  find/replace, formatting controls, source-aware vertical navigation, and a
+  blinking cursor. Saves use verified staged replacement with rollback, while
+  recovery snapshots preserve cursor, scroll, and zoom state after interruption.
 - **4.4.13** — 2026-08-01 — Added `calc`, a bounded scientific calculator with
   variables, one-argument functions, worksheet save/load, and a Desmos-style
   expression-and-plot view on graphical displays. Its expression editor uses a
