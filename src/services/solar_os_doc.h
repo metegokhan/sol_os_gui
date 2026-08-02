@@ -61,6 +61,8 @@ typedef struct {
 typedef struct {
     solar_os_doc_block_type_t type;
     uint8_t level;
+    size_t raw_source_start;
+    size_t raw_source_end;
     size_t source_start;
     size_t source_end;
     size_t run_start;
@@ -108,8 +110,14 @@ typedef struct {
     int char_w;
     uint16_t pixel_size;
     uint8_t face;
+    bool raw_source;
     char literal[8];
 } solar_os_doc_layout_run_t;
+
+typedef struct {
+    size_t start;
+    size_t end;
+} solar_os_doc_reveal_range_t;
 
 typedef struct {
     int x;
@@ -157,6 +165,12 @@ esp_err_t solar_os_doc_layout_build(solar_os_doc_layout_t *layout,
                                     const solar_os_doc_t *doc,
                                     int width,
                                     int zoom);
+esp_err_t solar_os_doc_layout_build_ex(solar_os_doc_layout_t *layout,
+                                       const solar_os_doc_t *doc,
+                                       int width,
+                                       int zoom,
+                                       const solar_os_doc_reveal_range_t *reveal_ranges,
+                                       size_t reveal_range_count);
 void solar_os_doc_layout_render(solar_os_gfx_t *gfx,
                                 const solar_os_doc_t *doc,
                                 const solar_os_doc_layout_t *layout,
@@ -170,6 +184,10 @@ bool solar_os_doc_layout_hit_test(const solar_os_doc_layout_t *layout,
                                   int x,
                                   int y,
                                   size_t *source_offset);
+bool solar_os_doc_layout_adjacent_source(const solar_os_doc_layout_t *layout,
+                                         size_t source_offset,
+                                         bool down,
+                                         size_t *target_offset);
 int solar_os_doc_measure_height(const solar_os_doc_t *doc, int width, int zoom);
 void solar_os_doc_render(solar_os_gfx_t *gfx,
                          const solar_os_doc_t *doc,

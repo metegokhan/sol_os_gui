@@ -127,6 +127,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [telnet application](apps.md#telnet) — Telnet client for classic TCP terminal sessions. It supports basic Telnet option negotiation, terminal type reporting, window size reporting, and raw mode.
 - [view application](apps.md#view) — Graphical image viewer. It supports the image formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF playback when the media package is enabled.
 - [web application](apps.md#web) — Simple graphical web browser for lightweight HTML pages. It shares document and image rendering infrastructure with reader where possible.
+- [writer application](apps.md#writer) — Resumable hybrid WYSIWYG Markdown editor for graphical PSRAM boards. The active block shows exact Markdown source while inactive blocks remain formatted.
 
 ## Background jobs
 

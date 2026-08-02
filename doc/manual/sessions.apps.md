@@ -71,6 +71,7 @@ An app can be launched onto a named display from any shell:
 ```text
 session create files display0
 session create reader oled0 /manual.md
+session create writer display0 /notes.md
 ```
 
 The invoking port shell immediately returns to its own prompt. The new app
