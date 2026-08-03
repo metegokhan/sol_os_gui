@@ -237,6 +237,28 @@ static void disk_print_lsblk(solar_os_shell_io_t *term)
     }
 }
 
+static bool disk_print_mounted_volume(solar_os_shell_io_t *term,
+                                      const char *name)
+{
+    const size_t count = solar_os_storage_block_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_storage_block_t block;
+
+        if (!solar_os_storage_get_block(i, &block) ||
+            strcmp(block.name, name) != 0 ||
+            !block.mounted) {
+            continue;
+        }
+
+        solar_os_shell_io_printf(term,
+                                 "Disk: mounted %s at %s\n",
+                                 block.name,
+                                 block.mount_point);
+        return true;
+    }
+    return false;
+}
+
 static void disk_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
@@ -282,7 +304,9 @@ void solar_os_shell_cmd_disk(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_storage_mount() :
             solar_os_storage_mount_volume(volume, mount_point);
         if (err == ESP_OK) {
-            disk_print_status(term);
+            if (volume == NULL || !disk_print_mounted_volume(term, volume)) {
+                disk_print_status(term);
+            }
         } else if (shell_print_not_supported(term, "disk", "persistent storage", err)) {
             return;
         } else {
@@ -304,13 +328,21 @@ void solar_os_shell_cmd_disk(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_storage_unmount() :
             solar_os_storage_unmount_volume(argv[2]);
         if (err == ESP_OK) {
-            disk_print_status(term);
+            if (argc == 2) {
+                solar_os_shell_io_writeln(term, "Disk: unmounted");
+            } else {
+                solar_os_shell_io_printf(term, "Disk: unmounted %s\n", argv[2]);
+            }
         } else if (shell_print_not_supported(term, "disk", "persistent storage", err)) {
             return;
         } else if (err == ESP_ERR_INVALID_STATE) {
             solar_os_shell_io_writeln(term, "Disk: not mounted");
         } else if (err == ESP_ERR_NOT_FOUND) {
-            solar_os_shell_io_printf(term, "Disk: not mounted: %s\n", argv[2]);
+            if (argc == 2) {
+                solar_os_shell_io_writeln(term, "Disk: not mounted");
+            } else {
+                solar_os_shell_io_printf(term, "Disk: not mounted: %s\n", argv[2]);
+            }
         } else {
             solar_os_shell_io_printf(term,
                                      "disk umount failed: %s\n",
