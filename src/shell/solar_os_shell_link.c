@@ -6,11 +6,16 @@
 #include <string.h>
 
 #include "solar_os_link.h"
+#include "solar_os_link_stream.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
 static const char * const link_commands[] = {
-    "status", "list", "send", "send-binary", "receive", "recv",
+    "status", "list", "send", "send-binary", "receive", "recv", "stream",
+};
+
+static const char * const link_stream_commands[] = {
+    "status", "list", "create", "remove",
 };
 
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
@@ -27,6 +32,11 @@ static void link_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term,
                               "  link send-binary <link> <broadcast|destination-id> <byte...>");
     solar_os_shell_io_writeln(term, "  link receive <link> [timeout-ms]");
+    solar_os_shell_io_writeln(term, "  link stream status [port]");
+    solar_os_shell_io_writeln(term, "  link stream list");
+    solar_os_shell_io_writeln(term,
+                              "  link stream create <link> <port> <peer-id>");
+    solar_os_shell_io_writeln(term, "  link stream remove <port>");
 }
 
 static bool parse_u32(const char *text, uint32_t *value)
@@ -284,6 +294,168 @@ static void link_receive(solar_os_shell_io_t *term, int argc, char **argv)
     }
 }
 
+static void link_stream_print_status(solar_os_shell_io_t *term,
+                                     const solar_os_link_stream_status_t *status)
+{
+    const char *state = status->port_open
+        ? (status->connected ? "connected" : "connecting")
+        : "closed";
+    solar_os_shell_io_printf(term,
+                             "%s link=%s peer=0x%08" PRIx32
+                             " state=%s proto=%u mtu=%u rx-queued=%u tx-queued=%u tx-inflight=%u\n",
+                             status->port,
+                             status->link,
+                             status->peer_id,
+                             state,
+                             (unsigned)status->protocol_version,
+                             (unsigned)status->data_mtu,
+                             (unsigned)status->rx_queued,
+                             (unsigned)status->tx_queued,
+                             (unsigned)status->tx_inflight);
+    solar_os_shell_io_printf(term,
+                             "  tx-bytes=%" PRIu32 " rx-bytes=%" PRIu32
+                             " tx-frames=%" PRIu32 " rx-frames=%" PRIu32
+                             " ack-sent=%" PRIu32 " ack-received=%" PRIu32
+                             " retries=%" PRIu32 " reconnects=%" PRIu32
+                             " dropped=%" PRIu32 " decode-errors=%" PRIu32 " last=%s\n",
+                             status->bytes_sent,
+                             status->bytes_received,
+                             status->frames_sent,
+                             status->frames_received,
+                             status->acknowledgements_sent,
+                             status->acknowledgements_received,
+                             status->retries,
+                             status->reconnects,
+                             status->dropped,
+                             status->decode_errors,
+                             solar_os_shell_error_text(status->last_error));
+}
+
+static void link_stream_status(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc == 2 || argc == 3) {
+        const size_t count = solar_os_link_stream_count();
+        if (count == 0U) {
+            solar_os_shell_io_writeln(term, "no Link streams");
+            return;
+        }
+        for (size_t i = 0; i < count; i++) {
+            solar_os_link_stream_status_t status;
+            if (solar_os_link_stream_get(i, &status)) {
+                link_stream_print_status(term, &status);
+            }
+        }
+        return;
+    }
+    if (argc == 4 && strcmp(argv[2], "status") == 0) {
+        solar_os_link_stream_status_t status;
+        const esp_err_t error = solar_os_link_stream_get_status(argv[3], &status);
+        if (error != ESP_OK) {
+            link_print_error(term, "link stream status", error);
+            return;
+        }
+        link_stream_print_status(term, &status);
+        return;
+    }
+    solar_os_shell_diag_unexpected(term,
+                                   "link stream status",
+                                   argc > 3 ? argv[3] : NULL,
+                                   "link stream status [port]");
+}
+
+static void link_stream_create(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc != 6) {
+        const char *missing = argc < 4 ? "<link>" :
+                              argc < 5 ? "<port>" : "<peer-id>";
+        if (argc < 6) {
+            solar_os_shell_diag_missing(term,
+                                        "link stream create",
+                                        missing,
+                                        "link stream create <link> <port> <peer-id>");
+        } else {
+            solar_os_shell_diag_unexpected(term,
+                                           "link stream create",
+                                           argv[6],
+                                           "link stream create <link> <port> <peer-id>");
+        }
+        return;
+    }
+    uint32_t peer_id = 0U;
+    if (!parse_u32(argv[5], &peer_id) || peer_id == 0U ||
+        peer_id == SOLAR_OS_LINK_BROADCAST) {
+        solar_os_shell_diag_invalid(term,
+                                    "link stream create",
+                                    "peer-id",
+                                    argv[5],
+                                    "a unicast numeric Link ID",
+                                    "link stream create <link> <port> <peer-id>",
+                                    false);
+        return;
+    }
+    const esp_err_t error = solar_os_link_stream_create(argv[3], argv[4], peer_id);
+    if (error != ESP_OK) {
+        link_print_error(term, "link stream create", error);
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "Link stream %s registered on %s for peer 0x%08" PRIx32 "\n",
+                             argv[4],
+                             argv[3],
+                             peer_id);
+}
+
+static void link_stream_remove(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc != 4) {
+        if (argc < 4) {
+            solar_os_shell_diag_missing(term,
+                                        "link stream remove",
+                                        "<port>",
+                                        "link stream remove <port>");
+        } else {
+            solar_os_shell_diag_unexpected(term,
+                                           "link stream remove",
+                                           argv[4],
+                                           "link stream remove <port>");
+        }
+        return;
+    }
+    const esp_err_t error = solar_os_link_stream_remove(argv[3]);
+    if (error == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term,
+                                 "link stream remove: %s is in use; close its shell or bridge first\n",
+                                 argv[3]);
+        return;
+    }
+    if (error != ESP_OK) {
+        link_print_error(term, "link stream remove", error);
+        return;
+    }
+    solar_os_shell_io_printf(term, "Link stream removed: %s\n", argv[3]);
+}
+
+static void link_stream(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc == 2 || strcmp(argv[2], "status") == 0 ||
+        strcmp(argv[2], "list") == 0) {
+        link_stream_status(term, argc, argv);
+    } else if (strcmp(argv[2], "create") == 0) {
+        link_stream_create(term, argc, argv);
+    } else if (strcmp(argv[2], "remove") == 0) {
+        link_stream_remove(term, argc, argv);
+    } else {
+        solar_os_shell_diag_subcommand(
+            term,
+            "link stream",
+            argc - 1,
+            &argv[1],
+            "link stream status|list|create|remove",
+            link_stream_commands,
+            sizeof(link_stream_commands) / sizeof(link_stream_commands[0]));
+    }
+}
+
 void solar_os_shell_cmd_link(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -298,12 +470,14 @@ void solar_os_shell_cmd_link(solar_os_context_t *ctx, int argc, char **argv)
         link_send_binary(term, argc, argv);
     } else if (strcmp(argv[1], "receive") == 0 || strcmp(argv[1], "recv") == 0) {
         link_receive(term, argc, argv);
+    } else if (strcmp(argv[1], "stream") == 0) {
+        link_stream(term, argc, argv);
     } else {
         solar_os_shell_diag_subcommand(term,
                                        "link",
                                        argc,
                                        argv,
-                                       "link status|list|send|send-binary|receive|recv",
+                                       "link status|list|send|send-binary|receive|recv|stream",
                                        link_commands,
                                        sizeof(link_commands) / sizeof(link_commands[0]));
     }

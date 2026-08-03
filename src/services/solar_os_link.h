@@ -21,6 +21,7 @@ typedef enum {
     SOLAR_OS_LINK_MESSAGE_TEXT = 1,
     SOLAR_OS_LINK_MESSAGE_BINARY = 2,
     SOLAR_OS_LINK_MESSAGE_ACKNOWLEDGEMENT = 3,
+    SOLAR_OS_LINK_MESSAGE_STREAM = 4,
 } solar_os_link_message_type_t;
 
 typedef struct {

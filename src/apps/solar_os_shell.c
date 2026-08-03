@@ -57,6 +57,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_LINK
 #include "solar_os_link.h"
+#include "solar_os_link_stream.h"
 #endif
 #include "solar_os_ramfs.h"
 #include "solar_os_sessions.h"
@@ -126,6 +127,7 @@ typedef struct {
     bool complete_ports;
     bool complete_radios;
     bool complete_links;
+    bool complete_link_streams;
     bool complete_radio_profiles;
     bool complete_user_radio_profiles;
     bool complete_ramfs_mounts;
@@ -673,6 +675,13 @@ static const char * const link_subcommands[] = {
     "send-binary",
     "receive",
     "recv",
+    "stream",
+};
+static const char * const link_stream_subcommands[] = {
+    "status",
+    "list",
+    "create",
+    "remove",
 };
 static const char * const link_destination_values[] = {"broadcast"};
 static const char * const radio_link_names[] = {"link0"};
@@ -1726,6 +1735,10 @@ static const char * const path_link_send_binary_link[] = {
 };
 static const char * const path_link_receive[] = {"link", "receive"};
 static const char * const path_link_recv[] = {"link", "recv"};
+static const char * const path_link_stream[] = {"link", "stream"};
+static const char * const path_link_stream_status[] = {"link", "stream", "status"};
+static const char * const path_link_stream_create[] = {"link", "stream", "create"};
+static const char * const path_link_stream_remove[] = {"link", "stream", "remove"};
 #endif
 static const char * const path_power[] = {"power"};
 static const char * const path_power_profile[] = {"power", "profile"};
@@ -1882,6 +1895,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_links = true, \
+    }
+#define SHELL_COMPLETION_LINK_STREAMS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_link_streams = true, \
     }
 #define SHELL_COMPLETION_RADIO_PROFILES(path_array) \
     { \
@@ -2430,6 +2449,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
                             link_destination_values),
     SHELL_COMPLETION_LINKS(path_link_receive),
     SHELL_COMPLETION_LINKS(path_link_recv),
+    SHELL_COMPLETION_STATIC(path_link_stream, link_stream_subcommands),
+    SHELL_COMPLETION_LINK_STREAMS(path_link_stream_status),
+    SHELL_COMPLETION_LINKS(path_link_stream_create),
+    SHELL_COMPLETION_LINK_STREAMS(path_link_stream_remove),
 #endif
     SHELL_COMPLETION_STATIC(path_power, power_subcommands),
     SHELL_COMPLETION_STATIC(path_power_profile, power_profile_values),
@@ -4677,6 +4700,21 @@ static void shell_completion_emit_links(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_link_streams(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+    const size_t count = solar_os_link_stream_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_link_stream_status_t status;
+        if (solar_os_link_stream_get(i, &status)) {
+            shell_completion_emit(state, status.port);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_radio_profiles(shell_completion_match_t *state,
                                                  bool user_only)
 {
@@ -5851,6 +5889,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_links) {
             shell_completion_emit_links(state);
+        }
+        if (rule->complete_link_streams) {
+            shell_completion_emit_link_streams(state);
         }
         if (rule->complete_radio_profiles) {
             shell_completion_emit_radio_profiles(state, false);

@@ -189,7 +189,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Foreground sessions and applications](sessions.apps.md) — Create shells and inspect resumable foreground applications
 - [MeshCore companion messaging](meshcore.md) — Secure direct and shared-group messages over a claimed packet radio
 - [Messaging, contacts, and credential security](messaging.md) — Provider-neutral messaging identities, trust, persistence, and secret handling
-- [SolarOS Link](link.md) — Transport-independent packet messaging and the radio-link adapter
+- [SolarOS Link](link.md) — Packet messaging, reliable virtual serial ports, and the radio-link adapter
 
 ## Boards and firmware
 

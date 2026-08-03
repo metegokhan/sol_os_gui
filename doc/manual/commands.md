@@ -328,6 +328,8 @@ job start log cdc0
 job start log file /.shell/log info
 job start bridge cdc0 uart0
 job start bridge uart0 link0 broadcast
+link stream create link0 vser0 0x12345678
+job start bridge cdc0 vser0
 job start httpd /www
 job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once
@@ -568,6 +570,10 @@ and writes the inactive ESP-IDF OTA partition.
 | `link` | `link send <link> <broadcast\|destination-id> <text>` | Queue a text message. Unicast requests an acknowledgement. |
 | `link` | `link send-binary <link> <broadcast\|destination-id> <byte...>` | Queue a binary message. |
 | `link` | `link receive <link> [timeout-ms]` | Remove and print one received message. |
+| `link` | `link stream list` | List Link-backed virtual serial ports. |
+| `link` | `link stream status [port]` | Show virtual-port peer, connection, queue, traffic, retry, reconnect, and error state. |
+| `link` | `link stream create <link> <port> <peer-id>` | Register a reliable peer-bound Link stream as a normal SolarOS byte-stream port. |
+| `link` | `link stream remove <port>` | Remove an unclaimed Link stream port. |
 | `pocsag` | `pocsag status` | Show detailed status for the POCSAG background receiver. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 | `uart` | `uart [status [bus]]` | Show the default `uart0` or a selected named UART bus. |

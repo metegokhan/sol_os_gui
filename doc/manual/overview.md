@@ -36,6 +36,8 @@ than one fixed product shape.
 - Capture streams to CSV or raw files, transfer files over byte-stream ports,
   capture GPIO waveforms through SUMP or the on-device logic analyzer, and
   inspect runtime resource ownership.
+- Carry ordinary SolarOS port shells and serial bridges over peer-bound,
+  retransmitted Link virtual serial ports on packet radios.
 - Build focused or full firmware images through capability-aware package
   flavors.
 

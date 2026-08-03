@@ -521,6 +521,7 @@ any_capabilities = [
 label = "service.link"
 sources = [
   "services/solar_os_link.c",
+  "services/solar_os_link_stream.c",
   "shell/solar_os_shell_link.c",
 ]
 requires = ["esp_hw_support"]
