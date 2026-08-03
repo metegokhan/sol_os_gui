@@ -1019,7 +1019,7 @@ static void messaging_publish_inbox_projection(
     if (linked && messaging.persistent) {
         (void)messaging_store_update(message_key);
     } else if (!linked) {
-        (void)solar_os_inbox_mark_read(inbox_id, true);
+        (void)solar_os_inbox_delete(inbox_id);
     }
 }
 
@@ -1180,10 +1180,18 @@ esp_err_t solar_os_messaging_provider_set_status(
         messaging_unlock();
         return ESP_ERR_NOT_FOUND;
     }
+    const char *next_detail = detail != NULL ? detail : "";
+    if (status->running == running &&
+        status->connected == connected &&
+        status->last_error == error &&
+        strcmp(status->detail, next_detail) == 0) {
+        messaging_unlock();
+        return ESP_OK;
+    }
     status->running = running;
     status->connected = connected;
     status->last_error = error;
-    strlcpy(status->detail, detail != NULL ? detail : "", sizeof(status->detail));
+    strlcpy(status->detail, next_detail, sizeof(status->detail));
     messaging_note_generation_locked();
     messaging_publish_event_locked(SOLAR_OS_MESSAGING_EVENT_PROVIDER,
                                     provider,
@@ -1689,12 +1697,13 @@ esp_err_t solar_os_messaging_send(solar_os_conversation_id_t conversation_id,
     return ESP_OK;
 }
 
-size_t solar_os_messaging_message_visit(
+size_t solar_os_messaging_message_visit_consistent(
     solar_os_conversation_id_t conversation_id,
     solar_os_messaging_provider_id_t provider,
     solar_os_messaging_message_visitor_t visitor,
     void *user,
-    uint32_t *event_cursor)
+    uint32_t *event_cursor,
+    uint32_t *generation)
 {
     if (visitor == NULL || solar_os_messaging_init() != ESP_OK) {
         return 0;
@@ -1726,6 +1735,9 @@ size_t solar_os_messaging_message_visit(
             SOLAR_OS_MESSAGING_EVENT_CAPACITY;
         *event_cursor = messaging.events[newest].id;
     }
+    if (generation != NULL) {
+        *generation = messaging.generation;
+    }
     messaging_unlock();
     size_t visited = 0;
     for (; visited < copied; visited++) {
@@ -1735,6 +1747,21 @@ size_t solar_os_messaging_message_visit(
     }
     solar_os_memory_free(snapshot);
     return visited;
+}
+
+size_t solar_os_messaging_message_visit(
+    solar_os_conversation_id_t conversation_id,
+    solar_os_messaging_provider_id_t provider,
+    solar_os_messaging_message_visitor_t visitor,
+    void *user,
+    uint32_t *event_cursor)
+{
+    return solar_os_messaging_message_visit_consistent(conversation_id,
+                                                       provider,
+                                                       visitor,
+                                                       user,
+                                                       event_cursor,
+                                                       NULL);
 }
 
 esp_err_t solar_os_messaging_message_get(solar_os_message_key_t message_key,
@@ -1878,6 +1905,31 @@ esp_err_t solar_os_messaging_message_delete(
     return store_error != ESP_OK ? store_error : inbox_error;
 }
 
+static esp_err_t messaging_clear_inbox_projections(
+    solar_os_messaging_provider_id_t provider)
+{
+    static const char *const gateway_sources[] = {"messages", "chat"};
+    static const char *const meshcore_sources[] = {"meshcore"};
+    static const char *const link_sources[] = {"link-chat", "link"};
+    static const char *const all_sources[] = {
+        "messages", "chat", "meshcore", "link-chat", "link",
+    };
+    const char *const *sources = all_sources;
+    size_t source_count = sizeof(all_sources) / sizeof(all_sources[0]);
+    if (provider == SOLAR_OS_MESSAGING_PROVIDER_GATEWAY) {
+        sources = gateway_sources;
+        source_count = sizeof(gateway_sources) / sizeof(gateway_sources[0]);
+    } else if (provider == SOLAR_OS_MESSAGING_PROVIDER_MESHCORE) {
+        sources = meshcore_sources;
+        source_count = sizeof(meshcore_sources) / sizeof(meshcore_sources[0]);
+    } else if (provider == SOLAR_OS_MESSAGING_PROVIDER_LINK) {
+        sources = link_sources;
+        source_count = sizeof(link_sources) / sizeof(link_sources[0]);
+    }
+    size_t deleted = 0;
+    return solar_os_inbox_delete_sources(sources, source_count, &deleted);
+}
+
 esp_err_t solar_os_messaging_clear(
     solar_os_messaging_provider_id_t provider,
     size_t *removed)
@@ -1901,7 +1953,6 @@ esp_err_t solar_os_messaging_clear(
         return ESP_ERR_NO_MEM;
     }
     int16_t disk_indexes[SOLAR_OS_MESSAGING_MESSAGE_CAPACITY];
-    uint32_t inbox_ids[SOLAR_OS_MESSAGING_MESSAGE_CAPACITY];
     size_t removed_count = 0;
     size_t kept_count = 0;
 
@@ -1926,57 +1977,41 @@ esp_err_t solar_os_messaging_clear(
                                 SOLAR_OS_MESSAGING_MESSAGE_CAPACITY];
         if (provider == 0 || slot->message.provider == provider) {
             disk_indexes[removed_count] = slot->disk_index;
-            inbox_ids[removed_count] = slot->message.inbox_id;
             removed_count++;
         } else {
             kept[kept_count++] = *slot;
         }
     }
-    if (removed_count == 0) {
-        messaging_unlock();
-        solar_os_memory_free(kept);
-        return ESP_OK;
+    if (removed_count > 0) {
+        memset(messaging.messages,
+               0,
+               SOLAR_OS_MESSAGING_MESSAGE_CAPACITY *
+                   sizeof(*messaging.messages));
+        memcpy(messaging.messages, kept, kept_count * sizeof(*kept));
+        for (size_t i = kept_count;
+             i < SOLAR_OS_MESSAGING_MESSAGE_CAPACITY;
+             i++) {
+            messaging.messages[i].disk_index = -1;
+        }
+        messaging.message_count = kept_count;
+        messaging.message_head =
+            kept_count % SOLAR_OS_MESSAGING_MESSAGE_CAPACITY;
+        messaging_recompute_summaries_locked();
+        messaging_note_generation_locked();
+        messaging_publish_event_locked(
+            SOLAR_OS_MESSAGING_EVENT_MESSAGES_CLEARED,
+            provider,
+            0,
+            0,
+            SOLAR_OS_DELIVERY_RECEIVED,
+            ESP_OK);
     }
-    memset(messaging.messages,
-           0,
-           SOLAR_OS_MESSAGING_MESSAGE_CAPACITY *
-               sizeof(*messaging.messages));
-    memcpy(messaging.messages, kept, kept_count * sizeof(*kept));
-    for (size_t i = kept_count;
-         i < SOLAR_OS_MESSAGING_MESSAGE_CAPACITY;
-         i++) {
-        messaging.messages[i].disk_index = -1;
-    }
-    messaging.message_count = kept_count;
-    messaging.message_head =
-        kept_count % SOLAR_OS_MESSAGING_MESSAGE_CAPACITY;
-    messaging_recompute_summaries_locked();
-    messaging_note_generation_locked();
-    messaging_publish_event_locked(SOLAR_OS_MESSAGING_EVENT_MESSAGES_CLEARED,
-                                    provider,
-                                    0,
-                                    0,
-                                    SOLAR_OS_DELIVERY_RECEIVED,
-                                    ESP_OK);
     messaging_unlock();
     solar_os_memory_free(kept);
 
     const esp_err_t store_error =
         messaging_store_tombstone_many(disk_indexes, removed_count);
-    size_t inbox_removed = 0;
-    size_t inbox_count = 0;
-    for (size_t i = 0; i < removed_count; i++) {
-        if (inbox_ids[i] != 0) {
-            inbox_ids[inbox_count++] = inbox_ids[i];
-        }
-    }
-    esp_err_t inbox_error = ESP_OK;
-    if (inbox_count > 0) {
-        inbox_error = solar_os_inbox_delete_many(inbox_ids,
-                                                 inbox_count,
-                                                 &inbox_removed);
-    }
-    (void)inbox_removed;
+    const esp_err_t inbox_error = messaging_clear_inbox_projections(provider);
     if (removed != NULL) {
         *removed = removed_count;
     }

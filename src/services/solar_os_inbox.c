@@ -743,20 +743,18 @@ esp_err_t solar_os_inbox_delete(uint32_t id)
     return err == ESP_OK && deleted == 0 ? ESP_ERR_NOT_FOUND : err;
 }
 
-esp_err_t solar_os_inbox_delete_many(const uint32_t *ids,
-                                     size_t id_count,
-                                     size_t *deleted)
+typedef bool (*inbox_delete_match_fn)(const solar_os_inbox_entry_t *entry,
+                                      const void *user);
+
+static esp_err_t inbox_delete_matching(inbox_delete_match_fn match,
+                                       const void *user,
+                                       size_t *deleted)
 {
     if (deleted != NULL) {
         *deleted = 0;
     }
-    if (ids == NULL || id_count == 0) {
+    if (match == NULL) {
         return ESP_ERR_INVALID_ARG;
-    }
-    for (size_t i = 0; i < id_count; i++) {
-        if (ids[i] == 0) {
-            return ESP_ERR_INVALID_ARG;
-        }
     }
     esp_err_t err = solar_os_inbox_init();
     if (err != ESP_OK) {
@@ -785,14 +783,7 @@ esp_err_t solar_os_inbox_delete_many(const uint32_t *ids,
     for (size_t i = 0; i < previous_count; i++) {
         const inbox_slot_t *candidate =
             &backup[(oldest + i) % inbox_capacity];
-        bool remove = false;
-        for (size_t requested = 0; requested < id_count; requested++) {
-            if (candidate->entry.id == ids[requested]) {
-                remove = true;
-                break;
-            }
-        }
-        if (remove) {
+        if (match(&candidate->entry, user)) {
             removed++;
             continue;
         }
@@ -826,6 +817,82 @@ esp_err_t solar_os_inbox_delete_many(const uint32_t *ids,
         *deleted = removed;
     }
     return err;
+}
+
+typedef struct {
+    const uint32_t *ids;
+    size_t count;
+} inbox_delete_ids_t;
+
+static bool inbox_delete_id_matches(const solar_os_inbox_entry_t *entry,
+                                    const void *user)
+{
+    const inbox_delete_ids_t *request = user;
+    for (size_t i = 0; i < request->count; i++) {
+        if (entry->id == request->ids[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+esp_err_t solar_os_inbox_delete_many(const uint32_t *ids,
+                                     size_t id_count,
+                                     size_t *deleted)
+{
+    if (ids == NULL || id_count == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (size_t i = 0; i < id_count; i++) {
+        if (ids[i] == 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    const inbox_delete_ids_t request = {
+        .ids = ids,
+        .count = id_count,
+    };
+    return inbox_delete_matching(inbox_delete_id_matches, &request, deleted);
+}
+
+typedef struct {
+    const char *const *sources;
+    size_t count;
+} inbox_delete_sources_t;
+
+static bool inbox_delete_source_matches(const solar_os_inbox_entry_t *entry,
+                                        const void *user)
+{
+    const inbox_delete_sources_t *request = user;
+    for (size_t i = 0; i < request->count; i++) {
+        if (strcmp(entry->source, request->sources[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+esp_err_t solar_os_inbox_delete_sources(const char *const *sources,
+                                        size_t source_count,
+                                        size_t *deleted)
+{
+    if (sources == NULL || source_count == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (size_t i = 0; i < source_count; i++) {
+        if (sources[i] == NULL || sources[i][0] == '\0' ||
+            strnlen(sources[i], SOLAR_OS_INBOX_SOURCE_MAX) >=
+                SOLAR_OS_INBOX_SOURCE_MAX) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    const inbox_delete_sources_t request = {
+        .sources = sources,
+        .count = source_count,
+    };
+    return inbox_delete_matching(inbox_delete_source_matches,
+                                 &request,
+                                 deleted);
 }
 
 size_t solar_os_inbox_snapshot(solar_os_inbox_entry_t *entries,

@@ -185,6 +185,13 @@ size_t solar_os_messaging_message_visit(
     solar_os_messaging_message_visitor_t visitor,
     void *user,
     uint32_t *event_cursor);
+size_t solar_os_messaging_message_visit_consistent(
+    solar_os_conversation_id_t conversation_id,
+    solar_os_messaging_provider_id_t provider,
+    solar_os_messaging_message_visitor_t visitor,
+    void *user,
+    uint32_t *event_cursor,
+    uint32_t *generation);
 esp_err_t solar_os_messaging_message_get(solar_os_message_key_t message_key,
                                          solar_os_messaging_message_t *message);
 esp_err_t solar_os_messaging_message_delete(

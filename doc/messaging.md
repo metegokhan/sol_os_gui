@@ -40,9 +40,11 @@ outbox.
 
 When `radio-link` starts with `chat=on`, each 32-bit Link source ID becomes a
 discovered endpoint and the active Link gets one broadcast conversation.
-Accepted text is projected without consuming the Link receive queue. Direct
-Link messages remain `sending` until their acknowledgement arrives; broadcast
-messages become `sent` after radio transmission. Link v1 provides no
+Accepted text is projected without consuming the bounded Link receive queue.
+When that diagnostic queue is full it evicts its oldest copy; its capacity does
+not limit Messaging delivery. Direct Link messages remain `sending` until their
+acknowledgement arrives; broadcast messages become `sent` after radio
+transmission. Link v1 provides no
 encryption, authentication, fragmentation, routing, or automatic retry.
 
 ## Contacts and endpoints
@@ -137,7 +139,9 @@ Deleting a retained message also deletes its linked Inbox projection. Provider
 history can be cleared independently with `messages clear gateway`,
 `messages clear meshcore`, or `messages clear link`; `messages clear all`
 clears all three. A clear is rejected while the selected provider has queued
-outbound work, avoiding an outbox entry whose message has been removed.
+outbound work, avoiding an outbox entry whose message has been removed. Clear
+also sweeps the provider-owned Inbox source tags, so stale projections survive
+neither ring wrap nor an in-flight publish; unrelated Inbox sources remain.
 
 ## Persistence
 

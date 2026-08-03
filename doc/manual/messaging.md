@@ -77,6 +77,11 @@ messages clear gateway|meshcore|link|all
 messages cancel MESSAGE_ID
 ```
 
+`messages clear` also removes the selected provider's Inbox projections,
+including stale projections whose retained ring slot has already wrapped. It
+does not remove unrelated Inbox sources; use `inbox clear` for the entire
+universal Inbox.
+
 For packet-radio operation, see `meshcore` and `link`. MeshCore direct messages
 use the same conversations and trust states as gateway messages; shared-key
 groups remain visibly sender-unverified. A `radio-link` job started with

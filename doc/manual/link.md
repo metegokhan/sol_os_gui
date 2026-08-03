@@ -37,7 +37,9 @@ job start radio-link link0 radio0 lora-eu868 inbox=on
 
 `inbox=off` is the default. Accepted text and binary messages remain available
 through the bounded Link receive queue in either mode; `inbox=on` additionally
-publishes accepted text messages to the inbox. Read one queued message with:
+publishes accepted text messages to the inbox. When this diagnostic queue is
+full, Link evicts its oldest queued copy while continuing to deliver the newest
+accepted frame to Inbox or Chat. Read one queued message with:
 
 ```text
 link receive link0
@@ -57,9 +59,10 @@ Chat shows a `link` provider section with a `link0 broadcast` conversation.
 Each received 32-bit source ID creates a discovered Contact and direct
 conversation. Rename, trust, or block it with the normal `contacts` commands.
 The Chat projection observes accepted frames without consuming the Link receive
-queue, so `link receive` remains available. `chat=on` and `inbox=on` are
-mutually exclusive because generic messaging already publishes received Chat
-messages to Inbox.
+queue, so `link receive` remains available as a bounded recent-frame diagnostic.
+Its capacity does not limit Chat delivery. `chat=on` and `inbox=on` are mutually
+exclusive because generic messaging already publishes received Chat messages to
+Inbox.
 
 ## Commands
 
@@ -102,8 +105,9 @@ state that existed at startup, and releases the radio. Only one instance of the
 
 The Link queues have four entries each and use PSRAM when available. They are
 created only when a Link starts, so the compiled service has no idle queue
-allocation. Queue overflow increments the drop counter rather than growing
-without bound.
+allocation. Receive-queue overflow evicts the oldest queued copy and increments
+the drop counter rather than rejecting the accepted frame or growing without
+bound. Transmit-queue overflow still rejects a new send.
 
 With `chat=on`, outgoing broadcast text becomes `sent` after the radio accepts
 the frame. Direct text remains `sending` until the matching Link
