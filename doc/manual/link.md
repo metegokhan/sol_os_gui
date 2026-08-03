@@ -2,9 +2,9 @@
 id = "link"
 title = "SolarOS Link"
 section = "service"
-summary = "Transport-independent packet messaging and the radio-link adapter"
+summary = "Packet messaging, reliable virtual serial ports, and the radio-link adapter"
 aliases = ["radio-link", "link.protocol"]
-keywords = "link packet radio text binary acknowledgement broadcast queue protocol crc duplicate"
+keywords = "link packet radio text binary stream virtual serial port shell acknowledgement retry broadcast queue protocol crc duplicate"
 packages_any = ["service_link", "job_radio_link"]
 +++
 # SolarOS Link
@@ -14,9 +14,10 @@ connections. The Link service owns framing, protocol CRC, sequence numbers,
 acknowledgements, duplicate suppression, and bounded receive/transmit queues.
 A transport adapter moves complete Link frames over a specific medium.
 
-Version one deliberately does not provide routing, fragmentation, encryption,
-or mesh forwarding. One frame must fit the selected transport MTU. Use it for
-small local text and binary messages, not arbitrary files or trusted secrets.
+The base packet layer deliberately does not provide routing, fragmentation,
+encryption, or mesh forwarding. One text or binary message must fit the
+selected transport MTU. The optional Link stream layer segments a byte stream
+into those packets and adds ordered delivery, retransmission, and backpressure.
 
 ## Radio Quick Start
 
@@ -73,6 +74,10 @@ Inbox.
 | `link send <link> <broadcast\|destination-id> <text>` | Queue one text message. Unicast requests an acknowledgement. |
 | `link send-binary <link> <broadcast\|destination-id> <byte...>` | Queue one binary message from decimal or `0x` byte values. |
 | `link receive <link> [timeout-ms]` | Remove and print the oldest accepted text or binary message. |
+| `link stream list` | List Link-backed virtual serial ports. |
+| `link stream status [port]` | Show peer, connection, MTU, queues, traffic, retry, reconnect, drop, and error state. |
+| `link stream create <link> <port> <peer-id>` | Register a peer-bound Link stream as a normal bidirectional SolarOS port. |
+| `link stream remove <port>` | Remove an unclaimed Link stream port. |
 
 Destination IDs accept decimal or `0x` notation. `broadcast` is the reserved
 destination `0xffffffff`. `link status` prints this device's stable 32-bit
@@ -134,10 +139,12 @@ All multi-byte values use network byte order:
 | 12 | variable | Payload |
 | final 2 | 2 | CRC-16/CCITT-FALSE over header and payload |
 
-Message types are `1` text, `2` binary, and `3` acknowledgement. Unicast text
-and binary frames set the acknowledgement-requested flag. An acknowledgement
-has no payload, swaps source/destination, and echoes the acknowledged sequence
-number. Broadcast frames never request acknowledgements, avoiding an ACK storm.
+Message types are `1` text, `2` binary, `3` acknowledgement, and `4` stream.
+Unicast text and binary frames set the acknowledgement-requested flag. An
+acknowledgement has no payload, swaps source/destination, and echoes the
+acknowledged sequence number. Broadcast frames never request acknowledgements,
+avoiding an ACK storm. Stream frames use their own ordered acknowledgement and
+retry protocol and therefore do not request the base Link acknowledgement.
 
 The receiver remembers the 12 most recent source/sequence/type tuples. A
 duplicate is not delivered or copied to the inbox, but is acknowledged again
@@ -169,13 +176,80 @@ This is a bounded, best-effort stream adapter rather than Link fragmentation or
 flow control. Packet radio can be much slower than a serial producer, so
 sustained input can overrun the serial driver or the four-entry Link queue.
 
+## Virtual serial ports
+
+For an ordered interactive stream, create the same peer-bound Link stream on
+both devices. The stream name becomes a normal SolarOS byte-stream port and is
+shown by both `link stream list` and `port list`:
+
+```text
+# Device A; Device B reports local ID 0xde63d29e
+job start radio-link link0 radio0 lora-eu868
+link stream create link0 vser0 0xde63d29e
+
+# Device B; Device A reports local ID 0x7b1fdb02
+job start radio-link link0 radio0 lora-eu868
+link stream create link0 vser0 0x7b1fdb02
+```
+
+The port is initially `closed`. It starts negotiating when a normal SolarOS
+consumer claims it. To expose a Waveshare shell over the radio:
+
+```text
+# Waveshare
+session create shell vser0 --term dumb
+
+# DevKit ground station; uart0 remains the local administrative shell
+job start bridge cdc0 vser0
+```
+
+Linux can then open the DevKit USB CDC serial device and interact with the
+Waveshare's normal port shell. On a headless DevKit, `uart0` remains available
+for local administration while `cdc0` is owned by the bridge. `--term dumb`
+avoids expensive terminal probes and escape traffic; VT100 remains available
+when the radio profile has enough throughput.
+
+Each direction uses a fresh random session epoch whenever the port opens,
+16-bit byte-frame sequence numbers, ordered stop-and-wait delivery, piggybacked
+stream acknowledgements, and jittered retransmission after 0.8 to 1.2 seconds.
+Stream data is split to the active Link MTU and reassembled into a 2048-byte RX
+queue. A separate
+2048-byte TX queue applies backpressure to the shell or bridge instead of
+silently overflowing the four-entry packet queue. Fifteen-second open frames
+also detect a disconnected or restarted peer.
+
+Stream protocol v2 carries an acknowledgement field in every frame.
+Pending acknowledgements are piggybacked on outbound data, and a standalone ACK
+is delayed by 40 milliseconds to give an interactive port shell time to queue
+its echo first. A normal keystroke and its echo therefore need two radio frames
+on the fast path instead of waiting for a separate ACK between them.
+
+Stream packets are dispatched before the normal Link receive queue, so they do
+not appear in `link receive` and cannot evict Chat or diagnostic packet copies.
+Only packets whose Link source matches the configured peer ID enter the virtual
+port. The peer binding prevents accidental cross-talk, but Link IDs can be
+spoofed: Link streams are not encrypted or cryptographically authenticated.
+Do not expose a privileged shell over an untrusted radio channel.
+
+Close every shell or bridge that owns the port before removing it:
+
+```text
+session close <id>
+link stream remove vser0
+```
+
+Stopping and restarting `radio-link` with the same Link name leaves the virtual
+port registered. Buffered users see a disconnected stream until the transport
+returns; the stream epochs then resynchronize without reusing stale bytes.
+
 ## Quick reference
 
 Start a packet-radio link with `job start radio-link link0 radio0
 lora-eu868 [inbox=off|on] [chat=off|on]`. Use `link status link0`, `link send
 link0 broadcast "text"`, and `link receive link0`. Use `chat=on` for unified
-Link broadcast/direct conversations and discovered Contacts. Unicast
-destination IDs request acknowledgements. Version one provides bounded
-text/binary packet delivery, protocol CRC, and duplicate suppression, but no
+Link broadcast/direct conversations and discovered Contacts. Use `link stream
+create link0 vser0 PEER_ID` when a reliable virtual serial port is required.
+Unicast packet messages request acknowledgements. The base packet layer has no
 routing, fragmentation, encryption, mesh forwarding, or automatic
-retransmission.
+retransmission; the peer-bound stream layer adds segmentation, ordering,
+retransmission, and backpressure for byte-stream consumers.

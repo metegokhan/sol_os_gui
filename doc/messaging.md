@@ -5,8 +5,10 @@ and MeshCore are providers of the same Contacts, Conversations, and Messages
 model; neither provider owns the user interface or generic history.
 
 SolarOS Link remains a separate wire protocol. The optional Link messaging
-adapter projects its packet-sized text messages into the shared model without
-changing the Link v1 frame format.
+adapter projects its packet-sized text messages into the shared model. Link
+streams use a distinct Link message type to provide peer-bound virtual serial
+ports; they bypass Messaging conversations and the diagnostic Link receive
+queue.
 
 ## Stable identifiers
 

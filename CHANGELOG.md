@@ -2,11 +2,21 @@
 
 ## 4.x
 
+- **4.5.5** — 2026-08-03 — Added peer-bound SolarOS Link streams that register
+  as normal virtual serial ports. Link streams add session epochs, ordered
+  segmentation, acknowledgements, retransmission, bounded buffering,
+  backpressure, reconnect detection, shell commands, status, and completion.
+  Stream protocol v2 uses piggybacked acknowledgements, response-before-ACK
+  scheduling, short stream polling, and jittered retries so interactive shell
+  echoes take a reliable two-frame fast path without half-duplex radio bursts
+  colliding with the peer.
+  Virtual ports can host normal port shells or connect to physical serial ports
+  through the existing `bridge` job.
 - **4.5.4** — 2026-08-03 — Refactored messaging boundaries: `chat` is now a
   provider-neutral view with optional gateway, MeshCore, Link, or exact
   conversation selection; gateway configuration and room controls moved to
-  the `gateway` command; and the gateway-only worker is named `gateway-sync`
-  as `gateway-sync`. Added visible `outbox` and
+  the `gateway` command; and the gateway-only worker is named `gateway-sync`.
+  Added visible `outbox` and
   `messages outbox` controls for pending sends, clarified compact internal
   history versus Inbox notifications, and prevented Link message identities
   from colliding after a radio-link restart.

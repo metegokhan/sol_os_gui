@@ -10,12 +10,13 @@
 #include "solar_os_inbox.h"
 #include "solar_os_jobs.h"
 #include "solar_os_link_messaging.h"
+#include "solar_os_link_stream.h"
 #include "solar_os_log.h"
 #include "solar_os_task.h"
 
 /* Chat projection enters contacts and messaging services from this worker. */
 #define RADIO_LINK_TASK_STACK 6144U
-#define RADIO_LINK_RECEIVE_TIMEOUT_MS 50U
+#define RADIO_LINK_RECEIVE_TIMEOUT_MS 10U
 #define RADIO_LINK_SEND_TIMEOUT_MS 3000U
 #define RADIO_LINK_STOP_WAIT_MS 3500U
 
@@ -157,6 +158,7 @@ static void radio_link_task(void *arg)
         if (radio_link.status.chat_enabled) {
             solar_os_link_messaging_process(now_ms);
         }
+        solar_os_link_stream_process(radio_link.status.link, now_ms);
 
         solar_os_link_frame_t frame;
         esp_err_t ret = solar_os_link_take_tx(radio_link.status.link, &frame, 0);
@@ -200,6 +202,7 @@ static void radio_link_task(void *arg)
             radio_link.status.receive_errors++;
             continue;
         }
+        const uint32_t received_ms = pdTICKS_TO_MS(xTaskGetTickCount());
 
         solar_os_link_ingest_result_t result;
         ret = solar_os_link_ingest(radio_link.status.link, packet.data, packet.len, &result);
@@ -211,9 +214,20 @@ static void radio_link_task(void *arg)
             radio_link.status.receive_errors++;
             continue;
         }
+        if (result.accepted &&
+            result.message.type == SOLAR_OS_LINK_MESSAGE_STREAM) {
+            const esp_err_t stream_error = solar_os_link_stream_ingest(
+                radio_link.status.link, &result.message, received_ms);
+            if (stream_error != ESP_OK && stream_error != ESP_ERR_NOT_FOUND &&
+                stream_error != ESP_ERR_INVALID_STATE) {
+                SOLAR_OS_LOGW(TAG,
+                              "Link stream ingest failed: %s",
+                              esp_err_to_name(stream_error));
+            }
+        }
         if (radio_link.status.chat_enabled) {
             const esp_err_t chat_error =
-                solar_os_link_messaging_note_ingest(&result, now_ms);
+                solar_os_link_messaging_note_ingest(&result, received_ms);
             if (chat_error != ESP_OK) {
                 radio_link.status.chat_errors++;
                 SOLAR_OS_LOGW(TAG,
@@ -301,6 +315,16 @@ static esp_err_t radio_link_start(solar_os_context_t *ctx, int argc, char **argv
         (void)solar_os_radio_release(&handle);
         return ret;
     }
+    ret = solar_os_link_stream_init();
+    if (ret != ESP_OK) {
+        (void)solar_os_link_destroy(link);
+        (void)solar_os_radio_handle_configure(&handle, &saved.config);
+        if (saved.state != SOLAR_OS_RADIO_STATE_UNKNOWN) {
+            (void)solar_os_radio_handle_set_state(&handle, saved.state);
+        }
+        (void)solar_os_radio_release(&handle);
+        return ret;
+    }
     if (chat_enabled) {
         ret = solar_os_link_messaging_start(link);
         if (ret != ESP_OK) {
@@ -338,6 +362,7 @@ static esp_err_t radio_link_start(solar_os_context_t *ctx, int argc, char **argv
         if (chat_enabled) {
             solar_os_link_messaging_stop();
         }
+        solar_os_link_stream_transport_stopped(link);
         (void)solar_os_link_destroy(link);
         restore_radio();
         (void)solar_os_radio_release(&radio_link.radio_handle);
@@ -377,6 +402,7 @@ static void radio_link_stop(solar_os_context_t *ctx)
     if (radio_link.status.chat_enabled) {
         solar_os_link_messaging_stop();
     }
+    solar_os_link_stream_transport_stopped(radio_link.status.link);
     (void)solar_os_link_destroy(radio_link.status.link);
     restore_radio();
     (void)solar_os_radio_release(&radio_link.radio_handle);

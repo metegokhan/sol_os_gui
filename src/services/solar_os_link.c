@@ -174,7 +174,13 @@ static uint32_t link_read_u32(const uint8_t *src)
 static bool link_type_valid(solar_os_link_message_type_t type)
 {
     return type == SOLAR_OS_LINK_MESSAGE_TEXT || type == SOLAR_OS_LINK_MESSAGE_BINARY ||
-           type == SOLAR_OS_LINK_MESSAGE_ACKNOWLEDGEMENT;
+           type == SOLAR_OS_LINK_MESSAGE_ACKNOWLEDGEMENT ||
+           type == SOLAR_OS_LINK_MESSAGE_STREAM;
+}
+
+static bool link_type_requests_acknowledgement(solar_os_link_message_type_t type)
+{
+    return type == SOLAR_OS_LINK_MESSAGE_TEXT || type == SOLAR_OS_LINK_MESSAGE_BINARY;
 }
 
 esp_err_t solar_os_link_encode(const solar_os_link_message_t *message, solar_os_link_frame_t *frame)
@@ -182,7 +188,9 @@ esp_err_t solar_os_link_encode(const solar_os_link_message_t *message, solar_os_
     if (message == NULL || frame == NULL || message->version != LINK_PROTOCOL_VERSION ||
         !link_type_valid(message->type) || message->payload_len > SOLAR_OS_LINK_PAYLOAD_MAX ||
         (message->type == SOLAR_OS_LINK_MESSAGE_ACKNOWLEDGEMENT &&
-         (message->payload_len != 0 || (message->flags & SOLAR_OS_LINK_FLAG_ACK_REQUESTED) != 0))) {
+         (message->payload_len != 0 || (message->flags & SOLAR_OS_LINK_FLAG_ACK_REQUESTED) != 0)) ||
+        (message->type == SOLAR_OS_LINK_MESSAGE_STREAM &&
+         (message->flags & SOLAR_OS_LINK_FLAG_ACK_REQUESTED) != 0)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -223,7 +231,9 @@ solar_os_link_decode(const uint8_t *frame, size_t frame_len, solar_os_link_messa
     message->payload_len = crc_offset - SOLAR_OS_LINK_HEADER_SIZE;
     if (message->version != LINK_PROTOCOL_VERSION || !link_type_valid(message->type) ||
         (message->type == SOLAR_OS_LINK_MESSAGE_ACKNOWLEDGEMENT &&
-         (message->payload_len != 0 || (message->flags & SOLAR_OS_LINK_FLAG_ACK_REQUESTED) != 0))) {
+         (message->payload_len != 0 || (message->flags & SOLAR_OS_LINK_FLAG_ACK_REQUESTED) != 0)) ||
+        (message->type == SOLAR_OS_LINK_MESSAGE_STREAM &&
+         (message->flags & SOLAR_OS_LINK_FLAG_ACK_REQUESTED) != 0)) {
         return ESP_ERR_INVALID_VERSION;
     }
     if (message->payload_len > 0) {
@@ -457,8 +467,10 @@ esp_err_t solar_os_link_send(const char *name,
                              size_t payload_len,
                              uint16_t *sequence)
 {
-    if ((type != SOLAR_OS_LINK_MESSAGE_TEXT && type != SOLAR_OS_LINK_MESSAGE_BINARY) ||
+    if ((type != SOLAR_OS_LINK_MESSAGE_TEXT && type != SOLAR_OS_LINK_MESSAGE_BINARY &&
+         type != SOLAR_OS_LINK_MESSAGE_STREAM) ||
         destination == 0 || payload_len > SOLAR_OS_LINK_PAYLOAD_MAX ||
+        (type == SOLAR_OS_LINK_MESSAGE_STREAM && destination == SOLAR_OS_LINK_BROADCAST) ||
         (payload == NULL && payload_len > 0)) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -487,7 +499,8 @@ esp_err_t solar_os_link_send(const char *name,
     if (instance->next_sequence == 0) {
         instance->next_sequence = 1;
     }
-    if (destination != SOLAR_OS_LINK_BROADCAST) {
+    if (destination != SOLAR_OS_LINK_BROADCAST &&
+        link_type_requests_acknowledgement(type)) {
         message.flags |= SOLAR_OS_LINK_FLAG_ACK_REQUESTED;
     }
     xSemaphoreGive(link_mutex);
@@ -510,7 +523,8 @@ esp_err_t solar_os_link_send(const char *name,
         instance->status.last_error = ret;
         if (ret == ESP_OK) {
             instance->status.tx_messages++;
-            if (destination != SOLAR_OS_LINK_BROADCAST) {
+            if (destination != SOLAR_OS_LINK_BROADCAST &&
+                link_type_requests_acknowledgement(type)) {
                 link_pending_t *pending = link_pending_alloc_locked(instance);
                 pending->active = true;
                 pending->destination = destination;
@@ -673,7 +687,8 @@ esp_err_t solar_os_link_ingest(const char *name,
         link_release(&ref);
         return ESP_OK;
     }
-    duplicate = link_is_duplicate_locked(instance, &message);
+    duplicate = message.type != SOLAR_OS_LINK_MESSAGE_STREAM &&
+                link_is_duplicate_locked(instance, &message);
     if (duplicate) {
         instance->status.duplicates++;
     }
@@ -682,7 +697,7 @@ esp_err_t solar_os_link_ingest(const char *name,
     xSemaphoreGive(link_mutex);
 
     bool queue_evicted = false;
-    if (!duplicate) {
+    if (!duplicate && message.type != SOLAR_OS_LINK_MESSAGE_STREAM) {
         ret = link_queue_received(ref.rx_queue, &message, &queue_evicted);
     }
     esp_err_t ack_ret = ESP_OK;
@@ -694,8 +709,10 @@ esp_err_t solar_os_link_ingest(const char *name,
     if (link_ref_valid_locked(&ref)) {
         instance = &link_instances[ref.index];
         if (ret == ESP_OK) {
-            if (!duplicate) {
+            if (!duplicate && message.type != SOLAR_OS_LINK_MESSAGE_STREAM) {
                 link_remember_locked(instance, &message);
+            }
+            if (!duplicate) {
                 instance->status.rx_messages++;
                 if (queue_evicted) {
                     instance->status.dropped++;
@@ -747,6 +764,8 @@ const char *solar_os_link_message_type_name(solar_os_link_message_type_t type)
         return "binary";
     case SOLAR_OS_LINK_MESSAGE_ACKNOWLEDGEMENT:
         return "acknowledgement";
+    case SOLAR_OS_LINK_MESSAGE_STREAM:
+        return "stream";
     default:
         return "unknown";
     }

@@ -204,6 +204,19 @@ job start radio-link link0 radio0 lora-eu868
 job start bridge uart0 link0 broadcast
 ```
 
+That direct Link form is best-effort. For an ordered, retransmitted stream,
+create a peer-bound virtual port and use the normal port-to-port bridge form:
+
+```text
+link stream create link0 vser0 0x12345678
+job start bridge cdc0 vser0
+```
+
+The remote device creates its matching `vser0` and can attach a normal shell
+with `session create shell vser0 --term dumb`. On a headless DevKit, this leaves
+the primary `uart0` shell free for administration while Linux uses USB `cdc0`
+for the remote terminal.
+
 Use a decimal or `0x` 32-bit Link destination instead of `broadcast` for
 acknowledged unicast:
 
@@ -215,6 +228,9 @@ Notes:
 
 - The two ports must be different.
 - Both ports are claimed by the bridge job until it stops.
+- Link stream ports such as `vser0` are normal byte-stream ports. Their stream
+  service supplies peer filtering, segmentation, ordering, retransmission, and
+  bounded backpressure before the bridge sees bytes.
 - In Link mode, the serial port is claimed while the already-running Link
   instance remains active under its transport job.
 - Available serial bytes are emitted as binary Link messages, each capped at
