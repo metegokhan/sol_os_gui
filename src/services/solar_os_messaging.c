@@ -2134,6 +2134,28 @@ esp_err_t solar_os_messaging_cancel(solar_os_message_key_t message_key)
     return ESP_OK;
 }
 
+size_t solar_os_messaging_outbox_snapshot(
+    solar_os_messaging_outbound_t *requests,
+    size_t max_requests)
+{
+    if ((requests == NULL && max_requests != 0U) ||
+        solar_os_messaging_init() != ESP_OK) {
+        return 0U;
+    }
+    messaging_lock();
+    const size_t count = messaging.outbox_count < max_requests ?
+        messaging.outbox_count : max_requests;
+    const size_t oldest =
+        (messaging.outbox_head + SOLAR_OS_MESSAGING_OUTBOX_CAPACITY -
+         messaging.outbox_count) % SOLAR_OS_MESSAGING_OUTBOX_CAPACITY;
+    for (size_t i = 0; i < count; i++) {
+        requests[i] = messaging.outbox[
+            (oldest + i) % SOLAR_OS_MESSAGING_OUTBOX_CAPACITY];
+    }
+    messaging_unlock();
+    return count;
+}
+
 esp_err_t solar_os_messaging_outbox_peek(
     solar_os_messaging_provider_id_t provider,
     solar_os_messaging_outbound_t *request)

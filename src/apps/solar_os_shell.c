@@ -252,6 +252,10 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
     {"messages", "inspect and send provider-neutral messages", solar_os_shell_cmd_messages},
+    {"outbox", "list or cancel pending messages", solar_os_shell_cmd_outbox},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
+    {"gateway", "configure the gateway messaging provider", solar_os_shell_cmd_gateway},
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     {"email", "IMAP email client", solar_os_shell_cmd_email},
@@ -790,6 +794,9 @@ static const char * const contacts_list_values[] = {
 };
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
+static const char * const chat_selectors[] = {
+    "gateway", "meshcore", "link"
+};
 static const char * const messages_subcommands[] = {
     "status",
     "conversations",
@@ -798,10 +805,18 @@ static const char * const messages_subcommands[] = {
     "read",
     "delete",
     "clear",
+    "outbox",
     "cancel",
 };
+static const char * const outbox_subcommands[] = {"list", "cancel"};
 static const char * const messages_clear_values[] = {
     "gateway", "meshcore", "link", "all"
+};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
+static const char * const gateway_subcommands[] = {
+    "status", "configure", "connect", "disconnect", "rooms", "join",
+    "leave", "delete"
 };
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
@@ -1196,9 +1211,16 @@ static const char * const path_contacts_link_source[] = {
 };
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
+static const char * const path_chat[] = {"chat"};
 static const char * const path_messages[] = {"messages"};
 static const char * const path_messages_delete[] = {"messages", "delete"};
+static const char * const path_messages_cancel[] = {"messages", "cancel"};
 static const char * const path_messages_clear[] = {"messages", "clear"};
+static const char * const path_outbox[] = {"outbox"};
+static const char * const path_outbox_cancel[] = {"outbox", "cancel"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
+static const char * const path_gateway[] = {"gateway"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const path_email[] = {"email"};
@@ -2295,9 +2317,16 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_CONTACT_IDS(path_contacts_link_source),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
+    SHELL_COMPLETION_STATIC(path_chat, chat_selectors),
     SHELL_COMPLETION_STATIC(path_messages, messages_subcommands),
     SHELL_COMPLETION_MESSAGE_IDS(path_messages_delete),
+    SHELL_COMPLETION_MESSAGE_IDS(path_messages_cancel),
     SHELL_COMPLETION_STATIC(path_messages_clear, messages_clear_values),
+    SHELL_COMPLETION_STATIC(path_outbox, outbox_subcommands),
+    SHELL_COMPLETION_MESSAGE_IDS(path_outbox_cancel),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
+    SHELL_COMPLETION_STATIC(path_gateway, gateway_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     SHELL_COMPLETION_STATIC(path_email, email_subcommands),

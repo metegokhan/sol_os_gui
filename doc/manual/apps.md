@@ -186,13 +186,17 @@ network or radio transport jobs connect independently.
 Usage:
 
 ```text
-chat [gateway-url] [channel] [user] [token]
+chat [gateway|meshcore|link|conversation-id]
 ```
 
-The background `chat-sync` job owns the transport connection, retries, and
+With no selector, Chat opens a unified view and initially selects the newest
+unread conversation. A provider name filters the list. A decimal conversation
+ID opens exactly that conversation.
+
+The background `gateway-sync` job owns the gateway transport connection, retries, and
 joined-channel replay. The shared messaging service owns queued outbound
-messages and `chat-sync` consumes only gateway requests. Start it explicitly with
-`job start chat-sync`, just like `email-sync`. Closing or suspending `chat` does
+messages and `gateway-sync` consumes only gateway requests. Start it explicitly with
+`job start gateway-sync`, just like `email-sync`. Closing or suspending `chat` does
 not disconnect an already-running synchronizer. Incoming messages remain in the
 shared bounded messaging store and publish bounded notifications to the
 universal inbox; reopening the app replays retained conversations from every
@@ -203,18 +207,19 @@ restores the compact message copy already retained in `/.inbox/messages.bin`,
 so it consumes no second flash ring. Both backends deduplicate transport replays
 by stable message identity and keep linked Inbox read state aligned.
 
-Unlike `email-sync`, `chat-sync` takes no interval argument: it waits for Wi-Fi
+Unlike `email-sync`, `gateway-sync` takes no interval argument: it waits for Wi-Fi
 and reconnects with exponential backoff while remaining in the running state.
 
-`/connect [url]` updates the saved gateway and enables synchronization.
-`/disconnect` pauses synchronization without stopping the job.
+Gateway setup and room lifecycle use `gateway status`, `gateway configure`,
+`gateway connect`, `gateway disconnect`, `gateway rooms`, `gateway join`,
+`gateway leave`, and `gateway delete`. Gateway synchronization runs only under
+the `gateway-sync` job name.
 
 Conversation rows show provider, unread, and security state. Outbound rows show
 queued/sending/sent/delivered/failed state. Use `/new CONTACT_ID` to open a
 direct conversation with the contact's preferred endpoint. Sending to a
 discovered endpoint asks for a second Enter confirmation; blocked endpoints
-cannot be messaged. Gateway room management commands apply only to a selected
-gateway room.
+cannot be messaged.
 
 The conversation header reports the selected provider's state. Gateway uses
 `disconnected`, `connecting`, and `connected`; connectionless MeshCore and Link
@@ -225,11 +230,6 @@ In-app commands:
 ```text
 /help
 /new contact-id
-/join channel
-/leave [channel]
-/delete [channel]
-/connect [url]
-/disconnect
 /status
 /quit
 ```
@@ -238,7 +238,7 @@ Controls:
 
 - `Tab` changes focus between conversation list, messages, and input.
 - `Up`/`Down` navigate the focused pane or input history.
-- `Enter` sends input or joins the selected channel.
+- `Enter` sends input or opens the selected conversation.
 - `Page Up`/`Page Down` scroll messages.
 - `Esc` or app-exit key exits.
 

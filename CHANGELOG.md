@@ -2,6 +2,14 @@
 
 ## 4.x
 
+- **4.5.4** — 2026-08-03 — Refactored messaging boundaries: `chat` is now a
+  provider-neutral view with optional gateway, MeshCore, Link, or exact
+  conversation selection; gateway configuration and room controls moved to
+  the `gateway` command; and the gateway-only worker is named `gateway-sync`
+  as `gateway-sync`. Added visible `outbox` and
+  `messages outbox` controls for pending sends, clarified compact internal
+  history versus Inbox notifications, and prevented Link message identities
+  from colliding after a radio-link restart.
 - **4.5.3** — 2026-08-03 — Renamed the persistent-storage shell command from
   `sd` to `disk`, so the same status, block listing, mount, and unmount surface
   covers internal flash and removable media. Added guarded FAT formatting with

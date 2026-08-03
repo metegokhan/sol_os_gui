@@ -98,7 +98,16 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `messages` | `messages read <conversation-id>` | Mark a conversation and its linked Inbox entries read. |
 | `messages` | `messages delete <message-id>` | Delete one retained message and its linked Inbox projection by hexadecimal ID. |
 | `messages` | `messages clear <gateway\|meshcore\|link\|all>` | Clear retained history and owned Inbox projections for one provider or every messaging provider. Unrelated Inbox sources remain. |
+| `messages` | `messages outbox` | List pending outbound requests in queue order. |
 | `messages` | `messages cancel <message-id>` | Cancel a queued outbound message by the hexadecimal ID printed by `list` or `send`. |
+| `outbox` | `outbox [list]` | List pending outbound messages. Sent and failed messages remain in conversation history, not Outbox. |
+| `outbox` | `outbox cancel <message-id>` | Cancel one pending message by hexadecimal ID. |
+| `gateway` | `gateway status` | Show gateway configuration, connection state, and traffic counters. |
+| `gateway` | `gateway configure <url> [user] [token]` | Save gateway connection settings. |
+| `gateway` | `gateway connect [url] [user] [token]` | Enable gateway synchronization, optionally updating settings. |
+| `gateway` | `gateway disconnect` | Disable gateway synchronization. |
+| `gateway` | `gateway rooms` | List known and joined gateway rooms. |
+| `gateway` | `gateway join\|leave\|delete <room>` | Queue a gateway-specific room operation. |
 | `email` | `email` | Open the receive-only email app. |
 | `email` | `email status` | Show saved account, local message counts, and last sync error. |
 | `email` | `email configure <imaps://host[:port]> <user> <password> [mailbox]` | Save an IMAPS account; the default mailbox is `INBOX`. |

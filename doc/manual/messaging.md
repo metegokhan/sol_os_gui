@@ -74,8 +74,18 @@ messages send CONVERSATION_ID TEXT [--allow-untrusted]
 messages read CONVERSATION_ID
 messages delete MESSAGE_ID
 messages clear gateway|meshcore|link|all
+messages outbox
 messages cancel MESSAGE_ID
+outbox [list]
+outbox cancel MESSAGE_ID
 ```
+
+The three user-facing collections have distinct roles: Conversations contain
+retained message history, Inbox is a universal notification view of inbound
+items from messaging and other applications, and Outbox contains only pending
+sends. Provider packet queues and event rings are internal bounded transport
+mechanisms, not additional mailboxes. On internal flash, Messaging physically
+shares Inbox's compact persistent records but still owns the conversation API.
 
 `messages clear` also removes the selected provider's Inbox projections,
 including stale projections whose retained ring slot has already wrapped. It

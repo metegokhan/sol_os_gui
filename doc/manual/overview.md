@@ -29,7 +29,7 @@ than one fixed product shape.
   plotter, clock, chat client, games, Python, and Lua.
 - Keep background jobs running for logging, data acquisition, NTP sync, SLIP,
   HTTP serving, Telnet shell access, serial bridging, battery monitoring, and
-  chat gateway service.
+  gateway messaging synchronization.
 - Use Wi-Fi, BLE, USB CDC, UART, SD or flash storage, RTC time, GPIO, ADC, PWM,
   I2C, SPI, 1-Wire, audio, sensors, and board-specific display hardware through
   shared SolarOS services.

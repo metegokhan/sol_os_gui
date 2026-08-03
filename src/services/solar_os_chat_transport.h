@@ -11,7 +11,7 @@
 
 typedef struct {
     solar_os_chat_event_t event;
-    /* Opaque resume token owned by chat-sync; empty for push-only transports. */
+    /* Opaque resume token owned by gateway-sync; empty for push-only transports. */
     char cursor[SOLAR_OS_CHAT_TRANSPORT_CURSOR_MAX];
 } solar_os_chat_transport_event_t;
 

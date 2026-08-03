@@ -124,7 +124,7 @@ esp_err_t solar_os_chat_init(void);
 esp_err_t solar_os_chat_configure(const char *url,
                                   const char *token,
                                   const char *user);
-/* Connect/disconnect set desired synchronization state; the sync job owns I/O. */
+/* Connect/disconnect set desired state; gateway-sync owns transport I/O. */
 esp_err_t solar_os_chat_connect(const char *url,
                                 const char *token,
                                 const char *user);
@@ -147,14 +147,14 @@ size_t solar_os_chat_channel_snapshot(solar_os_chat_channel_t *channels,
                                       size_t max_channels);
 
 /* Synchronizer-facing store/outbox API. */
-esp_err_t solar_os_chat_sync_set_status(bool running,
+esp_err_t solar_os_gateway_sync_set_status(bool running,
                                         bool connected,
                                         esp_err_t error,
                                         const char *message);
-esp_err_t solar_os_chat_sync_publish(const solar_os_chat_event_t *event,
+esp_err_t solar_os_gateway_sync_publish(const solar_os_chat_event_t *event,
                                      bool *inserted,
                                      uint64_t *message_key);
-esp_err_t solar_os_chat_sync_set_inbox_id(uint64_t message_key,
+esp_err_t solar_os_gateway_sync_set_inbox_id(uint64_t message_key,
                                           uint32_t inbox_id);
 uint64_t solar_os_chat_context_id(void);
 esp_err_t solar_os_chat_outbox_peek(solar_os_chat_command_t *command);
