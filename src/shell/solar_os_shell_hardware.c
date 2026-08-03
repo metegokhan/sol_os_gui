@@ -43,7 +43,9 @@
 #define UART_READ_MAX_LEN 96
 #define UART_WRITE_MAX_LEN 128
 
-static const char * const sd_subcommands[] = {"status", "lsblk", "mount", "umount"};
+static const char * const disk_subcommands[] = {
+    "status", "lsblk", "mount", "umount", "format",
+};
 static const char * const battery_subcommands[] = {"status", "config", "capacity", "min_voltage", "max_voltage"};
 static const char * const ble_subcommands[] = {"status", "scan", "pair", "cancel", "forget", "gatt"};
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "disconnect", "services", "chars", "read", "write", "write-nr"};
@@ -197,24 +199,21 @@ static void format_bytes(uint64_t bytes, char *buffer, size_t buffer_len)
              units[unit_index]);
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_SD
-static void sd_print_status(solar_os_shell_io_t *term)
+static void disk_print_status(solar_os_shell_io_t *term)
 {
     char status[64];
-    solar_os_storage_sd_get_status(status, sizeof(status));
-    solar_os_shell_io_printf(term, "SD: %s\n", status);
-    solar_os_shell_io_printf(term, "Mount: %s\n", solar_os_storage_sd_mount_point());
+    solar_os_storage_get_status(status, sizeof(status));
+    solar_os_shell_io_printf(term, "Disk: %s\n", status);
+    solar_os_shell_io_printf(term, "Mount: %s\n", solar_os_storage_mount_point());
 }
 
-static void sd_print_lsblk(solar_os_shell_io_t *term)
+static void disk_print_lsblk(solar_os_shell_io_t *term)
 {
     const esp_err_t err = solar_os_storage_rescan();
     if (err != ESP_OK) {
-        if (shell_print_not_supported(term, "sd", "SD storage", err)) {
-            return;
-        }
-        solar_os_shell_io_printf(term, "sd lsblk failed: %s\n", solar_os_shell_error_text(err));
-        return;
+        solar_os_shell_io_printf(term,
+                                 "Removable scan: %s\n",
+                                 solar_os_shell_error_text(err));
     }
 
     solar_os_shell_io_writeln(term, "NAME   SIZE     TYPE FS    MOUNT");
@@ -238,41 +237,42 @@ static void sd_print_lsblk(solar_os_shell_io_t *term)
     }
 }
 
-static void sd_print_usage(solar_os_shell_io_t *term)
+static void disk_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  sd [status]");
-    solar_os_shell_io_writeln(term, "  sd lsblk");
-    solar_os_shell_io_writeln(term, "  sd mount [sd0pN] [mount]");
-    solar_os_shell_io_writeln(term, "  sd umount [sd0pN|mount]");
+    solar_os_shell_io_writeln(term, "  disk [status]");
+    solar_os_shell_io_writeln(term, "  disk lsblk");
+    solar_os_shell_io_writeln(term, "  disk mount [flash|sd0pN] [mount]");
+    solar_os_shell_io_writeln(term, "  disk umount [flash|sd0pN|mount]");
+    solar_os_shell_io_writeln(term, "  disk format <flash|sd0|sd0pN> --force");
 }
 
-void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv)
+void solar_os_shell_cmd_disk(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
         if (argc > 2) {
-            solar_os_shell_diag_unexpected(term, "sd status", argv[2], "sd [status]");
+            solar_os_shell_diag_unexpected(term, "disk status", argv[2], "disk [status]");
             return;
         }
-        sd_print_status(term);
+        disk_print_status(term);
         return;
     }
 
     if (strcmp(argv[1], "lsblk") == 0) {
         if (argc != 2) {
-            solar_os_shell_diag_unexpected(term, "sd lsblk", argv[2], "sd lsblk");
+            solar_os_shell_diag_unexpected(term, "disk lsblk", argv[2], "disk lsblk");
             return;
         }
-        sd_print_lsblk(term);
+        disk_print_lsblk(term);
         return;
     }
 
     if (strcmp(argv[1], "mount") == 0) {
         if (argc > 4) {
-            solar_os_shell_diag_unexpected(term, "sd mount", argv[4],
-                                           "sd mount [sd0pN] [mount]");
+            solar_os_shell_diag_unexpected(term, "disk mount", argv[4],
+                                           "disk mount [flash|sd0pN] [mount]");
             return;
         }
 
@@ -282,19 +282,21 @@ void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_storage_mount() :
             solar_os_storage_mount_volume(volume, mount_point);
         if (err == ESP_OK) {
-            sd_print_status(term);
-        } else if (shell_print_not_supported(term, "sd", "SD storage", err)) {
+            disk_print_status(term);
+        } else if (shell_print_not_supported(term, "disk", "persistent storage", err)) {
             return;
         } else {
-            solar_os_shell_io_printf(term, "sd mount failed: %s\n", solar_os_shell_error_text(err));
+            solar_os_shell_io_printf(term,
+                                     "disk mount failed: %s\n",
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
 
     if (strcmp(argv[1], "umount") == 0) {
         if (argc > 3) {
-            solar_os_shell_diag_unexpected(term, "sd umount", argv[3],
-                                           "sd umount [sd0pN|mount]");
+            solar_os_shell_diag_unexpected(term, "disk umount", argv[3],
+                                           "disk umount [flash|sd0pN|mount]");
             return;
         }
 
@@ -302,25 +304,62 @@ void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_storage_unmount() :
             solar_os_storage_unmount_volume(argv[2]);
         if (err == ESP_OK) {
-            sd_print_status(term);
-        } else if (shell_print_not_supported(term, "sd", "SD storage", err)) {
+            disk_print_status(term);
+        } else if (shell_print_not_supported(term, "disk", "persistent storage", err)) {
             return;
         } else if (err == ESP_ERR_INVALID_STATE) {
-            solar_os_shell_io_writeln(term, "SD: not mounted");
+            solar_os_shell_io_writeln(term, "Disk: not mounted");
         } else if (err == ESP_ERR_NOT_FOUND) {
-            solar_os_shell_io_printf(term, "SD: not mounted: %s\n", argv[2]);
+            solar_os_shell_io_printf(term, "Disk: not mounted: %s\n", argv[2]);
         } else {
-            solar_os_shell_io_printf(term, "sd umount failed: %s\n", solar_os_shell_error_text(err));
+            solar_os_shell_io_printf(term,
+                                     "disk umount failed: %s\n",
+                                     solar_os_shell_error_text(err));
         }
         return;
     }
 
-    solar_os_shell_diag_subcommand(term, "sd", argc, argv,
-                                   "sd [status|lsblk|mount|umount] ...",
-                                   sd_subcommands,
-                                   sizeof(sd_subcommands) / sizeof(sd_subcommands[0]));
+    if (strcmp(argv[1], "format") == 0) {
+        if (argc != 4 || strcmp(argv[3], "--force") != 0) {
+            solar_os_shell_io_writeln(
+                term,
+                "disk format permanently erases the selected FAT volume");
+            solar_os_shell_io_writeln(
+                term,
+                "usage: disk format <flash|sd0|sd0pN> --force");
+            return;
+        }
+        const esp_err_t err = solar_os_storage_format(argv[2]);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "Disk: formatted %s as FAT\n",
+                                     argv[2]);
+        } else if (err == ESP_ERR_INVALID_STATE) {
+            solar_os_shell_io_printf(term,
+                                     "disk format failed: unmount %s first\n",
+                                     argv[2]);
+        } else if (shell_print_not_supported(term,
+                                             "disk format",
+                                             "selected storage target",
+                                             err)) {
+            return;
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "disk format failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        }
+        return;
+    }
+
+    solar_os_shell_diag_subcommand(
+        term,
+        "disk",
+        argc,
+        argv,
+        "disk [status|lsblk|mount|umount|format] ...",
+        disk_subcommands,
+        sizeof(disk_subcommands) / sizeof(disk_subcommands[0]));
 }
-#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 static void battery_print_usage(solar_os_shell_io_t *term)

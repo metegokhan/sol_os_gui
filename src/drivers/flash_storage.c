@@ -5,6 +5,7 @@
 
 #include "diskio_wl.h"
 #include "esp_log.h"
+#include "esp_partition.h"
 #include "esp_vfs_fat.h"
 #include "wear_levelling.h"
 
@@ -17,6 +18,36 @@ static wl_handle_t flash_wl_handle = WL_INVALID_HANDLE;
 static uint8_t flash_logical_volume = FLASH_STORAGE_LOGICAL_VOLUME_INVALID;
 static char flash_mount_point[FLASH_STORAGE_MOUNT_POINT_MAX];
 static char flash_status[64] = "not mounted";
+
+static const esp_partition_t *flash_storage_partition(void)
+{
+    return esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                    ESP_PARTITION_SUBTYPE_DATA_FAT,
+                                    FLASH_STORAGE_PARTITION_LABEL);
+}
+
+static bool flash_storage_partition_is_erased(void)
+{
+    const esp_partition_t *partition = flash_storage_partition();
+    if (partition == NULL) {
+        return false;
+    }
+
+    uint8_t buffer[256];
+    for (size_t offset = 0; offset < partition->size; offset += sizeof(buffer)) {
+        const size_t remaining = partition->size - offset;
+        const size_t length = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+        if (esp_partition_read(partition, offset, buffer, length) != ESP_OK) {
+            return false;
+        }
+        for (size_t i = 0; i < length; i++) {
+            if (buffer[i] != 0xffU) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 static const char *flash_storage_vfs_base_path(const char *mount_point)
 {
@@ -55,7 +86,7 @@ esp_err_t flash_storage_mount(const char *mount_point)
     }
 
     esp_vfs_fat_mount_config_t mount_config = {
-        .format_if_mount_failed = true,
+        .format_if_mount_failed = flash_storage_partition_is_erased(),
         .max_files = FLASH_STORAGE_MAX_FILES,
         .allocation_unit_size = FLASH_STORAGE_ALLOC_UNIT_SIZE,
         .disk_status_check_enable = false,
@@ -87,6 +118,35 @@ esp_err_t flash_storage_mount(const char *mount_point)
     snprintf(flash_status, sizeof(flash_status), "mounted at %s", mount_point);
     ESP_LOGI(TAG, "mounted %s at %s", FLASH_STORAGE_PARTITION_LABEL, mount_point);
     return ESP_OK;
+}
+
+esp_err_t flash_storage_format(const char *mount_point)
+{
+    if (mount_point == NULL || mount_point[0] != '/' ||
+        strlen(mount_point) >= sizeof(flash_mount_point)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (flash_storage_is_mounted()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_vfs_fat_mount_config_t format_config = {
+        .format_if_mount_failed = true,
+        .max_files = FLASH_STORAGE_MAX_FILES,
+        .allocation_unit_size = FLASH_STORAGE_ALLOC_UNIT_SIZE,
+        .disk_status_check_enable = false,
+        .use_one_fat = true,
+    };
+    const esp_err_t ret = esp_vfs_fat_spiflash_format_cfg_rw_wl(
+        flash_storage_vfs_base_path(mount_point),
+        FLASH_STORAGE_PARTITION_LABEL,
+        &format_config);
+    if (ret == ESP_OK) {
+        snprintf(flash_status, sizeof(flash_status), "formatted at %s", mount_point);
+    } else {
+        flash_storage_set_error_status(ret);
+    }
+    return ret;
 }
 
 esp_err_t flash_storage_unmount(void)
@@ -123,6 +183,12 @@ const char *flash_storage_mount_point(void)
 uint8_t flash_storage_logical_volume(void)
 {
     return flash_logical_volume;
+}
+
+uint64_t flash_storage_size_bytes(void)
+{
+    const esp_partition_t *partition = flash_storage_partition();
+    return partition != NULL ? partition->size : 0;
 }
 
 void flash_storage_get_status(char *buffer, size_t len)

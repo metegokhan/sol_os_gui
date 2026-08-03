@@ -13,6 +13,41 @@ SolarOS presents the default storage volume as `/`. On an SD-backed target this
 normally means the SD card, while `/flash` remains the internal flash volume.
 On a board without SD, `/` normally maps to internal flash.
 
+Use `disk` for both internal and removable persistent storage:
+
+```text
+disk status
+disk lsblk
+disk mount flash
+disk mount sd0p2 /mnt
+disk umount sd0p2
+```
+
+`disk lsblk` names internal flash as `flash`, a removable card as `sd0`, and
+its partitions as `sd0p1`, `sd0p2`, and so on.
+
+## Formatting
+
+Formatting permanently erases the selected target and creates a FAT
+filesystem. The target must be unmounted and the explicit `--force` guard is
+required:
+
+```text
+disk umount flash
+disk format flash --force
+disk mount flash
+```
+
+For removable media, use `disk umount` without a target to unmount all card
+volumes before formatting `sd0` or one of its partitions. Formatting `sd0`
+creates a whole-disk FAT filesystem; formatting `sd0pN` preserves the partition
+table and formats only that partition.
+
+SolarOS initializes a completely erased internal flash partition on first use,
+but it does not automatically format a non-empty partition when mounting fails.
+This keeps filesystem damage from silently turning into data loss; use the
+guarded format command only when the existing contents can be discarded.
+
 Shell paths are not host operating-system paths. Scripts should use
 `solaros.storage` so the same code follows SolarOS mount and path rules.
 

@@ -130,6 +130,7 @@ typedef struct {
     bool complete_user_radio_profiles;
     bool complete_ramfs_mounts;
     bool complete_storage_mountables;
+    bool complete_storage_blocks;
     bool complete_storage_unmount_targets;
     bool complete_display_targets;
     bool complete_display_modes;
@@ -265,9 +266,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"port", "show byte-stream ports", solar_os_shell_cmd_port},
     {"xfer", "transfer files over byte-stream ports", solar_os_shell_cmd_xfer},
     {"df", "show filesystem free space", solar_os_shell_cmd_df},
-#if SOLAR_OS_PACKAGE_SERVICE_SD
-    {"sd", "SD card control", solar_os_shell_cmd_sd},
-#endif
+    {"disk", "persistent disk control", solar_os_shell_cmd_disk},
     {"top", "show task resource usage", solar_os_shell_cmd_top},
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     {"battery", "battery status and config", solar_os_shell_cmd_battery},
@@ -545,12 +544,14 @@ static const char * const meshcore_advert_values[] = {"zero", "flood"};
 static const char * const meshcore_on_off_values[] = {"off", "on"};
 #endif
 
-static const char * const sd_subcommands[] = {
+static const char * const disk_subcommands[] = {
     "status",
     "lsblk",
     "mount",
     "umount",
+    "format",
 };
+static const char * const disk_format_force_values[] = {"--force"};
 
 static const char * const ramfs_subcommands[] = {
     "status",
@@ -1453,10 +1454,14 @@ static const char * const path_mqtt_subscribe_topic[] = {
     SHELL_COMPLETION_ANY,
 };
 #endif
-static const char * const path_sd[] = {"sd"};
-static const char * const path_sd_mount[] = {"sd", "mount"};
-static const char * const path_sd_mount_target[] = {"sd", "mount", SHELL_COMPLETION_ANY};
-static const char * const path_sd_umount[] = {"sd", "umount"};
+static const char * const path_disk[] = {"disk"};
+static const char * const path_disk_mount[] = {"disk", "mount"};
+static const char * const path_disk_mount_target[] = {"disk", "mount", SHELL_COMPLETION_ANY};
+static const char * const path_disk_umount[] = {"disk", "umount"};
+static const char * const path_disk_format[] = {"disk", "format"};
+static const char * const path_disk_format_force[] = {
+    "disk", "format", SHELL_COMPLETION_ANY,
+};
 static const char * const path_ramfs[] = {"ramfs"};
 static const char * const path_ramfs_mount_path[] = {"ramfs", "mount", SHELL_COMPLETION_ANY};
 static const char * const path_ramfs_unmount[] = {"ramfs", "unmount"};
@@ -1880,6 +1885,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_storage_mountables = true, \
     }
+#define SHELL_COMPLETION_STORAGE_BLOCKS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_storage_blocks = true, \
+    }
 #define SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS(path_array) \
     { \
         .path = path_array, \
@@ -2202,10 +2213,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_mqtt_publish_qos, mqtt_retain_values),
     SHELL_COMPLETION_STATIC(path_mqtt_subscribe_topic, mqtt_qos_values),
 #endif
-    SHELL_COMPLETION_STATIC(path_sd, sd_subcommands),
-    SHELL_COMPLETION_STORAGE_MOUNTABLES(path_sd_mount),
-    SHELL_COMPLETION_PATH(path_sd_mount_target, true),
-    SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS(path_sd_umount),
+    SHELL_COMPLETION_STATIC(path_disk, disk_subcommands),
+    SHELL_COMPLETION_STORAGE_MOUNTABLES(path_disk_mount),
+    SHELL_COMPLETION_PATH(path_disk_mount_target, true),
+    SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS(path_disk_umount),
+    SHELL_COMPLETION_STORAGE_BLOCKS(path_disk_format),
+    SHELL_COMPLETION_STATIC(path_disk_format_force, disk_format_force_values),
     SHELL_COMPLETION_STATIC(path_ramfs, ramfs_subcommands),
     SHELL_COMPLETION_STATIC(path_ramfs_mount_path, ramfs_size_values),
     SHELL_COMPLETION_RAMFS_MOUNTS(path_ramfs_unmount),
@@ -2429,6 +2442,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #undef SHELL_COMPLETION_UART_BUSES
 #undef SHELL_COMPLETION_UART_ARGUMENTS
 #undef SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS
+#undef SHELL_COMPLETION_STORAGE_BLOCKS
 #undef SHELL_COMPLETION_STORAGE_MOUNTABLES
 #undef SHELL_COMPLETION_SESSION_IDS
 #undef SHELL_COMPLETION_DISPLAY_SESSION_IDS
@@ -4671,7 +4685,6 @@ static void shell_completion_emit_ramfs_mounts(shell_completion_match_t *state)
 
 static void shell_completion_emit_storage_mountables(shell_completion_match_t *state)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_SD
     const size_t count = solar_os_storage_block_count();
 
     for (size_t i = 0; i < count; i++) {
@@ -4680,14 +4693,22 @@ static void shell_completion_emit_storage_mountables(shell_completion_match_t *s
             shell_completion_emit(state, block.name);
         }
     }
-#else
-    (void)state;
-#endif
+}
+
+static void shell_completion_emit_storage_blocks(shell_completion_match_t *state)
+{
+    const size_t count = solar_os_storage_block_count();
+
+    for (size_t i = 0; i < count; i++) {
+        solar_os_storage_block_t block;
+        if (solar_os_storage_get_block(i, &block)) {
+            shell_completion_emit(state, block.name);
+        }
+    }
 }
 
 static void shell_completion_emit_storage_unmount_targets(shell_completion_match_t *state)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_SD
     const size_t count = solar_os_storage_block_count();
 
     for (size_t i = 0; i < count; i++) {
@@ -4700,9 +4721,6 @@ static void shell_completion_emit_storage_unmount_targets(shell_completion_match
             shell_completion_emit(state, block.mount_point);
         }
     }
-#else
-    (void)state;
-#endif
 }
 
 static void shell_completion_emit_display_targets(shell_completion_match_t *state)
@@ -5816,6 +5834,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_storage_mountables) {
             shell_completion_emit_storage_mountables(state);
+        }
+        if (rule->complete_storage_blocks) {
+            shell_completion_emit_storage_blocks(state);
         }
         if (rule->complete_storage_unmount_targets) {
             shell_completion_emit_storage_unmount_targets(state);

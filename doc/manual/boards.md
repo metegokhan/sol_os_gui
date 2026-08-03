@@ -855,7 +855,7 @@ Before committing a new board target:
 6. Try unsupported hardware commands and confirm they fail cleanly, for example:
 
    ```text
-   sd status
+   disk status
    audio status
    battery status
    ```
