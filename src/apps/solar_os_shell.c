@@ -36,6 +36,9 @@
 #if SOLAR_OS_PACKAGE_APP_INBOX
 #include "solar_os_inbox.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_CHAT
+#include "solar_os_messaging.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 #include "solar_os_contacts.h"
 #endif
@@ -112,6 +115,7 @@ typedef struct {
     bool complete_manual_references;
     bool complete_agent_conversations;
     bool complete_inbox_ids;
+    bool complete_message_ids;
     bool complete_contact_ids;
     bool complete_endpoint_ids;
     bool complete_playground_apps;
@@ -761,7 +765,9 @@ static const char * const log_sink_values[] = {"cdc"};
 static const char * const on_off_values[] = {"on", "off"};
 
 #if SOLAR_OS_PACKAGE_APP_INBOX
-static const char * const inbox_subcommands[] = {"status", "list", "read", "clear", "post"};
+static const char * const inbox_subcommands[] = {
+    "status", "list", "read", "delete", "clear", "post"
+};
 static const char * const inbox_list_values[] = {"all", "unread"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
@@ -789,7 +795,12 @@ static const char * const messages_subcommands[] = {
     "list",
     "send",
     "read",
+    "delete",
+    "clear",
     "cancel",
+};
+static const char * const messages_clear_values[] = {
+    "gateway", "meshcore", "link", "all"
 };
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
@@ -1162,6 +1173,7 @@ static const char * const path_display_mode_target[] = {"display", "mode", SHELL
 static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
 static const char * const path_inbox_read[] = {"inbox", "read"};
+static const char * const path_inbox_delete[] = {"inbox", "delete"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 static const char * const path_contacts[] = {"contacts"};
@@ -1184,6 +1196,8 @@ static const char * const path_contacts_link_source[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
 static const char * const path_messages[] = {"messages"};
+static const char * const path_messages_delete[] = {"messages", "delete"};
+static const char * const path_messages_clear[] = {"messages", "clear"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const path_email[] = {"email"};
@@ -1761,6 +1775,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_inbox_ids = true, \
     }
+#define SHELL_COMPLETION_MESSAGE_IDS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_message_ids = true, \
+    }
 #define SHELL_COMPLETION_CONTACT_IDS(path_array) \
     { \
         .path = path_array, \
@@ -2246,6 +2266,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_inbox, inbox_subcommands),
     SHELL_COMPLETION_STATIC(path_inbox_list, inbox_list_values),
     SHELL_COMPLETION_INBOX_IDS(path_inbox_read),
+    SHELL_COMPLETION_INBOX_IDS(path_inbox_delete),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
     SHELL_COMPLETION_STATIC(path_contacts, contacts_subcommands),
@@ -2262,6 +2283,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
     SHELL_COMPLETION_STATIC(path_messages, messages_subcommands),
+    SHELL_COMPLETION_MESSAGE_IDS(path_messages_delete),
+    SHELL_COMPLETION_STATIC(path_messages_clear, messages_clear_values),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     SHELL_COMPLETION_STATIC(path_email, email_subcommands),
@@ -2412,6 +2435,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #undef SHELL_COMPLETION_JOBS
 #undef SHELL_COMPLETION_EXPANSION_DEVICES
 #undef SHELL_COMPLETION_INBOX_IDS
+#undef SHELL_COMPLETION_MESSAGE_IDS
 #undef SHELL_COMPLETION_PLAYGROUND_APPS
 #undef SHELL_COMPLETION_AGENT_CONVERSATIONS
 #undef SHELL_COMPLETION_COMMANDS
@@ -4336,6 +4360,32 @@ static void shell_completion_emit_inbox_ids(shell_completion_match_t *state)
 #endif
 }
 
+#if SOLAR_OS_PACKAGE_APP_CHAT
+static bool shell_completion_emit_message_id(
+    const solar_os_messaging_message_t *message,
+    void *user)
+{
+    shell_completion_match_t *state = user;
+    char id[17];
+    snprintf(id, sizeof(id), "%016" PRIx64, message->key);
+    shell_completion_emit(state, id);
+    return true;
+}
+#endif
+
+static void shell_completion_emit_message_ids(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    (void)solar_os_messaging_message_visit(0,
+                                           0,
+                                           shell_completion_emit_message_id,
+                                           state,
+                                           NULL);
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_contact_ids(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
@@ -5715,6 +5765,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_inbox_ids) {
             shell_completion_emit_inbox_ids(state);
+        }
+        if (rule->complete_message_ids) {
+            shell_completion_emit_message_ids(state);
         }
         if (rule->complete_contact_ids) {
             shell_completion_emit_contact_ids(state);

@@ -116,6 +116,13 @@ Providers register and report status, upsert or remove conversations, publish
 normalized inbound messages, consume only their own outbound requests, update
 delivery state, and publish bounded cursor-based events.
 
+Retained history remains visible when a provider is stopped. Chat reconciles
+its display from the Messages generation instead of treating delivery events
+as an independent history source, so an event-ring wrap cannot make a message
+exist in `messages list` but disappear from Chat. With no explicit conversation
+argument, Chat initially selects an unread conversation, preferring the most
+recent one.
+
 The 16-entry outbox is volatile. It survives provider-job restarts but not a
 reboot. Generic messaging invokes no provider callback while holding its global
 lock.
@@ -126,6 +133,12 @@ then links the returned Inbox ID using the message key and the current
 generation. Marking a message read updates its linked Inbox entry after
 releasing the messaging lock.
 
+Deleting a retained message also deletes its linked Inbox projection. Provider
+history can be cleared independently with `messages clear gateway`,
+`messages clear meshcore`, or `messages clear link`; `messages clear all`
+clears all three. A clear is rejected while the selected provider has queued
+outbound work, avoiding an outbox entry whose message has been removed.
+
 ## Persistence
 
 Contacts uses a versioned, CRC-checked store with two alternating headers at
@@ -135,7 +148,10 @@ mode and reports the storage error when persistence is unavailable.
 Messages uses the same bounded fixed-slot and dual-header approach at
 `/.messages/messages.bin` only when the active storage has the large-history
 capacity already required by Chat. Small internal flash restores compact
-gateway and MeshCore notifications from Inbox instead.
+gateway, MeshCore, and Link notifications from Inbox instead. Deletions rewrite
+the compact Inbox store atomically. Full-history deletions use CRC-checked
+tombstones in their original fixed slots, so surviving records do not need to
+be copied during provider-scoped clearing.
 
 No `/.chat/messages.bin` records are migrated. After the new Messages store
 initializes successfully, the obsolete Chat store is removed. Existing Inbox
@@ -155,6 +171,10 @@ scripting callers must pass `allow_untrusted=true`.
 Contacts and Chat are resumable text TUIs that work through the common shell
 I/O layer on display and VT100 port shells. They exit with `Esc` or `Ctrl+]`
 according to the active terminal.
+
+Inbox messages can be removed individually with `d` in either Inbox view or
+with `inbox delete <decimal-id>`. Shared retained messages can be removed with
+`messages delete <hex-message-id>`.
 
 Python and Lua receive bounded contact, conversation, and message snapshots
 plus send, mark-read, and cancel operations. They cannot mutate trust or access

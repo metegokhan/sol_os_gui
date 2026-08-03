@@ -72,6 +72,8 @@ messages conversations
 messages list CONVERSATION_ID
 messages send CONVERSATION_ID TEXT [--allow-untrusted]
 messages read CONVERSATION_ID
+messages delete MESSAGE_ID
+messages clear gateway|meshcore|link|all
 messages cancel MESSAGE_ID
 ```
 

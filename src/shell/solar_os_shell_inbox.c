@@ -12,7 +12,9 @@
 #include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
 
-static const char * const inbox_commands[] = {"status", "list", "read", "clear", "post"};
+static const char * const inbox_commands[] = {
+    "status", "list", "read", "delete", "clear", "post",
+};
 #include "solar_os_shell_io.h"
 
 #define INBOX_LIST_MAX 16
@@ -29,6 +31,7 @@ static void inbox_print_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  inbox status");
     solar_os_shell_io_writeln(io, "  inbox list [all|unread]");
     solar_os_shell_io_writeln(io, "  inbox read <id>");
+    solar_os_shell_io_writeln(io, "  inbox delete <id>");
     solar_os_shell_io_writeln(io, "  inbox clear");
     solar_os_shell_io_writeln(io, "  inbox post <source> <message>");
 }
@@ -266,6 +269,25 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
         inbox_cmd_read(io, id);
         return;
     }
+    if (strcmp(argv[1], "delete") == 0 && argc == 3) {
+        uint32_t id = 0;
+        if (!inbox_parse_id(argv[2], &id)) {
+            solar_os_shell_diag_invalid(io,
+                                        "inbox delete",
+                                        "message ID",
+                                        argv[2],
+                                        "a decimal message ID",
+                                        "inbox delete <id>",
+                                        false);
+            return;
+        }
+        const esp_err_t err = solar_os_inbox_delete(id);
+        solar_os_shell_io_printf(io,
+                                 "inbox: %s\n",
+                                 err == ESP_OK ? "deleted" :
+                                     solar_os_shell_error_text(err));
+        return;
+    }
     if (strcmp(argv[1], "clear") == 0 && argc == 2) {
         solar_os_inbox_status_t status = {0};
         (void)solar_os_inbox_get_status(&status);
@@ -286,7 +308,7 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
                                    "inbox",
                                    argc,
                                    argv,
-                                   "inbox status|list|read|clear|post",
+                                   "inbox status|list|read|delete|clear|post",
                                    inbox_commands,
                                    sizeof(inbox_commands) / sizeof(inbox_commands[0]));
 }

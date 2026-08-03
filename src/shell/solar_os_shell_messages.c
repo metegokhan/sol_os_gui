@@ -10,7 +10,8 @@
 #include "solar_os_shell_io.h"
 
 static const char * const messages_commands[] = {
-    "status", "conversations", "list", "send", "read", "cancel",
+    "status", "conversations", "list", "send", "read", "delete",
+    "clear", "cancel",
 };
 
 static void messages_usage(solar_os_shell_io_t *io)
@@ -23,7 +24,37 @@ static void messages_usage(solar_os_shell_io_t *io)
         io,
         "  messages send <conversation-id> <text> [--allow-untrusted]");
     solar_os_shell_io_writeln(io, "  messages read <conversation-id>");
+    solar_os_shell_io_writeln(io, "  messages delete <message-id>");
+    solar_os_shell_io_writeln(
+        io,
+        "  messages clear <gateway|meshcore|link|all>");
     solar_os_shell_io_writeln(io, "  messages cancel <message-id>");
+}
+
+static bool messages_parse_provider(
+    const char *text,
+    solar_os_messaging_provider_id_t *provider)
+{
+    if (text == NULL || provider == NULL) {
+        return false;
+    }
+    if (strcmp(text, "all") == 0) {
+        *provider = 0;
+        return true;
+    }
+    if (strcmp(text, "gateway") == 0) {
+        *provider = SOLAR_OS_MESSAGING_PROVIDER_GATEWAY;
+        return true;
+    }
+    if (strcmp(text, "meshcore") == 0) {
+        *provider = SOLAR_OS_MESSAGING_PROVIDER_MESHCORE;
+        return true;
+    }
+    if (strcmp(text, "link") == 0) {
+        *provider = SOLAR_OS_MESSAGING_PROVIDER_LINK;
+        return true;
+    }
+    return false;
 }
 
 static bool messages_parse_u32(const char *text, uint32_t *value)
@@ -285,6 +316,33 @@ void solar_os_shell_cmd_messages(solar_os_context_t *ctx,
         return;
     }
     uint64_t message_id = 0;
+    if (argc == 3 && strcmp(argv[1], "delete") == 0 &&
+        messages_parse_u64(argv[2], &message_id)) {
+        const esp_err_t error =
+            solar_os_messaging_message_delete(message_id);
+        solar_os_shell_io_printf(io,
+                                 "messages: %s\n",
+                                 error == ESP_OK ? "deleted" :
+                                     solar_os_shell_error_text(error));
+        return;
+    }
+    solar_os_messaging_provider_id_t provider = 0;
+    if (argc == 3 && strcmp(argv[1], "clear") == 0 &&
+        messages_parse_provider(argv[2], &provider)) {
+        size_t removed = 0;
+        const esp_err_t error = solar_os_messaging_clear(provider, &removed);
+        if (error == ESP_OK) {
+            solar_os_shell_io_printf(io,
+                                     "messages: cleared %u %s messages\n",
+                                     (unsigned)removed,
+                                     argv[2]);
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "messages: clear failed: %s\n",
+                                     solar_os_shell_error_text(error));
+        }
+        return;
+    }
     if (argc == 3 && strcmp(argv[1], "cancel") == 0 &&
         messages_parse_u64(argv[2], &message_id)) {
         const esp_err_t error = solar_os_messaging_cancel(message_id);
@@ -298,7 +356,7 @@ void solar_os_shell_cmd_messages(solar_os_context_t *ctx,
                                    "messages",
                                    argc,
                                    argv,
-                                   "messages status|conversations|list|send|read|cancel",
+                                   "messages status|conversations|list|send|read|delete|clear|cancel",
                                    messages_commands,
                                    sizeof(messages_commands) / sizeof(messages_commands[0]));
 }

@@ -79,6 +79,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `inbox` | `inbox status` | Show universal incoming-message counts and storage status. |
 | `inbox` | `inbox list [all\|unread]` | List newest messages first. |
 | `inbox` | `inbox read <id>` | Print one message and mark it read. |
+| `inbox` | `inbox delete <id>` | Delete one message by its decimal ID. |
 | `inbox` | `inbox clear` | Remove every message. |
 | `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
 | `contacts` | `contacts` | Open the searchable provider-neutral contact browser. |
@@ -95,6 +96,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `messages` | `messages list <conversation-id>` | List retained messages and their stable hexadecimal IDs. |
 | `messages` | `messages send <conversation-id> <text> [--allow-untrusted]` | Queue an outbound message; discovered direct endpoints require the explicit flag. |
 | `messages` | `messages read <conversation-id>` | Mark a conversation and its linked Inbox entries read. |
+| `messages` | `messages delete <message-id>` | Delete one retained message and its linked Inbox projection by hexadecimal ID. |
+| `messages` | `messages clear <gateway\|meshcore\|link\|all>` | Clear retained history for one provider or every provider. |
 | `messages` | `messages cancel <message-id>` | Cancel a queued outbound message by the hexadecimal ID printed by `list` or `send`. |
 | `email` | `email` | Open the receive-only email app. |
 | `email` | `email status` | Show saved account, local message counts, and last sync error. |
