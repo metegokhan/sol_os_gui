@@ -262,22 +262,27 @@ Controls:
 
 ## com
 
-Serial terminal for a named UART bus. Display-keyboard or port-shell input is
-forwarded to the UART, and UART RX is drawn in the active terminal.
+Serial terminal for a bidirectional byte-stream port. Display-keyboard or
+port-shell input is forwarded to the selected port, and received bytes are
+drawn in the active terminal. The port may be a UART or a virtual port such as
+a peer-bound SolarOS Link stream.
 
 Usage:
 
 ```text
-com [--autobaud] [--hex] [bus]
+com [--autobaud] [--hex] [port]
 ```
 
-The bus defaults to `uart0`. For example, `com gps` connects to an existing
-runtime UART bus named `gps`. The selected bus remains leased by the app until
-the session exits. `com` works from both display and port shells; when launched
-from a port shell, its terminal output is returned through that same port.
+The port defaults to `uart0`. For example, `com gps` connects to an existing
+runtime UART bus named `gps`, while `com vser0` opens a Link stream previously
+created with `link stream create`. The selected port remains claimed by the app
+until the session exits. `com` works from both display and port shells; when
+launched from a port shell, its terminal output is returned through that same
+port. The input/output shell port and selected COM port must be different.
 
-`--autobaud` samples the RX signal for three seconds before opening the
-terminal. Send a repeating `0x55` or `0xaa` pattern during that interval. A
+`--autobaud` is available only for UART buses. It samples the RX signal for
+three seconds before opening the terminal. Send a repeating `0x55` or `0xaa`
+pattern during that interval. A
 reliable measurement is matched to a standard UART rate and applied to the
 current bus connection without overwriting the saved baud setting. UART input
 forwarding begins when sampling completes. If measurement fails, the configured
@@ -292,6 +297,7 @@ Examples:
 ```text
 com --hex gps
 com --autobaud --hex uart0
+com vser0
 ```
 
 Controls:

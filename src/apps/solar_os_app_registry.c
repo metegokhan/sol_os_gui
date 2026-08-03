@@ -140,7 +140,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("calc", "scientific calculator and function plotter", &solar_os_calc_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "calc [--text | -e expression]", 1, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
-    APP_ENTRY("com", "serial terminal", &solar_os_com_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "com [--autobaud] [--hex] [bus]", 1, 4),
+    APP_ENTRY("com", "serial terminal", &solar_os_com_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "com [--autobaud] [--hex] [port]", 1, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
     APP_ENTRY("edit", "text editor", &solar_os_edit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "edit <file>", 2, 2),

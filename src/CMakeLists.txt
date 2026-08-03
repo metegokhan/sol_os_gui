@@ -1,4 +1,7 @@
-set(SOLAR_OS_VERSION_FILE "${CMAKE_CURRENT_LIST_DIR}/../version.txt")
+get_filename_component(SOLAR_OS_VERSION_FILE
+    "${CMAKE_CURRENT_LIST_DIR}/../version.txt"
+    ABSOLUTE
+)
 file(READ "${SOLAR_OS_VERSION_FILE}" SOLAR_OS_VERSION)
 string(STRIP "${SOLAR_OS_VERSION}" SOLAR_OS_VERSION)
 if(NOT SOLAR_OS_VERSION)
@@ -361,6 +364,13 @@ if(SOLAR_OS_PACKAGE_SERVICE_MESHCORE)
         "../src/vendor/meshcore/ed25519"
     )
 endif()
+
+# The version is a component-wide compile definition. Make it an explicit
+# object dependency so incremental builds cannot link stale version strings
+# after version.txt changes.
+set_property(SOURCE ${SOLAR_OS_SRCS} APPEND PROPERTY OBJECT_DEPENDS
+    "${SOLAR_OS_VERSION_FILE}"
+)
 
 idf_component_register(
     SRCS ${SOLAR_OS_SRCS}
