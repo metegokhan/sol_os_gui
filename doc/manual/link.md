@@ -199,11 +199,16 @@ consumer claims it. To expose a Waveshare shell over the radio:
 # Waveshare
 session create shell vser0 --term dumb
 
-# DevKit ground station; uart0 remains the local administrative shell
+# DevKit ground station with display and keyboard
+com vser0
+
+# Or bridge a Linux USB shell through the headless DevKit
 job start bridge cdc0 vser0
 ```
 
-Linux can then open the DevKit USB CDC serial device and interact with the
+Claiming the virtual port with `com`, `session`, or `bridge` opens the stream
+automatically; there is no separate stream-open command. Linux can open the
+DevKit USB CDC serial device after starting the bridge and interact with the
 Waveshare's normal port shell. On a headless DevKit, `uart0` remains available
 for local administration while `cdc0` is owned by the bridge. `--term dumb`
 avoids expensive terminal probes and escape traffic; VT100 remains available

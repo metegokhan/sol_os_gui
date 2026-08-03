@@ -4977,7 +4977,7 @@ static void shell_completion_emit_com_arguments(shell_completion_match_t *state,
                                                 size_t token_count)
 {
 #if SOLAR_OS_PACKAGE_APP_COM
-    bool bus_seen = false;
+    bool port_seen = false;
     bool autobaud_seen = false;
     bool hex_seen = false;
     for (size_t i = 1; i < token_count; i++) {
@@ -4986,7 +4986,7 @@ static void shell_completion_emit_com_arguments(shell_completion_match_t *state,
         } else if (strcmp(tokens[i], "--hex") == 0) {
             hex_seen = true;
         } else if (tokens[i][0] != '-') {
-            bus_seen = true;
+            port_seen = true;
         }
     }
     if (!autobaud_seen) {
@@ -4995,8 +4995,8 @@ static void shell_completion_emit_com_arguments(shell_completion_match_t *state,
     if (!hex_seen) {
         shell_completion_emit(state, com_options[1]);
     }
-    if (!bus_seen) {
-        shell_completion_emit_uart_buses(state);
+    if (!port_seen) {
+        shell_completion_emit_ports(state);
     }
 #else
     (void)state;

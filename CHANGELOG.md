@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.5.6** — 2026-08-03 — Generalized `com` from named UART buses to all
+  bidirectional SolarOS byte-stream ports, including peer-bound Link virtual
+  serial ports. Port completion now includes virtual ports, ownership errors
+  identify the current consumer, and idle nonblocking reads no longer close the
+  terminal.
 - **4.5.5** — 2026-08-03 — Added peer-bound SolarOS Link streams that register
   as normal virtual serial ports. Link streams add session epochs, ordered
   segmentation, acknowledgements, retransmission, bounded buffering,

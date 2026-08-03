@@ -19,7 +19,7 @@
 #define COM_RX_CHUNKS_PER_TICK 16
 #define COM_HEX_ROW_SIZE 8
 #define COM_AUTOBAUD_SAMPLE_MS 3000U
-#define COM_BUS_OWNER "app-com"
+#define COM_PORT_OWNER "app-com"
 
 typedef struct {
     bool active;
@@ -27,7 +27,10 @@ typedef struct {
     bool autobaud_pending;
     bool bus_leased;
     bool hex_view;
-    char bus_name[SOLAR_OS_BUS_NAME_MAX];
+    bool port_claimed;
+    bool uart_bus;
+    char port_name[SOLAR_OS_PORT_NAME_MAX];
+    solar_os_port_handle_t port;
     solar_os_shell_io_t fallback_io;
     uint32_t autobaud_deadline_ms;
     uint32_t rx_bytes;
@@ -63,10 +66,10 @@ static void com_render_header(solar_os_context_t *ctx)
     solar_os_uart_status_t status;
 
     (void)solar_os_shell_io_clear(io);
-    if (solar_os_uart_get_bus_status(com_app.bus_name, &status)) {
+    if (com_app.uart_bus && solar_os_uart_get_bus_status(com_app.port_name, &status)) {
         (void)solar_os_shell_io_printf_bold(io,
                                            "COM %s UART%d %" PRIu32 " %s\n",
-                                           com_app.bus_name,
+                                           com_app.port_name,
                                            status.port_num,
                                            status.baud_rate,
                                            solar_os_uart_mode_name(status.mode));
@@ -76,7 +79,17 @@ static void com_render_header(solar_os_context_t *ctx)
                                        status.rx_pin,
                                        com_app.hex_view ? "hex" : "text");
     } else {
-        (void)solar_os_shell_io_printf_bold(io, "COM %s\n", com_app.bus_name);
+        solar_os_port_info_t info;
+        if (solar_os_port_get_info(com_app.port_name, &info) == ESP_OK) {
+            (void)solar_os_shell_io_printf_bold(io, "COM %s %s\n",
+                                               com_app.port_name,
+                                               info.label);
+            (void)solar_os_shell_io_printf(io,
+                                           "bidirectional port | view %s\n",
+                                           com_app.hex_view ? "hex" : "text");
+        } else {
+            (void)solar_os_shell_io_printf_bold(io, "COM %s\n", com_app.port_name);
+        }
     }
     (void)solar_os_shell_io_printf(io, "%s exits\n\n", solar_os_shell_io_app_exit_key(io));
     if (com_app.autobaud_pending) {
@@ -124,14 +137,16 @@ static esp_err_t com_write_bytes(const uint8_t *data, size_t len)
     }
 
     size_t written = 0;
-    const esp_err_t err = solar_os_bus_uart_write(com_app.bus_name, data, len, &written);
+    const esp_err_t err = com_app.uart_bus
+        ? solar_os_bus_uart_write(com_app.port_name, data, len, &written)
+        : solar_os_port_write(&com_app.port, data, len, &written);
     if (err == ESP_OK) {
         com_app.tx_bytes += written;
     } else {
-        SOLAR_OS_LOGW(TAG, "UART write failed: %s", esp_err_to_name(err));
+        SOLAR_OS_LOGW(TAG, "port write failed: %s", esp_err_to_name(err));
     }
     if (written != len) {
-        SOLAR_OS_LOGW(TAG, "UART write incomplete: %u/%u", (unsigned)written, (unsigned)len);
+        SOLAR_OS_LOGW(TAG, "port write incomplete: %u/%u", (unsigned)written, (unsigned)len);
     }
     return err;
 }
@@ -292,7 +307,7 @@ static void com_send_key(solar_os_context_t *ctx, char ch)
     if (com_app.alt_prefix_pending) {
         com_app.alt_prefix_pending = false;
         if (com_write_bytes((const uint8_t *)"\x1b", 1) != ESP_OK) {
-            (void)solar_os_shell_io_writeln(io, "\ncom: UART write failed");
+            (void)solar_os_shell_io_writeln(io, "\ncom: port write failed");
             com_flush(ctx);
             return;
         }
@@ -302,7 +317,7 @@ static void com_send_key(solar_os_context_t *ctx, char ch)
         com_write_bytes((const uint8_t *)seq, strlen(seq)) :
         com_write_bytes(data, len);
     if (err != ESP_OK) {
-        (void)solar_os_shell_io_writeln(io, "\ncom: UART write failed");
+        (void)solar_os_shell_io_writeln(io, "\ncom: port write failed");
         com_flush(ctx);
     }
 }
@@ -319,13 +334,25 @@ static void com_drain_rx(solar_os_context_t *ctx)
 
     for (size_t chunk = 0; chunk < COM_RX_CHUNKS_PER_TICK; chunk++) {
         size_t read_len = 0;
-        const esp_err_t err =
-            solar_os_bus_uart_read(com_app.bus_name, buffer, sizeof(buffer), 0, &read_len);
+        const esp_err_t err = com_app.uart_bus
+            ? solar_os_bus_uart_read(com_app.port_name,
+                                     buffer,
+                                     sizeof(buffer),
+                                     0,
+                                     &read_len)
+            : solar_os_port_read(&com_app.port,
+                                 buffer,
+                                 sizeof(buffer),
+                                 0,
+                                 &read_len);
+        if (err == ESP_ERR_TIMEOUT) {
+            break;
+        }
         if (err != ESP_OK) {
             (void)solar_os_shell_io_printf(io,
-                                           "\ncom: UART read failed: %s\n",
+                                           "\ncom: port read failed: %s\n",
                                            esp_err_to_name(err));
-            SOLAR_OS_LOGW(TAG, "UART read failed: %s", esp_err_to_name(err));
+            SOLAR_OS_LOGW(TAG, "port read failed: %s", esp_err_to_name(err));
             com_app.active = false;
             com_flush(ctx);
             return;
@@ -354,8 +381,8 @@ static void com_drain_rx(solar_os_context_t *ctx)
 static void com_finish_autobaud(solar_os_context_t *ctx)
 {
     solar_os_bus_uart_autobaud_result_t result;
-    const esp_err_t ret = solar_os_bus_uart_autobaud_finish(com_app.bus_name,
-                                                            COM_BUS_OWNER,
+    const esp_err_t ret = solar_os_bus_uart_autobaud_finish(com_app.port_name,
+                                                            COM_PORT_OWNER,
                                                             &result);
     com_app.autobaud_pending = false;
     com_render_header(ctx);
@@ -368,14 +395,14 @@ static void com_finish_autobaud(solar_os_context_t *ctx)
                                        result.edge_count);
         SOLAR_OS_LOGI(TAG,
                       "%s autobaud: %" PRIu32 " (measured %" PRIu32 ")",
-                      com_app.bus_name,
+                      com_app.port_name,
                       result.baud_rate,
                       result.measured_baud_rate);
     } else {
         (void)solar_os_shell_io_printf(com_io(ctx),
                                        "Autobaud failed: %s; keeping configured rate\n\n",
                                        esp_err_to_name(ret));
-        SOLAR_OS_LOGW(TAG, "%s autobaud failed: %s", com_app.bus_name, esp_err_to_name(ret));
+        SOLAR_OS_LOGW(TAG, "%s autobaud failed: %s", com_app.port_name, esp_err_to_name(ret));
     }
     com_flush(ctx);
 }
@@ -386,7 +413,7 @@ static void com_usage(solar_os_context_t *ctx)
     (void)solar_os_shell_io_clear(io);
     (void)solar_os_shell_io_write_bold(io, "com");
     (void)solar_os_shell_io_newline(io);
-    (void)solar_os_shell_io_writeln(io, "usage: com [--autobaud] [--hex] [bus]");
+    (void)solar_os_shell_io_writeln(io, "usage: com [--autobaud] [--hex] [port]");
     (void)solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
     com_flush(ctx);
 }
@@ -394,6 +421,7 @@ static void com_usage(solar_os_context_t *ctx)
 static esp_err_t com_start(solar_os_context_t *ctx)
 {
     memset(&com_app, 0, sizeof(com_app));
+    com_app.port = (solar_os_port_handle_t)SOLAR_OS_PORT_HANDLE_INIT;
 
     const int argc = solar_os_context_argc(ctx);
     if (argc < 1 || argc > 4) {
@@ -401,8 +429,8 @@ static esp_err_t com_start(solar_os_context_t *ctx)
         return ESP_OK;
     }
 
-    const char *bus_name = SOLAR_OS_UART_PORT_NAME;
-    bool bus_seen = false;
+    const char *port_name = SOLAR_OS_UART_PORT_NAME;
+    bool port_seen = false;
     bool request_autobaud = false;
     for (int i = 1; i < argc; i++) {
         const char *arg = solar_os_context_argv(ctx, i);
@@ -410,55 +438,82 @@ static esp_err_t com_start(solar_os_context_t *ctx)
             request_autobaud = true;
         } else if (strcmp(arg, "--hex") == 0) {
             com_app.hex_view = true;
-        } else if (arg[0] == '-' || bus_seen) {
+        } else if (arg[0] == '-' || port_seen) {
             com_usage(ctx);
             return ESP_OK;
         } else {
-            bus_name = arg;
-            bus_seen = true;
+            port_name = arg;
+            port_seen = true;
         }
     }
-    strlcpy(com_app.bus_name, bus_name, sizeof(com_app.bus_name));
+    strlcpy(com_app.port_name, port_name, sizeof(com_app.port_name));
 
     solar_os_bus_info_t bus_info;
-    if (!solar_os_bus_find(bus_name, SOLAR_OS_BUS_PROTOCOL_UART, &bus_info)) {
-        com_render_header(ctx);
-        (void)solar_os_shell_io_printf(com_io(ctx),
-                                       "com: UART bus not found: %s\n",
-                                       com_app.bus_name);
-        com_flush(ctx);
-        return ESP_OK;
+    com_app.uart_bus = solar_os_bus_find(port_name,
+                                         SOLAR_OS_BUS_PROTOCOL_UART,
+                                         &bus_info);
+    esp_err_t claim_err = ESP_OK;
+    if (com_app.uart_bus) {
+        strlcpy(com_app.port_name, bus_info.name, sizeof(com_app.port_name));
+        claim_err = solar_os_bus_acquire(com_app.port_name,
+                                         SOLAR_OS_BUS_PROTOCOL_UART,
+                                         COM_PORT_OWNER);
+        com_app.bus_leased = claim_err == ESP_OK;
+    } else {
+        solar_os_port_info_t info;
+        claim_err = solar_os_port_get_info(port_name, &info);
+        if (claim_err == ESP_OK &&
+            (info.capabilities & (SOLAR_OS_PORT_CAP_READ | SOLAR_OS_PORT_CAP_WRITE)) !=
+                (SOLAR_OS_PORT_CAP_READ | SOLAR_OS_PORT_CAP_WRITE)) {
+            com_render_header(ctx);
+            (void)solar_os_shell_io_printf(com_io(ctx),
+                                           "com: %s is not a bidirectional port\n",
+                                           com_app.port_name);
+            com_flush(ctx);
+            return ESP_OK;
+        }
+        if (claim_err == ESP_OK && request_autobaud) {
+            com_render_header(ctx);
+            (void)solar_os_shell_io_writeln(com_io(ctx),
+                                            "com: --autobaud requires a UART bus");
+            com_flush(ctx);
+            return ESP_OK;
+        }
+        if (claim_err == ESP_OK) {
+            claim_err = solar_os_port_claim(com_app.port_name,
+                                            COM_PORT_OWNER,
+                                            &com_app.port);
+            com_app.port_claimed = claim_err == ESP_OK;
+        }
     }
-    strlcpy(com_app.bus_name, bus_info.name, sizeof(com_app.bus_name));
-
-    const esp_err_t lease_err = solar_os_bus_acquire(com_app.bus_name,
-                                                     SOLAR_OS_BUS_PROTOCOL_UART,
-                                                     COM_BUS_OWNER);
-    if (lease_err != ESP_OK) {
+    if (claim_err != ESP_OK) {
         com_render_header(ctx);
         solar_os_port_info_t info;
-        if (lease_err == ESP_ERR_INVALID_STATE &&
-            solar_os_port_get_info(com_app.bus_name, &info) == ESP_OK &&
+        if (claim_err == ESP_ERR_INVALID_STATE &&
+            solar_os_port_get_info(com_app.port_name, &info) == ESP_OK &&
             info.claimed) {
             (void)solar_os_shell_io_printf(com_io(ctx),
                                            "com: %s is busy: %s\n",
-                                           com_app.bus_name,
+                                           com_app.port_name,
                                            info.owner);
+        } else if (claim_err == ESP_ERR_NOT_FOUND) {
+            (void)solar_os_shell_io_printf(com_io(ctx),
+                                           "com: port not found: %s\n",
+                                           com_app.port_name);
         } else {
             (void)solar_os_shell_io_printf(com_io(ctx),
-                                           "com: %s lease failed: %s\n",
-                                           com_app.bus_name,
-                                           esp_err_to_name(lease_err));
+                                           "com: %s open failed: %s\n",
+                                           com_app.port_name,
+                                           esp_err_to_name(claim_err));
         }
         com_flush(ctx);
         return ESP_OK;
     }
 
-    com_app.bus_leased = true;
     com_app.active = true;
     esp_err_t autobaud_err = ESP_OK;
     if (request_autobaud) {
-        autobaud_err = solar_os_bus_uart_autobaud_start(com_app.bus_name, COM_BUS_OWNER);
+        autobaud_err = solar_os_bus_uart_autobaud_start(com_app.port_name, COM_PORT_OWNER);
         if (autobaud_err == ESP_OK) {
             com_app.autobaud_pending = true;
             com_app.autobaud_deadline_ms =
@@ -472,7 +527,7 @@ static esp_err_t com_start(solar_os_context_t *ctx)
                                        esp_err_to_name(autobaud_err));
         com_flush(ctx);
     }
-    SOLAR_OS_LOGI(TAG, "COM app started on %s", com_app.bus_name);
+    SOLAR_OS_LOGI(TAG, "COM app started on %s", com_app.port_name);
     return ESP_OK;
 }
 
@@ -482,16 +537,18 @@ static void com_stop(solar_os_context_t *ctx)
 
     SOLAR_OS_LOGI(TAG,
                  "COM app stopped on %s: tx=%" PRIu32 " rx=%" PRIu32,
-                 com_app.bus_name,
+                 com_app.port_name,
                  com_app.tx_bytes,
                  com_app.rx_bytes);
     if (com_app.bus_leased) {
         if (com_app.autobaud_pending) {
-            (void)solar_os_bus_uart_autobaud_cancel(com_app.bus_name, COM_BUS_OWNER);
+            (void)solar_os_bus_uart_autobaud_cancel(com_app.port_name, COM_PORT_OWNER);
         }
-        (void)solar_os_bus_release(com_app.bus_name,
+        (void)solar_os_bus_release(com_app.port_name,
                                    SOLAR_OS_BUS_PROTOCOL_UART,
-                                   COM_BUS_OWNER);
+                                   COM_PORT_OWNER);
+    } else if (com_app.port_claimed) {
+        (void)solar_os_port_release(&com_app.port);
     }
     memset(&com_app, 0, sizeof(com_app));
 }
@@ -511,7 +568,7 @@ static void com_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
     snprintf(buffer,
              buffer_len,
              "com %s",
-             com_app.bus_name[0] != '\0' ? com_app.bus_name : SOLAR_OS_UART_PORT_NAME);
+             com_app.port_name[0] != '\0' ? com_app.port_name : SOLAR_OS_UART_PORT_NAME);
 }
 
 static bool com_event(solar_os_context_t *ctx, const solar_os_event_t *event)
