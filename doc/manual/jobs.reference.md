@@ -231,24 +231,24 @@ Notes:
   the Link error.
 - This is the clean base for USB-to-UART converter style workflows.
 
-## chat-sync
+## gateway-sync
 
-Background client synchronizer for the transport-neutral chat service. Start and
-stop it explicitly, using the same lifecycle as `email-sync`:
+Background synchronizer for the gateway messaging provider. Start and stop it
+explicitly, using the same lifecycle as `email-sync`:
 
 ```text
-job start chat-sync
-job stop chat-sync
-job status chat-sync
+job start gateway-sync
+job stop gateway-sync
+job status gateway-sync
 ```
 
-`chat-sync` takes no polling interval. Unlike the periodic `email-sync` job, it
+`gateway-sync` takes no polling interval. Unlike the periodic `email-sync` job, it
 maintains a live connection and applies its own exponential reconnect backoff.
 It can therefore be started before Wi-Fi has an address; it remains running and
 connects when the network becomes available. In `/.shell/startup`, use exactly:
 
 ```text
-job start chat-sync
+job start gateway-sync
 ```
 
 It owns transport connection lifetime, exponential retry, opaque resume

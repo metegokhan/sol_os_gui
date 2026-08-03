@@ -11,7 +11,7 @@
 
 static const char * const messages_commands[] = {
     "status", "conversations", "list", "send", "read", "delete",
-    "clear", "cancel",
+    "clear", "outbox", "cancel",
 };
 
 static void messages_usage(solar_os_shell_io_t *io)
@@ -28,6 +28,7 @@ static void messages_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(
         io,
         "  messages clear <gateway|meshcore|link|all>");
+    solar_os_shell_io_writeln(io, "  messages outbox");
     solar_os_shell_io_writeln(io, "  messages cancel <message-id>");
 }
 
@@ -100,11 +101,8 @@ static void messages_status(solar_os_shell_io_t *io)
         io,
         "Conversations: %u/%u\n"
         "Messages: %u/%u (%u unread)\n"
-        "Outbox: %u/%u volatile\n"
-        "Events: %u/%u\n"
-        "PSRAM rings: %s\n"
-        "Persistence: %s, capacity %u, limit %u bytes\n"
-        "Generation: %" PRIu32 "\n"
+        "Pending outbox: %u/%u (volatile)\n"
+        "History: %s, capacity %u, limit %u bytes\n"
         "Dropped: messages %" PRIu32 ", outbox %" PRIu32 "\n",
         (unsigned)status.conversations,
         (unsigned)SOLAR_OS_MESSAGING_CONVERSATION_CAPACITY,
@@ -113,15 +111,11 @@ static void messages_status(solar_os_shell_io_t *io)
         (unsigned)status.unread,
         (unsigned)status.queued_outbox,
         (unsigned)SOLAR_OS_MESSAGING_OUTBOX_CAPACITY,
-        (unsigned)status.queued_events,
-        (unsigned)SOLAR_OS_MESSAGING_EVENT_CAPACITY,
-        status.rings_in_psram ? "yes" : "no",
         status.persistent ?
-            (status.inbox_backed ? "Inbox fallback" : "full history") :
+            (status.inbox_backed ? "compact internal" : "full") :
             "volatile",
         (unsigned)status.persistent_capacity,
         (unsigned)status.persistent_limit_bytes,
-        status.generation,
         status.dropped_messages,
         status.dropped_outbox);
     if (status.storage_error != ESP_OK) {
@@ -138,14 +132,47 @@ static void messages_status(solar_os_shell_io_t *io)
                                                    &provider_status) == ESP_OK) {
             solar_os_shell_io_printf(
                 io,
-                "Provider %-8s: %s%s%s\n",
+                "Provider %-8s: %s%s%s%s\n",
                 provider_status.name,
                 provider_status.running ? "running" : "stopped",
                 provider_status.connected ? ", connected" : "",
+                provider_status.detail[0] != '\0' ? ", " : "",
                 provider_status.detail[0] != '\0' ?
                     provider_status.detail : "");
         }
     }
+}
+
+static void messages_outbox(solar_os_shell_io_t *io)
+{
+    solar_os_messaging_outbound_t *requests = solar_os_memory_calloc(
+        SOLAR_OS_MESSAGING_OUTBOX_CAPACITY,
+        sizeof(*requests),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "messages.shell.outbox");
+    if (requests == NULL) {
+        solar_os_shell_io_writeln(io, "outbox: no PSRAM for snapshot");
+        return;
+    }
+    const size_t count = solar_os_messaging_outbox_snapshot(
+        requests,
+        SOLAR_OS_MESSAGING_OUTBOX_CAPACITY);
+    for (size_t i = 0; i < count; i++) {
+        const solar_os_messaging_outbound_t *request = &requests[i];
+        solar_os_shell_io_printf(
+            io,
+            "%016" PRIx64 "  %-8s conversation=%" PRIu32
+            " attempts=%u  %s\n",
+            request->message_key,
+            solar_os_messaging_provider_name(request->provider),
+            request->conversation_id,
+            (unsigned)request->attempts,
+            request->body);
+    }
+    if (count == 0U) {
+        solar_os_shell_io_writeln(io, "Outbox is empty");
+    }
+    solar_os_memory_free(requests);
 }
 
 static void messages_conversations(solar_os_shell_io_t *io)
@@ -294,6 +321,10 @@ void solar_os_shell_cmd_messages(solar_os_context_t *ctx,
         messages_conversations(io);
         return;
     }
+    if (argc == 2 && strcmp(argv[1], "outbox") == 0) {
+        messages_outbox(io);
+        return;
+    }
     uint32_t conversation_id = 0;
     if (argc == 3 && strcmp(argv[1], "list") == 0 &&
         messages_parse_u32(argv[2], &conversation_id)) {
@@ -356,7 +387,34 @@ void solar_os_shell_cmd_messages(solar_os_context_t *ctx,
                                    "messages",
                                    argc,
                                    argv,
-                                   "messages status|conversations|list|send|read|delete|clear|cancel",
+                                   "messages status|conversations|list|send|read|delete|clear|outbox|cancel",
                                    messages_commands,
                                    sizeof(messages_commands) / sizeof(messages_commands[0]));
+}
+
+void solar_os_shell_cmd_outbox(solar_os_context_t *ctx,
+                               int argc,
+                               char **argv)
+{
+    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
+    if (io == NULL) {
+        return;
+    }
+    if (argc == 1 ||
+        (argc == 2 && strcmp(argv[1], "list") == 0)) {
+        messages_outbox(io);
+        return;
+    }
+    uint64_t message_id = 0;
+    if (argc == 3 && strcmp(argv[1], "cancel") == 0 &&
+        messages_parse_u64(argv[2], &message_id)) {
+        const esp_err_t error = solar_os_messaging_cancel(message_id);
+        solar_os_shell_io_printf(io,
+                                 "outbox: %s\n",
+                                 error == ESP_OK ? "cancelled" :
+                                     solar_os_shell_error_text(error));
+        return;
+    }
+    solar_os_shell_io_writeln(io, "usage: outbox [list]");
+    solar_os_shell_io_writeln(io, "       outbox cancel <message-id>");
 }

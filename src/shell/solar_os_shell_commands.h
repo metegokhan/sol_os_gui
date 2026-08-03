@@ -30,6 +30,7 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
 void solar_os_shell_cmd_messages(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_outbox(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv);
@@ -38,6 +39,9 @@ void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv);
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
+void solar_os_shell_cmd_gateway(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 void solar_os_shell_cmd_humidity(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_identity(solar_os_context_t *ctx, int argc, char **argv);

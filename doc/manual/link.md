@@ -116,6 +116,9 @@ There is no automatic retry. Text that exceeds the active Link payload MTU
 fails with the exact byte limit. Link contacts remain discovered until
 explicitly trusted, and Link messages carry no encrypted or transport-secured
 security flag.
+Each messaging-adapter session scopes Link source/sequence identities with a
+fresh local epoch, so restarting `radio-link` does not make new packets collide
+with retained messages from the previous sequence cycle.
 
 ## Version 1 Frame
 

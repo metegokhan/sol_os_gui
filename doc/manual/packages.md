@@ -31,7 +31,7 @@ The standard selectors are `system`, `expansions`, `maintenance_apps`,
 and `utils`. Maintenance apps and jobs can therefore be selected independently.
 
 Network ownership is intentionally split. `network.base`, `network.mqtt`,
-`network.ssh`, `network.mail`, `network.chat`, `network.http-client`, and
+`network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and
 `network.http-server` own their individual implementations. Image and document
 decoding are separate `media.image` and `media.document` packages, so selecting
 `app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
@@ -61,13 +61,16 @@ single-owner guard. `app.agent` supplies installed adapters to both the manual
 `agent script` command and the typed agent registry without making either
 interpreter a dependency of the agent package.
 
-Chat is split further: `network.chat` owns the transport-neutral message store
-and outbox, `chat.transport.gateway` owns the gateway wire protocol, and
-`job.chat-sync` owns connection lifetime, retries, cursors, delivery, and inbox
-notifications. The bounded store persists full messages on SD and uses the
+Messaging is split into explicit layers: `service.messaging` owns
+provider-neutral conversations, history, delivery state, and the pending
+outbox; `messaging.gateway` owns gateway configuration and room commands;
+`chat.transport.gateway` owns the gateway wire protocol; and
+`job.gateway-sync` owns connection lifetime, retries, cursors, and gateway
+delivery. The bounded store persists full messages on SD and uses the
 Inbox's compact persistent records as its internal-flash fallback. Stable
 producer IDs suppress transport replays before they reach either UI. `app.chat`
-is only a foreground view over that shared state; `job.chatd` remains the
+depends only on the provider-neutral Messaging service and is a foreground view
+over that shared state; `job.chatd` remains the
 independent local gateway server.
 
 Inbox storage and presentation are also separate. Producers such as mail and

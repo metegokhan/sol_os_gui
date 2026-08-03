@@ -731,7 +731,7 @@ size_t solar_os_chat_channel_snapshot(solar_os_chat_channel_t *channels,
     return count;
 }
 
-esp_err_t solar_os_chat_sync_set_status(bool running,
+esp_err_t solar_os_gateway_sync_set_status(bool running,
                                         bool connected,
                                         esp_err_t error,
                                         const char *message)
@@ -756,7 +756,7 @@ esp_err_t solar_os_chat_sync_set_status(bool running,
         message);
 }
 
-esp_err_t solar_os_chat_sync_publish(const solar_os_chat_event_t *event,
+esp_err_t solar_os_gateway_sync_publish(const solar_os_chat_event_t *event,
                                      bool *inserted,
                                      uint64_t *message_key)
 {
@@ -837,7 +837,7 @@ esp_err_t solar_os_chat_sync_publish(const solar_os_chat_event_t *event,
     return ESP_OK;
 }
 
-esp_err_t solar_os_chat_sync_set_inbox_id(uint64_t message_key,
+esp_err_t solar_os_gateway_sync_set_inbox_id(uint64_t message_key,
                                           uint32_t inbox_id)
 {
     (void)message_key;

@@ -202,6 +202,9 @@ esp_err_t solar_os_messaging_clear(
 esp_err_t solar_os_messaging_mark_read(
     solar_os_conversation_id_t conversation_id);
 esp_err_t solar_os_messaging_cancel(solar_os_message_key_t message_key);
+size_t solar_os_messaging_outbox_snapshot(
+    solar_os_messaging_outbound_t *requests,
+    size_t max_requests);
 esp_err_t solar_os_messaging_outbox_peek(
     solar_os_messaging_provider_id_t provider,
     solar_os_messaging_outbound_t *request);

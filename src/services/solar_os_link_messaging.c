@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "esp_attr.h"
+#include "esp_random.h"
 #include "solar_os_config.h"
 
 #if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
@@ -24,12 +25,36 @@ typedef struct {
     uint32_t request_id;
     uint32_t destination;
     uint16_t sequence;
+    uint32_t session_epoch;
     uint32_t ack_deadline_ms;
 } link_messaging_state_t;
 
 static link_messaging_state_t link_messaging;
 static EXT_RAM_BSS_ATTR solar_os_messaging_outbound_t link_messaging_outbound;
 static const char *TAG = "link_messaging";
+
+static uint64_t link_messaging_provider_key(uint32_t source,
+                                            uint16_t sequence)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    const uint8_t identity[] = {
+        (uint8_t)(link_messaging.session_epoch >> 24),
+        (uint8_t)(link_messaging.session_epoch >> 16),
+        (uint8_t)(link_messaging.session_epoch >> 8),
+        (uint8_t)link_messaging.session_epoch,
+        (uint8_t)(source >> 24),
+        (uint8_t)(source >> 16),
+        (uint8_t)(source >> 8),
+        (uint8_t)source,
+        (uint8_t)(sequence >> 8),
+        (uint8_t)sequence,
+    };
+    for (size_t i = 0; i < sizeof(identity); i++) {
+        hash ^= identity[i];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash != 0U ? hash : UINT64_MAX;
+}
 
 static void link_messaging_address_encode(uint32_t device_id, uint8_t address[4])
 {
@@ -118,6 +143,9 @@ esp_err_t solar_os_link_messaging_start(const char *link)
     }
 
     memset(&link_messaging, 0, sizeof(link_messaging));
+    do {
+        link_messaging.session_epoch = esp_random();
+    } while (link_messaging.session_epoch == 0U);
     link_messaging.active = true;
     link_messaging.payload_max =
         status.frame_mtu - SOLAR_OS_LINK_HEADER_SIZE - SOLAR_OS_LINK_CRC_SIZE;
@@ -318,7 +346,8 @@ esp_err_t solar_os_link_messaging_note_ingest(const solar_os_link_ingest_result_
         .contact_id = contact_id,
         .endpoint_id = endpoint_id,
         .group_ref = kind == SOLAR_OS_CONVERSATION_BROADCAST ? SOLAR_OS_LINK_BROADCAST : 0U,
-        .provider_message_key = ((uint64_t)message->source << 16) | message->sequence,
+        .provider_message_key =
+            link_messaging_provider_key(message->source, message->sequence),
         .timestamp_ms = now_ms,
         .security_flags = security_flags,
         .sender = contact.display_name,

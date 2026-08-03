@@ -46,6 +46,9 @@ not limit Messaging delivery. Direct Link messages remain `sending` until their
 acknowledgement arrives; broadcast messages become `sent` after radio
 transmission. Link v1 provides no
 encryption, authentication, fragmentation, routing, or automatic retry.
+The adapter combines each source/sequence pair with a fresh local adapter
+session epoch before deduplication, so restarting `radio-link` cannot make new
+messages collide with retained history when the Link sequence restarts at one.
 
 ## Contacts and endpoints
 
@@ -125,11 +128,15 @@ exist in `messages list` but disappear from Chat. With no explicit conversation
 argument, Chat initially selects an unread conversation, preferring the most
 recent one.
 
-The 16-entry outbox is volatile. It survives provider-job restarts but not a
-reboot. Generic messaging invokes no provider callback while holding its global
-lock.
+The 16-entry outbox contains only pending outbound requests. It is volatile: it
+survives provider-job restarts but not a reboot. Sent, delivered, failed, and
+cancelled messages remain in conversation history but leave the outbox. Use
+`outbox` or `messages outbox` to list pending work and `outbox cancel
+<hex-message-id>` to cancel one entry. Generic messaging invokes no provider
+callback while holding its global lock.
 
-Inbox is a notification projection, not the owner of history. Messaging first
+Inbox is the cross-application notification projection for inbound items, not
+the messaging API or owner of conversation history. Messaging first
 publishes a normalized message, releases its lock, publishes the notification,
 then links the returned Inbox ID using the message key and the current
 generation. Marking a message read updates its linked Inbox entry after
@@ -151,9 +158,10 @@ mode and reports the storage error when persistence is unavailable.
 
 Messages uses the same bounded fixed-slot and dual-header approach at
 `/.messages/messages.bin` only when the active storage has the large-history
-capacity already required by Chat. Small internal flash restores compact
-gateway, MeshCore, and Link notifications from Inbox instead. Deletions rewrite
-the compact Inbox store atomically. Full-history deletions use CRC-checked
+capacity already required by Chat. Small internal flash uses the compact
+records physically shared with Inbox as its internal history backend. This is
+reported as `compact internal` rather than exposed as an Inbox fallback.
+Deletions rewrite the compact store atomically. Full-history deletions use CRC-checked
 tombstones in their original fixed slots, so surviving records do not need to
 be copied during provider-scoped clearing.
 
@@ -168,7 +176,10 @@ result is committed as current.
 ## User interfaces and scripting
 
 The unified `chat` TUI renders conversations from every provider and does not
-require Wi-Fi. Gateway-only room commands remain provider-gated. Sending to a
+require Wi-Fi. `chat gateway`, `chat meshcore`, and `chat link` filter the
+conversation list; `chat <decimal-conversation-id>` opens one conversation.
+The selector is optional. Gateway configuration and room lifecycle belong to
+the `gateway` shell command, not the provider-neutral TUI. Sending to a
 discovered MeshCore endpoint requires interactive confirmation; shell and
 scripting callers must pass `allow_untrusted=true`.
 
@@ -179,6 +190,11 @@ according to the active terminal.
 Inbox messages can be removed individually with `d` in either Inbox view or
 with `inbox delete <decimal-id>`. Shared retained messages can be removed with
 `messages delete <hex-message-id>`.
+
+Provider receive queues, event rings, and the compact persistence ring are
+bounded implementation details. They are not additional user mailboxes:
+Messaging owns conversations and history, Inbox shows inbound notifications,
+and Outbox shows pending sends.
 
 Python and Lua receive bounded contact, conversation, and message snapshots
 plus send, mark-read, and cancel operations. They cannot mutate trust or access
