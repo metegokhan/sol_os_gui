@@ -600,6 +600,22 @@ static esp_err_t link_queue_ack(link_instance_t *instance,
     return ret;
 }
 
+static esp_err_t link_queue_received(QueueHandle_t rx_queue,
+                                     const solar_os_link_message_t *message,
+                                     bool *evicted)
+{
+    *evicted = false;
+    if (xQueueSend(rx_queue, message, 0) == pdTRUE) {
+        return ESP_OK;
+    }
+
+    solar_os_link_message_t oldest;
+    if (xQueueReceive(rx_queue, &oldest, 0) == pdTRUE) {
+        *evicted = true;
+    }
+    return xQueueSend(rx_queue, message, 0) == pdTRUE ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
 esp_err_t solar_os_link_ingest(const char *name,
                                const uint8_t *frame,
                                size_t frame_len,
@@ -665,8 +681,9 @@ esp_err_t solar_os_link_ingest(const char *name,
                (message.flags & SOLAR_OS_LINK_FLAG_ACK_REQUESTED) != 0;
     xSemaphoreGive(link_mutex);
 
-    if (!duplicate && xQueueSend(ref.rx_queue, &message, 0) != pdTRUE) {
-        ret = ESP_ERR_NO_MEM;
+    bool queue_evicted = false;
+    if (!duplicate) {
+        ret = link_queue_received(ref.rx_queue, &message, &queue_evicted);
     }
     esp_err_t ack_ret = ESP_OK;
     if (ret == ESP_OK && send_ack) {
@@ -680,6 +697,9 @@ esp_err_t solar_os_link_ingest(const char *name,
             if (!duplicate) {
                 link_remember_locked(instance, &message);
                 instance->status.rx_messages++;
+                if (queue_evicted) {
+                    instance->status.dropped++;
+                }
             }
             if (send_ack && ack_ret == ESP_OK) {
                 instance->status.acknowledgements_sent++;

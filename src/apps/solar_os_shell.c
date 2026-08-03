@@ -36,6 +36,9 @@
 #if SOLAR_OS_PACKAGE_APP_INBOX
 #include "solar_os_inbox.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_CHAT
+#include "solar_os_messaging.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 #include "solar_os_contacts.h"
 #endif
@@ -112,6 +115,7 @@ typedef struct {
     bool complete_manual_references;
     bool complete_agent_conversations;
     bool complete_inbox_ids;
+    bool complete_message_ids;
     bool complete_contact_ids;
     bool complete_endpoint_ids;
     bool complete_playground_apps;
@@ -126,6 +130,7 @@ typedef struct {
     bool complete_user_radio_profiles;
     bool complete_ramfs_mounts;
     bool complete_storage_mountables;
+    bool complete_storage_blocks;
     bool complete_storage_unmount_targets;
     bool complete_display_targets;
     bool complete_display_modes;
@@ -261,9 +266,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"port", "show byte-stream ports", solar_os_shell_cmd_port},
     {"xfer", "transfer files over byte-stream ports", solar_os_shell_cmd_xfer},
     {"df", "show filesystem free space", solar_os_shell_cmd_df},
-#if SOLAR_OS_PACKAGE_SERVICE_SD
-    {"sd", "SD card control", solar_os_shell_cmd_sd},
-#endif
+    {"disk", "persistent disk control", solar_os_shell_cmd_disk},
     {"top", "show task resource usage", solar_os_shell_cmd_top},
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     {"battery", "battery status and config", solar_os_shell_cmd_battery},
@@ -541,12 +544,14 @@ static const char * const meshcore_advert_values[] = {"zero", "flood"};
 static const char * const meshcore_on_off_values[] = {"off", "on"};
 #endif
 
-static const char * const sd_subcommands[] = {
+static const char * const disk_subcommands[] = {
     "status",
     "lsblk",
     "mount",
     "umount",
+    "format",
 };
+static const char * const disk_format_force_values[] = {"--force"};
 
 static const char * const ramfs_subcommands[] = {
     "status",
@@ -761,7 +766,9 @@ static const char * const log_sink_values[] = {"cdc"};
 static const char * const on_off_values[] = {"on", "off"};
 
 #if SOLAR_OS_PACKAGE_APP_INBOX
-static const char * const inbox_subcommands[] = {"status", "list", "read", "clear", "post"};
+static const char * const inbox_subcommands[] = {
+    "status", "list", "read", "delete", "clear", "post"
+};
 static const char * const inbox_list_values[] = {"all", "unread"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
@@ -789,7 +796,12 @@ static const char * const messages_subcommands[] = {
     "list",
     "send",
     "read",
+    "delete",
+    "clear",
     "cancel",
+};
+static const char * const messages_clear_values[] = {
+    "gateway", "meshcore", "link", "all"
 };
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
@@ -1162,6 +1174,7 @@ static const char * const path_display_mode_target[] = {"display", "mode", SHELL
 static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
 static const char * const path_inbox_read[] = {"inbox", "read"};
+static const char * const path_inbox_delete[] = {"inbox", "delete"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 static const char * const path_contacts[] = {"contacts"};
@@ -1184,6 +1197,8 @@ static const char * const path_contacts_link_source[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
 static const char * const path_messages[] = {"messages"};
+static const char * const path_messages_delete[] = {"messages", "delete"};
+static const char * const path_messages_clear[] = {"messages", "clear"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 static const char * const path_email[] = {"email"};
@@ -1439,10 +1454,14 @@ static const char * const path_mqtt_subscribe_topic[] = {
     SHELL_COMPLETION_ANY,
 };
 #endif
-static const char * const path_sd[] = {"sd"};
-static const char * const path_sd_mount[] = {"sd", "mount"};
-static const char * const path_sd_mount_target[] = {"sd", "mount", SHELL_COMPLETION_ANY};
-static const char * const path_sd_umount[] = {"sd", "umount"};
+static const char * const path_disk[] = {"disk"};
+static const char * const path_disk_mount[] = {"disk", "mount"};
+static const char * const path_disk_mount_target[] = {"disk", "mount", SHELL_COMPLETION_ANY};
+static const char * const path_disk_umount[] = {"disk", "umount"};
+static const char * const path_disk_format[] = {"disk", "format"};
+static const char * const path_disk_format_force[] = {
+    "disk", "format", SHELL_COMPLETION_ANY,
+};
 static const char * const path_ramfs[] = {"ramfs"};
 static const char * const path_ramfs_mount_path[] = {"ramfs", "mount", SHELL_COMPLETION_ANY};
 static const char * const path_ramfs_unmount[] = {"ramfs", "unmount"};
@@ -1761,6 +1780,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_inbox_ids = true, \
     }
+#define SHELL_COMPLETION_MESSAGE_IDS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_message_ids = true, \
+    }
 #define SHELL_COMPLETION_CONTACT_IDS(path_array) \
     { \
         .path = path_array, \
@@ -1859,6 +1884,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_storage_mountables = true, \
+    }
+#define SHELL_COMPLETION_STORAGE_BLOCKS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_storage_blocks = true, \
     }
 #define SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS(path_array) \
     { \
@@ -2182,10 +2213,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_mqtt_publish_qos, mqtt_retain_values),
     SHELL_COMPLETION_STATIC(path_mqtt_subscribe_topic, mqtt_qos_values),
 #endif
-    SHELL_COMPLETION_STATIC(path_sd, sd_subcommands),
-    SHELL_COMPLETION_STORAGE_MOUNTABLES(path_sd_mount),
-    SHELL_COMPLETION_PATH(path_sd_mount_target, true),
-    SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS(path_sd_umount),
+    SHELL_COMPLETION_STATIC(path_disk, disk_subcommands),
+    SHELL_COMPLETION_STORAGE_MOUNTABLES(path_disk_mount),
+    SHELL_COMPLETION_PATH(path_disk_mount_target, true),
+    SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS(path_disk_umount),
+    SHELL_COMPLETION_STORAGE_BLOCKS(path_disk_format),
+    SHELL_COMPLETION_STATIC(path_disk_format_force, disk_format_force_values),
     SHELL_COMPLETION_STATIC(path_ramfs, ramfs_subcommands),
     SHELL_COMPLETION_STATIC(path_ramfs_mount_path, ramfs_size_values),
     SHELL_COMPLETION_RAMFS_MOUNTS(path_ramfs_unmount),
@@ -2246,6 +2279,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_inbox, inbox_subcommands),
     SHELL_COMPLETION_STATIC(path_inbox_list, inbox_list_values),
     SHELL_COMPLETION_INBOX_IDS(path_inbox_read),
+    SHELL_COMPLETION_INBOX_IDS(path_inbox_delete),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
     SHELL_COMPLETION_STATIC(path_contacts, contacts_subcommands),
@@ -2262,6 +2296,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
     SHELL_COMPLETION_STATIC(path_messages, messages_subcommands),
+    SHELL_COMPLETION_MESSAGE_IDS(path_messages_delete),
+    SHELL_COMPLETION_STATIC(path_messages_clear, messages_clear_values),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     SHELL_COMPLETION_STATIC(path_email, email_subcommands),
@@ -2406,12 +2442,14 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #undef SHELL_COMPLETION_UART_BUSES
 #undef SHELL_COMPLETION_UART_ARGUMENTS
 #undef SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS
+#undef SHELL_COMPLETION_STORAGE_BLOCKS
 #undef SHELL_COMPLETION_STORAGE_MOUNTABLES
 #undef SHELL_COMPLETION_SESSION_IDS
 #undef SHELL_COMPLETION_DISPLAY_SESSION_IDS
 #undef SHELL_COMPLETION_JOBS
 #undef SHELL_COMPLETION_EXPANSION_DEVICES
 #undef SHELL_COMPLETION_INBOX_IDS
+#undef SHELL_COMPLETION_MESSAGE_IDS
 #undef SHELL_COMPLETION_PLAYGROUND_APPS
 #undef SHELL_COMPLETION_AGENT_CONVERSATIONS
 #undef SHELL_COMPLETION_COMMANDS
@@ -4336,6 +4374,32 @@ static void shell_completion_emit_inbox_ids(shell_completion_match_t *state)
 #endif
 }
 
+#if SOLAR_OS_PACKAGE_APP_CHAT
+static bool shell_completion_emit_message_id(
+    const solar_os_messaging_message_t *message,
+    void *user)
+{
+    shell_completion_match_t *state = user;
+    char id[17];
+    snprintf(id, sizeof(id), "%016" PRIx64, message->key);
+    shell_completion_emit(state, id);
+    return true;
+}
+#endif
+
+static void shell_completion_emit_message_ids(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    (void)solar_os_messaging_message_visit(0,
+                                           0,
+                                           shell_completion_emit_message_id,
+                                           state,
+                                           NULL);
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_contact_ids(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
@@ -4621,7 +4685,6 @@ static void shell_completion_emit_ramfs_mounts(shell_completion_match_t *state)
 
 static void shell_completion_emit_storage_mountables(shell_completion_match_t *state)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_SD
     const size_t count = solar_os_storage_block_count();
 
     for (size_t i = 0; i < count; i++) {
@@ -4630,14 +4693,22 @@ static void shell_completion_emit_storage_mountables(shell_completion_match_t *s
             shell_completion_emit(state, block.name);
         }
     }
-#else
-    (void)state;
-#endif
+}
+
+static void shell_completion_emit_storage_blocks(shell_completion_match_t *state)
+{
+    const size_t count = solar_os_storage_block_count();
+
+    for (size_t i = 0; i < count; i++) {
+        solar_os_storage_block_t block;
+        if (solar_os_storage_get_block(i, &block)) {
+            shell_completion_emit(state, block.name);
+        }
+    }
 }
 
 static void shell_completion_emit_storage_unmount_targets(shell_completion_match_t *state)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_SD
     const size_t count = solar_os_storage_block_count();
 
     for (size_t i = 0; i < count; i++) {
@@ -4650,9 +4721,6 @@ static void shell_completion_emit_storage_unmount_targets(shell_completion_match
             shell_completion_emit(state, block.mount_point);
         }
     }
-#else
-    (void)state;
-#endif
 }
 
 static void shell_completion_emit_display_targets(shell_completion_match_t *state)
@@ -5716,6 +5784,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         if (rule->complete_inbox_ids) {
             shell_completion_emit_inbox_ids(state);
         }
+        if (rule->complete_message_ids) {
+            shell_completion_emit_message_ids(state);
+        }
         if (rule->complete_contact_ids) {
             shell_completion_emit_contact_ids(state);
         }
@@ -5763,6 +5834,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_storage_mountables) {
             shell_completion_emit_storage_mountables(state);
+        }
+        if (rule->complete_storage_blocks) {
+            shell_completion_emit_storage_blocks(state);
         }
         if (rule->complete_storage_unmount_targets) {
             shell_completion_emit_storage_unmount_targets(state);

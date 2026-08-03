@@ -14,9 +14,11 @@
 
 esp_err_t flash_storage_mount(const char *mount_point);
 esp_err_t flash_storage_unmount(void);
+esp_err_t flash_storage_format(const char *mount_point);
 bool flash_storage_is_mounted(void);
 const char *flash_storage_mount_point(void);
 uint8_t flash_storage_logical_volume(void);
+uint64_t flash_storage_size_bytes(void);
 void flash_storage_get_status(char *buffer, size_t len);
 esp_err_t flash_storage_get_usage(uint64_t *total_bytes,
                                   uint64_t *used_bytes,

@@ -313,6 +313,89 @@ static esp_err_t inbox_store_write_locked(size_t index, bool update_header)
     return err;
 }
 
+static esp_err_t inbox_store_rewrite_locked(void)
+{
+    char temporary[SOLAR_OS_STORAGE_PATH_MAX];
+    char backup[SOLAR_OS_STORAGE_PATH_MAX];
+    if (snprintf(temporary, sizeof(temporary), "%s.tmp", inbox_store_path) >=
+            (int)sizeof(temporary) ||
+        snprintf(backup, sizeof(backup), "%s.bak", inbox_store_path) >=
+            (int)sizeof(backup)) {
+        inbox_storage_error = ESP_ERR_INVALID_SIZE;
+        return inbox_storage_error;
+    }
+
+    FILE *file = fopen(temporary, "w+b");
+    if (file == NULL) {
+        inbox_storage_error = ESP_FAIL;
+        return inbox_storage_error;
+    }
+
+    uint32_t generation = inbox_store_generation + 1U;
+    if (generation == 0) {
+        generation = 1U;
+    }
+    inbox_store_header_t header;
+    inbox_make_header(&header, generation);
+    esp_err_t err = ESP_OK;
+    for (size_t i = 0; i < INBOX_STORE_HEADER_COPIES; i++) {
+        if (fwrite(&header, sizeof(header), 1, file) != 1) {
+            err = ESP_FAIL;
+            break;
+        }
+    }
+    const size_t oldest =
+        (inbox_head + inbox_capacity - inbox_count) % inbox_capacity;
+    for (size_t i = 0; err == ESP_OK && i < inbox_count; i++) {
+        const size_t index = (oldest + i) % inbox_capacity;
+        inbox_store_record_t record;
+        inbox_make_record(&record, index);
+        const long offset = (long)(INBOX_STORE_RECORDS_OFFSET +
+                                   index * sizeof(record));
+        if (fseek(file, offset, SEEK_SET) != 0 ||
+            fwrite(&record, sizeof(record), 1, file) != 1) {
+            err = ESP_FAIL;
+        }
+    }
+    if (err == ESP_OK) {
+        err = inbox_sync_file(file);
+    }
+    if (fclose(file) != 0 && err == ESP_OK) {
+        err = ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        (void)solar_os_storage_remove(temporary);
+        inbox_storage_error = err;
+        return err;
+    }
+
+    (void)solar_os_storage_remove(backup);
+    err = solar_os_storage_rename(inbox_store_path, backup);
+    if (err == ESP_OK) {
+        err = solar_os_storage_rename(temporary, inbox_store_path);
+        if (err != ESP_OK) {
+            const esp_err_t restore_error =
+                solar_os_storage_rename(backup, inbox_store_path);
+            if (restore_error != ESP_OK) {
+                SOLAR_OS_LOGE(TAG,
+                              "store rewrite rollback failed: %s",
+                              esp_err_to_name(restore_error));
+            }
+        }
+    }
+    if (err != ESP_OK) {
+        (void)solar_os_storage_remove(temporary);
+        inbox_storage_error = err;
+        return err;
+    }
+    (void)solar_os_storage_remove(backup);
+
+    inbox_store_generation = generation;
+    inbox_persistent = true;
+    inbox_storage_error = ESP_OK;
+    return ESP_OK;
+}
+
 static esp_err_t inbox_store_load_locked(void)
 {
     esp_err_t err = inbox_prepare_store_path();
@@ -648,6 +731,168 @@ esp_err_t solar_os_inbox_mark_read(uint32_t id, bool read)
     }
     inbox_unlock();
     return ESP_OK;
+}
+
+esp_err_t solar_os_inbox_delete(uint32_t id)
+{
+    if (id == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    size_t deleted = 0;
+    const esp_err_t err = solar_os_inbox_delete_many(&id, 1, &deleted);
+    return err == ESP_OK && deleted == 0 ? ESP_ERR_NOT_FOUND : err;
+}
+
+typedef bool (*inbox_delete_match_fn)(const solar_os_inbox_entry_t *entry,
+                                      const void *user);
+
+static esp_err_t inbox_delete_matching(inbox_delete_match_fn match,
+                                       const void *user,
+                                       size_t *deleted)
+{
+    if (deleted != NULL) {
+        *deleted = 0;
+    }
+    if (match == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_inbox_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    inbox_slot_t *backup = solar_os_memory_alloc(
+        sizeof(*backup) * inbox_capacity,
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "inbox.delete");
+    if (backup == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    inbox_lock();
+    memcpy(backup, inbox_ring, sizeof(*backup) * inbox_capacity);
+    const size_t previous_count = inbox_count;
+    const size_t previous_head = inbox_head;
+    const size_t previous_unread = inbox_unread;
+    const size_t oldest =
+        (inbox_head + inbox_capacity - inbox_count) % inbox_capacity;
+    memset(inbox_ring, 0, sizeof(*inbox_ring) * inbox_capacity);
+    size_t kept = 0;
+    size_t removed = 0;
+    size_t unread = 0;
+    for (size_t i = 0; i < previous_count; i++) {
+        const inbox_slot_t *candidate =
+            &backup[(oldest + i) % inbox_capacity];
+        if (match(&candidate->entry, user)) {
+            removed++;
+            continue;
+        }
+        inbox_ring[kept++] = *candidate;
+        if (candidate->entry.unread) {
+            unread++;
+        }
+    }
+    if (removed == 0) {
+        memcpy(inbox_ring, backup, sizeof(*backup) * inbox_capacity);
+        inbox_unlock();
+        solar_os_memory_free(backup);
+        return ESP_OK;
+    }
+    inbox_count = kept;
+    inbox_head = kept % inbox_capacity;
+    inbox_unread = unread;
+
+    if (inbox_persistent) {
+        err = inbox_store_rewrite_locked();
+        if (err != ESP_OK) {
+            memcpy(inbox_ring, backup, sizeof(*backup) * inbox_capacity);
+            inbox_count = previous_count;
+            inbox_head = previous_head;
+            inbox_unread = previous_unread;
+        }
+    }
+    inbox_unlock();
+    solar_os_memory_free(backup);
+    if (err == ESP_OK && deleted != NULL) {
+        *deleted = removed;
+    }
+    return err;
+}
+
+typedef struct {
+    const uint32_t *ids;
+    size_t count;
+} inbox_delete_ids_t;
+
+static bool inbox_delete_id_matches(const solar_os_inbox_entry_t *entry,
+                                    const void *user)
+{
+    const inbox_delete_ids_t *request = user;
+    for (size_t i = 0; i < request->count; i++) {
+        if (entry->id == request->ids[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+esp_err_t solar_os_inbox_delete_many(const uint32_t *ids,
+                                     size_t id_count,
+                                     size_t *deleted)
+{
+    if (ids == NULL || id_count == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (size_t i = 0; i < id_count; i++) {
+        if (ids[i] == 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    const inbox_delete_ids_t request = {
+        .ids = ids,
+        .count = id_count,
+    };
+    return inbox_delete_matching(inbox_delete_id_matches, &request, deleted);
+}
+
+typedef struct {
+    const char *const *sources;
+    size_t count;
+} inbox_delete_sources_t;
+
+static bool inbox_delete_source_matches(const solar_os_inbox_entry_t *entry,
+                                        const void *user)
+{
+    const inbox_delete_sources_t *request = user;
+    for (size_t i = 0; i < request->count; i++) {
+        if (strcmp(entry->source, request->sources[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+esp_err_t solar_os_inbox_delete_sources(const char *const *sources,
+                                        size_t source_count,
+                                        size_t *deleted)
+{
+    if (sources == NULL || source_count == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (size_t i = 0; i < source_count; i++) {
+        if (sources[i] == NULL || sources[i][0] == '\0' ||
+            strnlen(sources[i], SOLAR_OS_INBOX_SOURCE_MAX) >=
+                SOLAR_OS_INBOX_SOURCE_MAX) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    const inbox_delete_sources_t request = {
+        .sources = sources,
+        .count = source_count,
+    };
+    return inbox_delete_matching(inbox_delete_source_matches,
+                                 &request,
+                                 deleted);
 }
 
 size_t solar_os_inbox_snapshot(solar_os_inbox_entry_t *entries,

@@ -36,6 +36,7 @@ typedef struct {
     inbox_app_view_t view;
     solar_os_inbox_entry_t detail;
     char detail_text[INBOX_APP_DETAIL_TEXT_MAX];
+    char feedback[64];
     size_t detail_scroll;
     solar_os_inbox_status_t status;
 } inbox_app_state_t;
@@ -297,7 +298,9 @@ static void inbox_app_render_list(void)
         inbox_app_write_cell(rows - 1U,
                              0,
                              cols,
-                             "Enter open  u filter  m read  q quit",
+                             inbox_app.feedback[0] != '\0' ?
+                                 inbox_app.feedback :
+                                 "Enter open  d delete  u filter  m read  q quit",
                              SOLAR_OS_TUI_ATTR_INVERSE);
     }
 }
@@ -461,7 +464,9 @@ static void inbox_app_render_detail(void)
         inbox_app_write_cell(rows - 1U,
                              0,
                              cols,
-                             "Left back  arrows scroll  m unread  q quit",
+                             inbox_app.feedback[0] != '\0' ?
+                                 inbox_app.feedback :
+                                 "Left back  d delete  arrows scroll  m unread  q quit",
                              SOLAR_OS_TUI_ATTR_INVERSE);
     }
 }
@@ -514,6 +519,37 @@ static void inbox_app_toggle_read(void)
         entry->unread = !entry->unread;
         inbox_app_refresh();
     }
+}
+
+static void inbox_app_delete_selected(void)
+{
+    uint32_t id = 0;
+    if (inbox_app.view == INBOX_APP_DETAIL) {
+        id = inbox_app.detail.id;
+    } else if (inbox_app.cursor < inbox_app.count) {
+        id = inbox_app.entries[inbox_app.cursor].id;
+    }
+    if (id == 0) {
+        return;
+    }
+    const esp_err_t error = solar_os_inbox_delete(id);
+    if (error != ESP_OK) {
+        snprintf(inbox_app.feedback,
+                 sizeof(inbox_app.feedback),
+                 "Delete failed: %s",
+                 esp_err_to_name(error));
+        return;
+    }
+    snprintf(inbox_app.feedback,
+             sizeof(inbox_app.feedback),
+             "Deleted message %lu",
+             (unsigned long)id);
+    if (inbox_app.view == INBOX_APP_DETAIL) {
+        inbox_app.view = INBOX_APP_LIST;
+        memset(&inbox_app.detail, 0, sizeof(inbox_app.detail));
+        inbox_app.detail_scroll = 0;
+    }
+    inbox_app_refresh();
 }
 
 static void inbox_app_move(int delta)
@@ -710,6 +746,10 @@ static bool inbox_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
     case 'm':
     case 'M':
         inbox_app_toggle_read();
+        break;
+    case 'd':
+    case 'D':
+        inbox_app_delete_selected();
         break;
     case 'r':
     case 'R':

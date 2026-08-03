@@ -65,6 +65,7 @@ typedef struct {
     solar_os_conversation_kind_t kind;
     uint32_t security_flags;
     uint32_t unread_count;
+    uint64_t last_message_ms;
     bool joined;
     bool unread;
     bool system;
@@ -108,6 +109,10 @@ typedef struct {
     solar_os_messaging_event_t *messaging_event;
     uint32_t event_cursor;
     uint32_t messaging_event_cursor;
+    uint32_t messaging_generation;
+    bool messaging_dirty;
+    bool initial_channel_explicit;
+    bool initial_selection_pending;
     bool confirm_untrusted;
     char *pending_untrusted;
     size_t message_head;
@@ -234,6 +239,26 @@ static bool chat_provider_is_running(
     return solar_os_messaging_provider_get_status(provider, &status) ==
             ESP_OK &&
         status.running;
+}
+
+static const char *chat_provider_state_name(
+    solar_os_messaging_provider_id_t provider)
+{
+    solar_os_messaging_provider_status_t status;
+    if (solar_os_messaging_provider_get_status(provider, &status) != ESP_OK) {
+        return "unavailable";
+    }
+    if (provider == SOLAR_OS_MESSAGING_PROVIDER_GATEWAY) {
+        return status.connected ? "connected" :
+            (status.running ? "connecting" : "disconnected");
+    }
+    if (!status.running) {
+        return "stopped";
+    }
+    if (status.last_error != ESP_OK) {
+        return "error";
+    }
+    return status.connected ? "ready" : "starting";
 }
 
 static void chat_set_status(const char *status)
@@ -516,8 +541,12 @@ static void chat_refresh_conversations(void)
     const uint8_t system_index = chat_add_system_channel();
     uint8_t current = system_index;
     uint8_t selected = system_index;
-    bool current_found = current_system;
-    bool selected_found = selected_system;
+    bool current_found = current_system &&
+        !chat_app.initial_selection_pending;
+    bool selected_found = selected_system &&
+        !chat_app.initial_selection_pending;
+    uint8_t preferred = system_index;
+    bool preferred_found = false;
     const solar_os_messaging_provider_id_t provider_order[] = {
         SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
         SOLAR_OS_MESSAGING_PROVIDER_GATEWAY,
@@ -526,9 +555,6 @@ static void chat_refresh_conversations(void)
     for (size_t provider = 0;
          provider < sizeof(provider_order) / sizeof(provider_order[0]);
          provider++) {
-        if (!chat_provider_is_running(provider_order[provider])) {
-            continue;
-        }
         for (size_t i = 0;
              i < count && chat_app.channel_count < CHAT_APP_CHANNEL_COUNT;
              i++) {
@@ -544,12 +570,23 @@ static void chat_refresh_conversations(void)
             conversation->kind = snapshot[i].kind;
             conversation->security_flags = snapshot[i].security_flags;
             conversation->unread_count = snapshot[i].unread_count;
+            conversation->last_message_ms = snapshot[i].last_message_ms;
             conversation->unread = snapshot[i].unread_count != 0;
             conversation->joined =
                 snapshot[i].provider != SOLAR_OS_MESSAGING_PROVIDER_GATEWAY;
             strlcpy(conversation->name,
                     snapshot[i].title,
                     sizeof(conversation->name));
+            if (!preferred_found ||
+                (snapshot[i].unread_count != 0 &&
+                 chat_app.channels[preferred].unread_count == 0) ||
+                ((snapshot[i].unread_count != 0) ==
+                     (chat_app.channels[preferred].unread_count != 0) &&
+                 snapshot[i].last_message_ms >
+                     chat_app.channels[preferred].last_message_ms)) {
+                preferred = index;
+                preferred_found = true;
+            }
             if (!current_found &&
                 (snapshot[i].id == current_id ||
                  (current_id == SOLAR_OS_CONVERSATION_ID_NONE &&
@@ -565,6 +602,28 @@ static void chat_refresh_conversations(void)
                 selected_found = true;
             }
         }
+    }
+    if (chat_app.initial_selection_pending) {
+        if (preferred_found) {
+            current = preferred;
+            selected = preferred;
+            current_found = true;
+            selected_found = true;
+        }
+        chat_app.initial_selection_pending = false;
+    }
+    if (!current_found) {
+        for (uint8_t i = 0; i < chat_app.channel_count; i++) {
+            if (!chat_app.channels[i].system) {
+                current = i;
+                current_found = true;
+                break;
+            }
+        }
+    }
+    if (!selected_found && current_found) {
+        selected = current;
+        selected_found = true;
     }
     solar_os_chat_channel_t gateway_channels[SOLAR_OS_CHAT_CHANNEL_CAPACITY];
     const size_t gateway_count =
@@ -735,6 +794,43 @@ static bool chat_restore_message(
     return true;
 }
 
+static void chat_reconcile_messaging(void)
+{
+    if (chat_app.messages == NULL) {
+        return;
+    }
+    const size_t oldest =
+        (chat_app.message_head + CHAT_APP_MESSAGE_COUNT -
+         chat_app.message_count) % CHAT_APP_MESSAGE_COUNT;
+    size_t system_count = 0;
+    for (size_t i = 0; i < chat_app.message_count; i++) {
+        const size_t read = (oldest + i) % CHAT_APP_MESSAGE_COUNT;
+        if (!chat_app.messages[read].system) {
+            continue;
+        }
+        const size_t write = (oldest + system_count) % CHAT_APP_MESSAGE_COUNT;
+        if (write != read) {
+            chat_app.messages[write] = chat_app.messages[read];
+        }
+        system_count++;
+    }
+    chat_app.message_count = system_count;
+    chat_app.message_head = (oldest + system_count) % CHAT_APP_MESSAGE_COUNT;
+    chat_refresh_conversations();
+    (void)solar_os_messaging_message_visit_consistent(
+        0,
+        0,
+        chat_restore_message,
+        NULL,
+        &chat_app.messaging_event_cursor,
+        &chat_app.messaging_generation);
+    if (!chat_current_is_system()) {
+        (void)solar_os_messaging_mark_read(chat_current_conversation_id());
+    }
+    chat_app.messaging_dirty = false;
+    chat_app.redraw = true;
+}
+
 static void chat_append_statusf(const char *fmt, ...)
 {
     char text[CHAT_APP_STATUS_TEXT_MAX];
@@ -767,7 +863,8 @@ static const chat_app_message_t *chat_message_at(size_t logical_index)
         return NULL;
     }
     const size_t oldest =
-        chat_app.message_count == CHAT_APP_MESSAGE_COUNT ? chat_app.message_head : 0U;
+        (chat_app.message_head + CHAT_APP_MESSAGE_COUNT -
+         chat_app.message_count) % CHAT_APP_MESSAGE_COUNT;
     const size_t index = (oldest + logical_index) % CHAT_APP_MESSAGE_COUNT;
     return &chat_app.messages[index];
 }
@@ -1266,8 +1363,7 @@ static size_t chat_build_channel_rows(chat_app_channel_row_t *rows,
          provider++) {
         const solar_os_messaging_provider_id_t provider_id =
             provider_order[provider];
-        if (!chat_provider_is_running(provider_id) ||
-            !chat_provider_has_conversations(provider_id)) {
+        if (!chat_provider_has_conversations(provider_id)) {
             continue;
         }
         rows[count].heading = true;
@@ -1368,16 +1464,14 @@ static void chat_draw_channels(size_t left_width, size_t body_rows)
 
 static void chat_draw_messages(size_t start_col,
                                size_t width,
-                               size_t body_rows,
-                               const solar_os_chat_status_t *status)
+                               size_t body_rows)
 {
     char header[128];
-    const char *state = status != NULL ? solar_os_chat_state_name(status->state) : "?";
     const uint8_t header_attr =
         chat_app.focus == CHAT_APP_FOCUS_MESSAGES ? SOLAR_OS_TUI_ATTR_INVERSE : SOLAR_OS_TUI_ATTR_BOLD;
 
     if (chat_current_is_system()) {
-        snprintf(header, sizeof(header), "system  %s", state);
+        strlcpy(header, "system  messaging", sizeof(header));
     } else {
         char label[SOLAR_OS_MESSAGING_TITLE_MAX + 2U];
         const chat_app_channel_t *channel =
@@ -1388,7 +1482,7 @@ static void chat_draw_messages(size_t start_col,
                  "%s:%s  %s",
                  solar_os_messaging_provider_name(channel->provider),
                  label,
-                 state);
+                 chat_provider_state_name(channel->provider));
     }
     chat_write_cell(0, start_col, width, header, header_attr);
 
@@ -1491,10 +1585,6 @@ static void chat_render(void)
         return;
     }
 
-    solar_os_chat_status_t status;
-    memset(&status, 0, sizeof(status));
-    (void)solar_os_chat_get_status(&status);
-
     solar_os_tui_clear(&chat_app.tui);
 
     const size_t input_rows = CHAT_APP_INPUT_ROWS;
@@ -1518,7 +1608,7 @@ static void chat_render(void)
     if (body_rows > 0 && split_col < cols) {
         solar_os_tui_vrule(&chat_app.tui, 0, split_col, body_rows, 1, SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    chat_draw_messages(message_col, message_width, body_rows, &status);
+    chat_draw_messages(message_col, message_width, body_rows);
     chat_draw_input(rows, cols);
     solar_os_tui_refresh(&chat_app.tui);
     chat_app.redraw = false;
@@ -1663,46 +1753,7 @@ static void chat_handle_messaging_event(
     if (event == NULL) {
         return;
     }
-    if (event->type == SOLAR_OS_MESSAGING_EVENT_CONVERSATION ||
-        event->type == SOLAR_OS_MESSAGING_EVENT_CONVERSATION_REMOVED) {
-        chat_refresh_conversations();
-        chat_app.redraw = true;
-        return;
-    }
-    if (event->type == SOLAR_OS_MESSAGING_EVENT_MESSAGE) {
-        solar_os_messaging_message_t message;
-        if (solar_os_messaging_message_get(event->message_key,
-                                           &message) == ESP_OK) {
-            (void)chat_restore_message(&message, NULL);
-            chat_refresh_conversations();
-            if (message.conversation_id ==
-                chat_current_conversation_id()) {
-                (void)solar_os_messaging_mark_read(
-                    message.conversation_id);
-            }
-        }
-        return;
-    }
-    if (event->type == SOLAR_OS_MESSAGING_EVENT_DELIVERY) {
-        for (size_t i = 0; i < chat_app.message_count; i++) {
-            chat_app_message_t *message =
-                (chat_app_message_t *)chat_message_at(i);
-            if (message != NULL &&
-                message->message_key == event->message_key) {
-                message->delivery = event->delivery;
-                break;
-            }
-        }
-        chat_app.redraw = true;
-        return;
-    }
-    if (event->type == SOLAR_OS_MESSAGING_EVENT_PROVIDER ||
-        event->type == SOLAR_OS_MESSAGING_EVENT_ERROR) {
-        if (event->type == SOLAR_OS_MESSAGING_EVENT_PROVIDER) {
-            chat_refresh_conversations();
-        }
-        chat_app.redraw = true;
-    }
+    chat_app.messaging_dirty = true;
 }
 
 static void chat_drain_messaging_events(void)
@@ -1718,6 +1769,18 @@ static void chat_drain_messaging_events(void)
             break;
         }
         chat_handle_messaging_event(chat_app.messaging_event);
+    }
+}
+
+static void chat_check_messaging_generation(void)
+{
+    solar_os_messaging_status_t status;
+    if (solar_os_messaging_get_status(&status) == ESP_OK &&
+        status.generation != chat_app.messaging_generation) {
+        chat_app.messaging_dirty = true;
+    }
+    if (chat_app.messaging_dirty) {
+        chat_reconcile_messaging();
     }
 }
 
@@ -2230,6 +2293,7 @@ static esp_err_t chat_start(solar_os_context_t *ctx)
         argi++;
     }
     if (argc > argi) {
+        chat_app.initial_channel_explicit = true;
         strlcpy(chat_app.initial_channel,
                 solar_os_context_argv(ctx, argi),
                 sizeof(chat_app.initial_channel));
@@ -2273,19 +2337,16 @@ static esp_err_t chat_start(solar_os_context_t *ctx)
 
     (void)solar_os_chat_init();
     (void)chat_add_system_channel();
-    (void)chat_add_channel(chat_app.initial_channel, true);
+    chat_app.initial_selection_pending =
+        !chat_app.initial_channel_explicit;
+    if (chat_app.initial_channel_explicit ||
+        chat_provider_is_running(SOLAR_OS_MESSAGING_PROVIDER_GATEWAY)) {
+        (void)chat_add_channel(chat_app.initial_channel, true);
+    }
     chat_skip_existing_service_events();
     chat_refresh_conversations();
     chat_app.active = true;
-    (void)solar_os_messaging_message_visit(
-        0,
-        0,
-        chat_restore_message,
-        NULL,
-        &chat_app.messaging_event_cursor);
-    if (!chat_current_is_system()) {
-        (void)solar_os_messaging_mark_read(chat_current_conversation_id());
-    }
+    chat_reconcile_messaging();
     chat_app.channels[chat_app.current_channel].unread = false;
     chat_append_statusf("chat starting");
 
@@ -2358,6 +2419,7 @@ static bool chat_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event->type == SOLAR_OS_EVENT_TICK) {
         chat_drain_events();
         chat_drain_messaging_events();
+        chat_check_messaging_generation();
         if (!chat_app.active) {
             solar_os_context_request_exit(ctx);
             return true;

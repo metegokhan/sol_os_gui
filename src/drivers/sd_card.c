@@ -592,12 +592,20 @@ static esp_err_t unmount_one(sd_card_mount_t *mount)
     return err;
 }
 
-static void deinit_card_if_unused(void)
+static bool sd_card_has_active_mounts(void)
 {
     for (size_t i = 0; i < SD_CARD_MAX_MOUNTS; i++) {
         if (mounts[i].active) {
-            return;
+            return true;
         }
+    }
+    return false;
+}
+
+static void deinit_card_if_unused(void)
+{
+    if (sd_card_has_active_mounts()) {
+        return;
     }
 
     if (diskio_registered && physical_pdrv != FF_DRV_NOT_USED) {
@@ -762,6 +770,70 @@ esp_err_t sd_card_unmount(void)
     deinit_card_if_unused();
     snprintf(status_text, sizeof(status_text), had_mount ? "unmounted" : "not mounted");
     return had_mount ? ret : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t sd_card_format(const char *name)
+{
+    if (name == NULL || name[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = ensure_card_ready();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    const sd_card_block_t *found = find_block(name);
+    if (found == NULL) {
+        deinit_card_if_unused();
+        return ESP_ERR_NOT_FOUND;
+    }
+    const sd_card_block_t block = *found;
+    if (block.type == SD_CARD_BLOCK_PARTITION && !block.mountable) {
+        deinit_card_if_unused();
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (sd_card_has_active_mounts()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint8_t logical_volume = 0;
+    if (alloc_mount(&logical_volume) == NULL) {
+        deinit_card_if_unused();
+        return ESP_ERR_NO_MEM;
+    }
+
+#if FF_MULTI_PARTITION
+    VolToPart[logical_volume].pd = physical_pdrv;
+    VolToPart[logical_volume].pt = block.partition_number;
+#endif
+
+    char drive[3] = {(char)('0' + logical_volume), ':', 0};
+    const size_t work_size = 4096U;
+    void *work = heap_caps_malloc(work_size,
+                                  MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (work == NULL) {
+        ret = ESP_ERR_NO_MEM;
+    } else {
+        const MKFS_PARM options = {
+            .fmt = (BYTE)(FM_ANY |
+                          (block.partition_number == 0 ? FM_SFD : 0)),
+            .n_fat = 1,
+            .align = 0,
+            .n_root = 0,
+            .au_size = 0,
+        };
+        ret = f_mkfs(drive, &options, work, work_size) == FR_OK ?
+            ESP_OK : ESP_FAIL;
+        heap_caps_free(work);
+    }
+
+    deinit_card_if_unused();
+    if (ret == ESP_OK) {
+        snprintf(status_text, sizeof(status_text), "formatted %s", name);
+    } else {
+        set_mount_error_status(ret);
+    }
+    return ret;
 }
 
 bool sd_card_is_mounted(void)

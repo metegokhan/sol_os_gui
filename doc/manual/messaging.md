@@ -72,8 +72,15 @@ messages conversations
 messages list CONVERSATION_ID
 messages send CONVERSATION_ID TEXT [--allow-untrusted]
 messages read CONVERSATION_ID
+messages delete MESSAGE_ID
+messages clear gateway|meshcore|link|all
 messages cancel MESSAGE_ID
 ```
+
+`messages clear` also removes the selected provider's Inbox projections,
+including stale projections whose retained ring slot has already wrapped. It
+does not remove unrelated Inbox sources; use `inbox clear` for the entire
+universal Inbox.
 
 For packet-radio operation, see `meshcore` and `link`. MeshCore direct messages
 use the same conversations and trust states as gateway messages; shared-key

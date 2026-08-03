@@ -70,6 +70,13 @@ esp_err_t solar_os_inbox_init(void);
 esp_err_t solar_os_inbox_publish(const solar_os_inbox_publish_t *message, uint32_t *id);
 esp_err_t solar_os_inbox_get(uint32_t id, solar_os_inbox_entry_t *entry, bool mark_read);
 esp_err_t solar_os_inbox_mark_read(uint32_t id, bool read);
+esp_err_t solar_os_inbox_delete(uint32_t id);
+esp_err_t solar_os_inbox_delete_many(const uint32_t *ids,
+                                     size_t id_count,
+                                     size_t *deleted);
+esp_err_t solar_os_inbox_delete_sources(const char *const *sources,
+                                        size_t source_count,
+                                        size_t *deleted);
 size_t solar_os_inbox_snapshot(solar_os_inbox_entry_t *entries,
                                size_t max_entries,
                                bool unread_only,

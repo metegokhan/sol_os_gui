@@ -216,6 +216,10 @@ discovered endpoint asks for a second Enter confirmation; blocked endpoints
 cannot be messaged. Gateway room management commands apply only to a selected
 gateway room.
 
+The conversation header reports the selected provider's state. Gateway uses
+`disconnected`, `connecting`, and `connected`; connectionless MeshCore and Link
+providers use `stopped`, `starting`, `ready`, and `error`.
+
 In-app commands:
 
 ```text

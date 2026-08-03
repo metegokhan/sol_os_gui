@@ -79,6 +79,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `inbox` | `inbox status` | Show universal incoming-message counts and storage status. |
 | `inbox` | `inbox list [all\|unread]` | List newest messages first. |
 | `inbox` | `inbox read <id>` | Print one message and mark it read. |
+| `inbox` | `inbox delete <id>` | Delete one message by its decimal ID. |
 | `inbox` | `inbox clear` | Remove every message. |
 | `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
 | `contacts` | `contacts` | Open the searchable provider-neutral contact browser. |
@@ -95,6 +96,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `messages` | `messages list <conversation-id>` | List retained messages and their stable hexadecimal IDs. |
 | `messages` | `messages send <conversation-id> <text> [--allow-untrusted]` | Queue an outbound message; discovered direct endpoints require the explicit flag. |
 | `messages` | `messages read <conversation-id>` | Mark a conversation and its linked Inbox entries read. |
+| `messages` | `messages delete <message-id>` | Delete one retained message and its linked Inbox projection by hexadecimal ID. |
+| `messages` | `messages clear <gateway\|meshcore\|link\|all>` | Clear retained history and owned Inbox projections for one provider or every messaging provider. Unrelated Inbox sources remain. |
 | `messages` | `messages cancel <message-id>` | Cancel a queued outbound message by the hexadecimal ID printed by `list` or `send`. |
 | `email` | `email` | Open the receive-only email app. |
 | `email` | `email status` | Show saved account, local message counts, and last sync error. |
@@ -331,10 +334,11 @@ same job again stops the previous instance and starts it with the new arguments.
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `sd` | `sd [status]` | Show SD/storage status. |
-| `sd` | `sd lsblk` | List detected SD block devices and partitions. |
-| `sd` | `sd mount [sd0pN] [mount]` | Mount the default volume or an explicit partition. |
-| `sd` | `sd umount [sd0pN|mount]` | Unmount the default volume or an explicit partition/mount point. |
+| `disk` | `disk [status]` | Show persistent-storage status. |
+| `disk` | `disk lsblk` | List internal flash and detected removable block devices and partitions. |
+| `disk` | `disk mount [flash\|sd0pN] [mount]` | Mount the default volume or an explicit persistent volume. |
+| `disk` | `disk umount [flash\|sd0pN\|mount]` | Unmount the default volume or an explicit volume/mount point. |
+| `disk` | `disk format <flash\|sd0\|sd0pN> --force` | Create a FAT filesystem, permanently erasing the unmounted target. |
 | `ramfs` | `ramfs [status]` | List PSRAM-backed volatile filesystem mounts. |
 | `ramfs` | `ramfs mount /path size` | Mount a volatile filesystem that reserves PSRAM, such as `ramfs mount / 1m`. |
 | `ramfs` | `ramfs unmount /path` | Unmount a ramfs mount. |
@@ -355,7 +359,7 @@ Examples:
 ls -ah /.ssh
 cp *.txt /backup
 rm -rf /tmp/old
-sd mount sd0p2 /mnt
+disk mount sd0p2 /mnt
 ramfs mount /tmp 1m
 ramfs mount / 4m
 ramfs unmount /tmp

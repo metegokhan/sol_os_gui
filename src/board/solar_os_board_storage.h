@@ -42,10 +42,10 @@ esp_err_t solar_os_board_storage_mount(void);
 esp_err_t solar_os_board_storage_mount_volume(const char *name, const char *mount_point);
 esp_err_t solar_os_board_storage_unmount(void);
 esp_err_t solar_os_board_storage_unmount_volume(const char *target);
+esp_err_t solar_os_board_storage_format(const char *name);
 bool solar_os_board_storage_is_mounted(void);
 void solar_os_board_storage_get_status(char *buffer, size_t len);
 const char *solar_os_board_storage_mount_point(void);
 esp_err_t solar_os_board_storage_rescan(void);
 size_t solar_os_board_storage_block_count(void);
 bool solar_os_board_storage_get_block(size_t index, solar_os_board_storage_block_t *block);
-

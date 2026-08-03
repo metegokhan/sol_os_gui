@@ -151,8 +151,8 @@ expansion detach radio0
 expansion bus remove spi1
 ```
 
-On the Elecrow CrowPanel, run `sd umount` before creating the runtime SPI3 bus.
-Remove that bus before using `sd mount` to make SPI3 available to microSD again.
+On the Elecrow CrowPanel, run `disk umount` before creating the runtime SPI3 bus.
+Remove that bus before using `disk mount` to make SPI3 available to microSD again.
 
 The `spi` command addresses board-defined and runtime buses by name. This makes
 the same transfer tools available for `spi0`, `spi1`, or any other registered

@@ -2,6 +2,12 @@
 
 ## 4.x
 
+- **4.5.3** — 2026-08-03 — Renamed the persistent-storage shell command from
+  `sd` to `disk`, so the same status, block listing, mount, and unmount surface
+  covers internal flash and removable media. Added guarded FAT formatting with
+  `disk format <flash|sd0|sd0pN> --force`; formatting requires an unmounted
+  target, and non-empty internal flash is never reformatted automatically after
+  a mount failure.
 - **4.5.0** — 2026-08-02 — Added `writer`, a resumable graphical Markdown
   editor with hybrid source reveal: inactive blocks stay formatted while the
   active or selected blocks expose their exact Markdown. Added PSRAM-backed

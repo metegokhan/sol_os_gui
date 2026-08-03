@@ -135,6 +135,11 @@ esp_err_t solar_os_storage_mount(void)
 
 esp_err_t solar_os_storage_mount_volume(const char *name, const char *mount_point)
 {
+    if (name != NULL && strcmp(name, "flash") == 0) {
+        return flash_storage_mount(
+            mount_point != NULL && mount_point[0] != '\0' ?
+                mount_point : storage_flash_default_mount_point());
+    }
 #if SOLAR_OS_BOARD_HAS_SD
     return solar_os_board_storage_mount_volume(name, mount_point);
 #else
@@ -155,11 +160,32 @@ esp_err_t solar_os_storage_unmount(void)
 
 esp_err_t solar_os_storage_unmount_volume(const char *target)
 {
+    if (target != NULL &&
+        (strcmp(target, "flash") == 0 ||
+         (flash_storage_is_mounted() &&
+          strcmp(target, flash_storage_mount_point()) == 0))) {
+        return flash_storage_unmount();
+    }
 #if SOLAR_OS_BOARD_HAS_SD
     return solar_os_board_storage_unmount_volume(target);
 #else
     (void)target;
     return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+esp_err_t solar_os_storage_format(const char *target)
+{
+    if (target == NULL || target[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (strcmp(target, "flash") == 0) {
+        return flash_storage_format(storage_flash_default_mount_point());
+    }
+#if SOLAR_OS_BOARD_HAS_SD
+    return solar_os_board_storage_format(target);
+#else
+    return ESP_ERR_NOT_FOUND;
 #endif
 }
 
@@ -292,6 +318,9 @@ esp_err_t solar_os_storage_get_usage_for_block(const solar_os_storage_block_t *b
     if (!block->mounted || block->logical_volume == SOLAR_OS_STORAGE_LOGICAL_VOLUME_INVALID) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (strcmp(block->name, "flash") == 0) {
+        return storage_flash_get_usage(usage);
+    }
 
 #if !SOLAR_OS_BOARD_HAS_SD
     return ESP_ERR_NOT_SUPPORTED;
@@ -306,16 +335,16 @@ esp_err_t solar_os_storage_rescan(void)
 #if SOLAR_OS_BOARD_HAS_SD
     return solar_os_board_storage_rescan();
 #else
-    return ESP_ERR_NOT_SUPPORTED;
+    return ESP_OK;
 #endif
 }
 
 size_t solar_os_storage_block_count(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return solar_os_board_storage_block_count();
+    return solar_os_board_storage_block_count() + 1U;
 #else
-    return 0;
+    return 1U;
 #endif
 }
 
@@ -325,36 +354,59 @@ bool solar_os_storage_get_block(size_t index, solar_os_storage_block_t *block)
         return false;
     }
 
-#if !SOLAR_OS_BOARD_HAS_SD
-    (void)index;
-    return false;
-#else
-    solar_os_board_storage_block_t board_block;
-    if (!solar_os_board_storage_get_block(index, &board_block)) {
+#if SOLAR_OS_BOARD_HAS_SD
+    const size_t board_count = solar_os_board_storage_block_count();
+    if (index < board_count) {
+        solar_os_board_storage_block_t board_block;
+        if (!solar_os_board_storage_get_block(index, &board_block)) {
+            return false;
+        }
+
+        memset(block, 0, sizeof(*block));
+        strlcpy(block->name, board_block.name, sizeof(block->name));
+        block->type = board_block.type == SOLAR_OS_BOARD_STORAGE_BLOCK_PARTITION ?
+            SOLAR_OS_STORAGE_BLOCK_PARTITION :
+            SOLAR_OS_STORAGE_BLOCK_DISK;
+        block->partition_number = board_block.partition_number;
+        block->mbr_type = board_block.mbr_type;
+        block->bootable = board_block.bootable;
+        block->mountable = board_block.mountable;
+        block->mounted = board_block.mounted;
+        block->whole_disk_filesystem = board_block.whole_disk_filesystem;
+        block->logical_volume = board_block.logical_volume;
+        block->start_sector = board_block.start_sector;
+        block->sector_count = board_block.sector_count;
+        block->sector_size = board_block.sector_size;
+        block->size_bytes = board_block.size_bytes;
+        strlcpy(block->fs, board_block.fs, sizeof(block->fs));
+        strlcpy(block->type_name, board_block.type_name, sizeof(block->type_name));
+        strlcpy(block->mount_point, board_block.mount_point, sizeof(block->mount_point));
+        return true;
+    }
+    index -= board_count;
+#endif
+    if (index != 0) {
         return false;
     }
-
     memset(block, 0, sizeof(*block));
-    strlcpy(block->name, board_block.name, sizeof(block->name));
-    block->type = board_block.type == SOLAR_OS_BOARD_STORAGE_BLOCK_PARTITION ?
-        SOLAR_OS_STORAGE_BLOCK_PARTITION :
-        SOLAR_OS_STORAGE_BLOCK_DISK;
-    block->partition_number = board_block.partition_number;
-    block->mbr_type = board_block.mbr_type;
-    block->bootable = board_block.bootable;
-    block->mountable = board_block.mountable;
-    block->mounted = board_block.mounted;
-    block->whole_disk_filesystem = board_block.whole_disk_filesystem;
-    block->logical_volume = board_block.logical_volume;
-    block->start_sector = board_block.start_sector;
-    block->sector_count = board_block.sector_count;
-    block->sector_size = board_block.sector_size;
-    block->size_bytes = board_block.size_bytes;
-    strlcpy(block->fs, board_block.fs, sizeof(block->fs));
-    strlcpy(block->type_name, board_block.type_name, sizeof(block->type_name));
-    strlcpy(block->mount_point, board_block.mount_point, sizeof(block->mount_point));
-    return true;
-#endif
+    strlcpy(block->name, "flash", sizeof(block->name));
+    block->type = SOLAR_OS_STORAGE_BLOCK_PARTITION;
+    block->mountable = true;
+    block->mounted = flash_storage_is_mounted();
+    block->logical_volume = block->mounted ?
+        flash_storage_logical_volume() :
+        SOLAR_OS_STORAGE_LOGICAL_VOLUME_INVALID;
+    block->sector_size = 4096U;
+    block->size_bytes = flash_storage_size_bytes();
+    block->sector_count = block->size_bytes / block->sector_size;
+    strlcpy(block->fs, "FAT", sizeof(block->fs));
+    strlcpy(block->type_name, "internal", sizeof(block->type_name));
+    if (block->mounted) {
+        strlcpy(block->mount_point,
+                flash_storage_mount_point(),
+                sizeof(block->mount_point));
+    }
+    return block->size_bytes > 0;
 }
 
 static bool storage_fill_sd_mount(const solar_os_storage_block_t *block,

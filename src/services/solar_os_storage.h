@@ -64,6 +64,7 @@ esp_err_t solar_os_storage_mount(void);
 esp_err_t solar_os_storage_mount_volume(const char *name, const char *mount_point);
 esp_err_t solar_os_storage_unmount(void);
 esp_err_t solar_os_storage_unmount_volume(const char *target);
+esp_err_t solar_os_storage_format(const char *target);
 bool solar_os_storage_is_mounted(void);
 void solar_os_storage_get_status(char *buffer, size_t len);
 const char *solar_os_storage_mount_point(void);

@@ -23,7 +23,15 @@ so TOML frontmatter is never shown as document content.
 On devices with Wi-Fi, PSRAM, and an SD card, the same manual can be refreshed
 without installing new firmware.
 
-First connect Wi-Fi and make sure the SD card is mounted. Then run:
+First connect Wi-Fi, inspect the available persistent disks, and mount the
+default removable volume if necessary:
+
+```text
+disk lsblk
+disk mount
+```
+
+Then run:
 
 ```text
 help update

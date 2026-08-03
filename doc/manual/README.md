@@ -25,19 +25,21 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [cat command](commands.md) — Print a small text file.
 - [cd command](commands.md) — Change current shell directory.
 - [clear command](commands.md) — Clear the active shell terminal.
-- [close command](commands.md) — Close an app or shell session while preserving the final interactive shell.
+- [close command](commands.md) — Close a display app, display shell, or retained port app, or stop a port shell session. The final interactive shell cannot be closed.
 - [commands command](commands.md) — List built-in shell commands.
+- [contacts command](commands.md) — Open the searchable provider-neutral contact browser.
 - [cp command](commands.md) — Copy a file or matched set.
 - [daq command](commands.md) — Print DAQ usage.
 - [date command](commands.md) — Show or set the local date.
 - [df command](commands.md) — Show free space on mounted storage volumes.
+- [disk command](commands.md) — Show persistent-storage status.
 - [display command](commands.md) — List drawable display targets, draw a test pattern, or change driver-specific display settings.
 - [dpad command](commands.md) — Show ADC D-pad pins, raw values, zones, and calibration thresholds.
 - [email command](commands.md) — Open the receive-only email app.
 - [engine command](commands.md) — Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations.
-- [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell. The display shell remains active.
+- [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell when another interactive shell remains.
 - [expansion command](commands.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
-- [fg command](commands.md) — Resume a display app or display shell session.
+- [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
 - [help command](commands.md) — Browse the package-aware manual or manage its signed exact-version SD copy.
 - [humidity command](commands.md) — Read the board humidity sensor when available.
@@ -48,16 +50,20 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [jobs command](commands.md) — List registered jobs and their state.
 - [joystick command](commands.md) — Show joystick axes, raw values, direction, and thresholds.
 - [led command](commands.md) — Inspect or control the built-in status LED when available.
+- [link command](commands.md) — List active SolarOS Link instances and their queue/protocol counters.
 - [log command](commands.md) — Show runtime log ring status.
-- [link command](commands.md) — Send and receive transport-independent SolarOS Link messages.
 - [ls command](commands.md) — List files. Hidden files are shown only with -a; sizes are human-readable with -h.
 - [man command](commands.md) — Read or search the package-aware SolarOS manual.
 - [mem command](commands.md) — Print heap status; policy also shows allocation-class counters, guarded fallback limits, and the last tagged failure.
+- [meshcore command](commands.md) — Show MeshCore identity, radio, packet, delivery, duplicate, memory, and stack state.
+- [messages command](commands.md) — Show bounded-store, persistence, drop, and live provider state.
 - [mkdir command](commands.md) — Create directories.
 - [mqtt command](commands.md) — MQTT/MQTTS client.
 - [mv command](commands.md) — Rename or move a file or matched set.
+- [neopixel command](commands.md) — List attached WS2812/NeoPixel strips.
 - [netscan command](commands.md) — Scan TCP ports on one host or a capped IPv4 range.
 - [ntp command](commands.md) — Sync the wall clock from NTP.
+- [nvs command](commands.md) — Show the default NVS partition size, entry usage, and namespace count.
 - [onewire command](commands.md) — Show every registered named 1-Wire bus, or one selected bus.
 - [ota command](commands.md) — Show running and configured OTA state.
 - [ping command](commands.md) — Send ICMP echo requests. Without count, ping runs until app-exit.
@@ -70,8 +76,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [ramfs command](commands.md) — List PSRAM-backed volatile filesystem mounts.
 - [reboot command](commands.md) — Restart the board.
 - [rm command](commands.md) — Remove files. -f allows directories; -rf removes directories recursively.
-- [sd command](commands.md) — Show SD/storage status.
-- [session command](commands.md) — List display app sessions, display shell sessions, and port shell sessions.
+- [session command](commands.md) — List display sessions, port shells, and retained port-owned application sessions with their owner.
 - [sessions command](commands.md) — List display app sessions, display shell sessions, and port shell sessions.
 - [setterm command](commands.md) — Configure terminal/input preferences. Without arguments, opens the display TUI when available.
 - [sh command](commands.md) — Run a simple SolarOS shell script from storage.
@@ -99,18 +104,20 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [aplay application](apps.md#aplay) — Play audio files through the board audio output. WAV and MP3 are supported when the audio package is compiled and the board has audio hardware.
 - [Application reference](apps.md) — Usage, controls, and examples for every foreground application
 - [arecord application](apps.md#arecord) — Record microphone input to a WAV file. This requires the audio package and board microphone hardware.
-- [calc application](apps.md#calc) — Scientific calculator with a graphical expression worksheet and function plotter on displays, plus the same bounded expression engine in a text REPL and one-shot shell mode.
-- [chat application](apps.md#chat) — Two-pane chat client. The left pane lists channels, the right pane shows conversation history, and the bottom line is the message/command input.
+- [calc application](apps.md#calc) — Scientific calculator and function plotter. On a graphical display, calc opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet, or any other text-only shell, the same command opens a scientific REPL without the plot pane. calc --text forces that REPL even when graphics are available.
+- [chat application](apps.md#chat) — Two-pane provider-neutral conversation client. The left pane lists gateway and radio conversations, the right pane shows bounded shared history, and the bottom line is the message/command input. It opens and remains useful offline; network or radio transport jobs connect independently.
 - [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch.
-- [com application](apps.md#com) — Serial terminal for named UART buses, with optional hardware autobaud detection and an offset/hex/ASCII receive view. It works from display and port shells.
+- [com application](apps.md#com) — Serial terminal for a named UART bus. Display-keyboard or port-shell input is forwarded to the UART, and UART RX is drawn in the active terminal.
+- [contacts application](apps.md#contacts) — Provider-neutral address book for gateway and MeshCore identities. Contacts can carry multiple provider endpoints while retaining trust independently for each endpoint. A signed MeshCore advert creates a discovered endpoint: the signature proves possession of the advertised key, not the human identity behind it.
 - [curl application](apps.md#curl) — HTTP client for quick text downloads and diagnostics. It can print response data to the terminal or save it to a file.
-- [edit application](apps.md#edit) — Text editor for files on mounted storage. It supports cursor navigation, selection, clipboard operations, text-size changes, and syntax highlighting for known source files. The editor supports files up to 256 KiB on boards with PSRAM and 32 KiB on boards without PSRAM.
+- [edit application](apps.md#edit) — Text editor for files on mounted storage. It supports cursor navigation, selection, clipboard operations, text-size changes, and syntax highlighting for known source files. The editor supports files up to 256 KiB on boards with PSRAM and 32 KiB on boards without PSRAM. Use hexedit for binary files.
 - [email application](apps.md#email) — Receive-only IMAPS client for the configured mailbox. The app shows the provider-specific message list while every newly synchronized message is also published to the universal inbox and its shared status-bar unread counter.
 - [files application](apps.md#files) — Two-pane file manager inspired by Midnight Commander. It is intended for quick copy, move, delete, and launch workflows on mounted storage.
 - [help application](apps.md#help) — Foreground browser for the package-aware SolarOS manual. The foldable tree groups the topics compiled for the current firmware and shows whether it is using the embedded copy or a verified downloaded revision.
+- [hexedit application](apps.md#hexedit) — Two-pane binary editor for files on mounted storage. Each row shows a file offset, hexadecimal bytes, and their synchronized printable ASCII view. The number of bytes per row adapts to the terminal width. It uses the same 256 KiB PSRAM and 32 KiB internal-memory limits as edit.
 - [inbox application](apps.md#inbox) — Universal incoming-message browser for pages, chat notifications, mail, and other background producers. It reads the same shared inbox that supplies the status-bar unread count. Messages and read state survive reboot in the bounded /.inbox/messages.bin store; the service retains at most 64 entries and keeps the file below 32 KB even when internal flash is the only storage.
 - [invaders application](apps.md#invaders) — Graphical arcade shooter.
-- [io application](apps.md#io) — Interactive expansion I/O manager. It presents the board's expansion pins, named buses, and resource claims in one TUI and uses the same ownership and validation services as the gpio, i2c, spi, uart, onewire, and expansion commands.
+- [io application](apps.md#io) — Interactive expansion I/O manager. Its default Layout view presents the board's connectors in their physical arrangement, followed by the existing pin, named-bus, and resource-claim views. It uses the same ownership and validation services as the gpio, i2c, spi, uart, onewire, and expansion commands.
 - [less application](apps.md#less) — Terminal pager for text files. It preserves original text layout and is useful for quick file inspection.
 - [logic application](apps.md#logic) — On-device logic analyzer waveform viewer. It displays the latest capture made by the shared logic analyzer service or the SUMP job. With pin arguments it makes a new local capture before opening the viewer.
 - [lua application](apps.md#lua) — Embedded Lua runtime. It can run an interactive REPL or execute .lua scripts from storage. Lua scripts can use SolarOS service bindings when the selected firmware includes the corresponding packages.
@@ -127,14 +134,14 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [telnet application](apps.md#telnet) — Telnet client for classic TCP terminal sessions. It supports basic Telnet option negotiation, terminal type reporting, window size reporting, and raw mode.
 - [view application](apps.md#view) — Graphical image viewer. It supports the image formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF playback when the media package is enabled.
 - [web application](apps.md#web) — Simple graphical web browser for lightweight HTML pages. It shares document and image rendering infrastructure with reader where possible.
-- [writer application](apps.md#writer) — Resumable hybrid WYSIWYG Markdown editor for graphical PSRAM boards. The active block shows exact Markdown source while inactive blocks remain formatted.
+- [writer application](apps.md#writer) — Resumable graphical Markdown editor for PSRAM display boards. Inactive blocks are formatted like reader; the block containing the cursor and every block touched by a selection show their exact Markdown source. edit remains the portable text editor for port shells and boards without graphics or PSRAM.
 
 ## Background jobs
 
 - [Background job reference](jobs.reference.md) — Configuration, ownership, and examples for every background job
 - [Background jobs](jobs.md) — Inspect and control bounded background workers
 - [batmon job](jobs.reference.md#batmon) — Battery monitor. It periodically samples battery voltage, maintains a smoothed trend, estimates power state, and can request light sleep when the configured minimum voltage is reached.
-- [bridge job](jobs.reference.md#bridge) — Bidirectional byte bridge between two ports or a port and SolarOS Link.
+- [bridge job](jobs.reference.md#bridge) — Bidirectional byte bridge between two byte-stream ports, or between one byte-stream port and an active SolarOS Link instance.
 - [chat-sync job](jobs.reference.md#chat-sync) — Background client synchronizer for the transport-neutral chat service. Start and stop it explicitly, using the same lifecycle as email-sync:
 - [chatd job](jobs.reference.md#chatd) — Local SolarOS chat gateway server. It is useful for testing the chat app or for small trusted local networks.
 - [daq job](jobs.reference.md#daq) — Data acquisition job. It captures scalar streams to timestamped CSV, or one byte stream directly to a raw file.
@@ -142,10 +149,10 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [email-sync job](jobs.reference.md#email-sync) — Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local email app and publishes each new message to the universal inbox.
 - [httpd job](jobs.reference.md#httpd) — Static HTTP file server for a folder on mounted storage.
 - [log job](jobs.reference.md#log) — Runtime SolarOS log follower. It mirrors log entries to a byte-stream port or appends them to a file.
-- [meshcore job](jobs.reference.md#meshcore) — Non-forwarding MeshCore companion messaging over a claimed packet radio.
+- [meshcore job](jobs.reference.md#meshcore) — Non-forwarding MeshCore companion provider for Contacts and Messages.
 - [ntp-sync job](jobs.reference.md#ntp-sync) — Network time synchronization job. It updates the SolarOS wall clock from NTP and also updates the hardware RTC when the board provides one.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
-- [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for transport-independent SolarOS Link messages.
+- [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for the transport-independent SolarOS Link service.
 - [slip job](jobs.reference.md#slip) — IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines, headless boards, and serial networking experiments.
 - [sump job](jobs.reference.md#sump) — SUMP-compatible logic analyzer server on cdc0. It claims the CDC port and uses the shared logic analyzer service for acquisition. PulseView and sigrok can connect with the OpenBench Logic Sniffer/SUMP serial driver.
 - [telnetd job](jobs.reference.md#telnetd) — Remote Telnet shell server. The listener is a background job; each accepted connection is attached to its own normal SolarOS port-shell session.
@@ -179,6 +186,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Device identity](identity.md) — Read and configure the NVS-backed user and hostname
 - [Foreground sessions and applications](sessions.apps.md) — Create shells and inspect resumable foreground applications
 - [MeshCore companion messaging](meshcore.md) — Secure direct and shared-group messages over a claimed packet radio
+- [Messaging, contacts, and credential security](messaging.md) — Provider-neutral messaging identities, trust, persistence, and secret handling
 - [SolarOS Link](link.md) — Transport-independent packet messaging and the radio-link adapter
 
 ## Boards and firmware
