@@ -568,6 +568,51 @@ Controls:
 - `Space` or `f` fires.
 - `Esc` or app-exit key exits.
 
+## gameboy
+
+Experimental original Game Boy (DMG) emulator for the Waveshare
+ESP32-S3-RLCD-4.2. It is included only in the `retro` flavor. The application
+loads a user-supplied ROM into PSRAM, renders its four shades as a 320x288
+dithered image, and writes battery-backed cartridge RAM beside the ROM as a
+`.sav` file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
+The MiniGB APU backend renders pulse, wave, and noise channels through the
+shared SolarOS synth and audio services at the global speaker volume.
+
+The emulator runs the core independently from the relatively expensive RLCD
+update. It keeps Peanut-GB's hot state and up to two 16 KiB ROM banks in
+internal RAM when the SolarOS reserve permits, skips alternate core-rendered
+frames by default, and presents the newest frame once per four emulated
+frames. On the Waveshare display, a dedicated monochrome presentation path
+rotates and streams the frame in one controller write sequence. Runtime logs
+report emulation and presentation rates separately.
+
+Audio rendering runs in its own bounded worker and holds exclusive speaker
+output while Game Boy is active. RLCD presentation runs independently at about
+20 Hz, temporarily requests the panel's 25.5 Hz HPM profile, and drops stale
+frames instead of blocking emulation. Pausing, suspending, or exiting the app
+stops the synth and restores the previous display and audio policies.
+
+Usage:
+
+```text
+gameboy <file.gb>
+```
+
+Controls:
+
+- Arrows control the D-pad.
+- The physical US-Z key position is A; on a German QWERTZ keyboard this key is
+  labeled `Y`. The physical X key is B.
+- `Enter` is Start; `Backspace` or `Delete` is Select.
+- `p` pauses and `r` resets.
+- `q`, `Esc`, or the app-exit key exits.
+
+For a connected BLE keyboard, Game Boy reads the complete six-key HID state in
+addition to the normal SolarOS character stream. Held directions and buttons
+therefore remain active until release, and combinations such as diagonal
+movement or direction plus A/B work simultaneously. Inputs without held-key
+state, including port-shell input, retain the short button-pulse fallback.
+
 ## less
 
 Terminal pager for text files. It preserves original text layout and is useful

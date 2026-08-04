@@ -47,6 +47,7 @@ static display_target_slot_t display_targets[SOLAR_OS_DISPLAY_TARGET_MAX];
 static portMUX_TYPE display_targets_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static bool display_snapshot_slot(size_t slot_index, solar_os_display_target_t *target);
+static void display_publish_frame(u8g2_t *u8g2);
 
 static solar_os_display_rotation_t display_rotation(const u8g2_t *u8g2)
 {
@@ -754,6 +755,50 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
 #endif
 }
 
+esp_err_t solar_os_display_set_high_refresh_override(const char *name,
+                                                     bool enabled,
+                                                     uint16_t hz_tenths)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) ||
+        (enabled && hz_tenths == 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+#if !SOLAR_OS_BOARD_HAS_DISPLAY
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    solar_os_board_display_t *board_display = NULL;
+    uint32_t generation = 0;
+    size_t slot_index = 0;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int found_index = display_find_slot_locked(name);
+    if (found_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    slot_index = (size_t)found_index;
+    display_target_slot_t *slot = &display_targets[slot_index];
+    board_display = slot->board_display;
+    if (board_display == NULL) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    generation = slot->generation;
+    slot->refs++;
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    const esp_err_t ret = solar_os_board_display_set_high_refresh_override(
+        board_display, enabled, hz_tenths);
+    portENTER_CRITICAL(&display_targets_lock);
+    slot = &display_targets[slot_index];
+    if (slot->generation == generation && slot->refs > 0) {
+        slot->refs--;
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+    return ret;
+#endif
+}
+
 esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
                                                 solar_os_display_present_mode_t mode)
 {
@@ -771,6 +816,58 @@ esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
     default:
         return ESP_ERR_INVALID_ARG;
     }
+}
+
+esp_err_t solar_os_display_present_mono_xbm(u8g2_t *u8g2,
+                                            const uint8_t *bitmap,
+                                            size_t bitmap_size,
+                                            uint16_t x,
+                                            uint16_t y,
+                                            uint16_t width,
+                                            uint16_t height,
+                                            uint16_t stride)
+{
+    if (u8g2 == NULL || bitmap == NULL || width == 0 || height == 0 || stride == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+#if !SOLAR_OS_BOARD_HAS_DISPLAY
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    solar_os_board_display_t *board_display = NULL;
+    uint32_t generation = 0;
+    size_t slot_index = 0;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int found_index = display_find_slot_by_u8g2_locked(u8g2);
+    if (found_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    slot_index = (size_t)found_index;
+    display_target_slot_t *slot = &display_targets[slot_index];
+    board_display = slot->board_display;
+    if (board_display == NULL) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    generation = slot->generation;
+    slot->refs++;
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    const esp_err_t ret = solar_os_board_display_present_mono_xbm(
+        board_display, bitmap, bitmap_size, x, y, width, height, stride);
+    if (ret == ESP_OK) {
+        display_publish_frame(u8g2);
+    }
+
+    portENTER_CRITICAL(&display_targets_lock);
+    slot = &display_targets[slot_index];
+    if (slot->generation == generation && slot->refs > 0) {
+        slot->refs--;
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+    return ret;
+#endif
 }
 
 static void display_publish_frame(u8g2_t *u8g2)

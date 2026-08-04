@@ -136,3 +136,37 @@ esp_err_t solar_os_board_display_set_controller_mode(solar_os_board_display_t *d
     }
     return rlcd_st7305_set_controller_mode((rlcd_st7305_t *)display->driver, mode);
 }
+
+esp_err_t solar_os_board_display_set_high_refresh_override(
+    solar_os_board_display_t *display,
+    bool enabled,
+    uint16_t hz_tenths)
+{
+    if (display == NULL || display->driver == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return rlcd_st7305_set_high_refresh_override(
+        (rlcd_st7305_t *)display->driver, enabled, hz_tenths);
+}
+
+esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *display,
+                                                  const uint8_t *bitmap,
+                                                  size_t bitmap_size,
+                                                  uint16_t x,
+                                                  uint16_t y,
+                                                  uint16_t width,
+                                                  uint16_t height,
+                                                  uint16_t stride)
+{
+    if (display == NULL || display->driver == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return rlcd_st7305_present_mono_xbm((rlcd_st7305_t *)display->driver,
+                                        bitmap,
+                                        bitmap_size,
+                                        x,
+                                        y,
+                                        width,
+                                        height,
+                                        stride);
+}
