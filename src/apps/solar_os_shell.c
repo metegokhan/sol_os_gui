@@ -1162,6 +1162,9 @@ static const char * const path_unzip_after_option[] = {"unzip", SHELL_COMPLETION
 static const char * const path_view[] = {"view"};
 static const char * const path_view_after_option[] = {"view", SHELL_COMPLETION_ANY};
 #endif
+#if SOLAR_OS_PACKAGE_APP_GAMEBOY
+static const char * const path_gameboy[] = {"gameboy"};
+#endif
 #if SOLAR_OS_PACKAGE_APP_NOTES
 static const char * const path_notes[] = {"notes"};
 #endif
@@ -2109,6 +2112,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_MEDIA
     SHELL_COMPLETION_OPTIONS(path_view, view_options),
     SHELL_COMPLETION_PATH(path_view_after_option, false),
+#endif
+#if SOLAR_OS_PACKAGE_APP_GAMEBOY
+    SHELL_COMPLETION_PATH(path_gameboy, false),
 #endif
 #if SOLAR_OS_PACKAGE_APP_NOTES
     SHELL_COMPLETION_PATH(path_notes, false),

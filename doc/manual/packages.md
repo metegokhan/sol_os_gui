@@ -28,11 +28,17 @@ package dependencies and then removes packages unsupported by the target board.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
 `maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,
-`python`, `lua`, `writing`, and `utils`. Maintenance jobs contain background
-logging and battery monitoring. Hardware jobs contain Bridge, DAQ, and SUMP for
-hardware diagnostics and hacking. The `writing` group contains Reader, Writer,
-Files, and Notes; general utilities contain Clock, Calculator, Plot, Logic, and
-Sheet.
+`retro`, `python`, `lua`, `writing`, and `utils`. Maintenance jobs contain
+background logging and battery monitoring. Hardware jobs contain Bridge, DAQ,
+and SUMP for hardware diagnostics and hacking. The `writing` group contains
+Reader, Writer, Files, and Notes; general utilities contain Clock, Calculator,
+Plot, Logic, and Sheet.
+
+The `retro` flavor is the full firmware plus experimental emulation packages.
+Its `retro` group currently selects `app.gameboy`, which requires graphics,
+PSRAM, SD storage, and the audio-backed synth service. The app is currently
+usable only on the Waveshare ESP32-S3-RLCD-4.2 even if another capable target
+can compile the package.
 
 The `writerdeck` flavor targets the Elecrow e-paper board with the `writing`
 group plus system, maintenance, and network tools. It excludes general

@@ -2,6 +2,24 @@
 
 ## 4.x
 
+- **4.6.0** — 2026-08-04 — Added an experimental original Game Boy (DMG)
+  emulator to the `retro` flavor for the Waveshare ESP32-S3-RLCD-4.2. It loads
+  ROMs into PSRAM, persists cartridge RAM in adjacent `.sav` files, supports
+  held and simultaneous controls from the BLE HID key state, and renders the
+  MiniGB APU through the shared synth and audio services. Emulation, audio, and
+  the RLCD presenter run independently; the presenter uses the panel's
+  high-refresh mode and drops stale frames rather than blocking the core. The
+  shell completes ROM paths after `gameboy`.
+- **4.5.8** — 2026-08-04 — Replaced the variable-frequency power modes with
+  four fixed operating profiles: 240 MHz `performance`, 160 MHz `balanced`,
+  160 MHz light-sleep `battery`, and 80 MHz light-sleep `lowpower`. Added the
+  reusable single-client synth service for bounded real-time stereo PCM
+  rendering through the audio service, including owner and timing telemetry.
+- **4.5.7** — 2026-08-04 — Made Notes insert new items at the selected position
+  while keeping completed items in the Done section. Added a bounded
+  asynchronous tone queue with shell, Python, and Lua controls, plus a
+  persistent opt-in Inbox notification sound that coalesces bursts and remains
+  disabled by default.
 - **4.5.6** — 2026-08-03 — Generalized `com` from named UART buses to all
   bidirectional SolarOS byte-stream ports, including peer-bound Link virtual
   serial ports. Port completion now includes virtual ports, ownership errors

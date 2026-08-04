@@ -23,6 +23,13 @@ Recording and playback require enough internal/DMA memory even on boards with
 PSRAM. If an audio application reports no memory, stop unnecessary internal
 stack jobs and inspect `mem`.
 
+`tone_async()` queues a short tone and returns a request ID without waiting for
+playback. Use `cancel()` with that ID or inspect `queue_status()` for the
+current request and completed, cancelled, dropped, and failed counters. The
+queue is bounded and shares exclusive output ownership with WAV playback and
+native synth clients. A queued tone waits for that output; a full queue reports
+an error to the caller.
+
 ## BLE keyboard
 
 The BLE service manages one remembered keyboard. Pairing and scanning are
