@@ -132,6 +132,17 @@ esp_err_t solar_os_board_display_set_controller_mode(solar_os_board_display_t *d
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t solar_os_board_display_set_high_refresh_override(
+    solar_os_board_display_t *display,
+    bool enabled,
+    uint16_t hz_tenths)
+{
+    (void)display;
+    (void)enabled;
+    (void)hz_tenths;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *display,
                                                   const uint8_t *bitmap,
                                                   size_t bitmap_size,

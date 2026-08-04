@@ -160,6 +160,7 @@ typedef struct {
 
 typedef struct {
     const char *label;
+    uint16_t hz_tenths;
     uint8_t setting;
     uint8_t oscset_first;
     bool hfra;
@@ -175,10 +176,10 @@ static const rlcd_lpm_frame_rate_value_t rlcd_lpm_frame_rate_values[] = {
 };
 
 static const rlcd_hpm_frame_rate_value_t rlcd_hpm_frame_rate_values[] = {
-    {.label = "16", .setting = 0, .oscset_first = 0xA6, .hfra = false},
-    {.label = "32", .setting = 1, .oscset_first = 0xA6, .hfra = true},
-    {.label = "25.5", .setting = 2, .oscset_first = 0x80, .hfra = false},
-    {.label = "51", .setting = 3, .oscset_first = 0x80, .hfra = true},
+    {.label = "16", .hz_tenths = 160, .setting = 0, .oscset_first = 0xA6, .hfra = false},
+    {.label = "32", .hz_tenths = 320, .setting = 1, .oscset_first = 0xA6, .hfra = true},
+    {.label = "25.5", .hz_tenths = 255, .setting = 2, .oscset_first = 0x80, .hfra = false},
+    {.label = "51", .hz_tenths = 510, .setting = 3, .oscset_first = 0x80, .hfra = true},
 };
 
 static bool rlcd_checked_cmd(rlcd_st7305_t *display, uint8_t command);
@@ -797,6 +798,19 @@ static const rlcd_hpm_frame_rate_value_t *rlcd_hpm_frame_rate_value(uint8_t sett
         sizeof(rlcd_hpm_frame_rate_values) / sizeof(rlcd_hpm_frame_rate_values[0]);
     for (size_t i = 0; i < count; i++) {
         if (rlcd_hpm_frame_rate_values[i].setting == setting) {
+            return &rlcd_hpm_frame_rate_values[i];
+        }
+    }
+    return NULL;
+}
+
+static const rlcd_hpm_frame_rate_value_t *rlcd_hpm_frame_rate_for_hz(
+    uint16_t hz_tenths)
+{
+    const size_t count =
+        sizeof(rlcd_hpm_frame_rate_values) / sizeof(rlcd_hpm_frame_rate_values[0]);
+    for (size_t i = 0; i < count; i++) {
+        if (rlcd_hpm_frame_rate_values[i].hz_tenths == hz_tenths) {
             return &rlcd_hpm_frame_rate_values[i];
         }
     }
@@ -1671,4 +1685,72 @@ esp_err_t rlcd_st7305_set_controller_mode(rlcd_st7305_t *display, const char *mo
 
     rlcd_give_lock(display);
     return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t rlcd_st7305_set_high_refresh_override(rlcd_st7305_t *display,
+                                                bool enabled,
+                                                uint16_t hz_tenths)
+{
+    if (display == NULL || display->spi == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const rlcd_hpm_frame_rate_value_t *rate =
+        enabled ? rlcd_hpm_frame_rate_for_hz(hz_tenths) : NULL;
+    if (enabled && rate == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!rlcd_take_lock(display, portMAX_DELAY)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (enabled && display->high_refresh_override) {
+        const esp_err_t ret = display->high_refresh_hz_tenths == hz_tenths
+                                  ? ESP_OK
+                                  : ESP_ERR_INVALID_STATE;
+        rlcd_give_lock(display);
+        return ret;
+    }
+    if (!enabled && !display->high_refresh_override) {
+        rlcd_give_lock(display);
+        return ESP_OK;
+    }
+
+    rlcd_cancel_idle_lpm_timer(display);
+    if (enabled) {
+        display->high_refresh_saved_hpm_frame_rate = display->hpm_frame_rate;
+        display->high_refresh_saved_power_policy = display->power_policy;
+        display->hpm_frame_rate = rate->setting;
+        display->power_policy = RLCD_POWER_POLICY_HPM;
+    } else {
+        display->hpm_frame_rate = display->high_refresh_saved_hpm_frame_rate;
+        display->power_policy = display->high_refresh_saved_power_policy;
+    }
+
+    esp_err_t ret = rlcd_apply_controller_tuning(display, true, true);
+    if (ret == ESP_OK) {
+        ret = rlcd_apply_frame_power_mode(display,
+                                          enabled || display->frame_content_changed);
+    }
+    if (ret == ESP_OK && !enabled &&
+        display->power_policy == RLCD_POWER_POLICY_AUTO &&
+        !display->frame_content_changed) {
+        ret = rlcd_schedule_idle_lpm_timer(display);
+    }
+
+    if (enabled && ret != ESP_OK) {
+        display->hpm_frame_rate = display->high_refresh_saved_hpm_frame_rate;
+        display->power_policy = display->high_refresh_saved_power_policy;
+        (void)rlcd_apply_controller_tuning(display, true, true);
+        (void)rlcd_apply_frame_power_mode(display, display->frame_content_changed);
+    }
+    if (ret == ESP_OK) {
+        display->high_refresh_override = enabled;
+        display->high_refresh_hz_tenths = enabled ? hz_tenths : 0;
+    } else if (!enabled) {
+        display->high_refresh_override = false;
+        display->high_refresh_hz_tenths = 0;
+    }
+    display->last_error = ret;
+    rlcd_give_lock(display);
+    return ret;
 }

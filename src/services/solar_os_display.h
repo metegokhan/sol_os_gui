@@ -88,6 +88,10 @@ esp_err_t solar_os_display_get_controller_mode(const char *name,
                                                const char **mode,
                                                const char **values);
 esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mode);
+/* Non-persistent performance override; disabling restores driver settings. */
+esp_err_t solar_os_display_set_high_refresh_override(const char *name,
+                                                     bool enabled,
+                                                     uint16_t hz_tenths);
 esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
                                                 solar_os_display_present_mode_t mode);
 void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode);

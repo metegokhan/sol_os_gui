@@ -18,6 +18,7 @@
 #include "solar_os_ble_keyboard.h"
 #endif
 #include "solar_os_gameboy_audio.h"
+#include "solar_os_gameboy_presenter.h"
 #include "solar_os_gameboy_rom.h"
 #include "solar_os_gameboy_video.h"
 #include "solar_os_gfx.h"
@@ -39,7 +40,7 @@
 #define GAMEBOY_INPUT_PULSE_US 140000LL
 #define GAMEBOY_STATS_FRAMES 120U
 #define GAMEBOY_ROM_BANK_BYTES (16U * 1024U)
-#define GAMEBOY_PRESENT_DIVISOR 4U
+#define GAMEBOY_PRESENT_DIVISOR 3U
 
 typedef struct {
   struct gb_s *core;
@@ -58,9 +59,7 @@ typedef struct {
   int64_t next_frame_us;
   int64_t stats_started_us;
   uint64_t emulation_us;
-  uint64_t present_us;
   uint32_t stats_emulated_frames;
-  uint32_t stats_presented_frames;
   uint32_t emulated_since_present;
   enum gb_error_e core_error;
   uint16_t core_error_address;
@@ -127,6 +126,7 @@ static esp_err_t gameboy_write_save(void) {
 }
 
 static void gameboy_free_state(bool save) {
+  solar_os_gameboy_presenter_deinit();
   solar_os_gameboy_audio_deinit();
   if (save) {
     const esp_err_t err = gameboy_write_save();
@@ -296,27 +296,8 @@ static void gameboy_load_save(void) {
   (void)fclose(file);
 }
 
-static void gameboy_render(solar_os_context_t *ctx) {
-  solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
-  if (gfx == NULL || gameboy.bitmap == NULL) {
-    return;
-  }
-  const int x =
-      ((int)solar_os_gfx_width(gfx) - (int)SOLAR_OS_GAMEBOY_BITMAP_WIDTH) / 2;
-  const int y =
-      ((int)solar_os_gfx_height(gfx) - (int)SOLAR_OS_GAMEBOY_BITMAP_HEIGHT) / 2;
-  if (solar_os_gfx_present_mono_xbm(gfx, gameboy.bitmap,
-                                    SOLAR_OS_GAMEBOY_BITMAP_BYTES, x, y,
-                                    (int)SOLAR_OS_GAMEBOY_BITMAP_WIDTH,
-                                    (int)SOLAR_OS_GAMEBOY_BITMAP_HEIGHT,
-                                    SOLAR_OS_GAMEBOY_BITMAP_STRIDE) == ESP_OK) {
-    return;
-  }
-  solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-  solar_os_gfx_bitmap(gfx, x, y, (int)SOLAR_OS_GAMEBOY_BITMAP_WIDTH,
-                      (int)SOLAR_OS_GAMEBOY_BITMAP_HEIGHT, gameboy.bitmap);
-  solar_os_gfx_present(gfx);
+static void gameboy_render(void) {
+  (void)solar_os_gameboy_presenter_queue(gameboy.bitmap);
 }
 
 static void gameboy_log_stats(int64_t now_us) {
@@ -328,24 +309,26 @@ static void gameboy_log_stats(int64_t now_us) {
                                     ? (uint64_t)gameboy.stats_emulated_frames *
                                           100000000ULL / (uint64_t)elapsed_us
                                     : 0;
+  solar_os_gameboy_presenter_stats_t present;
+  solar_os_gameboy_presenter_take_stats(&present);
   const uint64_t present_fps_x100 =
-      elapsed_us > 0 ? (uint64_t)gameboy.stats_presented_frames * 100000000ULL /
+      elapsed_us > 0 ? (uint64_t)present.presented_frames * 100000000ULL /
                            (uint64_t)elapsed_us
                      : 0;
   SOLAR_OS_LOGI(
       TAG,
       "frames=%u emu_fps=%" PRIu64 ".%02" PRIu64 " present_fps=%" PRIu64
-      ".%02" PRIu64 " avg_emu_us=%" PRIu64 " avg_present_us=%" PRIu64,
+      ".%02" PRIu64 " avg_emu_us=%" PRIu64 " avg_present_us=%" PRIu64
+      " dropped=%u",
       (unsigned)gameboy.stats_emulated_frames, emu_fps_x100 / 100U,
       emu_fps_x100 % 100U, present_fps_x100 / 100U, present_fps_x100 % 100U,
       gameboy.emulation_us / gameboy.stats_emulated_frames,
-      gameboy.stats_presented_frames > 0
-          ? gameboy.present_us / gameboy.stats_presented_frames
-          : 0);
+      present.presented_frames > 0
+          ? present.present_us / present.presented_frames
+          : 0,
+      (unsigned)present.dropped_frames);
   gameboy.stats_emulated_frames = 0;
-  gameboy.stats_presented_frames = 0;
   gameboy.emulation_us = 0;
-  gameboy.present_us = 0;
   gameboy.stats_started_us = now_us;
 }
 
@@ -425,6 +408,11 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
   }
 
   gb_init_lcd(gameboy.core, gameboy_draw_line);
+  err = solar_os_gameboy_presenter_init(gfx);
+  if (err != ESP_OK) {
+    return gameboy_start_error(ctx, gameboy.rom_path,
+                               "display presenter failed");
+  }
   const esp_err_t audio_err = solar_os_gameboy_audio_init();
   if (audio_err != ESP_OK) {
     SOLAR_OS_LOGW(TAG, "starting without audio: %s",
@@ -439,7 +427,7 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
 
   gameboy.loaded = true;
   gameboy.core->direct.joypad = 0xFFU;
-  gameboy.core->direct.frame_skip = true;
+  gameboy.core->direct.frame_skip = false;
   solar_os_context_set_graphics_active(ctx, true);
   const int64_t now_us = esp_timer_get_time();
   gameboy.next_frame_us = now_us;
@@ -455,6 +443,7 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
                 solar_os_memory_is_external(gameboy.core) ? "PSRAM" : "SRAM",
                 solar_os_memory_is_external(gameboy.bitmap) ? "PSRAM" : "SRAM",
                 cache_kib, (unsigned)GAMEBOY_PRESENT_DIVISOR);
+  gameboy_render();
   return ESP_OK;
 }
 
@@ -465,6 +454,7 @@ static void gameboy_stop(solar_os_context_t *ctx) {
 
 static void gameboy_suspend(solar_os_context_t *ctx) {
   gameboy.suspended = true;
+  solar_os_gameboy_presenter_suspend();
   solar_os_gameboy_audio_suspend();
   if (gameboy.core != NULL) {
     gameboy.core->direct.joypad = 0xFFU;
@@ -478,13 +468,24 @@ static void gameboy_suspend(solar_os_context_t *ctx) {
 
 static void gameboy_resume(solar_os_context_t *ctx) {
   gameboy.suspended = false;
+  const esp_err_t presenter_err = solar_os_gameboy_presenter_resume();
+  if (presenter_err != ESP_OK) {
+    SOLAR_OS_LOGW(TAG, "presenter resume failed: %s",
+                  esp_err_to_name(presenter_err));
+  }
   const esp_err_t audio_err = solar_os_gameboy_audio_resume();
   if (audio_err != ESP_OK) {
     SOLAR_OS_LOGW(TAG, "audio resume failed: %s", esp_err_to_name(audio_err));
   }
-  gameboy.next_frame_us = esp_timer_get_time();
+  const int64_t now_us = esp_timer_get_time();
+  gameboy.next_frame_us = now_us;
+  gameboy.stats_started_us = now_us;
+  gameboy.stats_emulated_frames = 0;
+  gameboy.emulation_us = 0;
+  solar_os_gameboy_presenter_stats_t discarded;
+  solar_os_gameboy_presenter_take_stats(&discarded);
   solar_os_context_set_graphics_active(ctx, true);
-  gameboy_render(ctx);
+  gameboy_render();
 }
 
 static uint8_t gameboy_button_for_char(uint8_t ch) {
@@ -621,11 +622,6 @@ static bool gameboy_handle_char(solar_os_context_t *ctx, uint8_t ch) {
     gameboy.next_frame_us = esp_timer_get_time();
     return true;
   }
-  if (ch == 'o') {
-    gameboy.core->direct.frame_skip = !gameboy.core->direct.frame_skip;
-    return true;
-  }
-
   const uint8_t mask = gameboy_button_for_char(ch);
   if (mask != 0) {
     gameboy_press(mask, esp_timer_get_time());
@@ -645,6 +641,10 @@ static bool gameboy_run_frame(solar_os_context_t *ctx, int64_t now_us) {
   }
 
   gameboy.core_error_jump_ready = true;
+  const bool draw_frame =
+      gameboy.emulated_since_present + 1U >= GAMEBOY_PRESENT_DIVISOR;
+  gameboy.core->display.lcd_draw_line =
+      draw_frame ? gameboy_draw_line : NULL;
   gameboy.frame_rendered = false;
   const int64_t emulation_started = esp_timer_get_time();
   gb_run_frame(gameboy.core);
@@ -654,20 +654,17 @@ static bool gameboy_run_frame(solar_os_context_t *ctx, int64_t now_us) {
   gameboy.stats_emulated_frames++;
   gameboy.emulated_since_present++;
 
-  int64_t present_finished = emulation_finished;
-  if (gameboy.frame_rendered &&
-      gameboy.emulated_since_present >= GAMEBOY_PRESENT_DIVISOR) {
-    gameboy_render(ctx);
-    present_finished = esp_timer_get_time();
-    gameboy.present_us += (uint64_t)(present_finished - emulation_finished);
-    gameboy.stats_presented_frames++;
+  if (draw_frame) {
+    if (gameboy.frame_rendered) {
+      gameboy_render();
+    }
     gameboy.emulated_since_present = 0;
   }
-  gameboy_log_stats(present_finished);
+  gameboy_log_stats(emulation_finished);
 
   gameboy.next_frame_us += GAMEBOY_FRAME_PERIOD_US;
-  if (present_finished - gameboy.next_frame_us > GAMEBOY_FRAME_PERIOD_US * 2) {
-    gameboy.next_frame_us = present_finished;
+  if (emulation_finished - gameboy.next_frame_us > GAMEBOY_FRAME_PERIOD_US * 2) {
+    gameboy.next_frame_us = emulation_finished;
   }
   (void)now_us;
   return true;
@@ -682,7 +679,7 @@ static bool gameboy_event(solar_os_context_t *ctx,
     return gameboy_handle_char(ctx, (uint8_t)event->data.ch);
   }
   if (event->type == SOLAR_OS_EVENT_RESUME) {
-    gameboy_render(ctx);
+    gameboy_render();
     return true;
   }
   if (event->type != SOLAR_OS_EVENT_TICK || gameboy.suspended) {
@@ -723,6 +720,6 @@ const solar_os_app_t solar_os_gameboy_app = {
     .stop = gameboy_stop,
     .event = gameboy_event,
     .title = gameboy_title,
-    .tick_interval_ms = 5U,
+    .tick_interval_ms = 1U,
     .tick_deadline_ms = 120U,
 };

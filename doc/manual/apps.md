@@ -587,8 +587,10 @@ rotates and streams the frame in one controller write sequence. Runtime logs
 report emulation and presentation rates separately.
 
 Audio rendering runs in its own bounded worker and holds exclusive speaker
-output while Game Boy is active. Pausing, suspending, or exiting the app stops
-the synth and releases audio for other applications.
+output while Game Boy is active. RLCD presentation runs independently at about
+20 Hz, temporarily requests the panel's 25.5 Hz HPM profile, and drops stale
+frames instead of blocking emulation. Pausing, suspending, or exiting the app
+stops the synth and restores the previous display and audio policies.
 
 Usage:
 
@@ -602,8 +604,7 @@ Controls:
 - The physical US-Z key position is A; on a German QWERTZ keyboard this key is
   labeled `Y`. The physical X key is B.
 - `Enter` is Start; `Backspace` or `Delete` is Select.
-- `p` pauses, `r` resets, and `o` toggles the core's 30 fps frame skip, which is
-  enabled by default. RLCD presentation remains capped independently.
+- `p` pauses and `r` resets.
 - `q`, `Esc`, or the app-exit key exits.
 
 For a connected BLE keyboard, Game Boy reads the complete six-key HID state in

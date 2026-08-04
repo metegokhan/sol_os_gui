@@ -802,6 +802,7 @@ sources = [
   "apps/solar_os_gameboy.c",
   "apps/solar_os_gameboy_apu.c",
   "apps/solar_os_gameboy_audio.c",
+  "apps/solar_os_gameboy_presenter.c",
   "apps/solar_os_gameboy_rom.c",
   "apps/solar_os_gameboy_video.c",
 ]

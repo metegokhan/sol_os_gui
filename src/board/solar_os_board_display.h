@@ -35,6 +35,10 @@ const char *solar_os_board_display_controller_mode(const solar_os_board_display_
 const char *solar_os_board_display_controller_mode_values(const solar_os_board_display_t *display);
 esp_err_t solar_os_board_display_set_controller_mode(solar_os_board_display_t *display,
                                                      const char *mode);
+esp_err_t solar_os_board_display_set_high_refresh_override(
+    solar_os_board_display_t *display,
+    bool enabled,
+    uint16_t hz_tenths);
 esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *display,
                                                   const uint8_t *bitmap,
                                                   size_t bitmap_size,
