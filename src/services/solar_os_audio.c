@@ -75,6 +75,14 @@ static StaticSemaphore_t audio_operation_mutex_storage;
 static StaticSemaphore_t audio_tone_mutex_storage;
 static portMUX_TYPE audio_mutex_init_lock = portMUX_INITIALIZER_UNLOCKED;
 
+struct solar_os_audio_stream {
+    TaskHandle_t task;
+    bool active;
+    char owner[SOLAR_OS_AUDIO_STREAM_OWNER_MAX];
+};
+
+static struct solar_os_audio_stream audio_output_stream;
+
 static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
                                         uint32_t duration_ms,
                                         uint8_t volume,
@@ -134,6 +142,18 @@ static void audio_operation_give(void)
     if (audio_operation_mutex != NULL) {
         (void)xSemaphoreGive(audio_operation_mutex);
     }
+}
+
+static TickType_t audio_timeout_ticks(uint32_t timeout_ms)
+{
+    if (timeout_ms == UINT32_MAX) {
+        return portMAX_DELAY;
+    }
+    TickType_t ticks = pdMS_TO_TICKS(timeout_ms);
+    if (timeout_ms > 0 && ticks == 0) {
+        ticks = 1;
+    }
+    return ticks;
 }
 
 static void audio_tone_lock(void)
@@ -756,6 +776,96 @@ esp_err_t solar_os_audio_set_mic_gain(float gain_db)
     return ESP_ERR_NOT_SUPPORTED;
 #else
     return solar_os_board_audio_set_mic_gain(gain_db);
+#endif
+}
+
+esp_err_t solar_os_audio_stream_open(const char *owner,
+                                     uint32_t timeout_ms,
+                                     solar_os_audio_stream_t **stream,
+                                     solar_os_audio_stream_format_t *format)
+{
+    if (owner == NULL || owner[0] == '\0' || stream == NULL || format == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *stream = NULL;
+    memset(format, 0, sizeof(*format));
+#if !SOLAR_OS_BOARD_HAS_AUDIO
+    (void)timeout_ms;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    esp_err_t ret = audio_operation_take(audio_timeout_ticks(timeout_ms));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = solar_os_board_audio_init();
+    if (ret != ESP_OK) {
+        audio_operation_give();
+        return ret;
+    }
+    ret = audio_apply_playback_volume(SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+    if (ret != ESP_OK) {
+        audio_operation_give();
+        return ret;
+    }
+
+    solar_os_board_audio_status_t status;
+    solar_os_board_audio_get_status(&status);
+    if (!status.initialized || status.sample_rate == 0 || status.channels == 0 ||
+        status.bits_per_sample == 0) {
+        audio_operation_give();
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    audio_output_stream.task = xTaskGetCurrentTaskHandle();
+    audio_output_stream.active = true;
+    strlcpy(audio_output_stream.owner, owner, sizeof(audio_output_stream.owner));
+    *format = (solar_os_audio_stream_format_t){
+        .sample_rate = status.sample_rate,
+        .channels = status.channels,
+        .bits_per_sample = status.bits_per_sample,
+    };
+    *stream = &audio_output_stream;
+    SOLAR_OS_LOGI(TAG, "stream open: owner=%s %" PRIu32 "Hz %uch %ubit",
+                  audio_output_stream.owner, format->sample_rate,
+                  (unsigned)format->channels,
+                  (unsigned)format->bits_per_sample);
+    return ESP_OK;
+#endif
+}
+
+esp_err_t solar_os_audio_stream_write(solar_os_audio_stream_t *stream,
+                                      const void *data,
+                                      size_t len)
+{
+    if (stream == NULL || data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if !SOLAR_OS_BOARD_HAS_AUDIO
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (stream != &audio_output_stream || !stream->active ||
+        stream->task != xTaskGetCurrentTaskHandle()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return solar_os_board_audio_write(data, len);
+#endif
+}
+
+void solar_os_audio_stream_close(solar_os_audio_stream_t *stream)
+{
+#if SOLAR_OS_BOARD_HAS_AUDIO
+    if (stream != &audio_output_stream || !stream->active ||
+        stream->task != xTaskGetCurrentTaskHandle()) {
+        return;
+    }
+    SOLAR_OS_LOGI(TAG, "stream close: owner=%s", stream->owner);
+    stream->active = false;
+    stream->task = NULL;
+    stream->owner[0] = '\0';
+    audio_operation_give();
+#else
+    (void)stream;
 #endif
 }
 

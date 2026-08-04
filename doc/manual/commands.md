@@ -202,7 +202,7 @@ job for periodic polling.
 
 ```text
 power status
-power profile [performance|balanced|solar|offline]
+power profile [performance|balanced|battery|lowpower]
 power idle [off|seconds]
 power key [off|light]
 power sleep
@@ -212,10 +212,10 @@ Profiles:
 
 | Profile | Behavior |
 | --- | --- |
-| `performance` | Maximum configured CPU frequency, no automatic light sleep. |
-| `balanced` | CPU frequency scaling down to 80 MHz, no automatic light sleep. This is the default. |
-| `solar` | CPU capped at 80 MHz with ESP-IDF automatic light sleep. |
-| `offline` | CPU capped at 80 MHz, automatic light sleep, and display-shell idle sleep after 60 seconds. |
+| `performance` | CPU fixed at 240 MHz, no automatic light sleep. |
+| `balanced` | CPU fixed at 160 MHz, no automatic light sleep. This is the default. |
+| `battery` | CPU fixed at 160 MHz with ESP-IDF automatic light sleep. |
+| `lowpower` | CPU fixed at 80 MHz with automatic light sleep and display-shell idle sleep after 60 seconds. |
 
 `setterm` usage:
 
@@ -524,7 +524,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
 | `battery` | `battery min_voltage [V|mV]` | Show or set low-voltage threshold. |
 | `battery` | `battery max_voltage [V|mV]` | Show or set full/external-power shortcut threshold. |
-| `audio` | `audio status` | Show audio service state and global speaker level. |
+| `audio` | `audio status` | Show audio state, global speaker level, tone queue, and active synth telemetry. |
 | `audio` | `audio tone [hz] [ms] [volume]` | Play a diagnostic tone. |
 | `audio` | `audio tone-async [hz] [ms] [volume]` | Queue a tone and return its request ID immediately. |
 | `audio` | `audio queue` | Show asynchronous tone queue state and counters. |

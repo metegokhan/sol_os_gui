@@ -18,7 +18,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [adc command](commands.md) — Show ADC service status.
 - [agent command](commands.md) — Open a new native LLM agent TUI or make one unsaved foreground request.
 - [apps command](commands.md) — List registered foreground apps compiled into the firmware.
-- [audio command](commands.md) — Show audio service state and global speaker level.
+- [audio command](commands.md) — Show audio state, global speaker level, and active synth telemetry.
 - [battery command](commands.md) — Show voltage, estimated charge, power source, config, and monitor trend.
 - [ble command](commands.md) — Show BLE keyboard state.
 - [board command](commands.md) — Print board ID, name, and capabilities.

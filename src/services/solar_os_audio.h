@@ -16,6 +16,15 @@
 #define SOLAR_OS_AUDIO_TONE_SEQUENCE_MAX_STEPS 8U
 #define SOLAR_OS_AUDIO_TONE_SEQUENCE_MAX_MS 10000U
 #define SOLAR_OS_AUDIO_TONE_QUEUE_CAPACITY 8U
+#define SOLAR_OS_AUDIO_STREAM_OWNER_MAX 24U
+
+typedef struct solar_os_audio_stream solar_os_audio_stream_t;
+
+typedef struct {
+    uint32_t sample_rate;
+    uint8_t channels;
+    uint8_t bits_per_sample;
+} solar_os_audio_stream_format_t;
 
 typedef struct {
     bool initialized;
@@ -98,6 +107,19 @@ void solar_os_audio_deinit(void);
 esp_err_t solar_os_audio_set_volume(uint8_t volume);
 esp_err_t solar_os_audio_toggle_mute(uint8_t *volume_after);
 esp_err_t solar_os_audio_set_mic_gain(float gain_db);
+/*
+ * Claim the output until solar_os_audio_stream_close(). The caller that opens
+ * the stream must also write and close it. Samples use the native board PCM
+ * format returned through format. A timeout of UINT32_MAX waits indefinitely.
+ */
+esp_err_t solar_os_audio_stream_open(const char *owner,
+                                     uint32_t timeout_ms,
+                                     solar_os_audio_stream_t **stream,
+                                     solar_os_audio_stream_format_t *format);
+esp_err_t solar_os_audio_stream_write(solar_os_audio_stream_t *stream,
+                                      const void *data,
+                                      size_t len);
+void solar_os_audio_stream_close(solar_os_audio_stream_t *stream);
 esp_err_t solar_os_audio_play_tone(uint32_t frequency_hz, uint32_t duration_ms, uint8_t volume);
 esp_err_t solar_os_audio_tone_enqueue(const solar_os_audio_tone_request_t *request,
                                       uint32_t *request_id);
