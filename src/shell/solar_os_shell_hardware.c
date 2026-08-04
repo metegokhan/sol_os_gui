@@ -49,7 +49,9 @@ static const char * const disk_subcommands[] = {
 static const char * const battery_subcommands[] = {"status", "config", "capacity", "min_voltage", "max_voltage"};
 static const char * const ble_subcommands[] = {"status", "scan", "pair", "cancel", "forget", "gatt"};
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "disconnect", "services", "chars", "read", "write", "write-nr"};
-static const char * const audio_subcommands[] = {"status", "tone", "level", "mic", "loopback", "off"};
+static const char * const audio_subcommands[] = {
+    "status", "tone", "tone-async", "queue", "cancel", "level", "mic", "loopback", "off",
+};
 static const char * const uart_subcommands[] = {"status", "baud", "mode", "write", "read"};
 static const char * const led_subcommands[] = {"status", "on", "off", "toggle"};
 static const char * const gpio_subcommands[] = {"status", "list", "mode", "read", "write", "release"};
@@ -1482,6 +1484,14 @@ static void audio_print_status(solar_os_shell_io_t *term)
                                  status.dout_pin,
                                  status.din_pin);
     }
+
+    solar_os_audio_tone_queue_status_t queue;
+    solar_os_audio_tone_queue_get_status(&queue);
+    solar_os_shell_io_printf(term,
+                             "Tone queue: %u queued, %s, current %" PRIu32 "\n",
+                             (unsigned)queue.queued,
+                             queue.playing ? "playing" : "idle",
+                             queue.current_id);
 }
 
 static void audio_print_usage(solar_os_shell_io_t *term)
@@ -1489,6 +1499,9 @@ static void audio_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  audio status");
     solar_os_shell_io_writeln(term, "  audio tone [hz] [ms] [volume]");
+    solar_os_shell_io_writeln(term, "  audio tone-async [hz] [ms] [volume]");
+    solar_os_shell_io_writeln(term, "  audio queue");
+    solar_os_shell_io_writeln(term, "  audio cancel <request-id>");
     solar_os_shell_io_writeln(term, "  audio level [volume]");
     solar_os_shell_io_writeln(term, "  audio mic [ms]");
     solar_os_shell_io_writeln(term, "  audio loopback [ms] [volume]");
@@ -1548,6 +1561,113 @@ static void audio_cmd_tone(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
     solar_os_shell_io_writeln(term, "audio tone: done");
+}
+
+static void audio_cmd_tone_async(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    uint32_t frequency_hz = 880;
+    uint32_t duration_ms = 500;
+    uint8_t volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL;
+
+    if (argc > 5) {
+        solar_os_shell_diag_unexpected(term, "audio tone-async", argv[5],
+                                       "audio tone-async [hz] [ms] [volume]");
+        return;
+    }
+    if (argc >= 3 && !audio_parse_frequency(argv[2], &frequency_hz)) {
+        solar_os_shell_diag_invalid(term, "audio tone-async", "frequency", argv[2],
+                                    "a supported frequency in Hz",
+                                    "audio tone-async [hz] [ms] [volume]", false);
+        return;
+    }
+    if (argc >= 4 && !audio_parse_duration(argv[3], &duration_ms)) {
+        solar_os_shell_diag_invalid(term, "audio tone-async", "duration-ms", argv[3],
+                                    "a positive duration within the test limit",
+                                    "audio tone-async [hz] [ms] [volume]", false);
+        return;
+    }
+    if (argc >= 5 && (!parse_u8(argv[4], &volume) || volume > 100)) {
+        solar_os_shell_diag_invalid(term, "audio tone-async", "volume", argv[4],
+                                    "an integer from 0 to 100",
+                                    "audio tone-async [hz] [ms] [volume]", false);
+        return;
+    }
+
+    const solar_os_audio_tone_step_t step = {
+        .frequency_hz = frequency_hz,
+        .duration_ms = duration_ms,
+    };
+    const solar_os_audio_tone_request_t request = {
+        .steps = &step,
+        .step_count = 1,
+        .volume = volume,
+    };
+    uint32_t request_id = 0;
+    const esp_err_t err = solar_os_audio_tone_enqueue(&request, &request_id);
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "audio tone-async failed: %s\n",
+                                 solar_os_shell_error_text(err));
+        return;
+    }
+    solar_os_shell_io_printf(term, "audio tone queued: %" PRIu32 "\n", request_id);
+}
+
+static void audio_cmd_queue(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc > 2) {
+        solar_os_shell_diag_unexpected(term, "audio queue", argv[2], "audio queue");
+        return;
+    }
+    solar_os_audio_tone_queue_status_t status;
+    solar_os_audio_tone_queue_get_status(&status);
+    solar_os_shell_io_printf(term,
+                             "Worker: %s\nPlaying: %s\nCurrent: %" PRIu32
+                             "\nQueued: %u/%u\nCompleted: %" PRIu32
+                             "\nCancelled: %" PRIu32 "\nDropped: %" PRIu32
+                             "\nFailed: %" PRIu32 "\n",
+                             status.worker_running ? "running" : "stopped",
+                             status.playing ? "yes" : "no",
+                             status.current_id,
+                             (unsigned)status.queued,
+                             (unsigned)SOLAR_OS_AUDIO_TONE_QUEUE_CAPACITY,
+                             status.completed,
+                             status.cancelled,
+                             status.dropped,
+                             status.failed);
+}
+
+static void audio_cmd_cancel(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc != 3) {
+        if (argc > 3) {
+            solar_os_shell_diag_unexpected(term, "audio cancel", argv[3],
+                                           "audio cancel <request-id>");
+        } else {
+            solar_os_shell_io_writeln(term, "usage: audio cancel <request-id>");
+        }
+        return;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    const unsigned long value = strtoul(argv[2], &end, 10);
+    if (errno != 0 || end == argv[2] || *end != '\0' || value == 0 || value > UINT32_MAX) {
+        solar_os_shell_diag_invalid(term, "audio cancel", "request ID", argv[2],
+                                    "a decimal request ID",
+                                    "audio cancel <request-id>", false);
+        return;
+    }
+
+    const esp_err_t err = solar_os_audio_tone_cancel((uint32_t)value);
+    if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(term, "audio request %lu not found\n", value);
+    } else if (err != ESP_OK) {
+        solar_os_shell_io_printf(term, "audio cancel failed: %s\n",
+                                 solar_os_shell_error_text(err));
+    } else {
+        solar_os_shell_io_printf(term, "audio request %lu cancelled\n", value);
+    }
 }
 
 static void audio_cmd_level(solar_os_shell_io_t *term, int argc, char **argv)
@@ -1675,6 +1795,12 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "tone") == 0) {
         audio_cmd_tone(term, argc, argv);
+    } else if (strcmp(argv[1], "tone-async") == 0) {
+        audio_cmd_tone_async(term, argc, argv);
+    } else if (strcmp(argv[1], "queue") == 0) {
+        audio_cmd_queue(term, argc, argv);
+    } else if (strcmp(argv[1], "cancel") == 0) {
+        audio_cmd_cancel(term, argc, argv);
     } else if (strcmp(argv[1], "level") == 0) {
         audio_cmd_level(term, argc, argv);
     } else if (strcmp(argv[1], "mic") == 0) {
@@ -1698,7 +1824,7 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_shell_io_writeln(term, "audio: off");
     } else {
         solar_os_shell_diag_subcommand(term, "audio", argc, argv,
-                                       "audio [status|tone|level|mic|loopback|off] ...",
+                                       "audio [status|tone|tone-async|queue|cancel|level|mic|loopback|off] ...",
                                        audio_subcommands,
                                        sizeof(audio_subcommands) / sizeof(audio_subcommands[0]));
     }

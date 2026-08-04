@@ -295,12 +295,17 @@ static void inbox_app_render_list(void)
     }
 
     if (rows > 0) {
+        snprintf(line,
+                 sizeof(line),
+                 "Enter open  d delete  u filter  m read  s sound:%s  q quit",
+                 !inbox_app.status.sound_available ? "n/a" :
+                     (inbox_app.status.sound_enabled ? "on" : "off"));
         inbox_app_write_cell(rows - 1U,
                              0,
                              cols,
                              inbox_app.feedback[0] != '\0' ?
                                  inbox_app.feedback :
-                                 "Enter open  d delete  u filter  m read  q quit",
+                                 line,
                              SOLAR_OS_TUI_ATTR_INVERSE);
     }
 }
@@ -552,6 +557,31 @@ static void inbox_app_delete_selected(void)
     inbox_app_refresh();
 }
 
+static void inbox_app_toggle_sound(void)
+{
+    if (!inbox_app.status.sound_available) {
+        strlcpy(inbox_app.feedback,
+                "Notification sound unavailable",
+                sizeof(inbox_app.feedback));
+        return;
+    }
+
+    const bool enabled = !inbox_app.status.sound_enabled;
+    const esp_err_t error = solar_os_inbox_set_sound_enabled(enabled);
+    if (error != ESP_OK) {
+        snprintf(inbox_app.feedback,
+                 sizeof(inbox_app.feedback),
+                 "Sound setting failed: %s",
+                 esp_err_to_name(error));
+        return;
+    }
+    inbox_app.status.sound_enabled = enabled;
+    snprintf(inbox_app.feedback,
+             sizeof(inbox_app.feedback),
+             "Notification sound %s",
+             enabled ? "on" : "off");
+}
+
 static void inbox_app_move(int delta)
 {
     if (inbox_app.count == 0) {
@@ -754,6 +784,10 @@ static bool inbox_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
     case 'r':
     case 'R':
         inbox_app_refresh();
+        break;
+    case 's':
+    case 'S':
+        inbox_app_toggle_sound();
         break;
     default:
         return true;

@@ -144,6 +144,12 @@ then links the returned Inbox ID using the message key and the current
 generation. Marking a message read updates its linked Inbox entry after
 releasing the messaging lock.
 
+Inbox notification sound is an opt-in persisted policy and defaults to off.
+Only a newly committed, non-duplicate entry can request it. Bursts are
+coalesced, and the request is dropped while another audio user is active.
+`service.audio` owns the bounded tone queue, playback serialization, and
+cancellation; Inbox never drives board audio directly.
+
 Deleting a retained message also deletes its linked Inbox projection. Provider
 history can be cleared independently with `messages clear gateway`,
 `messages clear meshcore`, or `messages clear link`; `messages clear all`

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -12,6 +13,9 @@
 #define SOLAR_OS_AUDIO_WAV_MAX_MS (60U * 60U * 1000U)
 #define SOLAR_OS_AUDIO_WAV_DEFAULT_PROGRESS_MS 1000U
 #define SOLAR_OS_AUDIO_VOLUME_GLOBAL 255U
+#define SOLAR_OS_AUDIO_TONE_SEQUENCE_MAX_STEPS 8U
+#define SOLAR_OS_AUDIO_TONE_SEQUENCE_MAX_MS 10000U
+#define SOLAR_OS_AUDIO_TONE_QUEUE_CAPACITY 8U
 
 typedef struct {
     bool initialized;
@@ -36,6 +40,32 @@ typedef struct {
     uint8_t peak_percent;
     uint8_t average_percent;
 } solar_os_audio_level_t;
+
+typedef struct {
+    uint32_t frequency_hz;
+    uint32_t duration_ms;
+    uint32_t pause_ms;
+} solar_os_audio_tone_step_t;
+
+typedef struct {
+    /* The service copies the steps before this call returns. */
+    const solar_os_audio_tone_step_t *steps;
+    size_t step_count;
+    uint8_t volume;
+    /* Drop instead of waiting when another audio operation is active. */
+    bool drop_if_busy;
+} solar_os_audio_tone_request_t;
+
+typedef struct {
+    bool worker_running;
+    bool playing;
+    size_t queued;
+    uint32_t current_id;
+    uint32_t completed;
+    uint32_t cancelled;
+    uint32_t dropped;
+    uint32_t failed;
+} solar_os_audio_tone_queue_status_t;
 
 typedef struct {
     uint32_t sample_rate;
@@ -69,6 +99,10 @@ esp_err_t solar_os_audio_set_volume(uint8_t volume);
 esp_err_t solar_os_audio_toggle_mute(uint8_t *volume_after);
 esp_err_t solar_os_audio_set_mic_gain(float gain_db);
 esp_err_t solar_os_audio_play_tone(uint32_t frequency_hz, uint32_t duration_ms, uint8_t volume);
+esp_err_t solar_os_audio_tone_enqueue(const solar_os_audio_tone_request_t *request,
+                                      uint32_t *request_id);
+esp_err_t solar_os_audio_tone_cancel(uint32_t request_id);
+void solar_os_audio_tone_queue_get_status(solar_os_audio_tone_queue_status_t *status);
 esp_err_t solar_os_audio_measure_level(uint32_t duration_ms, solar_os_audio_level_t *level);
 esp_err_t solar_os_audio_measure_channel_level(uint8_t channel,
                                                uint32_t duration_ms,

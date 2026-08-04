@@ -467,6 +467,10 @@ Each list item occupies exactly one terminal row: unread/priority markers,
 local reception date and time, a compact source (`chat/general`, `email`, or
 `pocsag`), and as much of the message body preview as fits the screen.
 
+Optional notification sound is disabled by default. Press `s` in the Inbox or
+use `inbox notify on`, `inbox notify off`, or `inbox notify test`; the setting
+is persistent and is available only on boards with audio output.
+
 Usage:
 
 ```text
@@ -480,6 +484,7 @@ Controls:
 - `Left`, `Backspace`, or `Esc` returns from a message to the list.
 - `u` toggles the unread-only filter.
 - `m` toggles the selected message between read and unread.
+- `s` toggles the notification sound on boards with audio output.
 - `r` refreshes and `q` or the app-exit key exits.
 
 ## email
@@ -654,7 +659,9 @@ Controls:
 
 - `Up`/`Down` navigate.
 - `Space` toggles an item.
-- `a` adds an item.
+- `a` adds an unchecked item below the selected item. On a category, it adds the
+  first item in that category; from the done section, it adds at the end of the
+  active items.
 - `c` adds a category.
 - `Enter` edits the selected line.
 - `d` or `Delete` deletes the selected item/category.

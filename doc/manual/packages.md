@@ -84,7 +84,9 @@ independent local gateway server.
 
 Inbox storage and presentation are also separate. Producers such as mail and
 POCSAG depend only on `service.inbox`; it owns the bounded persistent ring under
-`/.inbox/`, durable read state, and producer-key replay suppression.
+`/.inbox/`, durable read state, producer-key replay suppression, and the
+persisted opt-in notification-sound policy. Audio-capable builds enqueue the
+sound through `service.audio`; Inbox remains available without audio hardware.
 `app.inbox` adds the foreground browser and its shell command.
 
 ## Custom Flavor Example

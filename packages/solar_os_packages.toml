@@ -274,7 +274,7 @@ sources = ["shell/solar_os_shell_hardware.c"]
 [packages.service_inbox]
 label = "service.inbox"
 sources = ["services/solar_os_inbox.c"]
-requires = ["esp_timer", "heap"]
+requires = ["esp_timer", "heap", "nvs_flash"]
 
 [packages.service_contacts]
 label = "service.contacts"

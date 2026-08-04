@@ -89,6 +89,7 @@ typedef struct {
     uint32_t input_item_id;
     uint32_t input_category_id;
     size_t input_insert_category;
+    size_t input_insert_item;
     char input[NOTES_TEXT_MAX];
     size_t input_len;
     size_t input_cursor;
@@ -281,7 +282,11 @@ static uint32_t notes_default_category_id(void)
     return id;
 }
 
-static bool notes_add_item(uint32_t category_id, bool checked, const char *text, uint32_t *item_id)
+static bool notes_add_item_at(size_t index,
+                              uint32_t category_id,
+                              bool checked,
+                              const char *text,
+                              uint32_t *item_id)
 {
     if (notes.item_count >= NOTES_MAX_ITEMS) {
         notes_set_message("item limit reached");
@@ -290,13 +295,21 @@ static bool notes_add_item(uint32_t category_id, bool checked, const char *text,
     if (category_id == 0 || notes_find_category_index(category_id) == SIZE_MAX) {
         category_id = notes_default_category_id();
     }
+    if (index > notes.item_count) {
+        index = notes.item_count;
+    }
 
-    notes_item_t *item = &notes.items[notes.item_count++];
+    for (size_t i = notes.item_count; i > index; i--) {
+        notes.items[i] = notes.items[i - 1U];
+    }
+
+    notes_item_t *item = &notes.items[index];
     memset(item, 0, sizeof(*item));
     item->id = notes.next_id++;
     item->category_id = category_id;
     item->checked = checked;
     strlcpy(item->text, text != NULL ? text : "", sizeof(item->text));
+    notes.item_count++;
     if (item_id != NULL) {
         *item_id = item->id;
     }
@@ -842,7 +855,7 @@ static esp_err_t notes_load(void)
             if (current_category == 0) {
                 current_category = notes_default_category_id();
             }
-            (void)notes_add_item(current_category, checked, text, NULL);
+            (void)notes_add_item_at(notes.item_count, current_category, checked, text, NULL);
             seen_content = true;
         } else if (!seen_content) {
             notes_add_preamble(line);
@@ -887,6 +900,46 @@ static size_t notes_selected_category_insert_index(void)
     return row->category + 1U;
 }
 
+static size_t notes_category_item_start(uint32_t category_id)
+{
+    const size_t category = notes_find_category_index(category_id);
+    if (category == SIZE_MAX) {
+        return notes.item_count;
+    }
+
+    for (size_t current = category; current < notes.category_count; current++) {
+        for (size_t item = 0; item < notes.item_count; item++) {
+            if (notes.items[item].category_id == notes.categories[current].id) {
+                return item;
+            }
+        }
+    }
+    return notes.item_count;
+}
+
+static size_t notes_selected_item_insert_index(uint32_t category_id)
+{
+    const notes_view_row_t *row = notes_current_row();
+    if (row == NULL || row->type == NOTES_VIEW_CATEGORY) {
+        return notes_category_item_start(category_id);
+    }
+    if (row->type == NOTES_VIEW_ITEM &&
+        row->item < notes.item_count &&
+        !notes.items[row->item].checked) {
+        return row->item + 1U;
+    }
+
+    /* New items are unchecked, so keep them immediately before the done section. */
+    size_t insert = notes_category_item_start(category_id);
+    for (size_t item = insert; item < notes.item_count; item++) {
+        if (notes.items[item].category_id != category_id || notes.items[item].checked) {
+            break;
+        }
+        insert = item + 1U;
+    }
+    return insert;
+}
+
 static void notes_input_clear(notes_input_mode_t mode)
 {
     notes.input_mode = mode;
@@ -897,12 +950,14 @@ static void notes_input_clear(notes_input_mode_t mode)
     notes.input_item_id = 0;
     notes.input_category_id = 0;
     notes.input_insert_category = notes.category_count;
+    notes.input_insert_item = notes.item_count;
 }
 
 static void notes_start_add_item(void)
 {
     notes_input_clear(NOTES_INPUT_ADD_ITEM);
     notes.input_category_id = notes_selected_category_id();
+    notes.input_insert_item = notes_selected_item_insert_index(notes.input_category_id);
     const size_t category = notes_find_category_index(notes.input_category_id);
     if (category != SIZE_MAX) {
         notes.categories[category].collapsed = false;
@@ -949,7 +1004,11 @@ static void notes_finish_input(void)
     if (notes.input_mode == NOTES_INPUT_ADD_ITEM) {
         if (notes.input_len > 0) {
             uint32_t id = 0;
-            if (notes_add_item(notes.input_category_id, false, notes.input, &id)) {
+            if (notes_add_item_at(notes.input_insert_item,
+                                  notes.input_category_id,
+                                  false,
+                                  notes.input,
+                                  &id)) {
                 notes_reorder_items(NOTES_SELECT_ITEM, id);
                 keep_kind = NOTES_SELECT_ITEM;
                 keep_id = id;
@@ -994,6 +1053,7 @@ static void notes_finish_input(void)
     notes.input_item_id = 0;
     notes.input_category_id = 0;
     notes.input_insert_category = 0;
+    notes.input_insert_item = 0;
     notes_build_view(keep_kind, keep_id);
 }
 
@@ -1007,6 +1067,7 @@ static void notes_cancel_input(void)
     notes.input_item_id = 0;
     notes.input_category_id = 0;
     notes.input_insert_category = 0;
+    notes.input_insert_item = 0;
     notes_set_message("cancelled");
 }
 
