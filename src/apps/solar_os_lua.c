@@ -3024,6 +3024,45 @@ static int solua_audio_tone(lua_State *L)
                                                                       SOLAR_OS_AUDIO_VOLUME_GLOBAL)));
 }
 
+static int solua_audio_tone_async(lua_State *L)
+{
+    const solar_os_audio_tone_step_t step = {
+        .frequency_hz = solua_check_u32(L, 1),
+        .duration_ms = solua_check_u32(L, 2),
+    };
+    const solar_os_audio_tone_request_t request = {
+        .steps = &step,
+        .step_count = 1,
+        .volume = solua_optional_u8(L, 3, SOLAR_OS_AUDIO_VOLUME_GLOBAL),
+    };
+    uint32_t request_id = 0;
+    (void)solua_check_esp(L, solar_os_audio_tone_enqueue(&request, &request_id));
+    lua_pushinteger(L, request_id);
+    return 1;
+}
+
+static int solua_audio_cancel(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_audio_tone_cancel(solua_check_u32(L, 1)));
+}
+
+static int solua_audio_queue_status(lua_State *L)
+{
+    solar_os_audio_tone_queue_status_t status;
+    solar_os_audio_tone_queue_get_status(&status);
+
+    lua_newtable(L);
+    solua_set_bool(L, -1, "worker_running", status.worker_running);
+    solua_set_bool(L, -1, "playing", status.playing);
+    solua_set_int(L, -1, "queued", status.queued);
+    solua_set_int(L, -1, "current_id", status.current_id);
+    solua_set_int(L, -1, "completed", status.completed);
+    solua_set_int(L, -1, "cancelled", status.cancelled);
+    solua_set_int(L, -1, "dropped", status.dropped);
+    solua_set_int(L, -1, "failed", status.failed);
+    return 1;
+}
+
 static int solua_audio_level(lua_State *L)
 {
     solar_os_audio_level_t level;
@@ -4603,6 +4642,9 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "set_volume", solua_audio_set_volume);
     solua_set_func(L, mod, "set_mic_gain", solua_audio_set_mic_gain);
     solua_set_func(L, mod, "tone", solua_audio_tone);
+    solua_set_func(L, mod, "tone_async", solua_audio_tone_async);
+    solua_set_func(L, mod, "cancel", solua_audio_cancel);
+    solua_set_func(L, mod, "queue_status", solua_audio_queue_status);
     solua_set_func(L, mod, "level", solua_audio_level);
     solua_set_func(L, mod, "loopback", solua_audio_loopback);
     solua_set_func(L, mod, "wav_info", solua_audio_wav_info);

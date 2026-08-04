@@ -663,6 +663,9 @@ Audio functions expose the microphone, speaker, and WAV service.
 - `set_volume(volume)`: set speaker volume.
 - `set_mic_gain(gain_db)`: set microphone gain.
 - `tone(frequency_hz, duration_ms[, volume])`: play a tone.
+- `tone_async(frequency_hz, duration_ms[, volume])`: queue a tone and return its request ID.
+- `cancel(request_id)`: cancel a queued or playing asynchronous tone.
+- `queue_status()`: return asynchronous tone worker, queue, and result counters.
 - `level(duration_ms)`: measure input level and return samples, peak, and average percent.
 - `loopback(duration_ms[, volume])`: run microphone-to-speaker loopback.
 - `wav_info(path)`: inspect a WAV file.
@@ -676,6 +679,8 @@ import solaros
 
 print(solaros.audio.status())
 solaros.audio.tone(880, 200, 40)
+sound = solaros.audio.tone_async(1175, 70)
+print(solaros.audio.queue_status())
 print(solaros.audio.level(500))
 ```
 

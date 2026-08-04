@@ -780,9 +780,10 @@ static const char * const on_off_values[] = {"on", "off"};
 
 #if SOLAR_OS_PACKAGE_APP_INBOX
 static const char * const inbox_subcommands[] = {
-    "status", "list", "read", "delete", "clear", "post"
+    "status", "list", "read", "delete", "clear", "post", "notify"
 };
 static const char * const inbox_list_values[] = {"all", "unread"};
+static const char * const inbox_notify_values[] = {"on", "off", "test"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 static const char * const contacts_subcommands[] = {
@@ -977,6 +978,9 @@ static const char * const battery_max_voltage_values[] = {"4.1", "4.2", "4100", 
 static const char * const audio_subcommands[] = {
     "status",
     "tone",
+    "tone-async",
+    "queue",
+    "cancel",
     "level",
     "mic",
     "loopback",
@@ -1203,6 +1207,7 @@ static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
 static const char * const path_inbox_read[] = {"inbox", "read"};
 static const char * const path_inbox_delete[] = {"inbox", "delete"};
+static const char * const path_inbox_notify[] = {"inbox", "notify"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 static const char * const path_contacts[] = {"contacts"};
@@ -1758,6 +1763,16 @@ static const char * const path_audio_tone_hz[] = {"audio", "tone", SHELL_COMPLET
 static const char * const path_audio_tone_ms[] = {
     "audio",
     "tone",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
+static const char * const path_audio_tone_async[] = {"audio", "tone-async"};
+static const char * const path_audio_tone_async_hz[] = {
+    "audio", "tone-async", SHELL_COMPLETION_ANY,
+};
+static const char * const path_audio_tone_async_ms[] = {
+    "audio",
+    "tone-async",
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
@@ -2329,6 +2344,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_inbox_list, inbox_list_values),
     SHELL_COMPLETION_INBOX_IDS(path_inbox_read),
     SHELL_COMPLETION_INBOX_IDS(path_inbox_delete),
+    SHELL_COMPLETION_STATIC(path_inbox_notify, inbox_notify_values),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
     SHELL_COMPLETION_STATIC(path_contacts, contacts_subcommands),
@@ -2474,6 +2490,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_audio_tone, audio_hz_values),
     SHELL_COMPLETION_STATIC(path_audio_tone_hz, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_tone_ms, audio_volume_values),
+    SHELL_COMPLETION_STATIC(path_audio_tone_async, audio_hz_values),
+    SHELL_COMPLETION_STATIC(path_audio_tone_async_hz, audio_ms_values),
+    SHELL_COMPLETION_STATIC(path_audio_tone_async_ms, audio_volume_values),
     SHELL_COMPLETION_STATIC(path_audio_level, audio_volume_values),
     SHELL_COMPLETION_STATIC(path_audio_mic, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_loopback, audio_ms_values),

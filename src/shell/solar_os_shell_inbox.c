@@ -13,7 +13,7 @@
 #include "solar_os_shell_common.h"
 
 static const char * const inbox_commands[] = {
-    "status", "list", "read", "delete", "clear", "post",
+    "status", "list", "read", "delete", "clear", "post", "notify",
 };
 #include "solar_os_shell_io.h"
 
@@ -34,6 +34,7 @@ static void inbox_print_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  inbox delete <id>");
     solar_os_shell_io_writeln(io, "  inbox clear");
     solar_os_shell_io_writeln(io, "  inbox post <source> <message>");
+    solar_os_shell_io_writeln(io, "  inbox notify [on|off|test]");
 }
 
 static bool inbox_parse_id(const char *text, uint32_t *id)
@@ -81,6 +82,78 @@ static void inbox_cmd_status(solar_os_shell_io_t *io)
                                  solar_os_shell_error_text(status.storage_error));
     }
     solar_os_shell_io_printf(io, "Dropped: %lu\n", (unsigned long)status.dropped);
+    solar_os_shell_io_printf(io,
+                             "Sound: %s\n",
+                             !status.sound_available ? "unavailable" :
+                                 (status.sound_enabled ? "on" : "off"));
+}
+
+static void inbox_cmd_notify_status(solar_os_shell_io_t *io)
+{
+    solar_os_inbox_status_t status;
+    const esp_err_t err = solar_os_inbox_get_status(&status);
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(io, "inbox notify: unavailable: %s\n",
+                                 solar_os_shell_error_text(err));
+        return;
+    }
+    solar_os_shell_io_printf(io,
+                             "inbox notification sound: %s\n",
+                             !status.sound_available ? "unavailable" :
+                                 (status.sound_enabled ? "on" : "off"));
+}
+
+static void inbox_cmd_notify(solar_os_shell_io_t *io, int argc, char **argv)
+{
+    if (argc == 2) {
+        inbox_cmd_notify_status(io);
+        return;
+    }
+    if (argc > 3) {
+        solar_os_shell_diag_unexpected(io, "inbox notify", argv[3],
+                                       "inbox notify [on|off|test]");
+        return;
+    }
+
+    if (strcmp(argv[2], "test") == 0) {
+        uint32_t request_id = 0;
+        const esp_err_t err = solar_os_inbox_test_sound(&request_id);
+        if (err != ESP_OK) {
+            solar_os_shell_io_printf(io, "inbox notify test failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "inbox notification sound queued: %lu\n",
+                                     (unsigned long)request_id);
+        }
+        return;
+    }
+
+    bool enabled;
+    if (strcmp(argv[2], "on") == 0) {
+        enabled = true;
+    } else if (strcmp(argv[2], "off") == 0) {
+        enabled = false;
+    } else {
+        solar_os_shell_diag_invalid(io,
+                                    "inbox notify",
+                                    "mode",
+                                    argv[2],
+                                    "on, off, or test",
+                                    "inbox notify [on|off|test]",
+                                    false);
+        return;
+    }
+
+    const esp_err_t err = solar_os_inbox_set_sound_enabled(enabled);
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(io, "inbox notify failed: %s\n",
+                                 solar_os_shell_error_text(err));
+        return;
+    }
+    solar_os_shell_io_printf(io,
+                             "inbox notification sound: %s\n",
+                             enabled ? "on" : "off");
 }
 
 static char inbox_priority_marker(solar_os_inbox_priority_t priority)
@@ -186,6 +259,14 @@ static void inbox_cmd_read(solar_os_shell_io_t *io, uint32_t id)
 
 static void inbox_cmd_post(solar_os_shell_io_t *io, int argc, char **argv)
 {
+    if (argc < 4) {
+        solar_os_shell_diag_missing(io,
+                                    "inbox post",
+                                    argc < 3 ? "<source>" : "<message>",
+                                    "inbox post <source> <message>");
+        return;
+    }
+
     char body[SOLAR_OS_INBOX_BODY_MAX] = {0};
     size_t used = 0;
     for (int i = 3; i < argc; i++) {
@@ -299,8 +380,12 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
         }
         return;
     }
-    if (strcmp(argv[1], "post") == 0 && argc >= 4) {
+    if (strcmp(argv[1], "post") == 0) {
         inbox_cmd_post(io, argc, argv);
+        return;
+    }
+    if (strcmp(argv[1], "notify") == 0) {
+        inbox_cmd_notify(io, argc, argv);
         return;
     }
 
@@ -308,7 +393,7 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
                                    "inbox",
                                    argc,
                                    argv,
-                                   "inbox status|list|read|delete|clear|post",
+                                   "inbox status|list|read|delete|clear|post|notify",
                                    inbox_commands,
                                    sizeof(inbox_commands) / sizeof(inbox_commands[0]));
 }

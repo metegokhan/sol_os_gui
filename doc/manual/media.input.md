@@ -39,6 +39,7 @@ content after use.
 ## Quick reference
 
 solaros.audio provides status, deinit or off, set_volume, set_mic_gain, tone,
-level, loopback, wav_info, record_wav, and play_wav. solaros.ble provides
+tone_async, cancel, queue_status, level, loopback, wav_info, record_wav, and
+play_wav. solaros.ble provides
 status, connected, pair, forget, layout, read. solaros.clipboard provides set,
 get, size, clear. Audio and BLE are package-gated.

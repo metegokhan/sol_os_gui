@@ -82,6 +82,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `inbox` | `inbox delete <id>` | Delete one message by its decimal ID. |
 | `inbox` | `inbox clear` | Remove every message. |
 | `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
+| `inbox` | `inbox notify [on\|off\|test]` | Show, persist, disable, or test the optional Inbox notification sound. It defaults to off and is unavailable on boards without audio output. |
 | `contacts` | `contacts` | Open the searchable provider-neutral contact browser. |
 | `contacts` | `contacts status` | Show contact, endpoint, persistence, PSRAM, and opaque-credential counts. |
 | `contacts` | `contacts list [all\|discovered\|trusted\|blocked]` | List contacts, optionally filtered by endpoint trust. |
@@ -525,6 +526,9 @@ and writes the inactive ESP-IDF OTA partition.
 | `battery` | `battery max_voltage [V|mV]` | Show or set full/external-power shortcut threshold. |
 | `audio` | `audio status` | Show audio service state and global speaker level. |
 | `audio` | `audio tone [hz] [ms] [volume]` | Play a diagnostic tone. |
+| `audio` | `audio tone-async [hz] [ms] [volume]` | Queue a tone and return its request ID immediately. |
+| `audio` | `audio queue` | Show asynchronous tone queue state and counters. |
+| `audio` | `audio cancel <request-id>` | Cancel a queued or playing asynchronous tone request. |
 | `audio` | `audio level [volume]` | Show or set global speaker level. |
 | `audio` | `audio mic [ms]` | Sample microphone level. |
 | `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |

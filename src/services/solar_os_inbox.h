@@ -64,6 +64,8 @@ typedef struct {
     bool persistent;
     size_t storage_limit_bytes;
     esp_err_t storage_error;
+    bool sound_available;
+    bool sound_enabled;
 } solar_os_inbox_status_t;
 
 esp_err_t solar_os_inbox_init(void);
@@ -82,5 +84,7 @@ size_t solar_os_inbox_snapshot(solar_os_inbox_entry_t *entries,
                                bool unread_only,
                                size_t *total_entries);
 esp_err_t solar_os_inbox_get_status(solar_os_inbox_status_t *status);
+esp_err_t solar_os_inbox_set_sound_enabled(bool enabled);
+esp_err_t solar_os_inbox_test_sound(uint32_t *request_id);
 esp_err_t solar_os_inbox_clear(void);
 const char *solar_os_inbox_priority_name(solar_os_inbox_priority_t priority);

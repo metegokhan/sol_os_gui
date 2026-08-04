@@ -11,6 +11,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "nvs.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+#include "solar_os_audio.h"
+#include "solar_os_board_caps.h"
+#endif
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
@@ -20,6 +26,9 @@
 #define INBOX_STORE_VERSION 2U
 #define INBOX_STORE_HEADER_COPIES 2U
 #define INBOX_EPOCH_MIN_MS 1577836800000ULL
+#define INBOX_NVS_NAMESPACE "inbox"
+#define INBOX_NVS_SOUND_KEY "sound"
+#define INBOX_SOUND_COALESCE_MS 1000U
 
 typedef struct {
     solar_os_inbox_entry_t entry;
@@ -66,7 +75,79 @@ static bool inbox_persistent;
 static uint32_t inbox_store_generation;
 static esp_err_t inbox_storage_error = ESP_ERR_INVALID_STATE;
 static char inbox_store_path[SOLAR_OS_STORAGE_PATH_MAX];
+static bool inbox_sound_enabled;
+static uint32_t inbox_last_sound_ms;
 static const char *TAG = "inbox";
+
+static void inbox_lock(void);
+static void inbox_unlock(void);
+
+static bool inbox_sound_available(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    return solar_os_board_has(SOLAR_OS_BOARD_CAP_AUDIO);
+#else
+    return false;
+#endif
+}
+
+static void inbox_load_sound_setting(void)
+{
+    inbox_sound_enabled = false;
+    if (!inbox_sound_available()) {
+        return;
+    }
+
+    nvs_handle_t nvs;
+    if (nvs_open(INBOX_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
+        return;
+    }
+    uint8_t enabled = 0;
+    if (nvs_get_u8(nvs, INBOX_NVS_SOUND_KEY, &enabled) == ESP_OK) {
+        inbox_sound_enabled = enabled != 0;
+    }
+    nvs_close(nvs);
+}
+
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+static esp_err_t inbox_enqueue_sound(bool drop_if_busy, uint32_t *request_id)
+{
+    static const solar_os_audio_tone_step_t steps[] = {
+        {.frequency_hz = 880U, .duration_ms = 55U, .pause_ms = 35U},
+        {.frequency_hz = 1175U, .duration_ms = 70U},
+    };
+    const solar_os_audio_tone_request_t request = {
+        .steps = steps,
+        .step_count = sizeof(steps) / sizeof(steps[0]),
+        .volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL,
+        .drop_if_busy = drop_if_busy,
+    };
+    return solar_os_audio_tone_enqueue(&request, request_id);
+}
+#endif
+
+static void inbox_notify_new_entry(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    const uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+    bool notify = false;
+
+    inbox_lock();
+    if (inbox_sound_enabled &&
+        (inbox_last_sound_ms == 0 || now_ms - inbox_last_sound_ms >= INBOX_SOUND_COALESCE_MS)) {
+        inbox_last_sound_ms = now_ms;
+        notify = true;
+    }
+    inbox_unlock();
+
+    if (notify) {
+        const esp_err_t err = inbox_enqueue_sound(true, NULL);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            SOLAR_OS_LOGW(TAG, "notification sound unavailable: %s", esp_err_to_name(err));
+        }
+    }
+#endif
+}
 
 static bool inbox_priority_valid(solar_os_inbox_priority_t priority)
 {
@@ -524,6 +605,7 @@ esp_err_t solar_os_inbox_init(void)
     if (err != ESP_OK) {
         return err;
     }
+    inbox_load_sound_setting();
 
     inbox_lock();
     const esp_err_t store_err = inbox_store_load_locked();
@@ -632,6 +714,7 @@ esp_err_t solar_os_inbox_publish(const solar_os_inbox_publish_t *message, uint32
         *id = entry->id;
     }
     inbox_unlock();
+    inbox_notify_new_entry();
     return ESP_OK;
 }
 
@@ -951,9 +1034,59 @@ esp_err_t solar_os_inbox_get_status(solar_os_inbox_status_t *status)
         .persistent = inbox_persistent,
         .storage_limit_bytes = INBOX_STORE_MAX_BYTES,
         .storage_error = inbox_storage_error,
+        .sound_available = inbox_sound_available(),
+        .sound_enabled = inbox_sound_enabled,
     };
     inbox_unlock();
     return ESP_OK;
+}
+
+esp_err_t solar_os_inbox_set_sound_enabled(bool enabled)
+{
+    if (enabled && !inbox_sound_available()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    esp_err_t err = solar_os_inbox_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    nvs_handle_t nvs;
+    err = nvs_open(INBOX_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u8(nvs, INBOX_NVS_SOUND_KEY, enabled ? 1U : 0U);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    inbox_lock();
+    inbox_sound_enabled = enabled;
+    if (!enabled) {
+        inbox_last_sound_ms = 0;
+    }
+    inbox_unlock();
+    return ESP_OK;
+}
+
+esp_err_t solar_os_inbox_test_sound(uint32_t *request_id)
+{
+    if (request_id != NULL) {
+        *request_id = 0;
+    }
+    if (!inbox_sound_available()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    return inbox_enqueue_sound(false, request_id);
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t solar_os_inbox_clear(void)

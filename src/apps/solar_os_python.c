@@ -3132,6 +3132,51 @@ static mp_obj_t solaros_audio_tone(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_audio_tone_obj, 2, 3, solaros_audio_tone);
 
+static mp_obj_t solaros_audio_tone_async(size_t n_args, const mp_obj_t *args)
+{
+    const solar_os_audio_tone_step_t step = {
+        .frequency_hz = python_optional_u32(n_args, args, 0, 0),
+        .duration_ms = python_optional_u32(n_args, args, 1, 0),
+    };
+    const solar_os_audio_tone_request_t request = {
+        .steps = &step,
+        .step_count = 1,
+        .volume = python_optional_u8(n_args, args, 2, SOLAR_OS_AUDIO_VOLUME_GLOBAL),
+    };
+    uint32_t request_id = 0;
+    python_check_esp(solar_os_audio_tone_enqueue(&request, &request_id));
+    return mp_obj_new_int_from_uint(request_id);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_audio_tone_async_obj,
+                                    2,
+                                    3,
+                                    solaros_audio_tone_async);
+
+static mp_obj_t solaros_audio_cancel(mp_obj_t request_id_obj)
+{
+    python_check_esp(solar_os_audio_tone_cancel(python_u32_from_obj(request_id_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_audio_cancel_obj, solaros_audio_cancel);
+
+static mp_obj_t solaros_audio_queue_status(void)
+{
+    solar_os_audio_tone_queue_status_t status;
+    solar_os_audio_tone_queue_get_status(&status);
+
+    mp_obj_t dict = mp_obj_new_dict(8);
+    python_dict_store_bool(dict, "worker_running", status.worker_running);
+    python_dict_store_bool(dict, "playing", status.playing);
+    python_dict_store_uint(dict, "queued", status.queued);
+    python_dict_store_uint(dict, "current_id", status.current_id);
+    python_dict_store_uint(dict, "completed", status.completed);
+    python_dict_store_uint(dict, "cancelled", status.cancelled);
+    python_dict_store_uint(dict, "dropped", status.dropped);
+    python_dict_store_uint(dict, "failed", status.failed);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_audio_queue_status_obj, solaros_audio_queue_status);
+
 static mp_obj_t solaros_audio_level(mp_obj_t duration_obj)
 {
     solar_os_audio_level_t level;
@@ -4827,6 +4872,9 @@ static void python_register_solaros_module(void)
     python_module_store(audio, "set_volume", MP_OBJ_FROM_PTR(&solaros_audio_set_volume_obj));
     python_module_store(audio, "set_mic_gain", MP_OBJ_FROM_PTR(&solaros_audio_set_mic_gain_obj));
     python_module_store(audio, "tone", MP_OBJ_FROM_PTR(&solaros_audio_tone_obj));
+    python_module_store(audio, "tone_async", MP_OBJ_FROM_PTR(&solaros_audio_tone_async_obj));
+    python_module_store(audio, "cancel", MP_OBJ_FROM_PTR(&solaros_audio_cancel_obj));
+    python_module_store(audio, "queue_status", MP_OBJ_FROM_PTR(&solaros_audio_queue_status_obj));
     python_module_store(audio, "level", MP_OBJ_FROM_PTR(&solaros_audio_level_obj));
     python_module_store(audio, "loopback", MP_OBJ_FROM_PTR(&solaros_audio_loopback_obj));
     python_module_store(audio, "wav_info", MP_OBJ_FROM_PTR(&solaros_audio_wav_info_obj));
