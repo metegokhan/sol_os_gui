@@ -27,8 +27,17 @@ package dependencies and then removes packages unsupported by the target board.
   unavailable, its dependants are removed as well.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
-`maintenance_jobs`, `audio`, `net`, `agent`, `media`, `games`, `python`, `lua`,
-and `utils`. Maintenance apps and jobs can therefore be selected independently.
+`maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,
+`python`, `lua`, `writing`, and `utils`. Maintenance jobs contain background
+logging and battery monitoring. Hardware jobs contain Bridge, DAQ, and SUMP for
+hardware diagnostics and hacking. The `writing` group contains Reader, Writer,
+Files, and Notes; general utilities contain Clock, Calculator, Plot, Logic, and
+Sheet.
+
+The `writerdeck` flavor targets the Elecrow e-paper board with the `writing`
+group plus system, maintenance, and network tools. It excludes general
+utilities and hardware-diagnostics jobs to stay focused and fit the board's
+smaller OTA slot.
 
 Network ownership is intentionally split. `network.base`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and

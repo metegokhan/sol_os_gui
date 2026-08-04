@@ -36,6 +36,7 @@ The default build uses the full firmware flavor. For a smaller image:
 
 ```sh
 SOLAR_OS_FLAVOR=core pio run -e waveshare_esp32_s3_rlcd_4_2
+SOLAR_OS_FLAVOR=writerdeck pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
 ```
 
 See [Boards and hardware targets](doc/manual/boards.md) and

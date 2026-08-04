@@ -1077,7 +1077,7 @@ static const char * const playground_storage_values[] = {"flash", "sd"};
 #if SOLAR_OS_PACKAGE_MEDIA
 static const char * const view_options[] = {"-fit", "-actual"};
 #endif
-#if SOLAR_OS_PACKAGE_UTILS
+#if SOLAR_OS_PACKAGE_APP_PLOT
 static const char * const plot_options[] = {"-f", "--file", "--rate"};
 static const char * const plot_live_options[] = {"--rate"};
 #endif
@@ -1158,16 +1158,20 @@ static const char * const path_unzip_after_option[] = {"unzip", SHELL_COMPLETION
 static const char * const path_view[] = {"view"};
 static const char * const path_view_after_option[] = {"view", SHELL_COMPLETION_ANY};
 #endif
-#if SOLAR_OS_PACKAGE_UTILS
+#if SOLAR_OS_PACKAGE_APP_NOTES
 static const char * const path_notes[] = {"notes"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLOT
 static const char * const path_plot[] = {"plot"};
 static const char * const path_plot_file[] = {"plot", "-f"};
-static const char * const path_reader[] = {"reader"};
-#if SOLAR_OS_PACKAGE_APP_WRITER
-static const char * const path_writer[] = {"writer"};
-#endif
 static const char * const path_plot_long_file[] = {"plot", "--file"};
 static const char * const path_plot_stream[] = {"plot", SHELL_COMPLETION_ANY};
+#endif
+#if SOLAR_OS_PACKAGE_APP_READER
+static const char * const path_reader[] = {"reader"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_WRITER
+static const char * const path_writer[] = {"writer"};
 #endif
 static const char * const path_watch[] = {"watch"};
 static const char * const path_watch_n_interval[] = {"watch", "-n", SHELL_COMPLETION_ANY};
@@ -2091,19 +2095,23 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_view, view_options),
     SHELL_COMPLETION_PATH(path_view_after_option, false),
 #endif
-#if SOLAR_OS_PACKAGE_UTILS
+#if SOLAR_OS_PACKAGE_APP_NOTES
     SHELL_COMPLETION_PATH(path_notes, false),
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLOT
     SHELL_COMPLETION_OPTIONS(path_plot, plot_options),
     SHELL_COMPLETION_SCALAR_STREAMS(path_plot),
     SHELL_COMPLETION_OPTIONS(path_plot_stream, plot_live_options),
     SHELL_COMPLETION_SCALAR_STREAMS(path_plot_stream),
     SHELL_COMPLETION_PATH(path_plot_file, false),
     SHELL_COMPLETION_PATH(path_plot_long_file, false),
+#endif
+#if SOLAR_OS_PACKAGE_APP_READER
     SHELL_COMPLETION_PATH(path_reader, false),
     SHELL_COMPLETION_MANUAL_REFERENCES(path_reader),
+#endif
 #if SOLAR_OS_PACKAGE_APP_WRITER
     SHELL_COMPLETION_PATH(path_writer, false),
-#endif
 #endif
     SHELL_COMPLETION_STATIC(path_watch, watch_subcommands),
     SHELL_COMPLETION_COMMANDS(path_watch),

@@ -67,9 +67,13 @@ members = [
 
 [groups.maintenance_jobs]
 members = [
-  "job_bridge",
   "job_log",
   "job_batmon",
+]
+
+[groups.hardware_jobs]
+members = [
+  "job_bridge",
   "job_daq",
   "job_sump",
 ]
@@ -144,14 +148,24 @@ triggers = ["app_python"]
 members = ["app_lua", "app_playground"]
 triggers = ["app_lua"]
 
-[groups.utils]
+[groups.writing]
 members = [
-  "app_clock",
-  "app_calc",
   "app_reader",
   "app_writer",
   "app_files",
   "app_notes",
+]
+triggers = [
+  "app_reader",
+  "app_writer",
+  "app_files",
+  "app_notes",
+]
+
+[groups.utils]
+members = [
+  "app_clock",
+  "app_calc",
   "app_plot",
   "app_logic",
   "app_sheet",
@@ -159,10 +173,6 @@ members = [
 triggers = [
   "app_clock",
   "app_calc",
-  "app_reader",
-  "app_writer",
-  "app_files",
-  "app_notes",
   "app_plot",
   "app_logic",
   "app_sheet",

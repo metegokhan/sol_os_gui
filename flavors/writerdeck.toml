@@ -1,19 +1,19 @@
 [flavor]
-name = "netrunner"
-description = "Minimal SolarOS build with hardware services, and network tools."
+name = "writerdeck"
+description = "SolarOS build for distraction free writing and reading."
 
 [packages]
 system = true
-expansions = true
+expansions = false
 maintenance_apps = true
 maintenance_jobs = true
-hardware_jobs = true
+hardware_jobs = false
 audio = false
 net = true
-agent = true
+agent = false
 media = false
 games = false
 python = false
 lua = false
-writing = false
+writing = true
 utils = false
