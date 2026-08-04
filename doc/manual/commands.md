@@ -524,7 +524,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
 | `battery` | `battery min_voltage [V|mV]` | Show or set low-voltage threshold. |
 | `battery` | `battery max_voltage [V|mV]` | Show or set full/external-power shortcut threshold. |
-| `audio` | `audio status` | Show audio service state and global speaker level. |
+| `audio` | `audio status` | Show audio state, global speaker level, tone queue, and active synth telemetry. |
 | `audio` | `audio tone [hz] [ms] [volume]` | Play a diagnostic tone. |
 | `audio` | `audio tone-async [hz] [ms] [volume]` | Queue a tone and return its request ID immediately. |
 | `audio` | `audio queue` | Show asynchronous tone queue state and counters. |

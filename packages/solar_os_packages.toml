@@ -9,6 +9,7 @@ members = [
   "service_ble",
   "service_sd",
   "service_audio",
+  "service_synth",
   "service_resources",
   "service_engines",
   "service_vector",
@@ -79,7 +80,7 @@ members = [
 ]
 
 [groups.audio]
-members = ["service_audio", "app_aplay", "app_arecord"]
+members = ["service_audio", "service_synth", "app_aplay", "app_arecord"]
 triggers = ["app_aplay", "app_arecord"]
 
 [groups.net]
@@ -452,6 +453,13 @@ capabilities = ["sd"]
 label = "service.audio"
 sources = ["services/solar_os_audio.c"]
 requires = ["esp_codec_dev", "esp_driver_i2s", "minimp3"]
+capabilities = ["audio"]
+
+[packages.service_synth]
+label = "service.synth"
+depends = ["service_audio"]
+sources = ["services/solar_os_synth.c"]
+requires = ["esp_timer"]
 capabilities = ["audio"]
 
 [packages.service_resources]
