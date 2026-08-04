@@ -501,15 +501,16 @@ static uint8_t gameboy_button_for_char(uint8_t ch) {
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 static uint8_t gameboy_button_for_ble_key(
-    uint8_t keycode, uint8_t ch, solar_os_ble_keyboard_layout_t layout) {
-  /* HID usages name these physical positions after the US layout. */
-  const uint8_t z_keycode =
-      layout == SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE ? 0x1cU : 0x1dU;
-  if (keycode == z_keycode) {
+    uint8_t keycode, uint8_t ch) {
+  /* Keep game controls at fixed physical positions across keyboard layouts. */
+  if (keycode == 0x1dU) {
     return JOYPAD_A;
   }
   if (keycode == 0x1bU) {
     return JOYPAD_B;
+  }
+  if (keycode >= 0x04U && keycode <= 0x1dU) {
+    return 0;
   }
   return gameboy_button_for_char(ch);
 }
@@ -528,8 +529,7 @@ static uint8_t gameboy_ble_pressed_mask(bool *connected) {
   }
   if (keys.connected) {
     for (size_t i = 0; i < SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS; i++) {
-      pressed |= gameboy_button_for_ble_key(keys.keycodes[i], keys.chars[i],
-                                            keys.layout);
+      pressed |= gameboy_button_for_ble_key(keys.keycodes[i], keys.chars[i]);
     }
   }
 #endif

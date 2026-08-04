@@ -27,7 +27,6 @@ typedef enum {
 
 typedef struct {
     bool connected;
-    solar_os_ble_keyboard_layout_t layout;
     uint8_t modifiers;
     uint8_t keycodes[SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS];
     uint8_t chars[SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS];

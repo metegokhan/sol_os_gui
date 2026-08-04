@@ -594,8 +594,8 @@ gameboy <file.gb>
 Controls:
 
 - Arrows control the D-pad.
-- `z` is A; `x` is B. Z follows the active `setterm keyboard` layout, including
-  the German Y/Z swap.
+- The physical US-Z key position is A; on a German QWERTZ keyboard this key is
+  labeled `Y`. The physical X key is B.
 - `Enter` is Start; `Backspace` or `Delete` is Select.
 - `p` pauses, `r` resets, and `o` toggles the core's 30 fps frame skip, which is
   enabled by default. RLCD presentation remains capped independently.

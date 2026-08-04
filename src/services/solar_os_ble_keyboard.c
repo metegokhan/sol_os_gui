@@ -194,7 +194,6 @@ static void keyboard_report_state_reset(bool is_connected)
     portENTER_CRITICAL(&key_state_lock);
     memset(&key_state, 0, sizeof(key_state));
     key_state.connected = is_connected;
-    key_state.layout = keyboard_layout;
     portEXIT_CRITICAL(&key_state_lock);
 }
 
@@ -1235,9 +1234,6 @@ esp_err_t solar_os_ble_keyboard_set_layout(solar_os_ble_keyboard_layout_t layout
     }
 
     keyboard_layout = layout;
-    portENTER_CRITICAL(&key_state_lock);
-    key_state.layout = layout;
-    portEXIT_CRITICAL(&key_state_lock);
     return save_keyboard_layout(layout);
 }
 
@@ -2051,7 +2047,6 @@ static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys
 {
     solar_os_ble_keyboard_key_state_t next = {
         .connected = connected,
-        .layout = keyboard_layout,
         .modifiers = modifiers,
     };
 
