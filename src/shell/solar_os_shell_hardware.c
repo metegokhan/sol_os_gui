@@ -33,6 +33,9 @@
 #include "solar_os_sensors.h"
 #include "solar_os_status_led.h"
 #include "solar_os_storage.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+#include "solar_os_synth.h"
+#endif
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
 #include "solar_os_uart.h"
@@ -1492,6 +1495,17 @@ static void audio_print_status(solar_os_shell_io_t *term)
                              (unsigned)queue.queued,
                              queue.playing ? "playing" : "idle",
                              queue.current_id);
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+    solar_os_synth_status_t synth;
+    solar_os_synth_get_status(&synth);
+    solar_os_shell_io_printf(
+        term,
+        "Synth: %s, owner %s, blocks %" PRIu32 ", misses %" PRIu32
+        ", errors %" PRIu32 "\n",
+        synth.running ? "running" : (synth.starting ? "starting" : "idle"),
+        synth.owner[0] != '\0' ? synth.owner : "-", synth.rendered_blocks,
+        synth.render_deadline_misses, synth.write_errors);
+#endif
 }
 
 static void audio_print_usage(solar_os_shell_io_t *term)
@@ -1812,6 +1826,14 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_diag_unexpected(term, "audio off", argv[2], "audio off");
             return;
         }
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+        const esp_err_t synth_err = solar_os_synth_stop(NULL);
+        if (synth_err != ESP_OK) {
+            solar_os_shell_io_printf(term, "audio off failed stopping synth: %s\n",
+                                     solar_os_shell_error_text(synth_err));
+            return;
+        }
+#endif
         const esp_err_t err = solar_os_audio_set_volume(0);
         if (err != ESP_OK) {
             if (shell_print_not_supported(term, "audio", "audio hardware", err)) {
