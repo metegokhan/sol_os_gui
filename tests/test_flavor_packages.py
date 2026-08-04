@@ -53,6 +53,10 @@ class FlavorPackagesTest(unittest.TestCase):
             self.catalog.package_defs["service_synth"].depends,
             ("service_audio",),
         )
+        self.assertEqual(
+            self.catalog.package_defs["app_gameboy"].depends,
+            ("service_synth",),
+        )
 
     def test_writerdeck_selects_writing_without_hardware_jobs_or_utils(self):
         name, _, groups, packages = self.resolve("writerdeck")

@@ -17,6 +17,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
 #endif
+#include "solar_os_gameboy_audio.h"
 #include "solar_os_gameboy_rom.h"
 #include "solar_os_gameboy_video.h"
 #include "solar_os_gfx.h"
@@ -26,9 +27,13 @@
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
 
-#define ENABLE_SOUND 0
+#define audio_read solar_os_gameboy_audio_read
+#define audio_write solar_os_gameboy_audio_write
+#define ENABLE_SOUND 1
 #define PEANUT_GB_12_COLOUR 0
 #include "vendor/peanut_gb/peanut_gb.h"
+#undef audio_read
+#undef audio_write
 
 #define GAMEBOY_FRAME_PERIOD_US 16743LL
 #define GAMEBOY_INPUT_PULSE_US 140000LL
@@ -122,6 +127,7 @@ static esp_err_t gameboy_write_save(void) {
 }
 
 static void gameboy_free_state(bool save) {
+  solar_os_gameboy_audio_deinit();
   if (save) {
     const esp_err_t err = gameboy_write_save();
     if (err != ESP_OK) {
@@ -419,6 +425,11 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
   }
 
   gb_init_lcd(gameboy.core, gameboy_draw_line);
+  const esp_err_t audio_err = solar_os_gameboy_audio_init();
+  if (audio_err != ESP_OK) {
+    SOLAR_OS_LOGW(TAG, "starting without audio: %s",
+                  esp_err_to_name(audio_err));
+  }
   (void)gb_get_rom_name(gameboy.core, gameboy.title);
   time_t now_seconds = time(NULL);
   struct tm local_time;
@@ -454,6 +465,7 @@ static void gameboy_stop(solar_os_context_t *ctx) {
 
 static void gameboy_suspend(solar_os_context_t *ctx) {
   gameboy.suspended = true;
+  solar_os_gameboy_audio_suspend();
   if (gameboy.core != NULL) {
     gameboy.core->direct.joypad = 0xFFU;
   }
@@ -466,6 +478,10 @@ static void gameboy_suspend(solar_os_context_t *ctx) {
 
 static void gameboy_resume(solar_os_context_t *ctx) {
   gameboy.suspended = false;
+  const esp_err_t audio_err = solar_os_gameboy_audio_resume();
+  if (audio_err != ESP_OK) {
+    SOLAR_OS_LOGW(TAG, "audio resume failed: %s", esp_err_to_name(audio_err));
+  }
   gameboy.next_frame_us = esp_timer_get_time();
   solar_os_context_set_graphics_active(ctx, true);
   gameboy_render(ctx);
@@ -584,6 +600,15 @@ static bool gameboy_handle_char(solar_os_context_t *ctx, uint8_t ch) {
   }
   if (ch == 'p') {
     gameboy.paused = !gameboy.paused;
+    if (gameboy.paused) {
+      solar_os_gameboy_audio_suspend();
+    } else {
+      const esp_err_t audio_err = solar_os_gameboy_audio_resume();
+      if (audio_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "audio resume failed: %s",
+                      esp_err_to_name(audio_err));
+      }
+    }
     gameboy.core->direct.joypad = 0xFFU;
     memset(gameboy.release_at, 0, sizeof(gameboy.release_at));
     gameboy.next_frame_us = esp_timer_get_time();
@@ -591,6 +616,7 @@ static bool gameboy_handle_char(solar_os_context_t *ctx, uint8_t ch) {
   }
   if (ch == 'r') {
     gb_reset(gameboy.core);
+    solar_os_gameboy_audio_reset();
     solar_os_gameboy_video_clear(gameboy.bitmap, SOLAR_OS_GAMEBOY_BITMAP_BYTES);
     gameboy.next_frame_us = esp_timer_get_time();
     return true;

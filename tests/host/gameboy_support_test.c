@@ -7,6 +7,11 @@
 #include "solar_os_gameboy_rom.h"
 #include "solar_os_gameboy_video.h"
 
+#define AUDIO_SAMPLE_RATE 16000
+#define MINIGB_APU_AUDIO_FORMAT_S16SYS 1
+#include "vendor/peanut_gb/minigb_apu.h"
+
+#undef VERTICAL_SYNC
 #define ENABLE_SOUND 0
 #define PEANUT_GB_12_COLOUR 0
 #include "vendor/peanut_gb/peanut_gb.h"
@@ -149,10 +154,35 @@ static void test_vendored_core_frame(void) {
   free(core);
 }
 
+static void test_vendored_apu_output(void) {
+  struct minigb_apu_ctx apu;
+  int16_t samples[AUDIO_SAMPLES_TOTAL];
+  minigb_apu_audio_init(&apu);
+  assert((minigb_apu_audio_read(&apu, 0xFF26U) & 0x80U) != 0);
+
+  minigb_apu_audio_write(&apu, 0xFF24U, 0x77U);
+  minigb_apu_audio_write(&apu, 0xFF25U, 0x11U);
+  minigb_apu_audio_write(&apu, 0xFF11U, 0x80U);
+  minigb_apu_audio_write(&apu, 0xFF12U, 0xF3U);
+  minigb_apu_audio_write(&apu, 0xFF13U, 0x00U);
+  minigb_apu_audio_write(&apu, 0xFF14U, 0x87U);
+  minigb_apu_audio_callback(&apu, samples);
+
+  bool nonzero = false;
+  for (size_t i = 0; i < AUDIO_SAMPLES_TOTAL; i++) {
+    if (samples[i] != 0) {
+      nonzero = true;
+      break;
+    }
+  }
+  assert(nonzero);
+}
+
 int main(void) {
   test_rom_validation();
   test_frame_dithering();
   test_vendored_core_frame();
+  test_vendored_apu_output();
   puts("gameboy support tests passed");
   return 0;
 }

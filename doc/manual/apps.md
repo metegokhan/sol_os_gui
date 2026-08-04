@@ -575,7 +575,8 @@ ESP32-S3-RLCD-4.2. It is included only in the `retro` flavor. The application
 loads a user-supplied ROM into PSRAM, renders its four shades as a 320x288
 dithered image, and writes battery-backed cartridge RAM beside the ROM as a
 `.sav` file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
-Audio is not implemented yet.
+The MiniGB APU backend renders pulse, wave, and noise channels through the
+shared SolarOS synth and audio services at the global speaker volume.
 
 The emulator runs the core independently from the relatively expensive RLCD
 update. It keeps Peanut-GB's hot state and up to two 16 KiB ROM banks in
@@ -584,6 +585,10 @@ frames by default, and presents the newest frame once per four emulated
 frames. On the Waveshare display, a dedicated monochrome presentation path
 rotates and streams the frame in one controller write sequence. Runtime logs
 report emulation and presentation rates separately.
+
+Audio rendering runs in its own bounded worker and holds exclusive speaker
+output while Game Boy is active. Pausing, suspending, or exiting the app stops
+the synth and releases audio for other applications.
 
 Usage:
 

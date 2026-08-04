@@ -28,10 +28,11 @@ shell_parse_test: shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c $(
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
 		shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c -o $@
 
-gameboy_support_test: gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c $(WRITER_DIR)/solar_os_gameboy_rom.h $(WRITER_DIR)/solar_os_gameboy_video.c $(WRITER_DIR)/solar_os_gameboy_video.h $(ROOT)/src/vendor/peanut_gb/peanut_gb.h
+gameboy_support_test: gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c $(WRITER_DIR)/solar_os_gameboy_rom.h $(WRITER_DIR)/solar_os_gameboy_video.c $(WRITER_DIR)/solar_os_gameboy_video.h $(WRITER_DIR)/solar_os_gameboy_apu.c $(ROOT)/src/vendor/peanut_gb/peanut_gb.h $(ROOT)/src/vendor/peanut_gb/minigb_apu.c $(ROOT)/src/vendor/peanut_gb/minigb_apu.h
 	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable -I$(ROOT)/src -I$(WRITER_DIR) \
 		gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c \
-		$(WRITER_DIR)/solar_os_gameboy_video.c -o $@
+		$(WRITER_DIR)/solar_os_gameboy_video.c \
+		$(WRITER_DIR)/solar_os_gameboy_apu.c -o $@
 
 test: $(TARGETS)
 	./writer_buffer_test
