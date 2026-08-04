@@ -654,7 +654,9 @@ Controls:
 
 - `Up`/`Down` navigate.
 - `Space` toggles an item.
-- `a` adds an item.
+- `a` adds an unchecked item below the selected item. On a category, it adds the
+  first item in that category; from the done section, it adds at the end of the
+  active items.
 - `c` adds a category.
 - `Enter` edits the selected line.
 - `d` or `Delete` deletes the selected item/category.
