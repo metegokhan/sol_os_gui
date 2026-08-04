@@ -568,6 +568,43 @@ Controls:
 - `Space` or `f` fires.
 - `Esc` or app-exit key exits.
 
+## gameboy
+
+Experimental original Game Boy (DMG) emulator for the Waveshare
+ESP32-S3-RLCD-4.2. It is included only in the `retro` flavor. The application
+loads a user-supplied ROM into PSRAM, renders its four shades as a 320x288
+dithered image, and writes battery-backed cartridge RAM beside the ROM as a
+`.sav` file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
+Audio is not implemented yet.
+
+The emulator runs the core independently from the relatively expensive RLCD
+update. It keeps Peanut-GB's hot state and up to two 16 KiB ROM banks in
+internal RAM when the SolarOS reserve permits, skips alternate core-rendered
+frames by default, and presents the newest frame once per four emulated
+frames. On the Waveshare display, a dedicated monochrome presentation path
+rotates and streams the frame in one controller write sequence. Runtime logs
+report emulation and presentation rates separately.
+
+Usage:
+
+```text
+gameboy <file.gb>
+```
+
+Controls:
+
+- Arrows control the D-pad.
+- `z` is A; `x` is B.
+- `Enter` is Start; `Backspace` or `Delete` is Select.
+- `p` pauses, `r` resets, and `o` toggles the core's 30 fps frame skip, which is
+  enabled by default. RLCD presentation remains capped independently.
+- `q`, `Esc`, or the app-exit key exits.
+
+The current BLE-keyboard path reports characters rather than key-release
+events. Game Boy controls are therefore treated as short, repeat-extended
+button pulses. This is adequate for the initial runtime and display benchmark,
+but a stateful game-input service is still required for action-game controls.
+
 ## less
 
 Terminal pager for text files. It preserves original text layout and is useful

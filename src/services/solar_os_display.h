@@ -91,6 +91,14 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
 esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
                                                 solar_os_display_present_mode_t mode);
 void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode);
+esp_err_t solar_os_display_present_mono_xbm(u8g2_t *u8g2,
+                                            const uint8_t *bitmap,
+                                            size_t bitmap_size,
+                                            uint16_t x,
+                                            uint16_t y,
+                                            uint16_t width,
+                                            uint16_t height,
+                                            uint16_t stride);
 
 /*
  * Frame export keeps one PSRAM snapshot per exported target. Readers hold an

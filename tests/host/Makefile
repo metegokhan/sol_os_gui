@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test gameboy_support_test
 
 .PHONY: all test clean
 
@@ -28,11 +28,17 @@ shell_parse_test: shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c $(
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
 		shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c -o $@
 
+gameboy_support_test: gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c $(WRITER_DIR)/solar_os_gameboy_rom.h $(WRITER_DIR)/solar_os_gameboy_video.c $(WRITER_DIR)/solar_os_gameboy_video.h $(ROOT)/src/vendor/peanut_gb/peanut_gb.h
+	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable -I$(ROOT)/src -I$(WRITER_DIR) \
+		gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c \
+		$(WRITER_DIR)/solar_os_gameboy_video.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
 	./doc_layout_test
 	./shell_parse_test
+	./gameboy_support_test
 
 clean:
 	$(RM) $(TARGETS)

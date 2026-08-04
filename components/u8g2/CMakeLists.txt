@@ -1,4 +1,5 @@
 set(U8G2_CLIB_SRCS
+    "src/clib/u8g2_bitmap.c"
     "src/clib/u8g2_box.c"
     "src/clib/u8g2_buffer.c"
     "src/clib/u8g2_font.c"

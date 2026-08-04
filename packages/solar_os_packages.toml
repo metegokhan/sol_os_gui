@@ -140,6 +140,11 @@ members = ["app_invaders"]
 triggers = ["app_invaders"]
 capabilities = ["gfx"]
 
+[groups.retro]
+members = ["app_gameboy"]
+triggers = ["app_gameboy"]
+capabilities = ["gfx", "psram", "sd"]
+
 [groups.python]
 members = ["app_python", "app_playground"]
 triggers = ["app_python"]
@@ -781,6 +786,15 @@ capabilities = ["psram", "gfx"]
 label = "app.invaders"
 sources = ["apps/solar_os_invaders.c"]
 capabilities = ["gfx"]
+
+[packages.app_gameboy]
+label = "app.gameboy"
+sources = [
+  "apps/solar_os_gameboy.c",
+  "apps/solar_os_gameboy_rom.c",
+  "apps/solar_os_gameboy_video.c",
+]
+capabilities = ["gfx", "psram", "sd"]
 
 [packages.app_python]
 label = "app.python"

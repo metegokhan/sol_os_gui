@@ -42,6 +42,14 @@ u8g2_t *rlcd_st7305_get_u8g2(rlcd_st7305_t *display);
 const char *rlcd_st7305_controller_mode(const rlcd_st7305_t *display);
 const char *rlcd_st7305_controller_mode_values(const rlcd_st7305_t *display);
 esp_err_t rlcd_st7305_set_controller_mode(rlcd_st7305_t *display, const char *mode);
+esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
+                                       const uint8_t *bitmap,
+                                       size_t bitmap_size,
+                                       uint16_t x,
+                                       uint16_t y,
+                                       uint16_t width,
+                                       uint16_t height,
+                                       uint16_t stride);
 
 #ifdef __cplusplus
 }

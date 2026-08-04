@@ -600,6 +600,47 @@ void solar_os_gfx_bitmap(solar_os_gfx_t *gfx,
     gfx_mark_dirty(gfx);
 }
 
+esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
+                                        const uint8_t *bitmap,
+                                        size_t bitmap_size,
+                                        int x,
+                                        int y,
+                                        int width,
+                                        int height,
+                                        size_t stride)
+{
+    if (!gfx_ready(gfx) ||
+        bitmap == NULL ||
+        x < 0 ||
+        y < 0 ||
+        width <= 0 ||
+        height <= 0 ||
+        stride > UINT16_MAX ||
+        x > UINT16_MAX ||
+        y > UINT16_MAX ||
+        width > UINT16_MAX ||
+        height > UINT16_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (gfx->palette_inverted) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const esp_err_t ret = solar_os_display_present_mono_xbm(
+        gfx->u8g2,
+        bitmap,
+        bitmap_size,
+        (uint16_t)x,
+        (uint16_t)y,
+        (uint16_t)width,
+        (uint16_t)height,
+        (uint16_t)stride);
+    if (ret == ESP_OK) {
+        gfx->dirty = false;
+    }
+    return ret;
+}
+
 bool solar_os_gfx_needs_present(const solar_os_gfx_t *gfx)
 {
     return gfx != NULL && gfx->dirty;

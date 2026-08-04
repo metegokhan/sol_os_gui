@@ -43,6 +43,10 @@ class FlavorPackagesTest(unittest.TestCase):
             set(self.catalog.group_defs["utils"].members),
             {"app_clock", "app_calc", "app_plot", "app_logic", "app_sheet"},
         )
+        self.assertEqual(
+            set(self.catalog.group_defs["retro"].members),
+            {"app_gameboy"},
+        )
 
     def test_writerdeck_selects_writing_without_hardware_jobs_or_utils(self):
         name, _, groups, packages = self.resolve("writerdeck")
@@ -79,6 +83,19 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(full_groups["writing"])
         for package in ("app_reader", "app_writer", "app_files", "app_notes"):
             self.assertTrue(full_packages[package], package)
+
+    def test_retro_is_a_strict_superset_of_full(self):
+        _, _, full_groups, full_packages = self.resolve("full")
+        name, _, retro_groups, retro_packages = self.resolve("retro")
+
+        self.assertEqual(name, "retro")
+        self.assertFalse(full_groups["retro"])
+        self.assertTrue(retro_groups["retro"])
+        self.assertFalse(full_packages["app_gameboy"])
+        self.assertTrue(retro_packages["app_gameboy"])
+        for package, enabled in full_packages.items():
+            if enabled:
+                self.assertTrue(retro_packages[package], package)
 
 
 if __name__ == "__main__":

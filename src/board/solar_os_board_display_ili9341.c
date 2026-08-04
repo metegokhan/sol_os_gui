@@ -131,3 +131,23 @@ esp_err_t solar_os_board_display_set_controller_mode(solar_os_board_display_t *d
     (void)mode;
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *display,
+                                                  const uint8_t *bitmap,
+                                                  size_t bitmap_size,
+                                                  uint16_t x,
+                                                  uint16_t y,
+                                                  uint16_t width,
+                                                  uint16_t height,
+                                                  uint16_t stride)
+{
+    (void)display;
+    (void)bitmap;
+    (void)bitmap_size;
+    (void)x;
+    (void)y;
+    (void)width;
+    (void)height;
+    (void)stride;
+    return ESP_ERR_NOT_SUPPORTED;
+}

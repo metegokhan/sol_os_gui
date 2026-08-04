@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "esp_err.h"
+
 typedef enum {
     SOLAR_OS_GFX_COLOR_WHITE,
     SOLAR_OS_GFX_COLOR_LIGHT,
@@ -87,6 +89,14 @@ void solar_os_gfx_bitmap(solar_os_gfx_t *gfx,
                          int width,
                          int height,
                          const uint8_t *bitmap);
+esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
+                                        const uint8_t *bitmap,
+                                        size_t bitmap_size,
+                                        int x,
+                                        int y,
+                                        int width,
+                                        int height,
+                                        size_t stride);
 bool solar_os_gfx_needs_present(const solar_os_gfx_t *gfx);
 void solar_os_gfx_present(solar_os_gfx_t *gfx);
 
