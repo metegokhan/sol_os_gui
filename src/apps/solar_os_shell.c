@@ -957,8 +957,8 @@ static const char * const power_subcommands[] = {
 static const char * const power_profile_values[] = {
     "performance",
     "balanced",
-    "solar",
-    "offline",
+    "battery",
+    "lowpower",
 };
 static const char * const power_idle_values[] = {"off"};
 static const char * const power_key_values[] = {"off", "light"};

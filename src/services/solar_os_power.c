@@ -12,6 +12,10 @@
 #define POWER_NVS_PROFILE_KEY "profile"
 #define POWER_NVS_IDLE_KEY "idle_ms"
 #define POWER_NVS_KEY_ACTION_KEY "key"
+#define POWER_CPU_PERFORMANCE_MHZ 240U
+#define POWER_CPU_BALANCED_MHZ 160U
+#define POWER_CPU_BATTERY_MHZ 160U
+#define POWER_CPU_LOWPOWER_MHZ 80U
 
 static const char *TAG = "solar_os_power";
 
@@ -51,19 +55,14 @@ static void update_automatic_light_sleep_holdoff_status(uint32_t now_ms)
     power_status.automatic_light_sleep_holdoff_ms = remaining_ms;
 }
 
-static uint32_t configured_max_cpu_mhz(void)
-{
-    return CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ > 0 ? CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ : 160U;
-}
-
 static uint32_t profile_default_idle_ms(solar_os_power_profile_t profile)
 {
     switch (profile) {
     case SOLAR_OS_POWER_PROFILE_PERFORMANCE:
     case SOLAR_OS_POWER_PROFILE_BALANCED:
-    case SOLAR_OS_POWER_PROFILE_SOLAR:
+    case SOLAR_OS_POWER_PROFILE_BATTERY:
         return 0;
-    case SOLAR_OS_POWER_PROFILE_OFFLINE:
+    case SOLAR_OS_POWER_PROFILE_LOWPOWER:
         return 60000;
     default:
         return 0;
@@ -75,21 +74,27 @@ static void profile_pm_config(solar_os_power_profile_t profile,
                               uint32_t *max_mhz,
                               bool *automatic_light_sleep)
 {
-    const uint32_t max_configured_mhz = configured_max_cpu_mhz();
-    uint32_t min_value = max_configured_mhz;
-    uint32_t max_value = max_configured_mhz;
+    uint32_t min_value = POWER_CPU_BALANCED_MHZ;
+    uint32_t max_value = POWER_CPU_BALANCED_MHZ;
     bool auto_sleep = false;
 
     switch (profile) {
     case SOLAR_OS_POWER_PROFILE_PERFORMANCE:
+        min_value = POWER_CPU_PERFORMANCE_MHZ;
+        max_value = POWER_CPU_PERFORMANCE_MHZ;
         break;
     case SOLAR_OS_POWER_PROFILE_BALANCED:
-        min_value = max_configured_mhz > 80U ? 80U : max_configured_mhz;
+        min_value = POWER_CPU_BALANCED_MHZ;
+        max_value = POWER_CPU_BALANCED_MHZ;
         break;
-    case SOLAR_OS_POWER_PROFILE_SOLAR:
-    case SOLAR_OS_POWER_PROFILE_OFFLINE:
-        min_value = max_configured_mhz > 80U ? 80U : max_configured_mhz;
-        max_value = max_configured_mhz > 80U ? 80U : max_configured_mhz;
+    case SOLAR_OS_POWER_PROFILE_BATTERY:
+        min_value = POWER_CPU_BATTERY_MHZ;
+        max_value = POWER_CPU_BATTERY_MHZ;
+        auto_sleep = true;
+        break;
+    case SOLAR_OS_POWER_PROFILE_LOWPOWER:
+        min_value = POWER_CPU_LOWPOWER_MHZ;
+        max_value = POWER_CPU_LOWPOWER_MHZ;
         auto_sleep = true;
         break;
     default:
@@ -110,7 +115,7 @@ static void profile_pm_config(solar_os_power_profile_t profile,
 static bool profile_valid(solar_os_power_profile_t profile)
 {
     return profile >= SOLAR_OS_POWER_PROFILE_PERFORMANCE &&
-        profile <= SOLAR_OS_POWER_PROFILE_OFFLINE;
+        profile <= SOLAR_OS_POWER_PROFILE_LOWPOWER;
 }
 
 static bool key_action_valid(solar_os_power_key_action_t action)
@@ -402,10 +407,10 @@ const char *solar_os_power_profile_name(solar_os_power_profile_t profile)
         return "performance";
     case SOLAR_OS_POWER_PROFILE_BALANCED:
         return "balanced";
-    case SOLAR_OS_POWER_PROFILE_SOLAR:
-        return "solar";
-    case SOLAR_OS_POWER_PROFILE_OFFLINE:
-        return "offline";
+    case SOLAR_OS_POWER_PROFILE_BATTERY:
+        return "battery";
+    case SOLAR_OS_POWER_PROFILE_LOWPOWER:
+        return "lowpower";
     default:
         return "unknown";
     }
@@ -416,8 +421,8 @@ bool solar_os_power_parse_profile(const char *name, solar_os_power_profile_t *pr
     static const solar_os_power_profile_t profiles[] = {
         SOLAR_OS_POWER_PROFILE_PERFORMANCE,
         SOLAR_OS_POWER_PROFILE_BALANCED,
-        SOLAR_OS_POWER_PROFILE_SOLAR,
-        SOLAR_OS_POWER_PROFILE_OFFLINE,
+        SOLAR_OS_POWER_PROFILE_BATTERY,
+        SOLAR_OS_POWER_PROFILE_LOWPOWER,
     };
 
     if (name == NULL) {

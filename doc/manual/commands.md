@@ -202,7 +202,7 @@ job for periodic polling.
 
 ```text
 power status
-power profile [performance|balanced|solar|offline]
+power profile [performance|balanced|battery|lowpower]
 power idle [off|seconds]
 power key [off|light]
 power sleep
@@ -212,10 +212,10 @@ Profiles:
 
 | Profile | Behavior |
 | --- | --- |
-| `performance` | Maximum configured CPU frequency, no automatic light sleep. |
-| `balanced` | CPU frequency scaling down to 80 MHz, no automatic light sleep. This is the default. |
-| `solar` | CPU capped at 80 MHz with ESP-IDF automatic light sleep. |
-| `offline` | CPU capped at 80 MHz, automatic light sleep, and display-shell idle sleep after 60 seconds. |
+| `performance` | CPU fixed at 240 MHz, no automatic light sleep. |
+| `balanced` | CPU fixed at 160 MHz, no automatic light sleep. This is the default. |
+| `battery` | CPU fixed at 160 MHz with ESP-IDF automatic light sleep. |
+| `lowpower` | CPU fixed at 80 MHz with automatic light sleep and display-shell idle sleep after 60 seconds. |
 
 `setterm` usage:
 
