@@ -594,16 +594,18 @@ gameboy <file.gb>
 Controls:
 
 - Arrows control the D-pad.
-- `z` is A; `x` is B.
+- `z` is A; `x` is B. Z follows the active `setterm keyboard` layout, including
+  the German Y/Z swap.
 - `Enter` is Start; `Backspace` or `Delete` is Select.
 - `p` pauses, `r` resets, and `o` toggles the core's 30 fps frame skip, which is
   enabled by default. RLCD presentation remains capped independently.
 - `q`, `Esc`, or the app-exit key exits.
 
-The current BLE-keyboard path reports characters rather than key-release
-events. Game Boy controls are therefore treated as short, repeat-extended
-button pulses. This is adequate for the initial runtime and display benchmark,
-but a stateful game-input service is still required for action-game controls.
+For a connected BLE keyboard, Game Boy reads the complete six-key HID state in
+addition to the normal SolarOS character stream. Held directions and buttons
+therefore remain active until release, and combinations such as diagonal
+movement or direction plus A/B work simultaneously. Inputs without held-key
+state, including port-shell input, retain the short button-pulse fallback.
 
 ## less
 

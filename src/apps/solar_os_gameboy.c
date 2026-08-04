@@ -13,6 +13,10 @@
 #include <unistd.h>
 
 #include "esp_timer.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+#include "solar_os_ble_keyboard.h"
+#endif
 #include "solar_os_gameboy_rom.h"
 #include "solar_os_gameboy_video.h"
 #include "solar_os_gfx.h"
@@ -467,28 +471,110 @@ static void gameboy_resume(solar_os_context_t *ctx) {
   gameboy_render(ctx);
 }
 
-static void gameboy_release_inputs(int64_t now_us) {
+static uint8_t gameboy_button_for_char(uint8_t ch) {
+  if (ch == SOLAR_OS_KEY_RIGHT || ch == SOLAR_OS_KEY_CTRL_RIGHT) {
+    return JOYPAD_RIGHT;
+  }
+  if (ch == SOLAR_OS_KEY_LEFT || ch == SOLAR_OS_KEY_CTRL_LEFT) {
+    return JOYPAD_LEFT;
+  }
+  if (ch == SOLAR_OS_KEY_UP || ch == SOLAR_OS_KEY_CTRL_UP) {
+    return JOYPAD_UP;
+  }
+  if (ch == SOLAR_OS_KEY_DOWN || ch == SOLAR_OS_KEY_CTRL_DOWN) {
+    return JOYPAD_DOWN;
+  }
+  if (ch == 'z' || ch == 'Z') {
+    return JOYPAD_A;
+  }
+  if (ch == 'x' || ch == 'X') {
+    return JOYPAD_B;
+  }
+  if (ch == '\n' || ch == '\r') {
+    return JOYPAD_START;
+  }
+  if (ch == '\b' || ch == SOLAR_OS_KEY_DELETE) {
+    return JOYPAD_SELECT;
+  }
+  return 0;
+}
+
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+static uint8_t gameboy_button_for_ble_key(
+    uint8_t keycode, uint8_t ch, solar_os_ble_keyboard_layout_t layout) {
+  /* HID usages name these physical positions after the US layout. */
+  const uint8_t z_keycode =
+      layout == SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE ? 0x1cU : 0x1dU;
+  if (keycode == z_keycode) {
+    return JOYPAD_A;
+  }
+  if (keycode == 0x1bU) {
+    return JOYPAD_B;
+  }
+  return gameboy_button_for_char(ch);
+}
+#endif
+
+static uint8_t gameboy_ble_pressed_mask(bool *connected) {
+  uint8_t pressed = 0;
+  if (connected != NULL) {
+    *connected = false;
+  }
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+  solar_os_ble_keyboard_key_state_t keys;
+  solar_os_ble_keyboard_get_key_state(&keys);
+  if (connected != NULL) {
+    *connected = keys.connected;
+  }
+  if (keys.connected) {
+    for (size_t i = 0; i < SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS; i++) {
+      pressed |= gameboy_button_for_ble_key(keys.keycodes[i], keys.chars[i],
+                                            keys.layout);
+    }
+  }
+#endif
+  return pressed;
+}
+
+static uint8_t gameboy_pulse_pressed_mask(int64_t now_us) {
+  uint8_t pressed = 0;
   if (gameboy.core == NULL) {
-    return;
+    return 0;
   }
   for (size_t bit = 0; bit < 8U; bit++) {
     if (gameboy.release_at[bit] != 0 && now_us >= gameboy.release_at[bit]) {
-      gameboy.core->direct.joypad |= (uint8_t)(1U << bit);
       gameboy.release_at[bit] = 0;
     }
+    if (gameboy.release_at[bit] != 0) {
+      pressed |= (uint8_t)(1U << bit);
+    }
   }
+  return pressed;
+}
+
+static void gameboy_refresh_inputs(int64_t now_us) {
+  if (gameboy.core == NULL) {
+    return;
+  }
+  const uint8_t pressed =
+      gameboy_pulse_pressed_mask(now_us) | gameboy_ble_pressed_mask(NULL);
+  gameboy.core->direct.joypad = (uint8_t)~pressed;
 }
 
 static void gameboy_press(uint8_t mask, int64_t now_us) {
   if (gameboy.core == NULL) {
     return;
   }
-  gameboy.core->direct.joypad &= (uint8_t)~mask;
-  for (size_t bit = 0; bit < 8U; bit++) {
-    if ((mask & (uint8_t)(1U << bit)) != 0) {
-      gameboy.release_at[bit] = now_us + GAMEBOY_INPUT_PULSE_US;
+  bool ble_connected = false;
+  (void)gameboy_ble_pressed_mask(&ble_connected);
+  if (!ble_connected) {
+    for (size_t bit = 0; bit < 8U; bit++) {
+      if ((mask & (uint8_t)(1U << bit)) != 0) {
+        gameboy.release_at[bit] = now_us + GAMEBOY_INPUT_PULSE_US;
+      }
     }
   }
+  gameboy_refresh_inputs(now_us);
 }
 
 static bool gameboy_handle_char(solar_os_context_t *ctx, uint8_t ch) {
@@ -514,24 +600,7 @@ static bool gameboy_handle_char(solar_os_context_t *ctx, uint8_t ch) {
     return true;
   }
 
-  uint8_t mask = 0;
-  if (ch == SOLAR_OS_KEY_RIGHT || ch == SOLAR_OS_KEY_CTRL_RIGHT) {
-    mask = JOYPAD_RIGHT;
-  } else if (ch == SOLAR_OS_KEY_LEFT || ch == SOLAR_OS_KEY_CTRL_LEFT) {
-    mask = JOYPAD_LEFT;
-  } else if (ch == SOLAR_OS_KEY_UP || ch == SOLAR_OS_KEY_CTRL_UP) {
-    mask = JOYPAD_UP;
-  } else if (ch == SOLAR_OS_KEY_DOWN || ch == SOLAR_OS_KEY_CTRL_DOWN) {
-    mask = JOYPAD_DOWN;
-  } else if (ch == 'z' || ch == 'Z') {
-    mask = JOYPAD_A;
-  } else if (ch == 'x' || ch == 'X') {
-    mask = JOYPAD_B;
-  } else if (ch == '\n' || ch == '\r') {
-    mask = JOYPAD_START;
-  } else if (ch == '\b' || ch == SOLAR_OS_KEY_DELETE) {
-    mask = JOYPAD_SELECT;
-  }
+  const uint8_t mask = gameboy_button_for_char(ch);
   if (mask != 0) {
     gameboy_press(mask, esp_timer_get_time());
   }
@@ -595,8 +664,12 @@ static bool gameboy_event(solar_os_context_t *ctx,
   }
 
   const int64_t now_us = esp_timer_get_time();
-  gameboy_release_inputs(now_us);
-  if (gameboy.paused || now_us < gameboy.next_frame_us) {
+  if (gameboy.paused) {
+    gameboy.core->direct.joypad = 0xFFU;
+    return true;
+  }
+  gameboy_refresh_inputs(now_us);
+  if (now_us < gameboy.next_frame_us) {
     return true;
   }
   return gameboy_run_frame(ctx, now_us);

@@ -14,6 +14,7 @@
 #define SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MAX 60U
 #define SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MIN_MS 100U
 #define SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MAX_MS 2000U
+#define SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS 6U
 #define SOLAR_OS_BLE_GATT_UUID_MAX 37
 #define SOLAR_OS_BLE_GATT_MAX_SERVICES 24
 #define SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS 64
@@ -23,6 +24,14 @@ typedef enum {
     SOLAR_OS_BLE_KEYBOARD_LAYOUT_US,
     SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE,
 } solar_os_ble_keyboard_layout_t;
+
+typedef struct {
+    bool connected;
+    solar_os_ble_keyboard_layout_t layout;
+    uint8_t modifiers;
+    uint8_t keycodes[SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS];
+    uint8_t chars[SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS];
+} solar_os_ble_keyboard_key_state_t;
 
 typedef struct {
     uint8_t bda[6];
@@ -75,6 +84,7 @@ bool solar_os_ble_keyboard_is_pairing(void);
 size_t solar_os_ble_keyboard_remembered_count(void);
 void solar_os_ble_keyboard_get_status(char *buffer, size_t buffer_len);
 size_t solar_os_ble_keyboard_read_chars(char *buffer, size_t buffer_len);
+void solar_os_ble_keyboard_get_key_state(solar_os_ble_keyboard_key_state_t *state);
 void solar_os_ble_keyboard_get_repeat(uint16_t *rate_cps, uint16_t *delay_ms);
 esp_err_t solar_os_ble_keyboard_set_repeat(uint16_t rate_cps, uint16_t delay_ms);
 solar_os_ble_keyboard_layout_t solar_os_ble_keyboard_layout(void);

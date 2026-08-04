@@ -32,7 +32,7 @@
 #define BLE_KEYBOARD_SCAN_SECONDS 8
 #define BLE_KEYBOARD_NAME_MAX SOLAR_OS_BLE_KEYBOARD_NAME_MAX
 #define BLE_KEYBOARD_CHAR_QUEUE_LEN 128
-#define BLE_KEYBOARD_MAX_KEYS 6
+#define BLE_KEYBOARD_MAX_KEYS SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS
 #define BLE_KEYBOARD_RECONNECT_INITIAL_DELAY_MS 250
 #define BLE_KEYBOARD_RECONNECT_FAST_RETRY_DELAY_MS 250
 #define BLE_KEYBOARD_RECONNECT_FAST_WINDOW_MS 5000
@@ -147,6 +147,7 @@ static TaskHandle_t scan_task_handle;
 static TaskHandle_t reconnect_task_handle;
 static TickType_t reconnect_fast_until_tick;
 static portMUX_TYPE repeat_lock = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE key_state_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool initialized;
 static bool hidh_initialized;
 static bool classic_bt_memory_released;
@@ -159,6 +160,7 @@ static ble_keyboard_scan_mode_t active_scan_mode = BLE_KEYBOARD_SCAN_DISCOVERY;
 static bool caps_lock;
 static uint8_t previous_keys[BLE_KEYBOARD_MAX_KEYS];
 static uint8_t previous_modifiers;
+static solar_os_ble_keyboard_key_state_t key_state;
 static esp_hidh_dev_t *connected_dev;
 static esp_hidh_dev_t *pending_dev;
 static TickType_t pending_open_started_tick;
@@ -183,6 +185,18 @@ static esp_ble_addr_type_t pending_addr_type;
 static char pending_name[BLE_KEYBOARD_NAME_MAX];
 static char connected_name[BLE_KEYBOARD_NAME_MAX];
 static char status_text[80] = "idle";
+
+static void keyboard_report_state_reset(bool is_connected)
+{
+    memset(previous_keys, 0, sizeof(previous_keys));
+    previous_modifiers = 0;
+
+    portENTER_CRITICAL(&key_state_lock);
+    memset(&key_state, 0, sizeof(key_state));
+    key_state.connected = is_connected;
+    key_state.layout = keyboard_layout;
+    portEXIT_CRITICAL(&key_state_lock);
+}
 
 static esp_ble_scan_params_t scan_params = {
     .scan_type = BLE_SCAN_TYPE_ACTIVE,
@@ -234,8 +248,7 @@ static void clear_runtime_connection_state(const char *reason)
     connected_dev = NULL;
     pending_dev = NULL;
     pending_open_started_tick = 0;
-    memset(previous_keys, 0, sizeof(previous_keys));
-    previous_modifiers = 0;
+    keyboard_report_state_reset(false);
     repeat_clear();
     if (reason != NULL) {
         set_status(BLE_KEYBOARD_IDLE, "%s", reason);
@@ -949,6 +962,7 @@ static bool drop_existing_hidh_device(const uint8_t *bda, const char *reason, ui
     if (connected_dev == dev) {
         connected = false;
         connected_dev = NULL;
+        keyboard_report_state_reset(false);
     }
     if (pending_dev == dev) {
         pending_dev = NULL;
@@ -1163,6 +1177,17 @@ size_t solar_os_ble_keyboard_read_chars(char *buffer, size_t buffer_len)
     return count;
 }
 
+void solar_os_ble_keyboard_get_key_state(solar_os_ble_keyboard_key_state_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+
+    portENTER_CRITICAL(&key_state_lock);
+    *out = key_state;
+    portEXIT_CRITICAL(&key_state_lock);
+}
+
 void solar_os_ble_keyboard_get_repeat(uint16_t *rate_cps, uint16_t *delay_ms)
 {
     portENTER_CRITICAL(&repeat_lock);
@@ -1210,6 +1235,9 @@ esp_err_t solar_os_ble_keyboard_set_layout(solar_os_ble_keyboard_layout_t layout
     }
 
     keyboard_layout = layout;
+    portENTER_CRITICAL(&key_state_lock);
+    key_state.layout = layout;
+    portEXIT_CRITICAL(&key_state_lock);
     return save_keyboard_layout(layout);
 }
 
@@ -2019,6 +2047,26 @@ static char hid_keycode_to_char(uint8_t keycode, uint8_t modifiers)
     return hid_keycode_to_char_us(keycode, shift);
 }
 
+static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys)
+{
+    solar_os_ble_keyboard_key_state_t next = {
+        .connected = connected,
+        .layout = keyboard_layout,
+        .modifiers = modifiers,
+    };
+
+    if (keys != NULL) {
+        for (size_t i = 0; i < BLE_KEYBOARD_MAX_KEYS; i++) {
+            next.keycodes[i] = keys[i];
+            next.chars[i] = (uint8_t)hid_keycode_to_char(keys[i], modifiers);
+        }
+    }
+
+    portENTER_CRITICAL(&key_state_lock);
+    key_state = next;
+    portEXIT_CRITICAL(&key_state_lock);
+}
+
 static bool hid_should_prefix_alt(uint8_t modifiers, uint8_t keycode, char ch)
 {
     const bool left_alt = (modifiers & HID_MOD_LEFT_ALT) != 0;
@@ -2043,7 +2091,7 @@ static void handle_keyboard_report(const uint8_t *data, uint16_t length)
     const uint8_t *keys = &data[2];
 
     if (keys[0] == 0x01) {
-        memset(previous_keys, 0, sizeof(previous_keys));
+        keyboard_report_state_reset(connected);
         previous_modifiers = modifiers;
         repeat_clear();
         return;
@@ -2088,6 +2136,7 @@ static void handle_keyboard_report(const uint8_t *data, uint16_t length)
     }
 
     repeat_stop_if_released(keys);
+    keyboard_report_state_publish(modifiers, keys);
     memcpy(previous_keys, keys, sizeof(previous_keys));
     previous_modifiers = modifiers;
 }
@@ -2394,8 +2443,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                 connected = false;
                 connected_dev = NULL;
                 pending_dev = NULL;
-                memset(previous_keys, 0, sizeof(previous_keys));
-                previous_modifiers = 0;
+                keyboard_report_state_reset(false);
                 repeat_clear();
                 SOLAR_OS_LOGW(TAG, "open rejected: HID keyboard link is not usable");
                 set_status(BLE_KEYBOARD_FAILED, "bad keyboard link");
@@ -2413,8 +2461,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
 
             connected = true;
             connected_dev = param->open.dev;
-            memset(previous_keys, 0, sizeof(previous_keys));
-            previous_modifiers = 0;
+            keyboard_report_state_reset(true);
             repeat_clear();
             const char *name = esp_hidh_dev_name_get(param->open.dev);
             const char *display_name = name != NULL && name[0] ? name : pending_name;
@@ -2442,8 +2489,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
             connected = false;
             connected_dev = NULL;
             pending_dev = NULL;
-            memset(previous_keys, 0, sizeof(previous_keys));
-            previous_modifiers = 0;
+            keyboard_report_state_reset(false);
             SOLAR_OS_LOGE(TAG, "open failed: %s", esp_err_to_name(param->open.status));
             if (pairing_retry_pending) {
                 esp_err_t pair_ret = start_pairing_scan_now();
@@ -2492,8 +2538,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
         if (pending_dev == param->close.dev) {
             pending_dev = NULL;
         }
-        memset(previous_keys, 0, sizeof(previous_keys));
-        previous_modifiers = 0;
+        keyboard_report_state_reset(false);
         repeat_clear();
         SOLAR_OS_LOGI(TAG, "close reason=%d status=%s",
                  param->close.reason,
@@ -3512,8 +3557,7 @@ void solar_os_ble_keyboard_resume(void)
     }
 
     start_fast_reconnect_window("resume");
-    memset(previous_keys, 0, sizeof(previous_keys));
-    previous_modifiers = 0;
+    keyboard_report_state_reset(false);
     repeat_clear();
     schedule_reconnect(0);
 }
