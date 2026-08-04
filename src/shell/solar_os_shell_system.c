@@ -423,7 +423,7 @@ static void power_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  power status");
-    solar_os_shell_io_writeln(term, "  power profile [performance|balanced|solar|offline]");
+    solar_os_shell_io_writeln(term, "  power profile [performance|balanced|battery|lowpower]");
     solar_os_shell_io_writeln(term, "  power idle [off|seconds]");
     solar_os_shell_io_writeln(term, "  power key [off|light]");
     solar_os_shell_io_writeln(term, "  power sleep");
@@ -509,20 +509,20 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_printf(term,
                                      "profile: %s\n",
                                      solar_os_power_profile_name(status.profile));
-            solar_os_shell_io_writeln(term, "values: performance balanced solar offline");
+            solar_os_shell_io_writeln(term, "values: performance balanced battery lowpower");
             return;
         }
         if (argc != 3) {
             solar_os_shell_diag_unexpected(term, "power profile", argv[3],
-                                           "power profile [performance|balanced|solar|offline]");
+                                           "power profile [performance|balanced|battery|lowpower]");
             return;
         }
 
         solar_os_power_profile_t profile;
         if (!solar_os_power_parse_profile(argv[2], &profile)) {
             solar_os_shell_diag_invalid(term, "power profile", "profile", argv[2],
-                                        "performance, balanced, solar, or offline",
-                                        "power profile [performance|balanced|solar|offline]", false);
+                                        "performance, balanced, battery, or lowpower",
+                                        "power profile [performance|balanced|battery|lowpower]", false);
             return;
         }
 
