@@ -4,7 +4,7 @@ title = "Boards and hardware targets"
 section = "build"
 summary = "Supported boards, capabilities, porting structure, and validation"
 aliases = ["board", "targets"]
-keywords = "boards targets waveshare devkit odroid elecrow capabilities porting validation"
+keywords = "boards targets waveshare devkit odroid elecrow freenove wrover composite capabilities porting validation"
 packages_any = []
 +++
 # Defining SolarOS Boards
@@ -73,6 +73,7 @@ The current tree includes these board targets:
 | `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
+| `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, attachable graphics, and GPIO25 reserved for the future PAL composite driver. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
 ## Board Profile
@@ -494,6 +495,33 @@ defaults are not appropriate for the target:
 board = odroid_esp32
 board_build.cmake_extra_args = -DSOLAR_OS_BOARD=odroid_go -DSDKCONFIG_DEFAULTS=sdkconfig.defaults.odroid_go
 ```
+
+## Freenove ESP32-WROVER v3.0
+
+The `freenove_esp32_wrover_v3` target covers the FNK0060 v3.0 board with an
+ESP32-WROVER-E-N4R8 module, 4 MB flash, 8 MB physical PSRAM, a CH340 USB-to-UART
+bridge, and the rear microSD slot. It uses `uart0` on GPIO1/GPIO3 as the boot
+shell and one-bit SDMMC on GPIO14 clock, GPIO15 command, and GPIO2 data.
+
+The initial target deliberately leaves the OV2640 camera unsupported. GPIO25
+is reserved for PAL composite output and conflicts with the camera's VSYNC
+signal; the remaining camera signals are also blocked from runtime GPIO so a
+connected camera cannot be driven accidentally. The target advertises graphics
+support so the Writer and Reader applications can be compiled before the
+physical composite display driver is added, but it does not yet advertise a
+boot-time `DISPLAY` capability.
+
+The conservative runtime pin set is GPIO13, GPIO32, and GPIO33. GPIO32 and
+GPIO33 also support runtime ADC; all three support PWM and can form runtime
+I2C, output-only SPI, UART, or 1-Wire buses. UART0 remains registered on the
+CH340 pins and cannot be detached by the shell using it.
+
+The board uses `partitions_4mb.csv`, with one 0x350000-byte factory application
+slot and a 0xA0000-byte flash filesystem. The full Writerdeck selection does
+not fit a dual-OTA layout on 4 MB flash. Its intended `composite` flavor keeps
+Writerdeck except for OTA and remote manual synchronization. Install firmware
+through the CH340 serial connection; this partition layout does not support
+on-device OTA updates.
 
 ## ODROID-GO
 

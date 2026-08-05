@@ -80,6 +80,26 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertFalse(packages[package], package)
 
+    def test_composite_is_writerdeck_without_ota_only_services(self):
+        writer_name, _, writer_groups, writer_packages = self.resolve("writerdeck")
+        composite_name, _, composite_groups, composite_packages = self.resolve("composite")
+
+        self.assertEqual(writer_name, "writerdeck")
+        self.assertEqual(composite_name, "composite")
+        self.assertFalse(composite_groups["maintenance_apps"])
+        self.assertTrue(composite_groups["writing"])
+
+        differences = {
+            package
+            for package in writer_packages
+            if writer_packages[package] != composite_packages[package]
+        }
+        self.assertEqual(differences, {"service_ota", "service_docs"})
+        self.assertTrue(writer_packages["service_ota"])
+        self.assertTrue(writer_packages["service_docs"])
+        self.assertFalse(composite_packages["service_ota"])
+        self.assertFalse(composite_packages["service_docs"])
+
     def test_existing_flavors_preserve_hardware_job_selection(self):
         for flavor in ("core", "full", "netrunner"):
             with self.subTest(flavor=flavor):

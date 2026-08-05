@@ -6,6 +6,8 @@
 #include "boards/esp32_s3_devkitc1_n16r8.h"
 #elif defined(SOLAR_OS_BOARD_ODROID_GO)
 #include "boards/odroid_go.h"
+#elif defined(SOLAR_OS_BOARD_FREENOVE_ESP32_WROVER_V3)
+#include "boards/freenove_esp32_wrover_v3.h"
 #elif defined(SOLAR_OS_BOARD_ELECROW_CROWPANEL_ESP32_S3_4_2_EPAPER)
 #include "boards/elecrow_crowpanel_esp32_s3_4_2_epaper.h"
 #else
