@@ -51,9 +51,9 @@ while remaining blocked from runtime use.
 | --- | --- | --- | --- | --- |
 | Waveshare ESP32-S3-RLCD-4.2 | GPIO0-GPIO3, GPIO13, GPIO14, GPIO17-GPIO20, GPIO43, GPIO44 | GPIO1-GPIO3, GPIO17 | GPIO1-GPIO3, GPIO17 | GPIO0 is BOOT; GPIO13/GPIO14 are I2C; GPIO18 is KEY; GPIO19/GPIO20 are native USB; GPIO43/GPIO44 belong to `uart0` by default. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO20 | GPIO3 is physically exposed but blocked as a strapping pin. |
-| ESP32-S3-DevKitC-1-N16R8 | ESP32-S3 signals broken out on the DevKitC headers | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18, GPIO21, GPIO39-GPIO42, GPIO47 | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18 | GPIO0/GPIO3/GPIO45/GPIO46 are strapping pins; GPIO19/GPIO20 are native USB; GPIO35-GPIO37 are Octal PSRAM; GPIO38/GPIO48 are reserved for either RGB LED revision; GPIO43/GPIO44 are `uart0`. |
+| ESP32-S3-DevKitC-1-N16R8 | ESP32-S3 signals broken out on the DevKitC headers | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18, GPIO21, GPIO39-GPIO42, GPIO47 | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18 | GPIO0 is BOOT/KEY; GPIO3/GPIO45/GPIO46 are other strapping pins; GPIO19/GPIO20 are native USB; GPIO35-GPIO37 are Octal PSRAM; GPIO38/GPIO48 are reserved for either RGB LED revision; GPIO43/GPIO44 are `uart0`. |
 | ODROID-GO | External IO GPIO4 and GPIO15 | GPIO4, GPIO15 | None | Both pins are also the allowed external chip-select slots on the shared VSPI bus. |
-| ESP32-WROVER v3.0 | GPIO0-GPIO5, GPIO12-GPIO15, GPIO18, GPIO19, GPIO21-GPIO23, GPIO25-GPIO27, GPIO32-GPIO36, GPIO39 | GPIO13, GPIO32, GPIO33 | GPIO32, GPIO33 | GPIO1/GPIO3 are CH340 `uart0`; GPIO2/GPIO14/GPIO15 are SDMMC; GPIO25 is reserved for PAL; camera and strapping pins are blocked. |
+| ESP32-WROVER v3.0 | GPIO0-GPIO5, GPIO12-GPIO15, GPIO18, GPIO19, GPIO21-GPIO23, GPIO25-GPIO27, GPIO32-GPIO36, GPIO39 | GPIO13, GPIO32, GPIO33 | GPIO32, GPIO33 | GPIO0 is BOOT/KEY; GPIO1/GPIO3 are CH340 `uart0`; GPIO2/GPIO14/GPIO15 are SDMMC; GPIO25 is reserved for PAL; camera and other strapping pins are blocked. |
 
 Power and ground pins are physical wiring resources and are not managed by the
 SolarOS pin-claim system. Check the board schematic and the external module's

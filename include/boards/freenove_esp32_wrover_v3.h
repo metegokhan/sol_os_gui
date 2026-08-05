@@ -16,6 +16,11 @@
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_3
 #define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
 
+#define SOLAR_OS_BOARD_PIN_KEY GPIO_NUM_0
+#define SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL 0
+#define SOLAR_OS_BOARD_KEY_PULL_UP 1
+#define SOLAR_OS_BOARD_KEY_PULL_DOWN 0
+
 #define SOLAR_OS_BOARD_PIN_SDMMC_CLK GPIO_NUM_14
 #define SOLAR_OS_BOARD_PIN_SDMMC_CMD GPIO_NUM_15
 #define SOLAR_OS_BOARD_PIN_SDMMC_D0 GPIO_NUM_2
@@ -86,7 +91,7 @@
     {.connector = "L", .position = 13, .row = 12, .column = 0, .pin = GPIO_NUM_12, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO12"}, \
     {.connector = "R", .position = 13, .row = 12, .column = 1, .pin = GPIO_NUM_4, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO4"}, \
     {.connector = "L", .position = 14, .row = 13, .column = 0, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_GROUND, .label = "GND"}, \
-    {.connector = "R", .position = 14, .row = 13, .column = 1, .pin = GPIO_NUM_0, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO0/BOOT"}, \
+    {.connector = "R", .position = 14, .row = 13, .column = 1, .pin = GPIO_NUM_0, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO0/BOOT/KEY"}, \
     {.connector = "L", .position = 15, .row = 14, .column = 0, .pin = GPIO_NUM_13, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO13"}, \
     {.connector = "R", .position = 15, .row = 14, .column = 1, .pin = GPIO_NUM_2, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO2/SD D0"}, \
     {.connector = "L", .position = 16, .row = 15, .column = 0, .pin = -1, .kind = SOLAR_OS_CONNECTOR_PIN_POWER, .label = "3V3"}, \
@@ -133,7 +138,7 @@
                                            (1ULL << GPIO_NUM_33))
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download"}, \
+    {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download / KEY"}, \
     {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "CH340 UART TX"}, \
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SDMMC D0 / onboard LED"}, \
     {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "CH340 UART RX"}, \

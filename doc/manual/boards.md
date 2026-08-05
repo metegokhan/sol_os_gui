@@ -73,8 +73,8 @@ The current tree includes these board targets:
 | `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
-| `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, and a 384x288 monochrome PAL composite display on GPIO25. |
-| `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
+| `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
+| `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
 ## Board Profile
 
@@ -503,6 +503,10 @@ The `freenove_esp32_wrover_v3` target covers the FNK0060 v3.0 board with an
 ESP32-WROVER-E-N4R8 module, 4 MB flash, 8 MB physical PSRAM, a CH340 USB-to-UART
 bridge, and the rear microSD slot. It uses `uart0` on GPIO1/GPIO3 as the boot
 shell and one-bit SDMMC on GPIO14 clock, GPIO15 command, and GPIO2 data.
+The active-low BOOT button on GPIO0 is also the SolarOS KEY. A short press uses
+the configured KEY power action; a long press forgets the remembered BLE
+keyboard and starts pairing. Do not hold the button during reset or power-up,
+because GPIO0 low selects the ESP32 serial download boot mode.
 
 The target deliberately leaves the OV2640 camera unsupported. GPIO25 is the PAL
 composite output and conflicts with the camera's VSYNC signal; the remaining
@@ -662,6 +666,10 @@ and also enables expansion GPIO, ADC, PWM, I2C, and SPI. The default I2C bus is
 GPIO8 SDA and GPIO9 SCL. The default SPI bus is FSPI on GPIO12 SCK, GPIO13
 MISO, and GPIO11 MOSI, with chip-select slots on GPIO4, GPIO10, GPIO5, GPIO6,
 and GPIO7.
+Its active-low BOOT button on GPIO0 is also the SolarOS KEY for the configured
+short-press power action, light-sleep wake, and long-press BLE keyboard
+replacement. GPIO0 remains reserved from runtime routing. Do not hold the
+button during reset or power-up, because that selects download boot mode.
 The N16R8 target uses `partitions_16mb_devkit.csv`: each OTA application slot
 is 0x600000 bytes and the internal FAT filesystem partition is 0x3F0000 bytes.
 The larger local volume supports durable agent conversations and normal file

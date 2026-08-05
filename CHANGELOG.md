@@ -13,6 +13,8 @@
   ESP32 DAC, I2S0 DMA, field-boundary framebuffer swaps, and timing adapted from
   LovyanGFX. Added an optional centered 320x200 PAL safe-area build mode for
   small composite displays and a 240 MHz board CPU floor for stable scanout.
+  Assigned the active-low GPIO0 BOOT buttons as SolarOS KEY inputs on the
+  Freenove WROVER and ESP32-S3-DevKitC-1 targets.
   Virtual displays now inherit the board's main display dimensions; headless
   boards retain the 400x300 fallback. Fixed `df` listing internal flash twice
   on SD-capable boards.
