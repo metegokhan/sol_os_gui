@@ -14,7 +14,9 @@
   LovyanGFX. Added an optional centered 320x200 PAL safe-area build mode for
   small composite displays and a 240 MHz board CPU floor for stable scanout.
   Assigned the active-low GPIO0 BOOT buttons as SolarOS KEY inputs on the
-  Freenove WROVER and ESP32-S3-DevKitC-1 targets.
+  Freenove WROVER and ESP32-S3-DevKitC-1 targets. Released the unsupported
+  Freenove camera signal pins for runtime GPIO, ADC, and PWM use while keeping
+  GPIO25 reserved for PAL composite output.
   Virtual displays now inherit the board's main display dimensions; headless
   boards retain the 400x300 fallback. Fixed `df` listing internal flash twice
   on SD-capable boards.

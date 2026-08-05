@@ -508,10 +508,13 @@ the configured KEY power action; a long press forgets the remembered BLE
 keyboard and starts pairing. Do not hold the button during reset or power-up,
 because GPIO0 low selects the ESP32 serial download boot mode.
 
-The target deliberately leaves the OV2640 camera unsupported. GPIO25 is the PAL
-composite output and conflicts with the camera's VSYNC signal; the remaining
-camera signals are also blocked from runtime GPIO so a connected camera cannot
-be driven accidentally. Remove or disconnect the camera before using video.
+The target deliberately leaves the OV2640 camera unsupported. Remove or
+disconnect it before using this target. GPIO25 is reserved for PAL composite
+output because it conflicts with the camera's VSYNC signal. The other former
+camera signals are available as runtime expansion GPIOs; GPIO34, GPIO35,
+GPIO36, and GPIO39 are input-only and also support ADC. GPIO5 is a boot
+strapping pin, so external circuitry must not force it to the wrong level while
+the ESP32 resets.
 
 The `cvbs_pal` backend produces monochrome PAL through the original ESP32's
 DAC1 and I2S0 DMA hardware. Its default SolarOS canvas is 384x288 with PAL
@@ -539,12 +542,13 @@ Connect GPIO25 to the composite input's center conductor and a board GND to its
 shield/ground. Keep both leads short and use a PAL-capable input with its normal
 75-ohm termination. The backend continuously owns I2S0 and the APLL while the
 display is active, so this board cannot use an I2S0 audio backend at the same
-time. GPIO26 remains unused.
+time.
 
-The conservative runtime pin set is GPIO13, GPIO32, and GPIO33. GPIO32 and
-GPIO33 also support runtime ADC; all three support PWM and can form runtime
-I2C, output-only SPI, UART, or 1-Wire buses. UART0 remains registered on the
-CH340 pins and cannot be detached by the shell using it.
+Runtime GPIO is available on GPIO4, GPIO5, GPIO13, GPIO18, GPIO19,
+GPIO21-GPIO23, GPIO26, GPIO27, GPIO32-GPIO36, and GPIO39. GPIO34-GPIO36 and
+GPIO39 are input-only and support runtime ADC; the other runtime pins support
+PWM and can form runtime I2C, SPI, UART, or 1-Wire buses. UART0 remains
+registered on the CH340 pins and cannot be detached by the shell using it.
 
 The board uses `partitions_4mb.csv`, with one 0x3D0000-byte factory application
 slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific

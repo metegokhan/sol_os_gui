@@ -25,7 +25,7 @@
 #define SOLAR_OS_BOARD_PIN_SDMMC_CMD GPIO_NUM_15
 #define SOLAR_OS_BOARD_PIN_SDMMC_D0 GPIO_NUM_2
 
-/* Reserved now so camera support cannot later collide with PAL output. */
+/* The composite backend continuously owns the ESP32 DAC1 output. */
 #define SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO GPIO_NUM_25
 #if defined(SOLAR_OS_CVBS_MODE_320X200) && SOLAR_OS_CVBS_MODE_320X200
 #define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "PAL 312p/50 CVBS safe area"
@@ -129,37 +129,65 @@
                                             (1ULL << GPIO_NUM_35) | \
                                             (1ULL << GPIO_NUM_36) | \
                                             (1ULL << GPIO_NUM_39))
-#define SOLAR_OS_BOARD_USER_GPIO_MASK ((1ULL << GPIO_NUM_13) | \
+#define SOLAR_OS_BOARD_USER_GPIO_MASK ((1ULL << GPIO_NUM_4) | \
+                                       (1ULL << GPIO_NUM_5) | \
+                                       (1ULL << GPIO_NUM_13) | \
+                                       (1ULL << GPIO_NUM_18) | \
+                                       (1ULL << GPIO_NUM_19) | \
+                                       (1ULL << GPIO_NUM_21) | \
+                                       (1ULL << GPIO_NUM_22) | \
+                                       (1ULL << GPIO_NUM_23) | \
+                                       (1ULL << GPIO_NUM_26) | \
+                                       (1ULL << GPIO_NUM_27) | \
                                        (1ULL << GPIO_NUM_32) | \
-                                       (1ULL << GPIO_NUM_33))
+                                       (1ULL << GPIO_NUM_33) | \
+                                       (1ULL << GPIO_NUM_34) | \
+                                       (1ULL << GPIO_NUM_35) | \
+                                       (1ULL << GPIO_NUM_36) | \
+                                       (1ULL << GPIO_NUM_39))
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "0 1 2 3 4 5 12 13 14 15 18 19 21 22 23 25 26 27 32 33 34 35 36 39"
-#define SOLAR_OS_BOARD_USER_GPIO_LIST "13 32 33"
+#define SOLAR_OS_BOARD_USER_GPIO_LIST "4 5 13 18 19 21 22 23 26 27 32 33 34 35 36 39"
 #define SOLAR_OS_BOARD_EXPANSION_ADC_MASK ((1ULL << GPIO_NUM_32) | \
+                                           (1ULL << GPIO_NUM_33) | \
+                                           (1ULL << GPIO_NUM_34) | \
+                                           (1ULL << GPIO_NUM_35) | \
+                                           (1ULL << GPIO_NUM_36) | \
+                                           (1ULL << GPIO_NUM_39))
+#define SOLAR_OS_BOARD_EXPANSION_PWM_MASK ((1ULL << GPIO_NUM_4) | \
+                                           (1ULL << GPIO_NUM_5) | \
+                                           (1ULL << GPIO_NUM_13) | \
+                                           (1ULL << GPIO_NUM_18) | \
+                                           (1ULL << GPIO_NUM_19) | \
+                                           (1ULL << GPIO_NUM_21) | \
+                                           (1ULL << GPIO_NUM_22) | \
+                                           (1ULL << GPIO_NUM_23) | \
+                                           (1ULL << GPIO_NUM_26) | \
+                                           (1ULL << GPIO_NUM_27) | \
+                                           (1ULL << GPIO_NUM_32) | \
                                            (1ULL << GPIO_NUM_33))
-#define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
     {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download / KEY"}, \
     {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "CH340 UART TX"}, \
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SDMMC D0 / onboard LED"}, \
     {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "CH340 UART RX"}, \
-    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera Y2"}, \
-    {.pin = 5, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera Y3 / strapping"}, \
+    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 5, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / strapping"}, \
     {.pin = 12, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "strapping"}, \
     {.pin = 13, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SDMMC CLK"}, \
     {.pin = 15, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SDMMC CMD / strapping"}, \
-    {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera Y4"}, \
-    {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera Y5"}, \
-    {.pin = 21, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera XCLK"}, \
-    {.pin = 22, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera PCLK"}, \
-    {.pin = 23, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera HREF"}, \
-    {.pin = 25, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "PAL composite / camera VSYNC"}, \
-    {.pin = 26, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera SIOD"}, \
-    {.pin = 27, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera SIOC"}, \
+    {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 21, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 22, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 23, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 25, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "PAL composite"}, \
+    {.pin = 26, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 27, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 32, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 33, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
-    {.pin = 34, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera Y8"}, \
-    {.pin = 35, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera Y9"}, \
-    {.pin = 36, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera Y6"}, \
-    {.pin = 39, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "camera Y7"}, \
+    {.pin = 34, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "input-only expansion"}, \
+    {.pin = 35, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "input-only expansion"}, \
+    {.pin = 36, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "input-only expansion"}, \
+    {.pin = 39, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "input-only expansion"}, \
 }
