@@ -1,4 +1,24 @@
 set(SOLAR_OS_BOARD_DISPLAY_DRIVER "cvbs_pal")
+
+if(NOT DEFINED SOLAR_OS_CVBS_MODE OR SOLAR_OS_CVBS_MODE STREQUAL "")
+    set(SOLAR_OS_CVBS_MODE "384x288")
+endif()
+if(SOLAR_OS_CVBS_MODE STREQUAL "384x288")
+    list(APPEND SOLAR_OS_BOARD_COMPILE_DEFINITIONS
+        SOLAR_OS_CVBS_MODE_320X200=0
+    )
+elseif(SOLAR_OS_CVBS_MODE STREQUAL "320x200")
+    list(APPEND SOLAR_OS_BOARD_COMPILE_DEFINITIONS
+        SOLAR_OS_CVBS_MODE_320X200=1
+    )
+else()
+    message(FATAL_ERROR
+        "Unsupported SOLAR_OS_CVBS_MODE '${SOLAR_OS_CVBS_MODE}'; "
+        "expected 384x288 or 320x200"
+    )
+endif()
+message(STATUS "SolarOS CVBS mode: ${SOLAR_OS_CVBS_MODE}")
+
 list(APPEND SOLAR_OS_BOARD_SRCS
     "board/solar_os_board_display_cvbs_pal.c"
     "drivers/cvbs_pal.c"

@@ -14,8 +14,17 @@
 extern "C" {
 #endif
 
+#ifndef SOLAR_OS_CVBS_MODE_320X200
+#define SOLAR_OS_CVBS_MODE_320X200 0
+#endif
+
+#if SOLAR_OS_CVBS_MODE_320X200
+#define CVBS_PAL_WIDTH 320U
+#define CVBS_PAL_HEIGHT 200U
+#else
 #define CVBS_PAL_WIDTH 384U
 #define CVBS_PAL_HEIGHT 288U
+#endif
 
 typedef struct {
     u8g2_t u8g2;

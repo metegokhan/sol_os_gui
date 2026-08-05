@@ -32,6 +32,25 @@
 #define CVBS_TILE_HEIGHT ((CVBS_NATIVE_HEIGHT + 7U) / 8U)
 #define CVBS_BUFFER_SIZE (CVBS_TILE_WIDTH * CVBS_TILE_HEIGHT * 8U)
 
+#if SOLAR_OS_CVBS_MODE_320X200
+/*
+ * Conservative non-interlaced PAL timing for small displays. The 320x200
+ * canvas is centered in the 312-line frame and uses one DAC sample per pixel.
+ */
+#define PAL_TOTAL_SCANLINES 312U
+#define PAL_SCANLINE_SAMPLES 472U
+#define PAL_SYNC_SAMPLES 35U
+#define PAL_SHORT_SYNC_SAMPLES 17U
+#define PAL_LONG_SYNC_SAMPLES 201U
+#define PAL_VISIBLE_START 66U
+#define PAL_VISIBLE_END (PAL_VISIBLE_START + CVBS_PAL_HEIGHT)
+#define PAL_TRAILING_SYNC_START 309U
+#define PAL_MONO_ACTIVE_START 108U
+#define CVBS_LEVEL_SYNC 0U
+#define CVBS_LEVEL_BLANKING 23U
+#define CVBS_LEVEL_BLACK 23U
+#define CVBS_LEVEL_WHITE 77U
+#else
 #define PAL_TOTAL_SCANLINES 625U
 #define PAL_FIELD_START 312U
 #define PAL_SCANLINE_SAMPLES 1136U
@@ -46,8 +65,11 @@
 #define CVBS_LEVEL_BLANKING 28U
 #define CVBS_LEVEL_BLACK 28U
 #define CVBS_LEVEL_WHITE 90U
+#endif
 #define CVBS_WORD(level) ((uint16_t)((level) | ((level) << 8U)))
 #define CVBS_DWORD(level) ((uint32_t)CVBS_WORD(level) | ((uint32_t)CVBS_WORD(level) << 16U))
+#define CVBS_PIXEL_PAIR(first, second) \
+    (((uint32_t)(first) << 24U) | ((uint32_t)(second) << 8U))
 
 static const char *TAG = "cvbs-pal";
 static cvbs_pal_t *active_display;
@@ -87,6 +109,18 @@ static inline void IRAM_ATTR render_pixels(cvbs_pal_t *display,
     const uint8_t *row = &frame[(size_t)y * (CVBS_PAL_WIDTH / 8U)];
     uint32_t *output = (uint32_t *)&buffer[PAL_MONO_ACTIVE_START];
 
+#if SOLAR_OS_CVBS_MODE_320X200
+    /* I2S LCD mode swaps adjacent 16-bit samples, so each LUT word stores a
+     * pair in transmission order. Four aligned writes render eight pixels. */
+    for (size_t group = 0; group < CVBS_PAL_WIDTH / 8U; group++) {
+        const uint32_t *pixels = pixel_lut[row[group]];
+        output[0] = pixels[0];
+        output[1] = pixels[1];
+        output[2] = pixels[2];
+        output[3] = pixels[3];
+        output += 4;
+    }
+#else
     /*
      * Two identical samples per pixel are immune to I2S LCD mode's adjacent
      * 16-bit swap. The row-major buffer and lookup table keep this ISR to 48
@@ -104,6 +138,7 @@ static inline void IRAM_ATTR render_pixels(cvbs_pal_t *display,
         output[7] = pixels[7];
         output += 8;
     }
+#endif
 }
 
 static inline void IRAM_ATTR render_normal_line(cvbs_pal_t *display,
@@ -124,6 +159,30 @@ static inline void IRAM_ATTR render_vsync_line(uint16_t *buffer,
                                                bool odd_field,
                                                uint16_t field_line)
 {
+#if SOLAR_OS_CVBS_MODE_320X200
+    (void)odd_field;
+    const bool first_long = field_line == 0U || field_line == 1U ||
+                            field_line == 2U;
+    const bool second_long = field_line == 0U || field_line == 1U;
+    const size_t half = PAL_SCANLINE_SAMPLES / 2U;
+    const size_t first_width = first_long
+                                   ? PAL_LONG_SYNC_SAMPLES
+                                   : PAL_SHORT_SYNC_SAMPLES;
+    const size_t second_width = second_long
+                                    ? PAL_LONG_SYNC_SAMPLES
+                                    : PAL_SHORT_SYNC_SAMPLES;
+
+    fill_samples(buffer, 0, first_width, CVBS_LEVEL_SYNC);
+    fill_samples(buffer,
+                 first_width,
+                 half - first_width,
+                 CVBS_LEVEL_BLANKING);
+    fill_samples(buffer, half, second_width, CVBS_LEVEL_SYNC);
+    fill_samples(buffer,
+                 half + second_width,
+                 half - second_width,
+                 CVBS_LEVEL_BLANKING);
+#else
     /*
      * The LovyanGFX sync table contains edits to the waveform that was last
      * sent through this DMA descriptor, not complete scanlines. Each of our
@@ -179,6 +238,7 @@ static inline void IRAM_ATTR render_vsync_line(uint16_t *buffer,
                      PAL_SCANLINE_SAMPLES - 22U - PAL_ACTIVE_START,
                      CVBS_LEVEL_BLACK);
     }
+#endif
 }
 
 static inline void IRAM_ATTR accept_pending_frame(cvbs_pal_t *display)
@@ -196,6 +256,21 @@ static void IRAM_ATTR render_scanline(cvbs_pal_t *display,
                                       uint16_t *buffer,
                                       uint16_t scanline)
 {
+#if SOLAR_OS_CVBS_MODE_320X200
+    if (scanline == 0U) {
+        accept_pending_frame(display);
+    }
+
+    if (scanline < 5U || scanline >= PAL_TRAILING_SYNC_START) {
+        render_vsync_line(buffer, false, scanline < 5U ? scanline : 4U);
+    } else if (scanline >= PAL_VISIBLE_START && scanline < PAL_VISIBLE_END) {
+        render_normal_line(display,
+                           buffer,
+                           (int)(scanline - PAL_VISIBLE_START));
+    } else {
+        render_normal_line(display, buffer, -1);
+    }
+#else
     if (scanline == 0U || scanline == PAL_FIELD_START) {
         accept_pending_frame(display);
     }
@@ -219,6 +294,7 @@ static void IRAM_ATTR render_scanline(cvbs_pal_t *display,
                      CVBS_PAL_WIDTH * 2U,
                      CVBS_LEVEL_BLACK);
     }
+#endif
 }
 
 static void IRAM_ATTR cvbs_i2s_isr(void *arg)
@@ -346,7 +422,7 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
         descriptor->empty = (uint32_t)&display->dma_desc[(i + 1U) & 1U];
     }
 
-    /* Seed the stateful vertical-sync edits with an ordinary blank line. */
+    /* Seed both descriptors before the DMA engine starts. */
     render_normal_line(display, (uint16_t *)display->dma_desc[0].buf, -1);
     render_normal_line(display, (uint16_t *)display->dma_desc[1].buf, -1);
     display->next_scanline = 0;
@@ -381,10 +457,19 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
     }
 
     rtc_clk_apll_enable(true);
+#if SOLAR_OS_CVBS_MODE_320X200
+    rtc_clk_apll_coeff_set(6, 0xCD, 0xCC, 0x07);
+#else
     rtc_clk_apll_coeff_set(1, 0x04, 0xA4, 0x06);
+#endif
 
+#if SOLAR_OS_CVBS_MODE_320X200
+    I2S0.conf.val = 1;
+    I2S0.conf.val = 0;
+#else
     I2S0.conf.tx_reset = 1;
     I2S0.conf.tx_reset = 0;
+#endif
     I2S0.conf.tx_right_first = 1;
     I2S0.conf.tx_mono = 1;
     I2S0.conf.tx_msb_shift = 0;
@@ -400,6 +485,9 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
     I2S0.fifo_conf.tx_fifo_mod = 1;
     I2S0.fifo_conf.tx_fifo_mod_force_en = 1;
     I2S0.out_link.addr = (uint32_t)display->dma_desc;
+#if SOLAR_OS_CVBS_MODE_320X200
+    I2S0.conf.tx_start = 1;
+#endif
     I2S0.out_link.start = 1;
     I2S0.int_clr.val = UINT32_MAX;
     I2S0.int_ena.out_eof = 1;
@@ -409,8 +497,17 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
         cvbs_stop_signal(display);
         return err;
     }
+#if !SOLAR_OS_CVBS_MODE_320X200
     I2S0.conf.tx_start = 1;
+#endif
+#if SOLAR_OS_CVBS_MODE_320X200
+    ESP_LOGI(TAG,
+             "PAL 312p/50 safe-area output on GPIO25, %ux%u",
+             CVBS_PAL_WIDTH,
+             CVBS_PAL_HEIGHT);
+#else
     ESP_LOGI(TAG, "PAL 625/50 monochrome output on GPIO25, %ux%u", CVBS_PAL_WIDTH, CVBS_PAL_HEIGHT);
+#endif
     return ESP_OK;
 }
 
@@ -464,12 +561,28 @@ esp_err_t cvbs_pal_init(cvbs_pal_t *display)
     memset(display, 0, sizeof(*display));
     if (!pixel_lut_ready) {
         for (size_t pattern = 0; pattern < 256U; pattern++) {
+#if SOLAR_OS_CVBS_MODE_320X200
+            for (size_t pair = 0; pair < 4U; pair++) {
+                const size_t first_bit = pair * 2U;
+                const size_t second_bit = first_bit + 1U;
+                const uint8_t first =
+                    (pattern & (0x80U >> first_bit)) != 0U
+                        ? CVBS_LEVEL_WHITE
+                        : CVBS_LEVEL_BLACK;
+                const uint8_t second =
+                    (pattern & (0x80U >> second_bit)) != 0U
+                        ? CVBS_LEVEL_WHITE
+                        : CVBS_LEVEL_BLACK;
+                pixel_lut[pattern][pair] = CVBS_PIXEL_PAIR(first, second);
+            }
+#else
             for (size_t bit = 0; bit < 8U; bit++) {
                 const uint8_t level = (pattern & (0x80U >> bit)) != 0U
                                           ? CVBS_LEVEL_WHITE
                                           : CVBS_LEVEL_BLACK;
                 pixel_lut[pattern][bit] = CVBS_DWORD(level);
             }
+#endif
         }
         pixel_lut_ready = true;
     }

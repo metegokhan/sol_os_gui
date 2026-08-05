@@ -6,6 +6,7 @@
 #include "esp_timer.h"
 #include "esp_pm.h"
 #include "nvs.h"
+#include "solar_os_board.h"
 #include "solar_os_log.h"
 
 #define POWER_NVS_NAMESPACE "power"
@@ -99,6 +100,13 @@ static void profile_pm_config(solar_os_power_profile_t profile,
         break;
     default:
         break;
+    }
+
+    if (min_value < SOLAR_OS_BOARD_CPU_FLOOR_MHZ) {
+        min_value = SOLAR_OS_BOARD_CPU_FLOOR_MHZ;
+    }
+    if (max_value < SOLAR_OS_BOARD_CPU_FLOOR_MHZ) {
+        max_value = SOLAR_OS_BOARD_CPU_FLOOR_MHZ;
     }
 
     if (min_mhz != NULL) {

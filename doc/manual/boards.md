@@ -509,13 +509,27 @@ composite output and conflicts with the camera's VSYNC signal; the remaining
 camera signals are also blocked from runtime GPIO so a connected camera cannot
 be driven accidentally. Remove or disconnect the camera before using video.
 
-The `cvbs_pal` backend produces monochrome PAL 625/50 through the original
-ESP32's DAC1 and I2S0 DMA hardware. Its SolarOS canvas is 384x288. The U8g2 draw
-buffer lives in PSRAM, while two 13.5 KiB scanout buffers in internal RAM swap
-only at PAL field boundaries so applications keep the normal display service
-and do not tear the active field. The timing and low-level peripheral setup are
-adapted from LovyanGFX `Panel_CVBS`; SolarOS keeps its own one-bit graphics stack
-instead of linking LovyanGFX's separate color framebuffer.
+The `cvbs_pal` backend produces monochrome PAL through the original ESP32's
+DAC1 and I2S0 DMA hardware. Its default SolarOS canvas is 384x288 with PAL
+625/50 timing. The U8g2 draw buffer lives in PSRAM, while two scanout buffers
+in internal RAM swap only at PAL field boundaries so applications keep the
+normal display service and do not tear the active field. The timing and
+low-level peripheral setup are adapted from LovyanGFX `Panel_CVBS`; SolarOS
+keeps its own one-bit graphics stack instead of linking LovyanGFX's separate
+color framebuffer.
+
+Small composite displays that do not handle the full PAL raster well can use a
+centered 320x200 safe-area mode. Select it when building; the main and virtual
+display dimensions both change to 320x200:
+
+```sh
+SOLAR_OS_FLAVOR=composite SOLAR_OS_CVBS_MODE=320x200 \
+  pio run -e freenove_esp32_wrover_v3
+```
+
+Omit `SOLAR_OS_CVBS_MODE` (or set it to `384x288`) to build the default full
+PAL mode. Composite scanout requires the ESP32's full 240 MHz clock, so SolarOS
+clamps all power profiles to that board-specific CPU floor on this target.
 
 Connect GPIO25 to the composite input's center conductor and a board GND to its
 shield/ground. Keep both leads short and use a PAL-capable input with its normal
