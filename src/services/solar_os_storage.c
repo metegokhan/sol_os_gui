@@ -443,7 +443,7 @@ static bool storage_block_mount_point_seen(const char *mount_point)
     }
 
 #if SOLAR_OS_BOARD_HAS_SD
-    const size_t count = solar_os_storage_block_count();
+    const size_t count = solar_os_board_storage_block_count();
     for (size_t i = 0; i < count; i++) {
         solar_os_storage_block_t block;
         if (solar_os_storage_get_block(i, &block) &&
@@ -462,7 +462,7 @@ size_t solar_os_storage_mount_count(void)
     size_t count = 0;
 
 #if SOLAR_OS_BOARD_HAS_SD
-    const size_t block_count = solar_os_storage_block_count();
+    const size_t block_count = solar_os_board_storage_block_count();
     for (size_t i = 0; i < block_count; i++) {
         solar_os_storage_block_t block;
         if (solar_os_storage_get_block(i, &block) &&
@@ -492,7 +492,7 @@ bool solar_os_storage_get_mount(size_t index, solar_os_storage_mount_info_t *mou
     }
 
 #if SOLAR_OS_BOARD_HAS_SD
-    const size_t block_count = solar_os_storage_block_count();
+    const size_t block_count = solar_os_board_storage_block_count();
     for (size_t i = 0; i < block_count; i++) {
         solar_os_storage_block_t block;
         if (!solar_os_storage_get_block(i, &block) ||

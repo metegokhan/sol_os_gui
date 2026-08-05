@@ -9,6 +9,7 @@
   `.sh` shell-script recognition in Files and direct shell execution through
   paths such as `./somescript.sh`. Added the initial Freenove ESP32-WROVER v3.0
   board target and its 4 MB, serial-installed `composite` Writerdeck flavor.
+  Fixed `df` listing internal flash twice on SD-capable boards.
 - **4.6.2** — 2026-08-05 — Fixed foreground application path arguments so
   relative files are resolved from the current shell directory before the app
   session starts. This now covers editors, readers, scripts, audio, images,
