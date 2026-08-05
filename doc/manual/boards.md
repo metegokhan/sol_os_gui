@@ -73,7 +73,7 @@ The current tree includes these board targets:
 | `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
-| `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, attachable graphics, and GPIO25 reserved for the future PAL composite driver. |
+| `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, and a 384x288 monochrome PAL composite display on GPIO25. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
 ## Board Profile
@@ -206,6 +206,7 @@ Current built-in driver selector values:
 | `DISPLAY` | `drivers/display_st7305.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=st7305` |
 | `DISPLAY` | `drivers/display_ssd1683.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ssd1683` |
 | `DISPLAY` | `drivers/display_ili9341.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ili9341` |
+| `DISPLAY` | `drivers/display_cvbs_pal.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=cvbs_pal` |
 | `SD` | `drivers/storage_sdmmc.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdmmc` |
 | `SD` | `drivers/storage_sdspi.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdspi` |
 | `I2C` | `drivers/i2c_esp_idf.cmake` | `SOLAR_OS_BOARD_I2C_DRIVER=esp_idf` |
@@ -503,13 +504,24 @@ ESP32-WROVER-E-N4R8 module, 4 MB flash, 8 MB physical PSRAM, a CH340 USB-to-UART
 bridge, and the rear microSD slot. It uses `uart0` on GPIO1/GPIO3 as the boot
 shell and one-bit SDMMC on GPIO14 clock, GPIO15 command, and GPIO2 data.
 
-The initial target deliberately leaves the OV2640 camera unsupported. GPIO25
-is reserved for PAL composite output and conflicts with the camera's VSYNC
-signal; the remaining camera signals are also blocked from runtime GPIO so a
-connected camera cannot be driven accidentally. The target advertises graphics
-support so the Writer and Reader applications can be compiled before the
-physical composite display driver is added, but it does not yet advertise a
-boot-time `DISPLAY` capability.
+The target deliberately leaves the OV2640 camera unsupported. GPIO25 is the PAL
+composite output and conflicts with the camera's VSYNC signal; the remaining
+camera signals are also blocked from runtime GPIO so a connected camera cannot
+be driven accidentally. Remove or disconnect the camera before using video.
+
+The `cvbs_pal` backend produces monochrome PAL 625/50 through the original
+ESP32's DAC1 and I2S0 DMA hardware. Its SolarOS canvas is 384x288. The U8g2 draw
+buffer lives in PSRAM, while two 13.5 KiB scanout buffers in internal RAM swap
+only at PAL field boundaries so applications keep the normal display service
+and do not tear the active field. The timing and low-level peripheral setup are
+adapted from LovyanGFX `Panel_CVBS`; SolarOS keeps its own one-bit graphics stack
+instead of linking LovyanGFX's separate color framebuffer.
+
+Connect GPIO25 to the composite input's center conductor and a board GND to its
+shield/ground. Keep both leads short and use a PAL-capable input with its normal
+75-ohm termination. The backend continuously owns I2S0 and the APLL while the
+display is active, so this board cannot use an I2S0 audio backend at the same
+time. GPIO26 remains unused.
 
 The conservative runtime pin set is GPIO13, GPIO32, and GPIO33. GPIO32 and
 GPIO33 also support runtime ADC; all three support PWM and can form runtime

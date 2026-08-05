@@ -400,9 +400,11 @@ Authenticated HTTP display and remote control. It has two modes:
 - With a physical target such as `display0`, it mirrors and controls the
   active session attached to that display without allocating another display
   framebuffer.
-- With `web0`, it creates an independent 400x300 monochrome virtual display
-  and a detached display shell. Apps launched from that shell stay on `web0`
-  and do not replace the foreground app on a physical display.
+- With `web0`, it creates an independent monochrome virtual display and a
+  detached display shell. Its logical dimensions match the board's main
+  display (for example 384x288 on the Freenove PAL target). A headless board
+  uses the historical 400x300 fallback. Apps launched from that shell stay on
+  `web0` and do not replace the foreground app on a physical display.
 
 With no target argument, `displayd` mirrors `display0` when it exists and
 otherwise creates `web0`. The latter makes the same command useful on headless
@@ -458,10 +460,10 @@ Notes:
   another display session. The built-in display shell is registered as the
   session attached to `display0`.
 - A consistent 1-bit frame snapshot and same-sized raw transmit buffer are held
-  in PSRAM while the job runs. For the Waveshare display they consume 30,400
-  bytes in total. `web0` additionally owns its 15,200-byte U8g2 framebuffer,
-  for 45,600 bytes of fixed frame storage in total. HTTP transmission never
-  holds a display or registry lock.
+  in PSRAM while the job runs. For the 400x300 Waveshare display they consume
+  30,400 bytes in total. `web0` additionally owns a board-sized U8g2
+  framebuffer (15,200 bytes on Waveshare, 13,824 bytes on the 384x288 PAL
+  target). HTTP transmission never holds a display or registry lock.
 - The snapshot is copied into the transmit buffer and released before network
   I/O, so a slow browser cannot prevent newer display frames from being
   published.

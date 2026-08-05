@@ -246,7 +246,11 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_DISPLAY_CONTROLLER,
                   SOLAR_OS_BOARD_DISPLAY_WIDTH,
                   SOLAR_OS_BOARD_DISPLAY_HEIGHT);
-#ifdef SOLAR_OS_BOARD_PIN_LCD_BUSY
+#ifdef SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO
+    SOLAR_OS_LOGI(TAG,
+                  "Display pin: CVBS=%d",
+                  SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO);
+#elif defined(SOLAR_OS_BOARD_PIN_LCD_BUSY)
     SOLAR_OS_LOGI(TAG,
                   "Display pins: MOSI=%d SCK=%d DC=%d CS=%d RST=%d BUSY=%d",
                   SOLAR_OS_BOARD_PIN_LCD_MOSI,
