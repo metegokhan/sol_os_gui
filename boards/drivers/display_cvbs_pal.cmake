@@ -27,6 +27,7 @@ list(APPEND SOLAR_OS_BOARD_REQUIRES
     esp_driver_gpio
     esp_hw_support
     esp_rom
+    esp_system
     hal
     u8g2
 )

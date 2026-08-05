@@ -17,6 +17,7 @@
 #include "driver/rtc_io.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
+#include "esp_ipc.h"
 #include "esp_log.h"
 #include "esp_private/periph_ctrl.h"
 #include "hal/dac_ll.h"
@@ -70,6 +71,7 @@
 #define CVBS_DWORD(level) ((uint32_t)CVBS_WORD(level) | ((uint32_t)CVBS_WORD(level) << 16U))
 #define CVBS_PIXEL_PAIR(first, second) \
     (((uint32_t)(first) << 24U) | ((uint32_t)(second) << 8U))
+#define CVBS_INTERRUPT_CORE 1U
 
 static const char *TAG = "cvbs-pal";
 static cvbs_pal_t *active_display;
@@ -314,6 +316,41 @@ static void IRAM_ATTR cvbs_i2s_isr(void *arg)
     }
 }
 
+typedef struct {
+    cvbs_pal_t *display;
+    esp_err_t result;
+} cvbs_interrupt_alloc_context_t;
+
+static void cvbs_alloc_interrupt_on_current_core(void *arg)
+{
+    cvbs_interrupt_alloc_context_t *context =
+        (cvbs_interrupt_alloc_context_t *)arg;
+    context->result = esp_intr_alloc(ETS_I2S0_INTR_SOURCE,
+                                     ESP_INTR_FLAG_LEVEL1 | ESP_INTR_FLAG_IRAM,
+                                     cvbs_i2s_isr,
+                                     context->display,
+                                     &context->display->interrupt);
+}
+
+static esp_err_t cvbs_alloc_interrupt(cvbs_pal_t *display)
+{
+    cvbs_interrupt_alloc_context_t context = {
+        .display = display,
+        .result = ESP_FAIL,
+    };
+
+    if (xPortGetCoreID() == CVBS_INTERRUPT_CORE) {
+        cvbs_alloc_interrupt_on_current_core(&context);
+        return context.result;
+    }
+
+    const esp_err_t ipc_err = esp_ipc_call_blocking(
+        CVBS_INTERRUPT_CORE,
+        cvbs_alloc_interrupt_on_current_core,
+        &context);
+    return ipc_err == ESP_OK ? context.result : ipc_err;
+}
+
 static esp_err_t cvbs_present(cvbs_pal_t *display)
 {
     int8_t target = -1;
@@ -446,11 +483,7 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
     dac_ll_digi_enable_dma(true);
 
     periph_module_enable(PERIPH_I2S0_MODULE);
-    err = esp_intr_alloc(ETS_I2S0_INTR_SOURCE,
-                         ESP_INTR_FLAG_LEVEL1 | ESP_INTR_FLAG_IRAM,
-                         cvbs_i2s_isr,
-                         display,
-                         &display->interrupt);
+    err = cvbs_alloc_interrupt(display);
     if (err != ESP_OK) {
         cvbs_stop_signal(display);
         return err;
@@ -502,11 +535,16 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
 #endif
 #if SOLAR_OS_CVBS_MODE_320X200
     ESP_LOGI(TAG,
-             "PAL 312p/50 safe-area output on GPIO25, %ux%u",
+             "PAL 312p/50 safe-area output on GPIO25, %ux%u, ISR CPU%d",
              CVBS_PAL_WIDTH,
-             CVBS_PAL_HEIGHT);
+             CVBS_PAL_HEIGHT,
+             esp_intr_get_cpu(display->interrupt));
 #else
-    ESP_LOGI(TAG, "PAL 625/50 monochrome output on GPIO25, %ux%u", CVBS_PAL_WIDTH, CVBS_PAL_HEIGHT);
+    ESP_LOGI(TAG,
+             "PAL 625/50 monochrome output on GPIO25, %ux%u, ISR CPU%d",
+             CVBS_PAL_WIDTH,
+             CVBS_PAL_HEIGHT,
+             esp_intr_get_cpu(display->interrupt));
 #endif
     return ESP_OK;
 }
