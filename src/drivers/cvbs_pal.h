@@ -28,7 +28,7 @@ extern "C" {
 #define CVBS_PAL_HEIGHT 288U
 /* 575 visible lines plus 15 four-run and 35 two-run sync lines. */
 #define CVBS_DMA_DESCRIPTOR_COUNT 705U
-#define CVBS_DMA_DYNAMIC_LINE_COUNT 8U
+#define CVBS_DMA_DYNAMIC_LINE_COUNT 4U
 #endif
 
 typedef struct {
