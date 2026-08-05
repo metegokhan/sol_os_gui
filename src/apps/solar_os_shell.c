@@ -431,7 +431,6 @@ static const char * const ble_subcommands[] = {
     "status",
     "scan",
     "pair",
-    "cancel",
     "forget",
     "gatt",
 };

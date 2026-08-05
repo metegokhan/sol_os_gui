@@ -50,7 +50,7 @@ static const char * const disk_subcommands[] = {
     "status", "lsblk", "mount", "umount", "format",
 };
 static const char * const battery_subcommands[] = {"status", "config", "capacity", "min_voltage", "max_voltage"};
-static const char * const ble_subcommands[] = {"status", "scan", "pair", "cancel", "forget", "gatt"};
+static const char * const ble_subcommands[] = {"status", "scan", "pair", "forget", "gatt"};
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "disconnect", "services", "chars", "read", "write", "write-nr"};
 static const char * const audio_subcommands[] = {
     "status", "tone", "tone-async", "queue", "cancel", "level", "mic", "loopback", "off",
@@ -1374,20 +1374,6 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    if (strcmp(argv[1], "cancel") == 0) {
-        if (argc != 2) {
-            solar_os_shell_diag_unexpected(term, "ble cancel", argv[2], "ble cancel");
-            return;
-        }
-        const esp_err_t err = solar_os_ble_keyboard_cancel_pairing();
-        if (err == ESP_OK) {
-            solar_os_shell_io_writeln(term, "BLE pairing cancelled");
-        } else {
-            solar_os_shell_io_printf(term, "BLE pairing cancel failed: %s\n", solar_os_shell_error_text(err));
-        }
-        return;
-    }
-
     if (strcmp(argv[1], "forget") == 0) {
         const esp_err_t err = solar_os_ble_keyboard_forget();
         if (err == ESP_OK) {
@@ -1404,7 +1390,7 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     solar_os_shell_diag_subcommand(term, "ble", argc, argv,
-                                   "ble [status|scan|pair|cancel|forget|gatt] ...",
+                                   "ble [status|scan|pair|forget|gatt] ...",
                                    ble_subcommands,
                                    sizeof(ble_subcommands) / sizeof(ble_subcommands[0]));
 }

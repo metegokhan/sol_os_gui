@@ -753,16 +753,23 @@ static void poll_key_button(void)
     key_long_press_fired = true;
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
-        const esp_err_t err = solar_os_ble_keyboard_forget_and_start_pairing();
+        const esp_err_t forget_err = solar_os_ble_keyboard_forget();
+        const esp_err_t pairing_err = solar_os_ble_keyboard_start_pairing();
         last_status_update_ms = 0;
         update_status();
         draw_terminal_if_needed();
-        if (err == ESP_OK) {
+        if (forget_err == ESP_OK && pairing_err == ESP_OK) {
             SOLAR_OS_LOGI(TAG, "KEY long press: BLE keyboard forgotten, pairing started");
-        } else {
+        }
+        if (forget_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG,
-                          "KEY long press: BLE keyboard replacement failed: %s",
-                          esp_err_to_name(err));
+                          "KEY long press: BLE keyboard forget failed: %s",
+                          esp_err_to_name(forget_err));
+        }
+        if (pairing_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG,
+                          "KEY long press: BLE keyboard pairing failed: %s",
+                          esp_err_to_name(pairing_err));
         }
     }
 #endif

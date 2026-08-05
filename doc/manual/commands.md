@@ -453,8 +453,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `ble` | `ble [status]` | Show BLE keyboard state. |
 | `ble` | `ble scan` | Scan nearby BLE devices. |
 | `ble` | `ble pair` | Start keyboard pairing. |
-| `ble` | `ble cancel` | Cancel pairing or pending pairing. |
-| `ble` | `ble forget` | Forget the remembered keyboard. |
+| `ble` | `ble forget` | Erase the remembered keyboard from NVS and remove its BLE bond. |
 | `ble gatt` | See below | Generic BLE GATT client. |
 | `mqtt` | See below | MQTT/MQTTS client. |
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
