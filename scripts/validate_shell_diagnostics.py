@@ -25,7 +25,8 @@ def main() -> int:
 
     registry_text = APP_REGISTRY.read_text(encoding="utf-8")
     entry_pattern = re.compile(
-        r'APP_ENTRY\("([^"]+)",\s*"[^"]+",\s*&[^,]+,.*?,\s*"([^"]+)",\s*(\d+),\s*(\d+)\),'
+        r'APP_(?:FILE_)?ENTRY\("([^"]+)",\s*"[^"]+",\s*&[^,]+,.*?,\s*'
+        r'"([^"]+)",\s*(\d+),\s*(\d+)(?:,\s*"[^"]+")?\),'
     )
     entries = entry_pattern.findall(registry_text)
     if len(entries) != 33:
@@ -38,6 +39,18 @@ def main() -> int:
         if min_argc < 1 or (max_argc != 0 and max_argc < min_argc):
             raise SystemExit(f"{name}: invalid argc bounds {min_argc}..{max_argc}")
 
+    file_entry_pattern = re.compile(
+        r'APP_FILE_ENTRY\("([^"]+)",.*?,\s*\d+,\s*\d+,\s*"([^"]+)"\),'
+    )
+    file_entries = dict(file_entry_pattern.findall(registry_text))
+    for name, extensions in file_entries.items():
+        values = extensions.split()
+        if not values or any(not value.startswith(".") or value.lower() != value
+                             for value in values):
+            raise SystemExit(f"{name}: invalid file extensions: {extensions}")
+    if file_entries.get("gameboy") != ".gb":
+        raise SystemExit("gameboy: expected .gb file association")
+
     forbidden = []
     for path in sorted((ROOT / "src/shell").glob("*.c")) + [SHELL_APP]:
         if path.name == "solar_os_shell_common.c":
@@ -47,7 +60,10 @@ def main() -> int:
     if forbidden:
         raise SystemExit("raw esp_err_to_name remains in: " + ", ".join(forbidden))
 
-    print(f"shell diagnostics coverage: {len(builtins)} built-ins, {len(entries)} app schemas")
+    print(
+        f"shell diagnostics coverage: {len(builtins)} built-ins, "
+        f"{len(entries)} app schemas, {len(file_entries)} file associations"
+    )
     return 0
 
 

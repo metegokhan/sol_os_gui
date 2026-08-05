@@ -1,5 +1,6 @@
 #include "solar_os_shell_launch.h"
 
+#include <ctype.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -12,8 +13,7 @@ static bool app_has_first_path_arg(const char *app_name)
         strcmp(app_name, "sheet") == 0 ||
         strcmp(app_name, "gameboy") == 0 ||
         strcmp(app_name, "python") == 0 ||
-        strcmp(app_name, "lua") == 0 ||
-        strcmp(app_name, "files") == 0;
+        strcmp(app_name, "lua") == 0;
 }
 
 static int option_path_arg(int argc,
@@ -56,6 +56,10 @@ int solar_os_shell_launch_path_arg(const char *app_name,
     if (app_has_first_path_arg(app_name)) {
         return 1;
     }
+    if (strcmp(app_name, "files") == 0) {
+        return strcmp(argv[1], "--launcher") == 0 ?
+            (argc >= 3 ? 2 : -1) : 1;
+    }
     if (strcmp(app_name, "less") == 0 || strcmp(app_name, "reader") == 0) {
         return strncmp(argv[1], "man:", 4U) == 0 ? -1 : 1;
     }
@@ -84,4 +88,16 @@ int solar_os_shell_launch_path_arg(const char *app_name,
     }
 
     return -1;
+}
+
+bool solar_os_shell_path_is_script(const char *path)
+{
+    if (path == NULL) {
+        return false;
+    }
+    const size_t len = strlen(path);
+    return len > 3U &&
+        path[len - 3U] == '.' &&
+        tolower((unsigned char)path[len - 2U]) == 's' &&
+        tolower((unsigned char)path[len - 1U]) == 'h';
 }

@@ -396,14 +396,32 @@ Controls:
 
 ## files
 
-Two-pane file manager inspired by Midnight Commander. It is intended for quick
-copy, move, delete, and launch workflows on mounted storage.
+File manager inspired by Midnight Commander. Its normal mode provides two panes
+for copy, move, delete, and launch workflows on mounted storage. Launcher mode
+provides a minimal single-pane application menu suitable for a startup script.
 
 Usage:
 
 ```text
-files [path]
+files [--launcher] [path]
 ```
+
+`files --launcher` hides dot-prefixed entries, removes the message and function
+key bars, and expands one pane to the bottom of the terminal. Launcher mode is
+read-only: navigate with the arrows, open with `Enter`, refresh with `r`, move
+to the parent with Backspace, and exit with `q` or the app-exit key. To make a
+directory the startup menu, add a line such as this to `/.shell/startup`:
+
+```text
+files --launcher /apps
+```
+
+File associations come from the installed app registry. Only apps compiled in
+the active firmware can be selected. Associations include images to `view`,
+WAV/MP3 to `aplay`, CSV to `sheet`, Python and Lua scripts to their runtimes,
+documents to `reader` (or `writer` when Reader is unavailable), and `.gb` ROMs
+to `gameboy`. Unknown files fall back to `less` or `edit`. A `.sh` file runs
+through the built-in SolarOS shell.
 
 Controls:
 
