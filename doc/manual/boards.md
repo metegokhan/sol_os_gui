@@ -546,12 +546,11 @@ GPIO33 also support runtime ADC; all three support PWM and can form runtime
 I2C, output-only SPI, UART, or 1-Wire buses. UART0 remains registered on the
 CH340 pins and cannot be detached by the shell using it.
 
-The board uses `partitions_4mb.csv`, with one 0x350000-byte factory application
-slot and a 0xA0000-byte flash filesystem. The full Writerdeck selection does
-not fit a dual-OTA layout on 4 MB flash. Its intended `composite` flavor keeps
-Writerdeck except for OTA and remote manual synchronization. Install firmware
-through the CH340 serial connection; this partition layout does not support
-on-device OTA updates.
+The board uses `partitions_4mb.csv`, with one 0x3D0000-byte factory application
+slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific
+`composite` flavor does not fit a dual-OTA layout on 4 MB flash. Install
+firmware through the CH340 serial connection; this partition layout does not
+support on-device OTA updates.
 
 ## ODROID-GO
 

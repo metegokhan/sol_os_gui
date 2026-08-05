@@ -1,6 +1,6 @@
 [flavor]
 name = "composite"
-description = "SolarOS Writerdeck baseline for the Freenove composite terminal."
+description = "SolarOS composite video terminal on WROVER32."
 
 [packages]
 system = true
@@ -11,17 +11,17 @@ hardware_jobs = false
 audio = false
 net = true
 agent = false
-media = false
+media = true
 games = false
 retro = false
-python = false
+python = true
 lua = false
-writing = true
-utils = false
+writing = false
+utils = true
 
-# The 4 MB WROVER needs one large factory slot. Retain the Writerdeck package
-# selection except for OTA and remote manual synchronization, which require a
-# second application slot. The embedded manual remains available through docs.
+# The 4 MB WROVER needs one large factory slot. OTA and remote manual
+# synchronization require a second application slot and remain disabled. The
+# embedded manual remains available through docs.
 service_contacts = true
 service_credentials = true
 service_messaging = true
@@ -35,3 +35,4 @@ app_docs = true
 app_edit = true
 app_less = true
 app_io = true
+app_files = true
