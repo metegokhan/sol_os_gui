@@ -21,9 +21,14 @@ extern "C" {
 #if SOLAR_OS_CVBS_MODE_320X200
 #define CVBS_PAL_WIDTH 320U
 #define CVBS_PAL_HEIGHT 200U
+#define CVBS_DMA_DESCRIPTOR_COUNT 8U
+#define CVBS_DMA_DYNAMIC_LINE_COUNT 8U
 #else
 #define CVBS_PAL_WIDTH 384U
 #define CVBS_PAL_HEIGHT 288U
+/* 575 visible lines plus 15 four-run and 35 two-run sync lines. */
+#define CVBS_DMA_DESCRIPTOR_COUNT 705U
+#define CVBS_DMA_DYNAMIC_LINE_COUNT 8U
 #endif
 
 typedef struct {
@@ -31,12 +36,18 @@ typedef struct {
     uint8_t *draw_buffer;
     uint8_t *scanout_buffers[2];
     uint8_t *dma_buffer;
+    uint8_t *dma_static_buffer;
     size_t buffer_size;
     size_t dma_buffer_size;
-    lldesc_t dma_desc[2];
+    size_t dma_static_buffer_size;
+    lldesc_t dma_desc[CVBS_DMA_DESCRIPTOR_COUNT];
+#if !SOLAR_OS_CVBS_MODE_320X200
+    uint16_t dma_refill_scanline[CVBS_DMA_DESCRIPTOR_COUNT];
+#endif
     intr_handle_t interrupt;
     portMUX_TYPE buffer_lock;
-    volatile uint16_t next_scanline;
+    volatile uint16_t last_eof_scanline;
+    volatile uint8_t last_eof_descriptor;
     volatile int8_t current_buffer;
     volatile int8_t pending_buffer;
     volatile int8_t copying_buffer;

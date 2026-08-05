@@ -20,6 +20,7 @@
 #include "esp_ipc.h"
 #include "esp_log.h"
 #include "esp_private/periph_ctrl.h"
+#include "esp_rom_sys.h"
 #include "hal/dac_ll.h"
 #include "hal/dac_types.h"
 #include "soc/i2s_struct.h"
@@ -54,35 +55,32 @@
 #else
 #define PAL_TOTAL_SCANLINES 625U
 #define PAL_FIELD_START 312U
-#define PAL_SCANLINE_SAMPLES 1136U
+#define PAL_SCANLINE_SAMPLES 568U
 #define PAL_VSYNC_LINES 25U
-#define PAL_SYNC_SAMPLES 84U
-#define PAL_EQUALIZING_SAMPLES 40U
-#define PAL_LONG_SYNC_SAMPLES 484U
-#define PAL_ACTIVE_START 216U
-#define PAL_MONO_ACTIVE_START (PAL_ACTIVE_START + 48U)
+#define PAL_SYNC_SAMPLES 42U
+#define PAL_EQUALIZING_SAMPLES 20U
+#define PAL_LONG_SYNC_SAMPLES 242U
+#define PAL_ACTIVE_START 108U
+#define PAL_MONO_ACTIVE_START (PAL_ACTIVE_START + 24U)
 /* LovyanGFX's direct ESP32 DAC levels at the default CVBS output strength. */
 #define CVBS_LEVEL_SYNC 0U
 #define CVBS_LEVEL_BLANKING 28U
 #define CVBS_LEVEL_BLACK 28U
 #define CVBS_LEVEL_WHITE 90U
 #endif
-#define CVBS_WORD(level) ((uint16_t)((level) | ((level) << 8U)))
-#define CVBS_DWORD(level) ((uint32_t)CVBS_WORD(level) | ((uint32_t)CVBS_WORD(level) << 16U))
 #define CVBS_PIXEL_PAIR(first, second) \
     (((uint32_t)(first) << 24U) | ((uint32_t)(second) << 8U))
 #define CVBS_INTERRUPT_CORE 1U
+#define CVBS_PRESENT_CORE 0U
+#if !SOLAR_OS_CVBS_MODE_320X200
+#define CVBS_STATIC_SYNC_SAMPLES PAL_LONG_SYNC_SAMPLES
+#define CVBS_STATIC_BLANK_SAMPLES PAL_SCANLINE_SAMPLES
+#endif
 
 static const char *TAG = "cvbs-pal";
 static cvbs_pal_t *active_display;
-static DRAM_ATTR uint32_t pixel_lut[256][8];
+static DRAM_ATTR uint32_t pixel_lut[16][2];
 static bool pixel_lut_ready;
-
-/* LovyanGFX PAL field-sync description. Kept in DRAM for the IRAM ISR. */
-static DRAM_ATTR const uint8_t pal_sync_proc[2][12] = {
-    {0x05, 0x55, 0x50, 0x22, 0x22, 0x05, 0x55, 0x50, 0x34, 0xB0, 0xB0, 0x00},
-    {0x00, 0x55, 0x55, 0x02, 0x22, 0x20, 0x55, 0x55, 0x04, 0xB0, 0xB0, 0x00},
-};
 
 static const u8x8_display_info_t cvbs_display_info = {
     .chip_enable_level = 0,
@@ -113,32 +111,32 @@ static inline void IRAM_ATTR render_pixels(cvbs_pal_t *display,
 
 #if SOLAR_OS_CVBS_MODE_320X200
     /* I2S LCD mode swaps adjacent 16-bit samples, so each LUT word stores a
-     * pair in transmission order. Four aligned writes render eight pixels. */
+     * pair in transmission order. Two nibble lookups render eight pixels. */
     for (size_t group = 0; group < CVBS_PAL_WIDTH / 8U; group++) {
-        const uint32_t *pixels = pixel_lut[row[group]];
+        const uint8_t packed = row[group];
+        const uint32_t *pixels = pixel_lut[packed >> 4U];
         output[0] = pixels[0];
         output[1] = pixels[1];
-        output[2] = pixels[2];
-        output[3] = pixels[3];
+        pixels = pixel_lut[packed & 0x0FU];
+        output[2] = pixels[0];
+        output[3] = pixels[1];
         output += 4;
     }
 #else
     /*
-     * Two identical samples per pixel are immune to I2S LCD mode's adjacent
-     * 16-bit swap. The row-major buffer and lookup table keep this ISR to 48
-     * byte reads and 384 aligned 32-bit writes per visible scanline.
+     * I2S LCD mode swaps adjacent 16-bit samples, so each LUT word stores a
+     * pair in transmission order. One sample per pixel halves both the ISR
+     * work and DMA memory without reducing the 384-pixel canvas.
      */
     for (size_t group = 0; group < CVBS_PAL_WIDTH / 8U; group++) {
-        const uint32_t *pixels = pixel_lut[row[group]];
+        const uint8_t packed = row[group];
+        const uint32_t *pixels = pixel_lut[packed >> 4U];
         output[0] = pixels[0];
         output[1] = pixels[1];
-        output[2] = pixels[2];
-        output[3] = pixels[3];
-        output[4] = pixels[4];
-        output[5] = pixels[5];
-        output[6] = pixels[6];
-        output[7] = pixels[7];
-        output += 8;
+        pixels = pixel_lut[packed & 0x0FU];
+        output[2] = pixels[0];
+        output[3] = pixels[1];
+        output += 4;
     }
 #endif
 }
@@ -150,19 +148,27 @@ static inline void IRAM_ATTR render_normal_line(cvbs_pal_t *display,
     fill_samples(buffer, 0, PAL_SYNC_SAMPLES, CVBS_LEVEL_SYNC);
     fill_samples(buffer,
                  PAL_SYNC_SAMPLES,
-                 PAL_SCANLINE_SAMPLES - PAL_SYNC_SAMPLES,
+                 PAL_MONO_ACTIVE_START - PAL_SYNC_SAMPLES,
                  CVBS_LEVEL_BLACK);
     if (y >= 0 && y < (int)CVBS_PAL_HEIGHT) {
         render_pixels(display, buffer, (uint16_t)y);
+    } else {
+        fill_samples(buffer,
+                     PAL_MONO_ACTIVE_START,
+                     CVBS_PAL_WIDTH,
+                     CVBS_LEVEL_BLACK);
     }
+    fill_samples(buffer,
+                 PAL_MONO_ACTIVE_START + CVBS_PAL_WIDTH,
+                 PAL_SCANLINE_SAMPLES - PAL_MONO_ACTIVE_START -
+                     CVBS_PAL_WIDTH,
+                 CVBS_LEVEL_BLACK);
 }
 
+#if SOLAR_OS_CVBS_MODE_320X200
 static inline void IRAM_ATTR render_vsync_line(uint16_t *buffer,
-                                               bool odd_field,
                                                uint16_t field_line)
 {
-#if SOLAR_OS_CVBS_MODE_320X200
-    (void)odd_field;
     const bool first_long = field_line == 0U || field_line == 1U ||
                             field_line == 2U;
     const bool second_long = field_line == 0U || field_line == 1U;
@@ -184,64 +190,110 @@ static inline void IRAM_ATTR render_vsync_line(uint16_t *buffer,
                  half + second_width,
                  half - second_width,
                  CVBS_LEVEL_BLANKING);
-#else
-    /*
-     * The LovyanGFX sync table contains edits to the waveform that was last
-     * sent through this DMA descriptor, not complete scanlines. Each of our
-     * two descriptors returns here two scanlines later, which preserves that
-     * state. Rebuilding the complete line here removes broad/equalizing pulse
-     * sections and prevents some displays from locking to vertical sync.
-     */
-    if (field_line >= 12U) {
+}
+#endif
+
+#if !SOLAR_OS_CVBS_MODE_320X200
+static inline bool full_pal_visible_scanline(uint16_t scanline, uint16_t *y)
+{
+    const uint16_t field_line = scanline >= PAL_FIELD_START
+                                    ? (uint16_t)(scanline - PAL_FIELD_START)
+                                    : scanline;
+    if (field_line < PAL_VSYNC_LINES ||
+        field_line >= PAL_VSYNC_LINES + CVBS_PAL_HEIGHT) {
+        return false;
+    }
+    if (y != NULL) {
+        *y = (uint16_t)(field_line - PAL_VSYNC_LINES);
+    }
+    return true;
+}
+
+static void full_pal_sync_widths(uint16_t scanline,
+                                 size_t *first_width,
+                                 size_t *second_width)
+{
+    const bool odd_field = scanline >= PAL_FIELD_START;
+    const uint16_t field_line = odd_field
+                                    ? (uint16_t)(scanline - PAL_FIELD_START)
+                                    : scanline;
+    *first_width = PAL_SYNC_SAMPLES;
+    *second_width = 0U;
+    if (!odd_field) {
+        if (field_line == 0U) {
+            *second_width = PAL_EQUALIZING_SAMPLES;
+            return;
+        }
+        if (field_line <= 2U || (field_line >= 6U && field_line <= 7U)) {
+            *first_width = PAL_EQUALIZING_SAMPLES;
+            *second_width = PAL_EQUALIZING_SAMPLES;
+            return;
+        }
+        if (field_line <= 4U) {
+            *first_width = PAL_LONG_SYNC_SAMPLES;
+            *second_width = PAL_LONG_SYNC_SAMPLES;
+            return;
+        }
+        if (field_line == 5U) {
+            *first_width = PAL_LONG_SYNC_SAMPLES;
+            *second_width = PAL_EQUALIZING_SAMPLES;
+        }
         return;
     }
-
-    const uint8_t proc = pal_sync_proc[odd_field ? 1 : 0][field_line];
-    const size_t half = PAL_SCANLINE_SAMPLES / 2U;
-
-    if ((proc & 0x40U) != 0U) {
-        fill_samples(buffer, 0, half, CVBS_LEVEL_BLANKING);
-        buffer[(half - 1U) ^ 1U] = CVBS_WORD(CVBS_LEVEL_BLANKING);
+    if (field_line >= 1U && field_line <= 2U) {
+        *first_width = PAL_EQUALIZING_SAMPLES;
+        *second_width = PAL_EQUALIZING_SAMPLES;
+        return;
     }
-    if ((proc & 0x04U) != 0U) {
-        const size_t blank_start = (half + 1U) & ~1U;
-        fill_samples(buffer,
-                     blank_start,
-                     PAL_SCANLINE_SAMPLES - blank_start,
-                     CVBS_LEVEL_BLANKING);
-        buffer[half ^ 1U] = CVBS_WORD(CVBS_LEVEL_BLANKING);
+    if (field_line == 3U) {
+        *first_width = PAL_EQUALIZING_SAMPLES;
+        *second_width = PAL_LONG_SYNC_SAMPLES;
+        return;
     }
-    if ((proc & 0x03U) != 0U) {
-        const size_t width = (proc & 0x01U) != 0U
-                                 ? PAL_EQUALIZING_SAMPLES
-                                 : PAL_LONG_SYNC_SAMPLES;
-        const size_t pulse_start = (half + 1U) & ~1U;
-        fill_samples(buffer, pulse_start, width, CVBS_LEVEL_SYNC);
-        buffer[half ^ 1U] = CVBS_WORD(CVBS_LEVEL_SYNC);
+    if (field_line >= 4U && field_line <= 5U) {
+        *first_width = PAL_LONG_SYNC_SAMPLES;
+        *second_width = PAL_LONG_SYNC_SAMPLES;
+        return;
     }
-    if ((proc & 0x30U) != 0U) {
-        size_t width = PAL_EQUALIZING_SAMPLES;
-        switch ((proc >> 4U) & 0x03U) {
-        case 2:
-            width = PAL_LONG_SYNC_SAMPLES;
-            break;
-        case 3:
-            width = PAL_SYNC_SAMPLES;
-            break;
-        default:
-            break;
-        }
-        fill_samples(buffer, 0, width, CVBS_LEVEL_SYNC);
+    if (field_line >= 6U && field_line <= 7U) {
+        *first_width = PAL_EQUALIZING_SAMPLES;
+        *second_width = PAL_EQUALIZING_SAMPLES;
+        return;
     }
-    if ((proc & 0x80U) != 0U) {
-        /* Monochrome CVBS intentionally has no color burst. */
-        fill_samples(buffer,
-                     PAL_ACTIVE_START,
-                     PAL_SCANLINE_SAMPLES - 22U - PAL_ACTIVE_START,
-                     CVBS_LEVEL_BLACK);
+    if (field_line == 8U) {
+        *first_width = PAL_EQUALIZING_SAMPLES;
     }
-#endif
 }
+
+static void configure_dma_descriptor(lldesc_t *descriptor,
+                                     uint8_t *buffer,
+                                     size_t length,
+                                     bool eof)
+{
+    memset(descriptor, 0, sizeof(*descriptor));
+    descriptor->buf = buffer;
+    descriptor->owner = 1;
+    descriptor->eof = eof ? 1U : 0U;
+    descriptor->length = length;
+    descriptor->size = length;
+}
+
+static uint16_t full_pal_next_dynamic_scanline(uint16_t scanline)
+{
+    const uint8_t slot = (uint8_t)(scanline % CVBS_DMA_DYNAMIC_LINE_COUNT);
+    for (uint16_t offset = 1U; offset <= PAL_TOTAL_SCANLINES; offset++) {
+        uint16_t candidate = (uint16_t)(scanline + offset);
+        if (candidate >= PAL_TOTAL_SCANLINES) {
+            candidate -= PAL_TOTAL_SCANLINES;
+        }
+        if (candidate % CVBS_DMA_DYNAMIC_LINE_COUNT == slot &&
+            full_pal_visible_scanline(candidate, NULL)) {
+            return candidate;
+        }
+    }
+    return UINT16_MAX;
+}
+#endif
 
 static inline void IRAM_ATTR accept_pending_frame(cvbs_pal_t *display)
 {
@@ -254,17 +306,17 @@ static inline void IRAM_ATTR accept_pending_frame(cvbs_pal_t *display)
     portEXIT_CRITICAL_ISR(&display->buffer_lock);
 }
 
+#if SOLAR_OS_CVBS_MODE_320X200
 static void IRAM_ATTR render_scanline(cvbs_pal_t *display,
                                       uint16_t *buffer,
                                       uint16_t scanline)
 {
-#if SOLAR_OS_CVBS_MODE_320X200
     if (scanline == 0U) {
         accept_pending_frame(display);
     }
 
     if (scanline < 5U || scanline >= PAL_TRAILING_SYNC_START) {
-        render_vsync_line(buffer, false, scanline < 5U ? scanline : 4U);
+        render_vsync_line(buffer, scanline < 5U ? scanline : 4U);
     } else if (scanline >= PAL_VISIBLE_START && scanline < PAL_VISIBLE_END) {
         render_normal_line(display,
                            buffer,
@@ -272,32 +324,8 @@ static void IRAM_ATTR render_scanline(cvbs_pal_t *display,
     } else {
         render_normal_line(display, buffer, -1);
     }
-#else
-    if (scanline == 0U || scanline == PAL_FIELD_START) {
-        accept_pending_frame(display);
-    }
-
-    const bool odd_field = scanline >= PAL_FIELD_START;
-    const uint16_t field_line = odd_field
-                                    ? (uint16_t)(scanline - PAL_FIELD_START)
-                                    : scanline;
-    if (field_line < PAL_VSYNC_LINES) {
-        render_vsync_line(buffer, odd_field, field_line);
-        return;
-    }
-
-    const int y = (int)field_line - (int)PAL_VSYNC_LINES;
-    if (y >= 0 && y < (int)CVBS_PAL_HEIGHT) {
-        render_pixels(display, buffer, (uint16_t)y);
-    } else if (y < (int)CVBS_PAL_HEIGHT + 2) {
-        /* Clear both alternating descriptors after the last visible row. */
-        fill_samples(buffer,
-                     PAL_MONO_ACTIVE_START,
-                     CVBS_PAL_WIDTH * 2U,
-                     CVBS_LEVEL_BLACK);
-    }
-#endif
 }
+#endif
 
 static void IRAM_ATTR cvbs_i2s_isr(void *arg)
 {
@@ -309,11 +337,50 @@ static void IRAM_ATTR cvbs_i2s_isr(void *arg)
     }
 
     lldesc_t *descriptor = (lldesc_t *)I2S0.out_eof_des_addr;
-    render_scanline(display, (uint16_t *)descriptor->buf, display->next_scanline);
-    display->next_scanline++;
-    if (display->next_scanline >= PAL_TOTAL_SCANLINES) {
-        display->next_scanline = 0;
+    const uintptr_t descriptor_offset =
+        (uintptr_t)descriptor - (uintptr_t)&display->dma_desc[0];
+    if (descriptor_offset >= sizeof(display->dma_desc) ||
+        descriptor_offset % sizeof(display->dma_desc[0]) != 0U) {
+        return;
     }
+
+    const uint16_t descriptor_index =
+        (uint16_t)(descriptor_offset / sizeof(display->dma_desc[0]));
+#if SOLAR_OS_CVBS_MODE_320X200
+    uint8_t elapsed = (uint8_t)(descriptor_index + CVBS_DMA_DESCRIPTOR_COUNT -
+                                display->last_eof_descriptor);
+    elapsed %= CVBS_DMA_DESCRIPTOR_COUNT;
+    if (elapsed == 0U) {
+        elapsed = CVBS_DMA_DESCRIPTOR_COUNT;
+    }
+
+    uint16_t transmitted_scanline =
+        (uint16_t)(display->last_eof_scanline + elapsed);
+    if (transmitted_scanline >= PAL_TOTAL_SCANLINES) {
+        transmitted_scanline -= PAL_TOTAL_SCANLINES;
+    }
+    uint16_t refill_scanline =
+        (uint16_t)(transmitted_scanline + CVBS_DMA_DESCRIPTOR_COUNT);
+    if (refill_scanline >= PAL_TOTAL_SCANLINES) {
+        refill_scanline -= PAL_TOTAL_SCANLINES;
+    }
+
+    render_scanline(display, (uint16_t *)descriptor->buf, refill_scanline);
+    display->last_eof_descriptor = (uint8_t)descriptor_index;
+    display->last_eof_scanline = transmitted_scanline;
+#else
+    const uint16_t refill_scanline =
+        display->dma_refill_scanline[descriptor_index];
+    if (refill_scanline != UINT16_MAX) {
+        if (refill_scanline == PAL_VSYNC_LINES) {
+            accept_pending_frame(display);
+        }
+        uint16_t y = 0U;
+        if (full_pal_visible_scanline(refill_scanline, &y)) {
+            render_normal_line(display, (uint16_t *)descriptor->buf, (int)y);
+        }
+    }
+#endif
 }
 
 typedef struct {
@@ -326,7 +393,7 @@ static void cvbs_alloc_interrupt_on_current_core(void *arg)
     cvbs_interrupt_alloc_context_t *context =
         (cvbs_interrupt_alloc_context_t *)arg;
     context->result = esp_intr_alloc(ETS_I2S0_INTR_SOURCE,
-                                     ESP_INTR_FLAG_LEVEL1 | ESP_INTR_FLAG_IRAM,
+                                     ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM,
                                      cvbs_i2s_isr,
                                      context->display,
                                      &context->display->interrupt);
@@ -351,7 +418,14 @@ static esp_err_t cvbs_alloc_interrupt(cvbs_pal_t *display)
     return ipc_err == ESP_OK ? context.result : ipc_err;
 }
 
-static esp_err_t cvbs_present(cvbs_pal_t *display)
+static inline uint8_t reverse_bits(uint8_t value)
+{
+    value = (uint8_t)(((value & 0xF0U) >> 4U) | ((value & 0x0FU) << 4U));
+    value = (uint8_t)(((value & 0xCCU) >> 2U) | ((value & 0x33U) << 2U));
+    return (uint8_t)(((value & 0xAAU) >> 1U) | ((value & 0x55U) << 1U));
+}
+
+static esp_err_t cvbs_present_on_current_core(cvbs_pal_t *display)
 {
     int8_t target = -1;
     portENTER_CRITICAL(&display->buffer_lock);
@@ -369,19 +443,16 @@ static esp_err_t cvbs_present(cvbs_pal_t *display)
     }
 
     uint8_t *scanout = display->scanout_buffers[target];
-    memset(scanout, 0, display->buffer_size);
-    for (size_t y = 0; y < CVBS_PAL_HEIGHT; y++) {
-        uint8_t *row = &scanout[y * (CVBS_PAL_WIDTH / 8U)];
-        const size_t native_x = CVBS_NATIVE_WIDTH - 1U - y;
-        for (size_t x = 0; x < CVBS_PAL_WIDTH; x++) {
-            const size_t native_y = x;
-            const uint8_t *source =
-                &display->draw_buffer[(native_y >> 3U) * CVBS_NATIVE_WIDTH];
-            const uint8_t source_mask = (uint8_t)(1U << (native_y & 7U));
-            if ((source[native_x] & source_mask) != 0U) {
-                row[x >> 3U] |= (uint8_t)(0x80U >> (x & 7U));
-            }
+    for (size_t group = 0; group < CVBS_PAL_WIDTH / 8U; group++) {
+        const uint8_t *source =
+            &display->draw_buffer[group * CVBS_NATIVE_WIDTH];
+        for (size_t y = 0; y < CVBS_PAL_HEIGHT; y++) {
+            scanout[y * (CVBS_PAL_WIDTH / 8U) + group] =
+                reverse_bits(source[CVBS_NATIVE_WIDTH - 1U - y]);
         }
+        /* Leave a short SRAM/PSRAM bus window for I2S DMA between contiguous
+         * transpose passes. The complete present remains below one PAL field. */
+        esp_rom_delay_us(4U);
     }
 
     portENTER_CRITICAL(&display->buffer_lock);
@@ -391,6 +462,33 @@ static esp_err_t cvbs_present(cvbs_pal_t *display)
     }
     portEXIT_CRITICAL(&display->buffer_lock);
     return ESP_OK;
+}
+
+typedef struct {
+    cvbs_pal_t *display;
+    esp_err_t result;
+} cvbs_present_context_t;
+
+static void cvbs_present_on_cpu0(void *arg)
+{
+    cvbs_present_context_t *context = (cvbs_present_context_t *)arg;
+    context->result = cvbs_present_on_current_core(context->display);
+}
+
+static esp_err_t cvbs_present(cvbs_pal_t *display)
+{
+    if (xPortGetCoreID() == CVBS_PRESENT_CORE) {
+        return cvbs_present_on_current_core(display);
+    }
+
+    cvbs_present_context_t context = {
+        .display = display,
+        .result = ESP_FAIL,
+    };
+    const esp_err_t ipc_err = esp_ipc_call_blocking(CVBS_PRESENT_CORE,
+                                                    cvbs_present_on_cpu0,
+                                                    &context);
+    return ipc_err == ESP_OK ? context.result : ipc_err;
 }
 
 static void cvbs_stop_signal(cvbs_pal_t *display)
@@ -403,7 +501,7 @@ static void cvbs_stop_signal(cvbs_pal_t *display)
     if (display->interrupt != NULL) {
         (void)esp_intr_disable(display->interrupt);
     }
-    for (size_t i = 0; i < 2; i++) {
+    for (size_t i = 0; i < CVBS_DMA_DESCRIPTOR_COUNT; i++) {
         display->dma_desc[i].empty = 0;
     }
     if (display->interrupt != NULL) {
@@ -422,6 +520,9 @@ static void cvbs_stop_signal(cvbs_pal_t *display)
     heap_caps_free(display->dma_buffer);
     display->dma_buffer = NULL;
     display->dma_buffer_size = 0;
+    heap_caps_free(display->dma_static_buffer);
+    display->dma_static_buffer = NULL;
+    display->dma_static_buffer_size = 0;
 }
 
 static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
@@ -438,17 +539,35 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
     }
 
     const size_t line_bytes = PAL_SCANLINE_SAMPLES * sizeof(uint16_t);
-    display->dma_buffer_size = line_bytes * 2U;
+    display->dma_buffer_size = line_bytes * CVBS_DMA_DYNAMIC_LINE_COUNT;
     display->dma_buffer = heap_caps_calloc(1,
                                            display->dma_buffer_size,
                                            MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (display->dma_buffer == NULL) {
         return ESP_ERR_NO_MEM;
     }
+#if !SOLAR_OS_CVBS_MODE_320X200
+    const size_t sync_bytes =
+        CVBS_STATIC_SYNC_SAMPLES * sizeof(uint16_t);
+    const size_t blank_bytes =
+        CVBS_STATIC_BLANK_SAMPLES * sizeof(uint16_t);
+    display->dma_static_buffer_size = sync_bytes + blank_bytes;
+    display->dma_static_buffer = heap_caps_calloc(
+        1,
+        display->dma_static_buffer_size,
+        MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (display->dma_static_buffer == NULL) {
+        heap_caps_free(display->dma_buffer);
+        display->dma_buffer = NULL;
+        display->dma_buffer_size = 0;
+        return ESP_ERR_NO_MEM;
+    }
+#endif
     /* From here on, cvbs_stop_signal() owns all partial-start cleanup. */
     display->signal_started = true;
 
-    for (size_t i = 0; i < 2; i++) {
+#if SOLAR_OS_CVBS_MODE_320X200
+    for (size_t i = 0; i < CVBS_DMA_DESCRIPTOR_COUNT; i++) {
         lldesc_t *descriptor = &display->dma_desc[i];
         memset(descriptor, 0, sizeof(*descriptor));
         descriptor->buf = &display->dma_buffer[i * line_bytes];
@@ -456,15 +575,102 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
         descriptor->eof = 1;
         descriptor->length = line_bytes;
         descriptor->size = line_bytes;
-        descriptor->empty = (uint32_t)&display->dma_desc[(i + 1U) & 1U];
+        descriptor->empty =
+            (uint32_t)&display->dma_desc[(i + 1U) %
+                                         CVBS_DMA_DESCRIPTOR_COUNT];
     }
 
-    /* Seed both descriptors before the DMA engine starts. */
-    render_normal_line(display, (uint16_t *)display->dma_desc[0].buf, -1);
-    render_normal_line(display, (uint16_t *)display->dma_desc[1].buf, -1);
-    display->next_scanline = 0;
-    render_scanline(display, (uint16_t *)display->dma_desc[0].buf, display->next_scanline++);
-    render_scanline(display, (uint16_t *)display->dma_desc[1].buf, display->next_scanline++);
+    /* Seed the complete queue before the DMA engine starts. */
+    for (size_t i = 0; i < CVBS_DMA_DESCRIPTOR_COUNT; i++) {
+        render_scanline(display,
+                        (uint16_t *)display->dma_desc[i].buf,
+                        (uint16_t)i);
+    }
+    display->last_eof_descriptor = CVBS_DMA_DESCRIPTOR_COUNT - 1U;
+    display->last_eof_scanline = PAL_TOTAL_SCANLINES - 1U;
+#else
+    uint8_t *sync_buffer = display->dma_static_buffer;
+    uint8_t *blank_buffer = &display->dma_static_buffer[sync_bytes];
+    memset(sync_buffer, CVBS_LEVEL_SYNC, sync_bytes);
+    memset(blank_buffer, CVBS_LEVEL_BLANKING, blank_bytes);
+
+    bool dynamic_seeded[CVBS_DMA_DYNAMIC_LINE_COUNT] = {false};
+    uint16_t descriptor_index = 0U;
+    for (uint16_t scanline = 0U; scanline < PAL_TOTAL_SCANLINES; scanline++) {
+        uint16_t y = 0U;
+        if (full_pal_visible_scanline(scanline, &y)) {
+            const uint8_t slot =
+                (uint8_t)(scanline % CVBS_DMA_DYNAMIC_LINE_COUNT);
+            configure_dma_descriptor(
+                &display->dma_desc[descriptor_index],
+                &display->dma_buffer[slot * line_bytes],
+                line_bytes,
+                true);
+            display->dma_refill_scanline[descriptor_index] =
+                full_pal_next_dynamic_scanline(scanline);
+            if (!dynamic_seeded[slot]) {
+                render_normal_line(
+                    display,
+                    (uint16_t *)display->dma_desc[descriptor_index].buf,
+                    y);
+                dynamic_seeded[slot] = true;
+            }
+            descriptor_index++;
+        } else {
+            size_t first_width = 0U;
+            size_t second_width = 0U;
+            full_pal_sync_widths(scanline, &first_width, &second_width);
+            configure_dma_descriptor(
+                &display->dma_desc[descriptor_index],
+                sync_buffer,
+                first_width * sizeof(uint16_t),
+                false);
+            display->dma_refill_scanline[descriptor_index++] = UINT16_MAX;
+            if (second_width > 0U) {
+                configure_dma_descriptor(
+                    &display->dma_desc[descriptor_index],
+                    blank_buffer,
+                    (PAL_SCANLINE_SAMPLES / 2U - first_width) *
+                        sizeof(uint16_t),
+                    false);
+                display->dma_refill_scanline[descriptor_index++] = UINT16_MAX;
+                configure_dma_descriptor(
+                    &display->dma_desc[descriptor_index],
+                    sync_buffer,
+                    second_width * sizeof(uint16_t),
+                    false);
+                display->dma_refill_scanline[descriptor_index++] = UINT16_MAX;
+                configure_dma_descriptor(
+                    &display->dma_desc[descriptor_index],
+                    blank_buffer,
+                    (PAL_SCANLINE_SAMPLES / 2U - second_width) *
+                        sizeof(uint16_t),
+                    true);
+                display->dma_refill_scanline[descriptor_index++] = UINT16_MAX;
+            } else {
+                configure_dma_descriptor(
+                    &display->dma_desc[descriptor_index],
+                    blank_buffer,
+                    (PAL_SCANLINE_SAMPLES - first_width) *
+                        sizeof(uint16_t),
+                    true);
+                display->dma_refill_scanline[descriptor_index++] = UINT16_MAX;
+            }
+        }
+    }
+    if (descriptor_index != CVBS_DMA_DESCRIPTOR_COUNT) {
+        ESP_LOGE(TAG,
+                 "PAL DMA schedule has %u descriptors, expected %u",
+                 descriptor_index,
+                 CVBS_DMA_DESCRIPTOR_COUNT);
+        cvbs_stop_signal(display);
+        return ESP_ERR_INVALID_STATE;
+    }
+    for (uint16_t i = 0U; i < CVBS_DMA_DESCRIPTOR_COUNT; i++) {
+        display->dma_desc[i].empty = (uint32_t)&display->dma_desc[
+            (i + 1U) % CVBS_DMA_DESCRIPTOR_COUNT];
+    }
+#endif
 
     esp_err_t err = rtc_gpio_init(GPIO_NUM_25);
     if (err != ESP_OK) {
@@ -510,7 +716,12 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
     I2S0.conf2.lcd_en = 1;
     I2S0.conf_chan.tx_chan_mod = 1;
     I2S0.sample_rate_conf.tx_bits_mod = 16;
-    I2S0.sample_rate_conf.tx_bck_div_num = 1;
+    I2S0.sample_rate_conf.tx_bck_div_num =
+#if SOLAR_OS_CVBS_MODE_320X200
+        1;
+#else
+        2;
+#endif
     I2S0.clkm_conf.clka_en = 1;
     I2S0.clkm_conf.clkm_div_num = 1;
     I2S0.clkm_conf.clkm_div_b = 0;
@@ -598,29 +809,20 @@ esp_err_t cvbs_pal_init(cvbs_pal_t *display)
 
     memset(display, 0, sizeof(*display));
     if (!pixel_lut_ready) {
-        for (size_t pattern = 0; pattern < 256U; pattern++) {
-#if SOLAR_OS_CVBS_MODE_320X200
-            for (size_t pair = 0; pair < 4U; pair++) {
+        for (size_t pattern = 0; pattern < 16U; pattern++) {
+            for (size_t pair = 0; pair < 2U; pair++) {
                 const size_t first_bit = pair * 2U;
                 const size_t second_bit = first_bit + 1U;
                 const uint8_t first =
-                    (pattern & (0x80U >> first_bit)) != 0U
+                    (pattern & (0x08U >> first_bit)) != 0U
                         ? CVBS_LEVEL_WHITE
                         : CVBS_LEVEL_BLACK;
                 const uint8_t second =
-                    (pattern & (0x80U >> second_bit)) != 0U
+                    (pattern & (0x08U >> second_bit)) != 0U
                         ? CVBS_LEVEL_WHITE
                         : CVBS_LEVEL_BLACK;
                 pixel_lut[pattern][pair] = CVBS_PIXEL_PAIR(first, second);
             }
-#else
-            for (size_t bit = 0; bit < 8U; bit++) {
-                const uint8_t level = (pattern & (0x80U >> bit)) != 0U
-                                          ? CVBS_LEVEL_WHITE
-                                          : CVBS_LEVEL_BLACK;
-                pixel_lut[pattern][bit] = CVBS_DWORD(level);
-            }
-#endif
         }
         pixel_lut_ready = true;
     }
