@@ -38,6 +38,11 @@ quotes, a trailing backslash, too many arguments, and unsupported shell
 operators such as `|`, `>`, `&&`, and `;` reject the complete line. URLs and
 ordinary argument text containing punctuation remain valid.
 
+Shell scripts use the `.sh` extension. Run one with `sh <file>` or invoke its
+path directly; for example, `./somescript.sh` is equivalent to
+`sh ./somescript.sh`. SolarOS storage does not require an executable permission
+bit for this shorthand.
+
 History is kept in memory and cached at `/.shell/history` when storage is
 available. Optional startup and alias files:
 

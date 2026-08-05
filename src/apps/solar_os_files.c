@@ -14,10 +14,12 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "solar_os_app_file_types.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell.h"
+#include "solar_os_shell_launch.h"
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
 #include "solar_os_terminal.h"
@@ -79,6 +81,7 @@ typedef struct {
     solar_os_tui_t tui;
     files_pane_t panes[2];
     uint8_t active;
+    bool launcher_mode;
     bool show_hidden;
     files_input_mode_t input_mode;
     char input[FILES_INPUT_MAX];
@@ -781,7 +784,10 @@ static void files_render(solar_os_context_t *ctx)
                                     files.input_mode == FILES_INPUT_ZIP);
     const size_t rows = solar_os_tui_rows(&files.tui);
     const size_t cols = solar_os_tui_cols(&files.tui);
-    if (rows < 6 || cols < FILES_PANEL_MIN_WIDTH * 2U) {
+    const size_t min_cols = files.launcher_mode ?
+        FILES_PANEL_MIN_WIDTH : FILES_PANEL_MIN_WIDTH * 2U;
+    const size_t min_rows = files.launcher_mode ? 4U : 6U;
+    if (rows < min_rows || cols < min_cols) {
         solar_os_tui_clear(&files.tui);
         solar_os_tui_addstr(&files.tui, 0, 0, "files: terminal too small", SOLAR_OS_TUI_ATTR_NORMAL);
         solar_os_tui_refresh(&files.tui);
@@ -790,14 +796,22 @@ static void files_render(solar_os_context_t *ctx)
 
     solar_os_tui_clear(&files.tui);
     solar_os_tui_fill(&files.tui, 0, 0, 1, cols, ' ', SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    const char *title = files.launcher_mode ?
+        "launcher  Enter open  q quit" :
+        (files.show_hidden ? "files  hidden:on  Tab switch  Enter open  q quit"
+                           : "files  hidden:off Tab switch  Enter open  q quit");
     files_add_clipped(0,
                       0,
                       cols,
-                      files.show_hidden ? "files  hidden:on  Tab switch  Enter open  q quit"
-                                        : "files  hidden:off Tab switch  Enter open  q quit",
+                      title,
                       SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
 
     const size_t pane_row = 1;
+    if (files.launcher_mode) {
+        files_draw_pane(&files.panes[0], 0, pane_row, 0, rows - pane_row, cols);
+        solar_os_tui_refresh(&files.tui);
+        return;
+    }
     const size_t pane_height = rows - 3U;
     const size_t left_width = cols / 2U;
     const size_t right_width = cols - left_width;
@@ -822,7 +836,9 @@ static esp_err_t files_refresh_pane(files_pane_t *pane)
 static void files_refresh_all(void)
 {
     (void)files_refresh_pane(&files.panes[0]);
-    (void)files_refresh_pane(&files.panes[1]);
+    if (!files.launcher_mode) {
+        (void)files_refresh_pane(&files.panes[1]);
+    }
 }
 
 static void files_move_cursor(files_pane_t *pane, int delta)
@@ -844,7 +860,8 @@ static void files_move_cursor(files_pane_t *pane, int delta)
 static void files_page(files_pane_t *pane, bool down)
 {
     const size_t rows = solar_os_tui_rows(&files.tui);
-    const size_t page = rows > 6 ? rows - 6U : 1U;
+    const size_t reserved = files.launcher_mode ? 3U : 6U;
+    const size_t page = rows > reserved ? rows - reserved : 1U;
     files_move_cursor(pane, down ? (int)page : -(int)page);
 }
 
@@ -859,25 +876,6 @@ static bool files_change_dir(files_pane_t *pane, const char *path)
     return true;
 }
 
-static bool files_path_has_suffix(const char *path, const char *suffix)
-{
-    if (path == NULL || suffix == NULL) {
-        return false;
-    }
-    const size_t path_len = strlen(path);
-    const size_t suffix_len = strlen(suffix);
-    if (suffix_len > path_len) {
-        return false;
-    }
-    const char *tail = &path[path_len - suffix_len];
-    for (size_t i = 0; i < suffix_len; i++) {
-        if (tolower((unsigned char)tail[i]) != tolower((unsigned char)suffix[i])) {
-            return false;
-        }
-    }
-    return true;
-}
-
 static bool files_app_available(const char *app_name)
 {
     const solar_os_app_registry_entry_t *entry = solar_os_app_registry_find(app_name);
@@ -886,53 +884,15 @@ static bool files_app_available(const char *app_name)
 
 static const char *files_default_viewer(const char *path)
 {
-    if (files_app_available("view") &&
-        (files_path_has_suffix(path, ".png") ||
-         files_path_has_suffix(path, ".jpg") ||
-         files_path_has_suffix(path, ".jpeg") ||
-         files_path_has_suffix(path, ".gif") ||
-         files_path_has_suffix(path, ".webp") ||
-         files_path_has_suffix(path, ".bmp") ||
-         files_path_has_suffix(path, ".pnm") ||
-         files_path_has_suffix(path, ".pbm") ||
-         files_path_has_suffix(path, ".pgm") ||
-         files_path_has_suffix(path, ".ppm"))) {
-        return "view";
+    const solar_os_app_registry_entry_t *entry =
+        solar_os_app_registry_find_opener(path);
+    if (entry != NULL) {
+        return entry->name;
     }
-
-    if (files_app_available("aplay") &&
-        (files_path_has_suffix(path, ".wav") ||
-         files_path_has_suffix(path, ".mp3"))) {
-        return "aplay";
+    if (files_app_available("less")) {
+        return "less";
     }
-
-    if (files_app_available("sheet") &&
-        files_path_has_suffix(path, ".csv")) {
-        return "sheet";
-    }
-
-    if (files_app_available("python") &&
-        (files_path_has_suffix(path, ".py") ||
-         files_path_has_suffix(path, ".pyw") ||
-         files_path_has_suffix(path, ".mpy"))) {
-        return "python";
-    }
-
-    if (files_app_available("lua") &&
-        files_path_has_suffix(path, ".lua")) {
-        return "lua";
-    }
-
-    if (files_app_available("reader") &&
-        (files_path_has_suffix(path, ".md") ||
-         files_path_has_suffix(path, ".markdown") ||
-         files_path_has_suffix(path, ".epub") ||
-         files_path_has_suffix(path, ".txt") ||
-         files_path_has_suffix(path, ".text"))) {
-        return "reader";
-    }
-
-    return "less";
+    return files_app_available("edit") ? "edit" : NULL;
 }
 
 static bool files_launch_app(solar_os_context_t *ctx, const char *app_name, const char *path)
@@ -960,6 +920,15 @@ static bool files_launch_app(solar_os_context_t *ctx, const char *app_name, cons
     return true;
 }
 
+static bool files_open_file(solar_os_context_t *ctx, const char *path)
+{
+    if (solar_os_shell_path_is_script(path)) {
+        (void)solar_os_shell_run_script(ctx, path, path, true);
+        return true;
+    }
+    return files_launch_app(ctx, files_default_viewer(path), path);
+}
+
 static void files_open_selected(solar_os_context_t *ctx)
 {
     files_pane_t *pane = files_active_pane();
@@ -973,7 +942,7 @@ static void files_open_selected(solar_os_context_t *ctx)
         files_change_dir(pane, path);
         return;
     }
-    files_launch_app(ctx, files_default_viewer(path), path);
+    files_open_file(ctx, path);
 }
 
 static bool files_copy_recursive(const char *source, const char *dest)
@@ -1467,7 +1436,7 @@ static bool files_zip_archive_path(files_pane_t *dest_pane, char *out, size_t ou
     if (strlcpy(requested, files.input, sizeof(requested)) >= sizeof(requested)) {
         return false;
     }
-    if (!files_path_has_suffix(requested, ".zip")) {
+    if (!solar_os_app_file_types_match(".zip", requested)) {
         const size_t len = strlen(requested);
         if (len + strlen(".zip") >= sizeof(requested)) {
             return false;
@@ -1631,14 +1600,25 @@ static bool files_input_event(solar_os_context_t *ctx, uint8_t ch)
 static esp_err_t files_start(solar_os_context_t *ctx)
 {
     memset(&files, 0, sizeof(files));
-    files.show_hidden = true;
+    const int argc = solar_os_context_argc(ctx);
+    const char *arg = ".";
+    if (argc >= 2 && strcmp(solar_os_context_argv(ctx, 1), "--launcher") == 0) {
+        files.launcher_mode = true;
+        if (argc >= 3) {
+            arg = solar_os_context_argv(ctx, 2);
+        }
+    } else if (argc == 2) {
+        arg = solar_os_context_argv(ctx, 1);
+    } else if (argc > 2) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    files.show_hidden = !files.launcher_mode;
     esp_err_t err = solar_os_tui_begin(&files.tui, ctx);
     if (err != ESP_OK) {
         return err;
     }
     (void)solar_os_tui_enable_diff(&files.tui, true);
 
-    const char *arg = solar_os_context_argc(ctx) >= 2 ? solar_os_context_argv(ctx, 1) : ".";
     char start[SOLAR_OS_STORAGE_PATH_MAX];
     err = solar_os_shell_resolve_path(ctx, arg, start, sizeof(start));
     if (err != ESP_OK) {
@@ -1659,11 +1639,13 @@ static esp_err_t files_start(solar_os_context_t *ctx)
         solar_os_tui_end(&files.tui);
         return err;
     }
-    err = files_pane_load(&files.panes[1], start);
-    if (err != ESP_OK) {
-        files_pane_clear(&files.panes[0]);
-        solar_os_tui_end(&files.tui);
-        return err;
+    if (!files.launcher_mode) {
+        err = files_pane_load(&files.panes[1], start);
+        if (err != ESP_OK) {
+            files_pane_clear(&files.panes[0]);
+            solar_os_tui_end(&files.tui);
+            return err;
+        }
     }
 
     files_set_message("");
@@ -1715,7 +1697,9 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     case '\t':
     case SOLAR_OS_KEY_LEFT:
     case SOLAR_OS_KEY_RIGHT:
-        files.active ^= 1U;
+        if (!files.launcher_mode) {
+            files.active ^= 1U;
+        }
         break;
     case SOLAR_OS_KEY_UP:
     case 'k':
@@ -1750,7 +1734,9 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         files_open_selected(ctx);
         break;
     case ' ':
-        files_toggle_selection(pane);
+        if (!files.launcher_mode) {
+            files_toggle_selection(pane);
+        }
         break;
     case SOLAR_OS_KEY_F3:
     case 'v':
@@ -1758,13 +1744,16 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         char path[SOLAR_OS_STORAGE_PATH_MAX];
         files_entry_t *entry = files_selected_entry(pane);
         if (entry != NULL && !entry->is_dir && files_selected_path(pane, path, sizeof(path))) {
-            files_launch_app(ctx, files_default_viewer(path), path);
+            files_open_file(ctx, path);
         }
         break;
     }
     case SOLAR_OS_KEY_F4:
     case 'e':
     case 'E': {
+        if (files.launcher_mode) {
+            break;
+        }
         char path[SOLAR_OS_STORAGE_PATH_MAX];
         files_entry_t *entry = files_selected_entry(pane);
         if (entry != NULL && !entry->is_dir && files_selected_path(pane, path, sizeof(path))) {
@@ -1775,33 +1764,45 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     case SOLAR_OS_KEY_F5:
     case 'c':
     case 'C':
-        files_copy_selected();
+        if (!files.launcher_mode) {
+            files_copy_selected();
+        }
         break;
     case SOLAR_OS_KEY_F6:
     case 'm':
     case 'M':
-        files_move_selected();
+        if (!files.launcher_mode) {
+            files_move_selected();
+        }
         break;
     case SOLAR_OS_KEY_F7:
     case 'n':
     case 'N':
-        files_begin_mkdir();
+        if (!files.launcher_mode) {
+            files_begin_mkdir();
+        }
         break;
     case SOLAR_OS_KEY_F8:
     case SOLAR_OS_KEY_DELETE:
     case 'd':
     case 'D':
-        files_begin_delete();
+        if (!files.launcher_mode) {
+            files_begin_delete();
+        }
         break;
     case SOLAR_OS_KEY_F9:
     case 'z':
     case 'Z':
-        files_begin_zip();
+        if (!files.launcher_mode) {
+            files_begin_zip();
+        }
         break;
     case 'h':
     case 'H':
-        files.show_hidden = !files.show_hidden;
-        files_refresh_all();
+        if (!files.launcher_mode) {
+            files.show_hidden = !files.show_hidden;
+            files_refresh_all();
+        }
         break;
     case 'r':
     case 'R':
@@ -1818,7 +1819,7 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
 const solar_os_app_t solar_os_files_app = {
     .name = "files",
-    .summary = "two-pane file manager",
+    .summary = "file manager and launcher",
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = files_start,
     .resume = files_resume,

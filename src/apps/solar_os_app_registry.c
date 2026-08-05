@@ -7,6 +7,7 @@
 #include "freertos/portmacro.h"
 #include "solar_os_config.h"
 #include "solar_os_task.h"
+#include "solar_os_app_file_types.h"
 #if SOLAR_OS_PACKAGE_APP_APLAY || SOLAR_OS_PACKAGE_APP_ARECORD
 #include "solar_os_audio_apps.h"
 #endif
@@ -104,10 +105,14 @@
 #define APP_ENTRY(app_name, app_summary, app_ptr, app_caps, app_usage, app_min, app_max) \
     {.name = app_name, .summary = app_summary, .app = app_ptr, .capabilities = app_caps, \
      .usage = app_usage, .min_argc = app_min, .max_argc = app_max}
+#define APP_FILE_ENTRY(app_name, app_summary, app_ptr, app_caps, app_usage, app_min, app_max, app_extensions) \
+    {.name = app_name, .summary = app_summary, .app = app_ptr, .capabilities = app_caps, \
+     .usage = app_usage, .file_extensions = app_extensions, \
+     .min_argc = app_min, .max_argc = app_max}
 
 static const solar_os_app_registry_entry_t registered_apps[] = {
 #if SOLAR_OS_PACKAGE_APP_APLAY
-    APP_ENTRY("aplay", "play WAV/MP3 audio", &solar_os_aplay_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "aplay [-v volume] <file.wav|file.mp3>", 2, 4),
+    APP_FILE_ENTRY("aplay", "play WAV/MP3 audio", &solar_os_aplay_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "aplay [-v volume] <file.wav|file.mp3>", 2, 4, ".wav .mp3"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_ARECORD
     APP_ENTRY("arecord", "record WAV audio", &solar_os_arecord_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "arecord [-d seconds] <file.wav>", 2, 4),
@@ -156,7 +161,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("email", "IMAP email client", &solar_os_email_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "email", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_FILES
-    APP_ENTRY("files", "two-pane file manager", &solar_os_files_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "files [path]", 1, 2),
+    APP_ENTRY("files", "two-pane file manager and launcher", &solar_os_files_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "files [--launcher] [path]", 1, 3),
 #endif
 #if SOLAR_OS_PACKAGE_APP_IO
     APP_ENTRY("io", "expansion pin and bus manager", &solar_os_io_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "io", 1, 1),
@@ -180,33 +185,34 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("logic", "logic analyzer waveform viewer", &solar_os_logic_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "logic <pin[,pin...]> [rate] [samples] [trigger=pin]", 2, 5),
 #endif
 #if SOLAR_OS_PACKAGE_APP_READER
-    APP_ENTRY("reader", "graphics text/Markdown/EPUB reader", &solar_os_reader_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "reader <file.txt|file.md|file.epub|man:topic>", 2, 2),
+    APP_FILE_ENTRY("reader", "graphics text/Markdown/EPUB reader", &solar_os_reader_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "reader <file.txt|file.md|file.epub|man:topic>", 2, 2, ".txt .text .md .markdown .epub"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_WRITER
-    APP_ENTRY("writer", "hybrid WYSIWYG Markdown editor", &solar_os_writer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "writer [file.md]", 1, 2),
+    APP_FILE_ENTRY("writer", "hybrid WYSIWYG Markdown editor", &solar_os_writer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "writer [file.md]", 1, 2, ".md .markdown"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_SHEET
-    APP_ENTRY("sheet", "CSV sheet viewer", &solar_os_sheet_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "sheet <file.csv>", 2, 2),
+    APP_FILE_ENTRY("sheet", "CSV sheet viewer", &solar_os_sheet_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "sheet <file.csv>", 2, 2, ".csv"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_INVADERS
     APP_ENTRY("invaders", "arcade shooter", &solar_os_invaders_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "invaders", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_GAMEBOY
-    APP_ENTRY("gameboy", "original Game Boy emulator", &solar_os_gameboy_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "gameboy <file.gb>", 2, 2),
+    APP_FILE_ENTRY("gameboy", "original Game Boy emulator", &solar_os_gameboy_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "gameboy <file.gb>", 2, 2, ".gb"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PYTHON
-    APP_ENTRY("python", "MicroPython runtime", &solar_os_python_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "python [script.py [args...]]", 1, 0),
+    APP_FILE_ENTRY("python", "MicroPython runtime", &solar_os_python_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "python [script.py [args...]]", 1, 0, ".py .pyw .mpy"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LUA
-    APP_ENTRY("lua", "Lua runtime", &solar_os_lua_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "lua [script.lua [args...]]", 1, 0),
+    APP_FILE_ENTRY("lua", "Lua runtime", &solar_os_lua_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "lua [script.lua [args...]]", 1, 0, ".lua"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_VIEW
-    APP_ENTRY("view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "view [-fit|-actual] <image>", 2, 3),
+    APP_FILE_ENTRY("view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "view [-fit|-actual] <image>", 2, 3, ".png .jpg .jpeg .gif .webp .bmp .pnm .pbm .pgm .ppm"),
 #endif
     {0},
 };
 
 #undef APP_ENTRY
+#undef APP_FILE_ENTRY
 
 #define REGISTERED_APP_STORAGE_COUNT (sizeof(registered_apps) / sizeof(registered_apps[0]))
 
@@ -262,6 +268,21 @@ const solar_os_app_registry_entry_t *solar_os_app_registry_find_by_app(const sol
 {
     const int index = app_registry_index_by_app(app);
     return index >= 0 ? &registered_apps[index] : NULL;
+}
+
+const solar_os_app_registry_entry_t *solar_os_app_registry_find_opener(const char *path)
+{
+    if (path == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < registered_app_count; i++) {
+        const solar_os_app_registry_entry_t *entry = &registered_apps[i];
+        if (entry->app != NULL &&
+            solar_os_app_file_types_match(entry->file_extensions, path)) {
+            return entry;
+        }
+    }
+    return NULL;
 }
 
 bool solar_os_app_registry_owner(const solar_os_app_t *app, char *owner, size_t owner_len)

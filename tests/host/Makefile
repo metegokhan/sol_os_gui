@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test gameboy_support_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test
 
 .PHONY: all test clean
 
@@ -32,6 +32,10 @@ shell_launch_test: shell_launch_test.c $(ROOT)/src/shell/solar_os_shell_launch.c
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
 		shell_launch_test.c $(ROOT)/src/shell/solar_os_shell_launch.c -o $@
 
+app_file_types_test: app_file_types_test.c $(ROOT)/src/apps/solar_os_app_file_types.c $(ROOT)/src/apps/solar_os_app_file_types.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/apps \
+		app_file_types_test.c $(ROOT)/src/apps/solar_os_app_file_types.c -o $@
+
 gameboy_support_test: gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c $(WRITER_DIR)/solar_os_gameboy_rom.h $(WRITER_DIR)/solar_os_gameboy_video.c $(WRITER_DIR)/solar_os_gameboy_video.h $(WRITER_DIR)/solar_os_gameboy_apu.c $(ROOT)/src/vendor/peanut_gb/peanut_gb.h $(ROOT)/src/vendor/peanut_gb/minigb_apu.c $(ROOT)/src/vendor/peanut_gb/minigb_apu.h
 	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable -I$(ROOT)/src -I$(WRITER_DIR) \
 		gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c \
@@ -44,6 +48,7 @@ test: $(TARGETS)
 	./doc_layout_test
 	./shell_parse_test
 	./shell_launch_test
+	./app_file_types_test
 	./gameboy_support_test
 
 clean:

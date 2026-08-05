@@ -54,6 +54,18 @@ int main(void)
     assert(path_arg(5, agent_file) == 3);
     assert(path_arg(5, agent_source) == -1);
 
+    char *files[] = {"files", "projects"};
+    char *launcher[] = {"files", "--launcher"};
+    char *launcher_path[] = {"files", "--launcher", "projects"};
+    assert(path_arg(2, files) == 1);
+    assert(path_arg(2, launcher) == -1);
+    assert(path_arg(3, launcher_path) == 2);
+
+    assert(solar_os_shell_path_is_script("./startup.sh"));
+    assert(solar_os_shell_path_is_script("MENU.SH"));
+    assert(!solar_os_shell_path_is_script("script.py"));
+    assert(!solar_os_shell_path_is_script("trash"));
+
     puts("shell_launch_test: ok");
     return 0;
 }

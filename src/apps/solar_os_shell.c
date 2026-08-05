@@ -1085,6 +1085,9 @@ static const char * const view_options[] = {"-fit", "-actual"};
 static const char * const plot_options[] = {"-f", "--file", "--rate"};
 static const char * const plot_live_options[] = {"--rate"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_FILES
+static const char * const files_options[] = {"--launcher"};
+#endif
 
 static const char * const path_ls[] = {"ls"};
 static const char * const path_rm[] = {"rm"};
@@ -1164,6 +1167,10 @@ static const char * const path_view_after_option[] = {"view", SHELL_COMPLETION_A
 #endif
 #if SOLAR_OS_PACKAGE_APP_GAMEBOY
 static const char * const path_gameboy[] = {"gameboy"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_FILES
+static const char * const path_files[] = {"files"};
+static const char * const path_files_launcher[] = {"files", "--launcher"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_NOTES
 static const char * const path_notes[] = {"notes"};
@@ -2115,6 +2122,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_GAMEBOY
     SHELL_COMPLETION_PATH(path_gameboy, false),
+#endif
+#if SOLAR_OS_PACKAGE_APP_FILES
+    SHELL_COMPLETION_OPTIONS(path_files, files_options),
+    SHELL_COMPLETION_PATH(path_files, false),
+    SHELL_COMPLETION_PATH(path_files_launcher, false),
 #endif
 #if SOLAR_OS_PACKAGE_APP_NOTES
     SHELL_COMPLETION_PATH(path_notes, false),
@@ -6198,10 +6210,10 @@ static void shell_script_discard_rest_of_line(FILE *file)
     } while (ch != EOF && ch != '\n');
 }
 
-static bool shell_run_script(solar_os_context_t *ctx,
-                             const char *path,
-                             const char *display_path,
-                             bool report_open_error)
+bool solar_os_shell_run_script(solar_os_context_t *ctx,
+                               const char *path,
+                               const char *display_path,
+                               bool report_open_error)
 {
     solar_os_shell_io_t *term = terminal(ctx);
     char line[SHELL_INPUT_MAX + 1];
@@ -6283,7 +6295,7 @@ static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    shell_run_script(ctx, path, argv[1], true);
+    solar_os_shell_run_script(ctx, path, argv[1], true);
 }
 
 static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv)
@@ -7205,6 +7217,18 @@ static bool shell_execute_line(solar_os_context_t *ctx,
         }
     }
 
+    if (solar_os_shell_path_is_script(argv[0])) {
+        char *script_argv[SHELL_ARG_MAX + 1] = {0};
+        script_argv[0] = "sh";
+        for (int i = 0; i < argc; i++) {
+            script_argv[i + 1] = argv[i];
+        }
+        solar_os_shell_diag_set_source(io, source, line_number);
+        cmd_sh(ctx, argc + 1, script_argv);
+        solar_os_shell_diag_set_source(io, NULL, 0);
+        return !shell_session(ctx)->builtin_suppressed_prompt;
+    }
+
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
     if (argc >= 2 &&
         strcmp(argv[0], "playground") == 0 &&
@@ -7459,7 +7483,7 @@ static bool shell_run_startup_script(solar_os_context_t *ctx)
         return true;
     }
 
-    return shell_run_script(ctx, path, "/.shell/startup", false);
+    return solar_os_shell_run_script(ctx, path, "/.shell/startup", false);
 }
 
 esp_err_t solar_os_shell_session_start(solar_os_context_t *ctx,

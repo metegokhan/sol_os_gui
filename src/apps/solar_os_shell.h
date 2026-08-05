@@ -38,4 +38,8 @@ bool solar_os_shell_resolve_path_for_command(solar_os_context_t *ctx,
                                              const char *arg,
                                              char *path,
                                              size_t path_len);
+bool solar_os_shell_run_script(solar_os_context_t *ctx,
+                               const char *path,
+                               const char *display_path,
+                               bool report_open_error);
 esp_err_t solar_os_shell_set_cwd(solar_os_context_t *ctx, const char *path);

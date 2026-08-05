@@ -2,6 +2,12 @@
 
 ## 4.x
 
+- **4.6.3** — 2026-08-05 — Added `files --launcher`, a read-only single-pane
+  startup menu that hides dot-prefixed entries and uses the full terminal
+  height without the file-operation bars. File-opening associations now live
+  in the installed app registry, including `.gb` ROMs for `gameboy`. Added
+  `.sh` shell-script recognition in Files and direct shell execution through
+  paths such as `./somescript.sh`.
 - **4.6.2** — 2026-08-05 — Fixed foreground application path arguments so
   relative files are resolved from the current shell directory before the app
   session starts. This now covers editors, readers, scripts, audio, images,

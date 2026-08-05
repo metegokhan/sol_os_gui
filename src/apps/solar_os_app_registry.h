@@ -21,6 +21,7 @@ typedef struct {
     const solar_os_app_t *app;
     uint32_t capabilities;
     const char *usage;
+    const char *file_extensions;
     uint8_t min_argc;
     uint8_t max_argc;
 } solar_os_app_registry_entry_t;
@@ -29,6 +30,7 @@ size_t solar_os_app_registry_count(void);
 const solar_os_app_registry_entry_t *solar_os_app_registry_get(size_t index);
 const solar_os_app_registry_entry_t *solar_os_app_registry_find(const char *name);
 const solar_os_app_registry_entry_t *solar_os_app_registry_find_by_app(const solar_os_app_t *app);
+const solar_os_app_registry_entry_t *solar_os_app_registry_find_opener(const char *path);
 bool solar_os_app_registry_owner(const solar_os_app_t *app, char *owner, size_t owner_len);
 esp_err_t solar_os_app_registry_claim(const solar_os_app_t *app,
                                       const char *owner,
