@@ -262,6 +262,7 @@ label = "bootstrap.shell"
 sources = [
   "apps/solar_os_shell.c",
   "shell/solar_os_shell_common.c",
+  "shell/solar_os_shell_launch.c",
   "shell/solar_os_shell_parse.c",
   "shell/solar_os_shell_commands.c",
   "shell/solar_os_shell_io.c",

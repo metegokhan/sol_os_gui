@@ -1640,9 +1640,7 @@ static esp_err_t files_start(solar_os_context_t *ctx)
 
     const char *arg = solar_os_context_argc(ctx) >= 2 ? solar_os_context_argv(ctx, 1) : ".";
     char start[SOLAR_OS_STORAGE_PATH_MAX];
-    err = solar_os_context_shell_session(ctx) != NULL ?
-        solar_os_shell_resolve_path(ctx, arg, start, sizeof(start)) :
-        solar_os_storage_resolve_path(arg, start, sizeof(start));
+    err = solar_os_shell_resolve_path(ctx, arg, start, sizeof(start));
     if (err != ESP_OK) {
         solar_os_tui_end(&files.tui);
         return err;

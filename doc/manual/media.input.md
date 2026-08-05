@@ -34,9 +34,10 @@ an error to the caller.
 
 The BLE service manages one remembered keyboard. Pairing and scanning are
 system operations; a script can inspect state and read translated key events.
-On boards with a system KEY, a long press forgets the remembered keyboard and
-starts a new pairing scan. The KEY short-press power action remains separately
-configurable.
+`ble forget` erases the remembered keyboard from SolarOS NVS and removes its BLE
+bond. On boards with a system KEY, a long press performs that forget operation
+and then starts a new pairing scan. Pairing has no user cancellation path. The
+KEY short-press power action remains separately configurable.
 
 ## Clipboard
 

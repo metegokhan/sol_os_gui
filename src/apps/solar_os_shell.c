@@ -3,6 +3,7 @@
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_shell_launch.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -431,7 +432,6 @@ static const char * const ble_subcommands[] = {
     "status",
     "scan",
     "pair",
-    "cancel",
     "forget",
     "gatt",
 };
@@ -7028,38 +7028,19 @@ static bool shell_prepare_app_launch_args(
         launch_argv[i] = argv[i];
     }
 
-    if (argc >= 2 &&
-        (strcmp(app->name, "edit") == 0 ||
-         strcmp(app->name, "hexedit") == 0 ||
-         strcmp(app->name, "less") == 0 ||
-         strcmp(app->name, "notes") == 0 ||
-         strcmp(app->name, "reader") == 0 ||
-#if SOLAR_OS_PACKAGE_APP_WRITER
-         strcmp(app->name, "writer") == 0 ||
-#endif
-         strcmp(app->name, "sheet") == 0)) {
+    const int path_arg = solar_os_shell_launch_path_arg(app->name,
+                                                        argc,
+                                                        argv);
+    if (path_arg >= 0) {
         if (!solar_os_shell_resolve_path_for_command(ctx,
                                                      terminal(ctx),
                                                      app->name,
-                                                     argv[1],
+                                                     argv[path_arg],
                                                      storage->path,
                                                      sizeof(storage->path))) {
             return false;
         }
-        launch_argv[1] = storage->path;
-    } else if (strcmp(app->name, "plot") == 0 &&
-               argc >= 3 &&
-               (strcmp(argv[1], "-f") == 0 ||
-                strcmp(argv[1], "--file") == 0)) {
-        if (!solar_os_shell_resolve_path_for_command(ctx,
-                                                     terminal(ctx),
-                                                     app->name,
-                                                     argv[2],
-                                                     storage->path,
-                                                     sizeof(storage->path))) {
-            return false;
-        }
-        launch_argv[2] = storage->path;
+        launch_argv[path_arg] = storage->path;
     } else if (strcmp(app->name, "scp") == 0) {
         return shell_prepare_scp_launch_args(ctx,
                                              argc,

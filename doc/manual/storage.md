@@ -51,6 +51,11 @@ guarded format command only when the existing contents can be discarded.
 Shell paths are not host operating-system paths. Scripts should use
 `solaros.storage` so the same code follows SolarOS mount and path rules.
 
+Relative path arguments passed to shell commands and foreground applications
+start at the directory shown in the shell prompt. This includes file editors,
+readers, script runtimes, media applications, transfers, and `files [path]`.
+Use a leading slash to start at the active volume root.
+
 ## Inspect before writing
 
 ```python
