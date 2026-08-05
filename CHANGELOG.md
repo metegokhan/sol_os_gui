@@ -2,6 +2,12 @@
 
 ## 4.x
 
+- **4.6.2** — 2026-08-05 — Fixed foreground application path arguments so
+  relative files are resolved from the current shell directory before the app
+  session starts. This now covers editors, readers, scripts, audio, images,
+  Game Boy ROMs, plots, downloads, and agent script files; `files [path]` also
+  starts from the requested path, while manual references and remote SCP paths
+  remain unchanged.
 - **4.6.0** — 2026-08-04 — Added an experimental original Game Boy (DMG)
   emulator to the `retro` flavor for the Waveshare ESP32-S3-RLCD-4.2. It loads
   ROMs into PSRAM, persists cartridge RAM in adjacent `.sav` files, supports

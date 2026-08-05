@@ -1,0 +1,59 @@
+#include <assert.h>
+#include <stdio.h>
+
+#include "solar_os_shell_launch.h"
+
+static int path_arg(int argc, char *argv[])
+{
+    return solar_os_shell_launch_path_arg(argv[0], argc, argv);
+}
+
+int main(void)
+{
+    static const char *const first_path_apps[] = {
+        "edit", "hexedit", "notes", "writer", "sheet", "gameboy",
+        "python", "lua", "files",
+    };
+    char *first_path[] = {NULL, "relative/file"};
+    for (size_t i = 0; i < sizeof(first_path_apps) / sizeof(first_path_apps[0]); i++) {
+        first_path[0] = (char *)first_path_apps[i];
+        assert(path_arg(2, first_path) == 1);
+    }
+
+    char *python[] = {"python", "tools/check.py", "input.txt"};
+    assert(path_arg(3, python) == 1);
+
+    char *less_file[] = {"less", "notes/today.md"};
+    char *less_manual[] = {"less", "man:storage"};
+    assert(path_arg(2, less_file) == 1);
+    assert(path_arg(2, less_manual) == -1);
+
+    char *reader_file[] = {"reader", "books/manual.md"};
+    char *reader_manual[] = {"reader", "man:storage"};
+    assert(path_arg(2, reader_file) == 1);
+    assert(path_arg(2, reader_manual) == -1);
+
+    char *plot[] = {"plot", "--rate", "500", "--file", "logs/data.csv"};
+    assert(path_arg(5, plot) == 4);
+
+    char *curl[] = {"curl", "-L", "-o", "downloads/page.html", "https://example.test"};
+    assert(path_arg(5, curl) == 3);
+
+    char *aplay_before[] = {"aplay", "-v", "80", "audio/song.mp3"};
+    char *aplay_after[] = {"aplay", "audio/song.mp3", "-v", "80"};
+    char *arecord[] = {"arecord", "-d", "10", "audio/note.wav"};
+    assert(path_arg(4, aplay_before) == 3);
+    assert(path_arg(4, aplay_after) == 1);
+    assert(path_arg(4, arecord) == 3);
+
+    char *view[] = {"view", "--actual", "images/photo.png"};
+    assert(path_arg(3, view) == 2);
+
+    char *agent_file[] = {"agent", "script", "python", "agents/task.py", "argument"};
+    char *agent_source[] = {"agent", "script", "python", "-c", "print('ok')"};
+    assert(path_arg(5, agent_file) == 3);
+    assert(path_arg(5, agent_source) == -1);
+
+    puts("shell_launch_test: ok");
+    return 0;
+}
