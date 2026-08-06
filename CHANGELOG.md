@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.6.6** — 2026-08-06 — Added a 10 px terminal text size, including regular,
+  bold, italic, and bold-italic faces. The new size is available through
+  `setterm textsize 10`, shell completion, the Setterm TUI, and the Edit and
+  Hexedit text-size controls. Existing saved terminal text-size values remain
+  compatible.
 - **4.6.5** — 2026-08-06 — Added the focused `rover-retro` flavor for running
   the Game Boy emulator on the Freenove ESP32-WROVER v3.0 composite target. It
   uses the normal system-service baseline with BLE, SD, UART ports, hardware

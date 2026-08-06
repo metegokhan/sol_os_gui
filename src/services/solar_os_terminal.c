@@ -52,6 +52,29 @@ static const terminal_font_family_t terminal_font_families[] = {
 };
 
 static const terminal_text_size_profile_t terminal_text_sizes[SOLAR_OS_TERMINAL_TEXT_SIZE_COUNT] = {
+    [SOLAR_OS_TERMINAL_TEXT_SIZE_10] = {
+        .name = "10",
+        .regular_font = {
+            [SOLAR_OS_TERMINAL_FONT_MONO] = u8g2_font_solar_os_default_r_10_tf,
+            [SOLAR_OS_TERMINAL_FONT_COMPACT] = u8g2_font_solar_os_default_r_10_tf,
+        },
+        .bold_font = {
+            [SOLAR_OS_TERMINAL_FONT_MONO] = u8g2_font_solar_os_default_b_10_tf,
+            [SOLAR_OS_TERMINAL_FONT_COMPACT] = u8g2_font_solar_os_default_b_10_tf,
+        },
+        .italic_font = {
+            [SOLAR_OS_TERMINAL_FONT_MONO] = u8g2_font_solar_os_default_i_10_tf,
+            [SOLAR_OS_TERMINAL_FONT_COMPACT] = u8g2_font_solar_os_default_i_10_tf,
+        },
+        .bold_italic_font = {
+            [SOLAR_OS_TERMINAL_FONT_MONO] = u8g2_font_solar_os_default_bi_10_tf,
+            [SOLAR_OS_TERMINAL_FONT_COMPACT] = u8g2_font_solar_os_default_bi_10_tf,
+        },
+        .cell_width = {
+            [SOLAR_OS_TERMINAL_FONT_MONO] = 5,
+            [SOLAR_OS_TERMINAL_FONT_COMPACT] = 5,
+        },
+    },
     [SOLAR_OS_TERMINAL_TEXT_SIZE_12] = {
         .name = "12",
         .regular_font = {

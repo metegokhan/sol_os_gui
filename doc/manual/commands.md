@@ -228,7 +228,7 @@ Profiles:
 setterm
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
-setterm textsize [12|14|16|18|20]
+setterm textsize [10|12|14|16|18|20]
 setterm palette [normal|inverted]
 setterm brightness [0..100]
 setterm backlight [0..100]

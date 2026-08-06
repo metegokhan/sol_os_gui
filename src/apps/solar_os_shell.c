@@ -406,7 +406,7 @@ static const char * const setterm_subcommands[] = {
 
 static const char * const setterm_orientation_values[] = {"0", "90", "180", "270"};
 static const char * const setterm_font_values[] = {"mono", "compact"};
-static const char * const setterm_textsize_values[] = {"12", "14", "16", "18", "20"};
+static const char * const setterm_textsize_values[] = {"10", "12", "14", "16", "18", "20"};
 static const char * const setterm_palette_values[] = {"normal", "inverted"};
 static const char * const setterm_brightness_values[] = {"0", "25", "50", "75", "100"};
 static const char * const setterm_profile_values[] = {"vt100", "ansi", "dumb"};

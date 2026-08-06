@@ -59,6 +59,7 @@ typedef struct {
 static EXT_RAM_BSS_ATTR editor_state_t editor;
 
 static const solar_os_terminal_text_size_t editor_text_sizes[] = {
+    SOLAR_OS_TERMINAL_TEXT_SIZE_10,
     SOLAR_OS_TERMINAL_TEXT_SIZE_12,
     SOLAR_OS_TERMINAL_TEXT_SIZE_14,
     SOLAR_OS_TERMINAL_TEXT_SIZE_16,

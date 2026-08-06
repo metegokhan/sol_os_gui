@@ -306,7 +306,7 @@ static bool setterm_tui_cycle_selected(int direction)
 {
     static const char * const orientation_values[] = {"0", "90", "180", "270"};
     static const char * const font_values[] = {"mono", "compact"};
-    static const char * const textsize_values[] = {"12", "14", "16", "18", "20"};
+    static const char * const textsize_values[] = {"10", "12", "14", "16", "18", "20"};
     static const char * const palette_values[] = {"normal", "inverted"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
