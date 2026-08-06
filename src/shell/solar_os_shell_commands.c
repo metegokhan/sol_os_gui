@@ -47,6 +47,7 @@ static const char * const sshkey_commands[] = {"status", "gen", "pub", "rm"};
 #include "solar_os_display.h"
 #include "solar_os_fonts.h"
 #include "solar_os_identity.h"
+#include "solar_os_input.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -1430,8 +1431,8 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm charset [utf8|ascii]");
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     solar_os_shell_io_writeln(term, "  setterm keyboard [us|de]");
-    solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
 #endif
+    solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
     solar_os_shell_io_writeln(term, "  setterm timezone [UTC|Europe/Berlin|POSIX-TZ]");
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     solar_os_shell_io_writeln(term, "  setterm otaurl [url]");
@@ -1455,13 +1456,12 @@ static void setterm_print_save_result(solar_os_shell_io_t *term,
     }
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
 static void setterm_print_keyrate(solar_os_shell_io_t *term)
 {
     uint16_t keyrate = 0;
     uint16_t keydelay_ms = 0;
 
-    solar_os_ble_keyboard_get_repeat(&keyrate, &keydelay_ms);
+    solar_os_input_get_repeat(&keyrate, &keydelay_ms);
     if (keyrate == 0) {
         solar_os_shell_io_writeln(term, "keyrate: off");
         return;
@@ -1485,7 +1485,6 @@ static void setterm_print_keyrate_result(solar_os_shell_io_t *term, esp_err_t er
                                  solar_os_shell_error_text(err));
     }
 }
-#endif
 
 void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 {
@@ -1756,6 +1755,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         setterm_print_save_result(term, "keyboard", argv[2], err);
         return;
     }
+#endif
 
     if (strcmp(argv[1], "keyrate") == 0 ||
         strcmp(argv[1], "typerate") == 0 ||
@@ -1764,10 +1764,10 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             setterm_print_keyrate(term);
             solar_os_shell_io_printf(term,
                                      "values: off or %u..%u [delay %u..%u ms]\n",
-                                     (unsigned)SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MIN,
-                                     (unsigned)SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MAX,
-                                     (unsigned)SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MIN_MS,
-                                     (unsigned)SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MAX_MS);
+                                     (unsigned)SOLAR_OS_INPUT_REPEAT_RATE_MIN,
+                                     (unsigned)SOLAR_OS_INPUT_REPEAT_RATE_MAX,
+                                     (unsigned)SOLAR_OS_INPUT_REPEAT_DELAY_MIN_MS,
+                                     (unsigned)SOLAR_OS_INPUT_REPEAT_DELAY_MAX_MS);
             return;
         }
         if (argc < 3 || argc > 4) {
@@ -1777,7 +1777,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         }
 
         uint16_t current_delay_ms = 0;
-        solar_os_ble_keyboard_get_repeat(NULL, &current_delay_ms);
+        solar_os_input_get_repeat(NULL, &current_delay_ms);
 
         if (strcmp(argv[2], "off") == 0) {
             if (argc != 3) {
@@ -1786,15 +1786,15 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                 return;
             }
 
-            const esp_err_t err = solar_os_ble_keyboard_set_repeat(0, current_delay_ms);
+            const esp_err_t err = solar_os_input_set_repeat(0, current_delay_ms);
             setterm_print_keyrate_result(term, err);
             return;
         }
 
         size_t rate = 0;
         if (!parse_size_arg(argv[2],
-                            SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MIN,
-                            SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MAX,
+                            SOLAR_OS_INPUT_REPEAT_RATE_MIN,
+                            SOLAR_OS_INPUT_REPEAT_RATE_MAX,
                             &rate)) {
             solar_os_shell_diag_invalid(term, "setterm keyrate", "rate", argv[2],
                                         "off or an integer from 1 to 60",
@@ -1805,8 +1805,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         size_t delay_ms = current_delay_ms;
         if (argc == 4 &&
             !parse_size_arg(argv[3],
-                            SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MIN_MS,
-                            SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MAX_MS,
+                            SOLAR_OS_INPUT_REPEAT_DELAY_MIN_MS,
+                            SOLAR_OS_INPUT_REPEAT_DELAY_MAX_MS,
                             &delay_ms)) {
             solar_os_shell_diag_invalid(term, "setterm keyrate", "delay-ms", argv[3],
                                         "an integer from 100 to 2000",
@@ -1815,12 +1815,10 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         }
 
         const esp_err_t err =
-            solar_os_ble_keyboard_set_repeat((uint16_t)rate, (uint16_t)delay_ms);
+            solar_os_input_set_repeat((uint16_t)rate, (uint16_t)delay_ms);
         setterm_print_keyrate_result(term, err);
         return;
     }
-#endif
-
     if (strcmp(argv[1], "timezone") == 0) {
         char timezone[SOLAR_OS_TIMEZONE_NAME_MAX];
         char posix[SOLAR_OS_TIMEZONE_POSIX_MAX];

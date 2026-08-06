@@ -849,82 +849,106 @@ static void dispatch_input_chars(const char *chars, size_t count)
     }
 }
 
-static void dispatch_keyboard_chars(void)
+static bool input_focus_accepts_key_events(void)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-    if (!board_has(SOLAR_OS_BOARD_CAP_BLE)) {
+    const solar_os_app_t *input_app = solar_os_sessions_input_app();
+    return input_app != NULL &&
+        (input_app->flags & SOLAR_OS_APP_FLAG_KEY_EVENTS) != 0;
+}
+
+static void dispatch_key_to_input_focus(const solar_os_input_key_event_t *key)
+{
+    if (key == NULL) {
+        return;
+    }
+    const solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_KEY,
+        .data.key = *key,
+    };
+    (void)solar_os_sessions_dispatch_input_event(&event);
+    process_app_requests();
+}
+
+static void dispatch_input_key(const solar_os_input_key_event_t *event)
+{
+    if (event == NULL) {
         return;
     }
 
-    char chars[32];
-    size_t count;
-    while ((count = solar_os_ble_keyboard_read_chars(chars, sizeof(chars))) > 0) {
-        dispatch_input_chars(chars, count);
+    solar_os_power_note_activity(millis_u32());
+    if (event->action == SOLAR_OS_INPUT_KEY_RELEASE || event->key == 0) {
+        if (input_focus_accepts_key_events()) {
+            dispatch_key_to_input_focus(event);
+        }
+        return;
     }
+
+    const char ch = (char)event->key;
+    if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE) {
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+        uint8_t volume = 0;
+        const esp_err_t err = solar_os_audio_toggle_mute(&volume);
+        if (err == ESP_OK) {
+            SOLAR_OS_LOGI(TAG, "audio mute toggle: volume=%u", (unsigned)volume);
+            last_status_update_ms = 0;
+            update_status();
+            draw_terminal_if_needed();
+        } else if (err != ESP_ERR_NOT_SUPPORTED) {
+            SOLAR_OS_LOGW(TAG, "audio mute toggle failed: %s", esp_err_to_name(err));
+        }
 #endif
+        return;
+    }
+
+    if ((event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0 && ch == '\t') {
+        (void)solar_os_sessions_cycle_input_focus();
+        process_app_requests();
+        return;
+    }
+
+    if (input_focus_accepts_key_events()) {
+        dispatch_key_to_input_focus(event);
+        return;
+    }
+
+    if ((event->modifiers & SOLAR_OS_INPUT_MOD_LEFT_ALT) != 0 &&
+        event->key != SOLAR_OS_KEY_APP_EXIT) {
+        const char prefix = (char)SOLAR_OS_KEY_ALT_PREFIX;
+        dispatch_input_chars(&prefix, 1);
+    }
+    dispatch_input_chars(&ch, 1);
 }
 
-static void dispatch_button_chars(void)
+static void poll_local_input_sources(void)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS
-    if (!board_has(SOLAR_OS_BOARD_CAP_BUTTONS)) {
-        return;
-    }
-
-    char chars[16];
-    size_t count;
-    while ((count = solar_os_buttons_read_chars(chars, sizeof(chars))) > 0) {
-        dispatch_input_chars(chars, count);
+    if (board_has(SOLAR_OS_BOARD_CAP_BUTTONS)) {
+        solar_os_buttons_poll();
     }
 #endif
-}
-
-static void dispatch_joystick_chars(void)
-{
 #if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
-    if (!board_has(SOLAR_OS_BOARD_CAP_JOYSTICK)) {
-        return;
-    }
-
-    char chars[8];
-    size_t count;
-    while ((count = solar_os_joystick_read_chars(chars, sizeof(chars))) > 0) {
-        dispatch_input_chars(chars, count);
+    if (board_has(SOLAR_OS_BOARD_CAP_JOYSTICK)) {
+        solar_os_joystick_poll();
     }
 #endif
-}
-
-static void dispatch_adc_dpad_chars(void)
-{
 #if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
-    if (!board_has(SOLAR_OS_BOARD_CAP_ADC_DPAD)) {
-        return;
-    }
-
-    char chars[8];
-    size_t count;
-    while ((count = solar_os_adc_dpad_read_chars(chars, sizeof(chars))) > 0) {
-        dispatch_input_chars(chars, count);
+    if (board_has(SOLAR_OS_BOARD_CAP_ADC_DPAD)) {
+        solar_os_adc_dpad_poll();
     }
 #endif
-}
-
-static void dispatch_injected_chars(void)
-{
-    char chars[16];
-    size_t count;
-    while ((count = solar_os_input_read_chars(chars, sizeof(chars))) > 0) {
-        dispatch_input_chars(chars, count);
-    }
 }
 
 static void dispatch_input_sources(void)
 {
-    dispatch_keyboard_chars();
-    dispatch_button_chars();
-    dispatch_joystick_chars();
-    dispatch_adc_dpad_chars();
-    dispatch_injected_chars();
+    poll_local_input_sources();
+    solar_os_input_key_event_t events[16];
+    size_t count;
+    while ((count = solar_os_input_read_events(events,
+                                               sizeof(events) / sizeof(events[0]))) > 0) {
+        for (size_t i = 0; i < count; i++) {
+            dispatch_input_key(&events[i]);
+        }
+    }
 }
 
 static uint32_t requested_tick_interval_ms(void)
@@ -1347,6 +1371,10 @@ static void start_headless_shell_if_needed(void)
 void app_main(void)
 {
     ESP_ERROR_CHECK(init_nvs());
+    const esp_err_t input_err = solar_os_input_init();
+    if (input_err != ESP_OK) {
+        ESP_LOGW(TAG, "Input preferences unavailable: %s", esp_err_to_name(input_err));
+    }
     const esp_err_t log_err = solar_os_log_init();
     if (log_err != ESP_OK) {
         ESP_LOGW(TAG, "Log service unavailable: %s", esp_err_to_name(log_err));

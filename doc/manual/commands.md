@@ -240,6 +240,10 @@ setterm timezone [UTC|Europe/Berlin|POSIX-TZ]
 setterm otaurl [url]
 ```
 
+`setterm keyrate` configures the shared repeat policy for BLE keyboards, fixed
+board buttons, `gpio-keys`, joysticks, ADC D-pads, and future keyboard buses.
+The value is stored in NVS and is available on builds without BLE.
+
 `setterm profile` and `setterm charset` are runtime-only and apply to the
 current port shell. From the display shell they print guidance to configure
 them from a port shell. `profile` controls terminal escape sequences;

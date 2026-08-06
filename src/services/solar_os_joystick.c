@@ -3,8 +3,8 @@
 #include <stdbool.h>
 
 #include "esp_adc/adc_oneshot.h"
-#include "esp_timer.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_input.h"
 #include "solar_os_log.h"
 
 #if SOLAR_OS_BOARD_HAS_JOYSTICK
@@ -14,13 +14,6 @@
 #error "Board enables JOYSTICK but does not define SOLAR_OS_BOARD_JOYSTICK_AXES."
 #endif
 
-#ifndef SOLAR_OS_JOYSTICK_REPEAT_DELAY_MS
-#define SOLAR_OS_JOYSTICK_REPEAT_DELAY_MS 350U
-#endif
-#ifndef SOLAR_OS_JOYSTICK_REPEAT_INTERVAL_MS
-#define SOLAR_OS_JOYSTICK_REPEAT_INTERVAL_MS 90U
-#endif
-
 #define JOYSTICK_ADC_UNIT_COUNT 2
 
 typedef struct {
@@ -28,7 +21,6 @@ typedef struct {
     adc_channel_t channel;
     bool configured;
     int direction;
-    uint32_t next_repeat_ms;
     uint16_t low_press;
     uint16_t low_release;
     uint16_t high_press;
@@ -43,11 +35,7 @@ static const solar_os_joystick_axis_def_t joystick_axes[] = SOLAR_OS_BOARD_JOYST
 static joystick_axis_state_t joystick_states[sizeof(joystick_axes) / sizeof(joystick_axes[0])];
 static adc_oneshot_unit_handle_t joystick_units[JOYSTICK_ADC_UNIT_COUNT];
 static bool joystick_initialized;
-
-static uint32_t joystick_millis(void)
-{
-    return (uint32_t)(esp_timer_get_time() / 1000ULL);
-}
+static solar_os_input_source_t joystick_input_source;
 
 static int joystick_unit_index(adc_unit_t unit)
 {
@@ -129,6 +117,30 @@ static uint8_t joystick_key_for_direction(const solar_os_joystick_axis_def_t *ax
     }
     return 0;
 }
+
+static uint16_t joystick_physical_key(size_t axis_index, int direction)
+{
+    return (uint16_t)(axis_index * 2U + (direction < 0 ? 1U : 2U));
+}
+
+static void joystick_publish(size_t axis_index,
+                             int direction,
+                             solar_os_input_key_action_t action)
+{
+    if (direction == 0) {
+        return;
+    }
+    const uint8_t key = joystick_key_for_direction(&joystick_axes[axis_index], direction);
+    if (key == 0) {
+        return;
+    }
+    (void)solar_os_input_write_key(joystick_input_source,
+                                   joystick_physical_key(axis_index, direction),
+                                   SOLAR_OS_INPUT_USAGE_NONE,
+                                   key,
+                                   0,
+                                   action);
+}
 #endif
 
 esp_err_t solar_os_joystick_init(void)
@@ -173,7 +185,6 @@ esp_err_t solar_os_joystick_init(void)
             .channel = channel,
             .configured = true,
             .direction = 0,
-            .next_repeat_ms = 0,
             .low_press = axis->low_press,
             .low_release = axis->low_release,
             .high_press = axis->high_press,
@@ -186,11 +197,13 @@ esp_err_t solar_os_joystick_init(void)
         int raw = 0;
         if (joystick_read_raw(i, &raw) == ESP_OK) {
             joystick_states[i].direction = joystick_direction_from_raw(&joystick_states[i], raw, 0);
-            if (joystick_states[i].direction != 0) {
-                joystick_states[i].next_repeat_ms =
-                    joystick_millis() + SOLAR_OS_JOYSTICK_REPEAT_DELAY_MS;
-            }
         }
+    }
+
+    const esp_err_t input_err =
+        solar_os_input_source_open("joystick", &joystick_input_source);
+    if (input_err != ESP_OK) {
+        return input_err;
     }
 
     joystick_initialized = true;
@@ -271,8 +284,8 @@ esp_err_t solar_os_joystick_calibrate_center(void)
         state->low_release = (uint16_t)(low_release < 0 ? 0 : low_release);
         state->high_release = (uint16_t)(high_release > 4095 ? 4095 : high_release);
         state->high_press = (uint16_t)(high_press > 4095 ? 4095 : high_press);
+        joystick_publish(i, state->direction, SOLAR_OS_INPUT_KEY_RELEASE);
         state->direction = 0;
-        state->next_repeat_ms = 0;
     }
     return ESP_OK;
 #endif
@@ -294,26 +307,21 @@ esp_err_t solar_os_joystick_calibrate_reset(void)
         state->low_release = axis->low_release;
         state->high_press = axis->high_press;
         state->high_release = axis->high_release;
+        joystick_publish(i, state->direction, SOLAR_OS_INPUT_KEY_RELEASE);
         state->direction = 0;
-        state->next_repeat_ms = 0;
     }
     return ESP_OK;
 #endif
 }
 
-size_t solar_os_joystick_read_chars(char *buffer, size_t buffer_len)
+void solar_os_joystick_poll(void)
 {
 #if !SOLAR_OS_BOARD_HAS_JOYSTICK
-    (void)buffer;
-    (void)buffer_len;
-    return 0;
+    return;
 #else
-    if (buffer == NULL || buffer_len == 0 || !joystick_initialized) {
-        return 0;
+    if (!joystick_initialized) {
+        return;
     }
-
-    const uint32_t now_ms = joystick_millis();
-    size_t count = 0;
 
     for (size_t i = 0; i < sizeof(joystick_axes) / sizeof(joystick_axes[0]); i++) {
         joystick_axis_state_t *state = &joystick_states[i];
@@ -323,34 +331,23 @@ size_t solar_os_joystick_read_chars(char *buffer, size_t buffer_len)
         }
 
         const int direction = joystick_direction_from_raw(state, raw, state->direction);
-        bool emit = false;
         if (direction != state->direction) {
+            joystick_publish(i, state->direction, SOLAR_OS_INPUT_KEY_RELEASE);
             state->direction = direction;
-            state->next_repeat_ms = direction == 0 ?
-                0 :
-                now_ms + SOLAR_OS_JOYSTICK_REPEAT_DELAY_MS;
-            emit = direction != 0;
-        } else if (direction != 0 &&
-                   (int32_t)(now_ms - state->next_repeat_ms) >= 0) {
-            state->next_repeat_ms = now_ms + SOLAR_OS_JOYSTICK_REPEAT_INTERVAL_MS;
-            emit = true;
+            joystick_publish(i, direction, SOLAR_OS_INPUT_KEY_PRESS);
         }
-
-        if (!emit) {
-            continue;
-        }
-
-        const uint8_t key = joystick_key_for_direction(&joystick_axes[i], direction);
-        if (key == 0) {
-            continue;
-        }
-
-        if (count >= buffer_len) {
-            break;
-        }
-        buffer[count++] = (char)key;
     }
+#endif
+}
 
-    return count;
+size_t solar_os_joystick_read_chars(char *buffer, size_t buffer_len)
+{
+    solar_os_joystick_poll();
+#if !SOLAR_OS_BOARD_HAS_JOYSTICK
+    (void)buffer;
+    (void)buffer_len;
+    return 0;
+#else
+    return solar_os_input_read_source_chars(joystick_input_source, buffer, buffer_len);
 #endif
 }

@@ -372,10 +372,16 @@ static bool gpio_keys_event(solar_os_context_t *ctx, const solar_os_event_t *eve
         }
 
         mapping->stable_pressed = pressed;
-        if (!pressed) {
-            continue;
-        }
-        if (solar_os_input_write_char(gpio_keys.input_source, (char)mapping->key) == ESP_OK) {
+        if (solar_os_input_write_key(gpio_keys.input_source,
+                                     (uint16_t)mapping->pin + 1U,
+                                     SOLAR_OS_INPUT_USAGE_NONE,
+                                     mapping->key,
+                                     0,
+                                     pressed ? SOLAR_OS_INPUT_KEY_PRESS :
+                                         SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK) {
+            if (!pressed) {
+                continue;
+            }
             gpio_keys.presses++;
         } else {
             gpio_keys.dropped++;

@@ -809,9 +809,9 @@ Notes:
 
 Maps runtime-safe GPIO inputs to SolarOS keyboard presses. The job configures
 each pin as an input with its internal pull-up enabled, treats a low level as
-pressed, and applies the same 25 ms debounce used by fixed board buttons. This
-first version emits one key event for each press. It does not emit release or
-repeat events.
+pressed, and applies the same 25 ms debounce used by fixed board buttons. Each
+debounced transition publishes a generic SolarOS key press or release. Held
+keys use the system repeat rate configured by `setterm keyrate`.
 
 Inline usage:
 
@@ -854,7 +854,8 @@ it.
 While the job runs, every pin has owner `job:gpio-keys` and an assignment such
 as `key:UP` in the `io` Pins and Claims views. Stopping the job resets the pins,
 releases their claims, and discards queued events from this input source. The
-fixed ODROID-GO button service remains independent of this job.
+fixed ODROID-GO button service remains independent of this job but uses the
+same held-key and repeat service.
 
 ## sump
 

@@ -12,7 +12,12 @@
   bold, italic, and bold-italic faces. The new size is available through
   `setterm textsize 10`, shell completion, the Setterm TUI, and the Edit and
   Hexedit text-size controls. Existing saved terminal text-size values remain
-  compatible.
+  compatible. Reworked local hardware input around a generic structured key
+  service with press, release, held-state, modifiers, HID usage identity, and a
+  shared repeat policy. BLE keyboards, fixed buttons, `gpio-keys`, joysticks,
+  and ADC D-pads now use that service; existing text applications retain
+  character input compatibility. Game Boy now consumes generic held state, so
+  non-BLE controls support simultaneous buttons and release tracking too.
 - **4.6.5** — 2026-08-06 — Added the focused `rover-retro` flavor for running
   the Game Boy emulator on the Freenove ESP32-WROVER v3.0 composite target. It
   uses the normal system-service baseline with BLE, SD, UART ports, hardware

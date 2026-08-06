@@ -2,6 +2,7 @@
 
 #include "esp_timer.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_input.h"
 #include "solar_os_log.h"
 
 #if SOLAR_OS_BOARD_HAS_BUTTONS
@@ -24,6 +25,7 @@ static const char *TAG = "solar_os_buttons";
 static const solar_os_button_def_t button_defs[] = SOLAR_OS_BOARD_BUTTONS;
 static button_state_t button_states[sizeof(button_defs) / sizeof(button_defs[0])];
 static bool buttons_initialized;
+static solar_os_input_source_t buttons_input_source;
 
 static uint32_t buttons_millis(void)
 {
@@ -83,25 +85,28 @@ esp_err_t solar_os_buttons_init(void)
         };
     }
 
+    const esp_err_t input_err =
+        solar_os_input_source_open("buttons", &buttons_input_source);
+    if (input_err != ESP_OK) {
+        return input_err;
+    }
+
     buttons_initialized = true;
     SOLAR_OS_LOGI(TAG, "%u board buttons ready", (unsigned)(sizeof(button_defs) / sizeof(button_defs[0])));
     return ESP_OK;
 #endif
 }
 
-size_t solar_os_buttons_read_chars(char *buffer, size_t buffer_len)
+void solar_os_buttons_poll(void)
 {
 #if !SOLAR_OS_BOARD_HAS_BUTTONS
-    (void)buffer;
-    (void)buffer_len;
-    return 0;
+    return;
 #else
-    if (buffer == NULL || buffer_len == 0 || !buttons_initialized) {
-        return 0;
+    if (!buttons_initialized) {
+        return;
     }
 
     const uint32_t now_ms = buttons_millis();
-    size_t count = 0;
 
     for (size_t i = 0; i < sizeof(button_defs) / sizeof(button_defs[0]); i++) {
         const solar_os_button_def_t *def = &button_defs[i];
@@ -130,16 +135,28 @@ size_t solar_os_buttons_read_chars(char *buffer, size_t buffer_len)
         }
 
         state->stable_pressed = pressed;
-        if (!pressed || def->key == 0) {
+        if (def->key == 0) {
             continue;
         }
-
-        if (count >= buffer_len) {
-            break;
-        }
-        buffer[count++] = (char)def->key;
+        (void)solar_os_input_write_key(buttons_input_source,
+                                       (uint16_t)def->pin + 1U,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
+                                       def->key,
+                                       0,
+                                       pressed ? SOLAR_OS_INPUT_KEY_PRESS :
+                                           SOLAR_OS_INPUT_KEY_RELEASE);
     }
+#endif
+}
 
-    return count;
+size_t solar_os_buttons_read_chars(char *buffer, size_t buffer_len)
+{
+    solar_os_buttons_poll();
+#if !SOLAR_OS_BOARD_HAS_BUTTONS
+    (void)buffer;
+    (void)buffer_len;
+    return 0;
+#else
+    return solar_os_input_read_source_chars(buttons_input_source, buffer, buffer_len);
 #endif
 }

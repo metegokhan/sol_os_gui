@@ -14,14 +14,12 @@
 
 #include "esp_timer.h"
 #include "solar_os_config.h"
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-#include "solar_os_ble_keyboard.h"
-#endif
 #include "solar_os_gameboy_audio.h"
 #include "solar_os_gameboy_presenter.h"
 #include "solar_os_gameboy_rom.h"
 #include "solar_os_gameboy_video.h"
 #include "solar_os_gfx.h"
+#include "solar_os_input.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -524,40 +522,32 @@ static uint8_t gameboy_button_for_char(uint8_t ch) {
   return 0;
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-static uint8_t gameboy_button_for_ble_key(
-    uint8_t keycode, uint8_t ch) {
-  /* Keep game controls at fixed physical positions across keyboard layouts. */
-  if (keycode == 0x1dU) {
-    return JOYPAD_A;
-  }
-  if (keycode == 0x1bU) {
-    return JOYPAD_B;
-  }
-  if (keycode >= 0x04U && keycode <= 0x1dU) {
+static uint8_t gameboy_button_for_input_key(
+    const solar_os_input_key_event_t *key) {
+  if (key == NULL) {
     return 0;
   }
-  return gameboy_button_for_char(ch);
+  /* Keep game controls at fixed physical positions across keyboard layouts. */
+  if (key->usage == 0x1dU) {
+    return JOYPAD_A;
+  }
+  if (key->usage == 0x1bU) {
+    return JOYPAD_B;
+  }
+  if (key->usage >= 0x04U && key->usage <= 0x1dU) {
+    return 0;
+  }
+  return gameboy_button_for_char(key->key);
 }
-#endif
 
-static uint8_t gameboy_ble_pressed_mask(bool *connected) {
+static uint8_t gameboy_input_pressed_mask(void) {
   uint8_t pressed = 0;
-  if (connected != NULL) {
-    *connected = false;
+  solar_os_input_key_event_t keys[SOLAR_OS_INPUT_MAX_PRESSED_KEYS];
+  const size_t count = solar_os_input_get_pressed(
+      keys, sizeof(keys) / sizeof(keys[0]));
+  for (size_t i = 0; i < count; i++) {
+    pressed |= gameboy_button_for_input_key(&keys[i]);
   }
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-  solar_os_ble_keyboard_key_state_t keys;
-  solar_os_ble_keyboard_get_key_state(&keys);
-  if (connected != NULL) {
-    *connected = keys.connected;
-  }
-  if (keys.connected) {
-    for (size_t i = 0; i < SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS; i++) {
-      pressed |= gameboy_button_for_ble_key(keys.keycodes[i], keys.chars[i]);
-    }
-  }
-#endif
   return pressed;
 }
 
@@ -582,7 +572,7 @@ static void gameboy_refresh_inputs(int64_t now_us) {
     return;
   }
   const uint8_t pressed =
-      gameboy_pulse_pressed_mask(now_us) | gameboy_ble_pressed_mask(NULL);
+      gameboy_pulse_pressed_mask(now_us) | gameboy_input_pressed_mask();
   gameboy.core->direct.joypad = (uint8_t)~pressed;
 }
 
@@ -590,13 +580,9 @@ static void gameboy_press(uint8_t mask, int64_t now_us) {
   if (gameboy.core == NULL) {
     return;
   }
-  bool ble_connected = false;
-  (void)gameboy_ble_pressed_mask(&ble_connected);
-  if (!ble_connected) {
-    for (size_t bit = 0; bit < 8U; bit++) {
-      if ((mask & (uint8_t)(1U << bit)) != 0) {
-        gameboy.release_at[bit] = now_us + GAMEBOY_INPUT_PULSE_US;
-      }
+  for (size_t bit = 0; bit < 8U; bit++) {
+    if ((mask & (uint8_t)(1U << bit)) != 0) {
+      gameboy.release_at[bit] = now_us + GAMEBOY_INPUT_PULSE_US;
     }
   }
   gameboy_refresh_inputs(now_us);
@@ -686,6 +672,19 @@ static bool gameboy_event(solar_os_context_t *ctx,
   if (event->type == SOLAR_OS_EVENT_CHAR) {
     return gameboy_handle_char(ctx, (uint8_t)event->data.ch);
   }
+  if (event->type == SOLAR_OS_EVENT_KEY) {
+    const solar_os_input_key_event_t *key = &event->data.key;
+    if (key->action == SOLAR_OS_INPUT_KEY_PRESS) {
+      const uint8_t ch = key->key;
+      if (key->physical_key == SOLAR_OS_INPUT_PHYSICAL_NONE ||
+          ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE ||
+          ch == 'q' || ch == 'p' || ch == 'r') {
+        return gameboy_handle_char(ctx, ch);
+      }
+    }
+    gameboy_refresh_inputs(esp_timer_get_time());
+    return true;
+  }
   if (event->type == SOLAR_OS_EVENT_RESUME) {
     gameboy_render();
     return true;
@@ -722,6 +721,7 @@ static void gameboy_title(solar_os_context_t *ctx, char *buffer,
 const solar_os_app_t solar_os_gameboy_app = {
     .name = "gameboy",
     .summary = "original Game Boy emulator",
+    .flags = SOLAR_OS_APP_FLAG_KEY_EVENTS,
     .start = gameboy_start,
     .suspend = gameboy_suspend,
     .resume = gameboy_resume,

@@ -1,17 +1,30 @@
 +++
 id = "media.input"
-title = "Audio, BLE keyboard, and clipboard APIs"
+title = "Audio, keyboard input, and clipboard APIs"
 section = "hardware"
 summary = "Use installed media and input services"
 aliases = ["audio", "ble", "clipboard"]
 keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard clipboard"
 packages_any = []
 +++
-# Audio, BLE keyboard, and clipboard APIs
+# Audio, keyboard input, and clipboard APIs
 
 These services are independent even though they are often used by foreground
 applications. Inspect availability before calling an optional audio or BLE
 operation.
+
+## Keyboard input
+
+Local hardware input uses structured press, release, and repeat events. The
+input service tracks held keys by source and stable physical identity, while
+legacy shell and text applications continue to receive translated characters.
+BLE keyboards, fixed board buttons, `gpio-keys`, joysticks, and ADC D-pads share
+one repeat policy. Configure it with `setterm keyrate`; the setting applies even
+on a build without BLE.
+
+Keyboard transports can additionally supply a canonical USB HID usage and
+modifier mask. This keeps physical controls independent of the selected text
+layout and provides the common representation needed by future keyboard buses.
 
 ## Audio
 
@@ -32,8 +45,9 @@ an error to the caller.
 
 ## BLE keyboard
 
-The BLE service manages one remembered keyboard. Pairing and scanning are
-system operations; a script can inspect state and read translated key events.
+The BLE service manages one remembered keyboard and publishes its HID report
+transitions through the generic input service. Pairing and scanning are system
+operations; a script can inspect state and read translated key events.
 `ble forget` erases the remembered keyboard from SolarOS NVS and removes its BLE
 bond. On boards with a system KEY, a long press performs that forget operation
 and then starts a new pairing scan. Pairing has no user cancellation path. The
