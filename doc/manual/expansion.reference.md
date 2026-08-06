@@ -117,6 +117,11 @@ expansion bus create onewire onewire0 pin=gpio16
 onewire scan onewire0
 expansion bus remove onewire0
 
+expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
+job start ps2-keyboard ps2kbd
+job stop ps2-keyboard
+expansion bus remove ps2kbd
+
 expansion bus create uart uart1 port=uart1 tx=gpio14 rx=gpio15 baud=115200
 uart status uart1
 uart write uart1 AT

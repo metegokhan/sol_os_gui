@@ -8,9 +8,6 @@
 #include <string.h>
 
 #include "solar_os_config.h"
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-#include "solar_os_ble_keyboard.h"
-#endif
 #include "solar_os_display.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
@@ -41,9 +38,7 @@ typedef enum {
     SETTERM_TUI_TEXTSIZE,
     SETTERM_TUI_PALETTE,
     SETTERM_TUI_BRIGHTNESS,
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     SETTERM_TUI_KEYBOARD,
-#endif
     SETTERM_TUI_KEYRATE,
     SETTERM_TUI_TIMEZONE,
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
@@ -76,9 +71,7 @@ static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_TEXTSIZE] = {.label = "textsize"},
     [SETTERM_TUI_PALETTE] = {.label = "palette"},
     [SETTERM_TUI_BRIGHTNESS] = {.label = "brightness"},
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     [SETTERM_TUI_KEYBOARD] = {.label = "keyboard"},
-#endif
     [SETTERM_TUI_KEYRATE] = {.label = "keyrate"},
     [SETTERM_TUI_TIMEZONE] = {.label = "timezone"},
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
@@ -157,13 +150,11 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
         }
         break;
     }
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_KEYBOARD:
         strlcpy(buffer,
-                solar_os_ble_keyboard_layout_name(solar_os_ble_keyboard_layout()),
+                solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout()),
                 buffer_len);
         break;
-#endif
     case SETTERM_TUI_KEYRATE: {
         uint16_t rate = 0;
         uint16_t delay_ms = 0;
@@ -443,13 +434,11 @@ static bool setterm_tui_apply_selected(void)
         return parse_size_arg(setterm_tui.edit_text, 0, 100, &percent) &&
             solar_os_display_set_brightness((uint8_t)percent) == ESP_OK;
     }
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_KEYBOARD: {
-        solar_os_ble_keyboard_layout_t layout;
-        return solar_os_ble_keyboard_parse_layout(setterm_tui.edit_text, &layout) &&
-            solar_os_ble_keyboard_set_layout(layout) == ESP_OK;
+        solar_os_input_keyboard_layout_t layout;
+        return solar_os_input_parse_keyboard_layout(setterm_tui.edit_text, &layout) &&
+            solar_os_input_set_keyboard_layout(layout) == ESP_OK;
     }
-#endif
     case SETTERM_TUI_KEYRATE:
         return setterm_tui_apply_keyrate();
     case SETTERM_TUI_TIMEZONE:

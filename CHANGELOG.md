@@ -18,6 +18,12 @@
   and ADC D-pads now use that service; existing text applications retain
   character input compatibility. Game Boy now consumes generic held state, so
   non-BLE controls support simultaneous buttons and release tracking too.
+  Added named, exclusive PS/2 buses and the `ps2-keyboard` job. Runtime bus
+  definitions claim CLOCK and DATA pins through the normal resource registry,
+  appear in `io`, and can be restored from startup scripts. The receive driver
+  validates start, odd-parity, and stop bits in a GPIO edge ISR; the job decodes
+  scan-code set 2 and publishes canonical HID transitions through the generic
+  input service. Python and Lua can create and inspect PS/2 buses too.
 - **4.6.5** — 2026-08-06 — Added the focused `rover-retro` flavor for running
   the Game Boy emulator on the Freenove ESP32-WROVER v3.0 composite target. It
   uses the normal system-service baseline with BLE, SD, UART ports, hardware

@@ -3052,6 +3052,13 @@ static esp_err_t agent_tool_buses_list(const char *arguments,
                                     "{\"pin\":%d}",
                                     info.config.onewire.pin);
             break;
+        case SOLAR_OS_BUS_PROTOCOL_PS2:
+            pins_written = snprintf(pins,
+                                    sizeof(pins),
+                                    "{\"clock\":%d,\"data\":%d}",
+                                    info.config.ps2.clock_pin,
+                                    info.config.ps2.data_pin);
+            break;
         default:
             pins_written = snprintf(pins, sizeof(pins), "{}");
             break;

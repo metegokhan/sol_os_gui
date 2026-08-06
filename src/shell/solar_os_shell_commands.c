@@ -1729,12 +1729,12 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (strcmp(argv[1], "keyboard") == 0 || strcmp(argv[1], "keymap") == 0) {
         if (argc == 2) {
             solar_os_shell_io_printf(term,
                                      "keyboard: %s\n",
-                                     solar_os_ble_keyboard_layout_name(solar_os_ble_keyboard_layout()));
+                                     solar_os_input_keyboard_layout_name(
+                                         solar_os_input_keyboard_layout()));
             solar_os_shell_io_writeln(term, "values: us de");
             return;
         }
@@ -1744,18 +1744,17 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        solar_os_ble_keyboard_layout_t layout;
-        if (!solar_os_ble_keyboard_parse_layout(argv[2], &layout)) {
+        solar_os_input_keyboard_layout_t layout;
+        if (!solar_os_input_parse_keyboard_layout(argv[2], &layout)) {
             solar_os_shell_diag_invalid(term, "setterm keyboard", "layout", argv[2],
                                         "us or de", "setterm keyboard [us|de]", false);
             return;
         }
 
-        const esp_err_t err = solar_os_ble_keyboard_set_layout(layout);
+        const esp_err_t err = solar_os_input_set_keyboard_layout(layout);
         setterm_print_save_result(term, "keyboard", argv[2], err);
         return;
     }
-#endif
 
     if (strcmp(argv[1], "keyrate") == 0 ||
         strcmp(argv[1], "typerate") == 0 ||

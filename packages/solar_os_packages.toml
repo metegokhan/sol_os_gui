@@ -77,6 +77,7 @@ members = [
   "job_bridge",
   "job_daq",
   "job_gpio_keys",
+  "job_ps2_keyboard",
   "job_sump",
 ]
 
@@ -497,6 +498,12 @@ capabilities = ["gpio"]
 label = "service.onewire"
 sources = ["services/solar_os_onewire.c"]
 requires = ["onewire_bus"]
+capabilities = ["gpio"]
+
+[packages.service_ps2]
+label = "service.ps2"
+sources = ["drivers/ps2_bus.c", "services/solar_os_ps2_keyboard.c"]
+requires = ["esp_driver_gpio", "esp_timer"]
 capabilities = ["gpio"]
 
 [packages.service_logic]
@@ -993,6 +1000,12 @@ sources = [
 label = "job.gpio-keys"
 depends = ["service_gpio"]
 sources = ["jobs/solar_os_gpio_keys_job.c"]
+capabilities = ["gpio"]
+
+[packages.job_ps2_keyboard]
+label = "job.ps2-keyboard"
+depends = ["service_ps2", "service_resources"]
+sources = ["jobs/solar_os_ps2_keyboard_job.c"]
 capabilities = ["gpio"]
 
 [packages.job_sump]

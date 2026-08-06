@@ -66,7 +66,7 @@ static const solar_os_bus_definition_t board_buses[] = SOLAR_OS_BOARD_BUSES;
 static bool protocol_valid(solar_os_bus_protocol_t protocol)
 {
     return protocol >= SOLAR_OS_BUS_PROTOCOL_I2C &&
-        protocol <= SOLAR_OS_BUS_PROTOCOL_ONEWIRE;
+        protocol <= SOLAR_OS_BUS_PROTOCOL_PS2;
 }
 
 static bool name_valid(const char *name)
@@ -229,6 +229,9 @@ static bool definition_signals_routable(const solar_os_bus_definition_t *definit
             solar_os_pin_is_routable(definition->config.uart.rx_pin);
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         return solar_os_pin_is_routable(definition->config.onewire.pin);
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        return solar_os_pin_is_routable(definition->config.ps2.clock_pin) &&
+            solar_os_pin_is_routable(definition->config.ps2.data_pin);
     default:
         return false;
     }
@@ -331,6 +334,23 @@ static size_t bus_resource_requests(const solar_os_bus_info_t *info,
             .label = "onewire",
         };
         break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        if (capacity < 2) {
+            return 0;
+        }
+        requests[count++] = (solar_os_resource_request_t) {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = info->config.ps2.clock_pin,
+            .secondary = -1,
+            .label = "ps2-clock",
+        };
+        requests[count++] = (solar_os_resource_request_t) {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = info->config.ps2.data_pin,
+            .secondary = -1,
+            .label = "ps2-data",
+        };
+        break;
     default:
         break;
     }
@@ -418,6 +438,11 @@ static bool definition_valid(const solar_os_bus_definition_t *definition)
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         config_valid = definition->config.onewire.pin >= 0;
         break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        config_valid = definition->config.ps2.clock_pin >= 0 &&
+            definition->config.ps2.data_pin >= 0 &&
+            definition->config.ps2.clock_pin != definition->config.ps2.data_pin;
+        break;
     default:
         return false;
     }
@@ -450,6 +475,9 @@ static bool definition_valid(const solar_os_bus_definition_t *definition)
             solar_os_pin_is_routable(definition->config.uart.rx_pin);
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         return solar_os_pin_is_routable(definition->config.onewire.pin);
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        return solar_os_pin_is_routable(definition->config.ps2.clock_pin) &&
+            solar_os_pin_is_routable(definition->config.ps2.data_pin);
     default:
         return false;
     }
@@ -482,6 +510,12 @@ static bool protocol_service_available(solar_os_bus_protocol_t protocol)
 #else
         return false;
 #endif
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+#if SOLAR_OS_PACKAGE_SERVICE_PS2 && SOLAR_OS_BOARD_HAS_GPIO
+        return true;
+#else
+        return false;
+#endif
     default:
         return false;
     }
@@ -500,6 +534,7 @@ static bool protocol_runtime_available(solar_os_bus_protocol_t protocol)
     case SOLAR_OS_BUS_PROTOCOL_UART:
         return SOLAR_OS_BOARD_HAS_EXPANSION_UART;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
         return SOLAR_OS_BOARD_HAS_EXPANSION_GPIO;
     default:
         return false;
@@ -1067,6 +1102,8 @@ esp_err_t solar_os_bus_acquire(const char *name,
             }
         } else if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE) {
             ret = start_onewire_locked((size_t)bus_index);
+        } else if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_PS2) {
+            buses[bus_index].ready = true;
 #if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
         } else if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_UART) {
             ret = solar_os_port_claim(buses[bus_index].name, owner, &uart_port);
@@ -1151,6 +1188,9 @@ esp_err_t solar_os_bus_release(const char *name,
             } else if (lease_count_locked((size_t)bus_index) == 0 &&
                        buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE) {
                 buses[bus_index].ready = false;
+            } else if (lease_count_locked((size_t)bus_index) == 0 &&
+                       buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_PS2) {
+                buses[bus_index].ready = false;
             }
             memset(lease, 0, sizeof(*lease));
         }
@@ -1197,6 +1237,9 @@ size_t solar_os_bus_release_owner(const char *owner)
             buses_initialized_here[bus_index] = false;
         } else if (lease_count_locked(bus_index) == leases[i].ref_count &&
                    buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE) {
+            buses[bus_index].ready = false;
+        } else if (lease_count_locked(bus_index) == leases[i].ref_count &&
+                   buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_PS2) {
             buses[bus_index].ready = false;
         }
         released += leases[i].ref_count;
@@ -1845,6 +1888,8 @@ const char *solar_os_bus_protocol_name(solar_os_bus_protocol_t protocol)
         return "uart";
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         return "onewire";
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        return "ps2";
     default:
         return "unknown";
     }

@@ -72,6 +72,16 @@ static solar_os_input_key_event_t read_one_event(void)
 int main(void)
 {
     assert(solar_os_input_init() == ESP_OK);
+    assert(solar_os_input_translate_hid_usage(0x04, 0, false) == 'a');
+    assert(solar_os_input_translate_hid_usage(0x04,
+                                              SOLAR_OS_INPUT_MOD_LEFT_SHIFT,
+                                              false) == 'A');
+    assert(solar_os_input_translate_hid_usage(0x30,
+                                              SOLAR_OS_INPUT_MOD_LEFT_CTRL,
+                                              false) == SOLAR_OS_KEY_APP_EXIT);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
+    assert(solar_os_input_translate_hid_usage(0x1c, 0, false) == 'z');
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
 
     solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
     solar_os_input_source_t buttons = SOLAR_OS_INPUT_SOURCE_INVALID;

@@ -140,6 +140,7 @@ typedef struct {
     bool complete_gpio_pins;
     bool complete_i2c_arguments;
     bool complete_onewire_buses;
+    bool complete_ps2_buses;
     bool complete_spi_buses;
     bool complete_uart_buses;
     bool complete_com_arguments;
@@ -611,6 +612,9 @@ static const char * const expansion_bus_protocols[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
     "onewire",
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PS2
+    "ps2",
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
     "spi",
@@ -1306,6 +1310,11 @@ static const char * const gpio_keys_options[] = {"--config"};
 static const char * const path_job_start_gpio_keys[] = {"job", "start", "gpio-keys"};
 static const char * const path_job_start_gpio_keys_config[] = {
     "job", "start", "gpio-keys", "--config"
+};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_PS2_KEYBOARD
+static const char * const path_job_start_ps2_keyboard[] = {
+    "job", "start", "ps2-keyboard"
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_LINK
@@ -2034,6 +2043,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_buses = true, \
     }
+#define SHELL_COMPLETION_PS2_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_ps2_buses = true, \
+    }
 #define SHELL_COMPLETION_SPI_CS(path_array) \
     { \
         .path = path_array, \
@@ -2196,6 +2211,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_JOB_GPIO_KEYS
     SHELL_COMPLETION_STATIC(path_job_start_gpio_keys, gpio_keys_options),
     SHELL_COMPLETION_PATH(path_job_start_gpio_keys_config, false),
+#endif
+#if SOLAR_OS_PACKAGE_JOB_PS2_KEYBOARD
+    SHELL_COMPLETION_PS2_BUSES(path_job_start_ps2_keyboard),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_LINK
     SHELL_COMPLETION_LINKS(path_job_start_bridge_port),
@@ -5013,6 +5031,21 @@ static void shell_completion_emit_onewire_buses(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_ps2_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_PS2
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_PS2);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_PS2, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_uart_buses(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_UART
@@ -5981,6 +6014,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_onewire_buses) {
             shell_completion_emit_onewire_buses(state);
+        }
+        if (rule->complete_ps2_buses) {
+            shell_completion_emit_ps2_buses(state);
         }
         if (rule->complete_spi_buses) {
             shell_completion_emit_spi_buses(state);

@@ -151,7 +151,7 @@ digraph solar_os_architecture {
                 <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
                     <TR><TD><B>UI and input</B></TD></TR>
                     <TR><TD>terminal, graphics</TD></TR>
-                    <TR><TD>generic key state, BLE, clipboard, identity</TD></TR>
+                    <TR><TD>generic key state, BLE/PS2, clipboard, identity</TD></TR>
                 </TABLE>
             >,
             fillcolor="#ccfbf1",

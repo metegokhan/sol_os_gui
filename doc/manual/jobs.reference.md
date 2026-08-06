@@ -857,6 +857,32 @@ releases their claims, and discards queued events from this input source. The
 fixed ODROID-GO button service remains independent of this job but uses the
 same held-key and repeat service.
 
+## ps2-keyboard
+
+Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes
+press and release transitions through the generic SolarOS input service.
+
+```text
+expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
+job start ps2-keyboard ps2kbd
+job status ps2-keyboard
+job stop ps2-keyboard
+```
+
+The bus descriptor owns the CLOCK and DATA pins as `bus:ps2kbd`; the running
+job holds an exclusive lease and appears as `job:ps2-keyboard`. Normal and
+extended keys, modifiers, navigation keys, function keys, and keypad usages are
+translated to canonical USB HID identities. The configured `setterm keyboard`
+layout and `setterm keyrate` repeat policy apply equally to BLE and PS/2.
+
+The receiver validates each PS/2 frame's start bit, odd parity, and stop bit in
+the GPIO clock-edge handler. Scan-code parsing and input publication run from
+the normal job tick, outside interrupt context. The current driver only
+receives keyboard data; it does not send LED or reset commands to the keyboard.
+
+Use a bidirectional level shifter or another circuit that guarantees no more
+than 3.3 V at the ESP32 GPIOs. ESP32 inputs are not 5 V tolerant.
+
 ## sump
 
 SUMP-compatible logic analyzer server on `cdc0`. It claims the CDC port and

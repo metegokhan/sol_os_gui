@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -32,6 +33,11 @@
     (SOLAR_OS_INPUT_MOD_LEFT_ALT | SOLAR_OS_INPUT_MOD_RIGHT_ALT)
 
 typedef uint8_t solar_os_input_source_t;
+
+typedef enum {
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US,
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE,
+} solar_os_input_keyboard_layout_t;
 
 typedef enum {
     SOLAR_OS_INPUT_KEY_PRESS,
@@ -71,6 +77,16 @@ size_t solar_os_input_read_source_chars(solar_os_input_source_t source,
                                         char *buffer,
                                         size_t buffer_len);
 size_t solar_os_input_get_pressed(solar_os_input_key_event_t *keys, size_t key_count);
+
+solar_os_input_keyboard_layout_t solar_os_input_keyboard_layout(void);
+esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t layout);
+const char *solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout_t layout);
+bool solar_os_input_parse_keyboard_layout(const char *name,
+                                          solar_os_input_keyboard_layout_t *layout);
+/* Translate a canonical USB HID keyboard usage with the active keymap. */
+uint8_t solar_os_input_translate_hid_usage(uint16_t usage,
+                                           uint8_t modifiers,
+                                           bool caps_lock);
 
 void solar_os_input_get_repeat(uint16_t *rate_cps, uint16_t *delay_ms);
 esp_err_t solar_os_input_set_repeat(uint16_t rate_cps, uint16_t delay_ms);

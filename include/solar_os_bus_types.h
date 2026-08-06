@@ -19,6 +19,7 @@ typedef enum {
     SOLAR_OS_BUS_PROTOCOL_SPI,
     SOLAR_OS_BUS_PROTOCOL_UART,
     SOLAR_OS_BUS_PROTOCOL_ONEWIRE,
+    SOLAR_OS_BUS_PROTOCOL_PS2,
 } solar_os_bus_protocol_t;
 
 typedef enum {
@@ -64,11 +65,17 @@ typedef struct {
     int pin;
 } solar_os_bus_onewire_config_t;
 
+typedef struct {
+    int clock_pin;
+    int data_pin;
+} solar_os_bus_ps2_config_t;
+
 typedef union {
     solar_os_bus_i2c_config_t i2c;
     solar_os_bus_spi_config_t spi;
     solar_os_bus_uart_config_t uart;
     solar_os_bus_onewire_config_t onewire;
+    solar_os_bus_ps2_config_t ps2;
 } solar_os_bus_config_t;
 
 typedef struct {
@@ -124,3 +131,9 @@ typedef struct {
     char name[SOLAR_OS_BUS_NAME_MAX];
     int pin;
 } solar_os_onewire_bus_descriptor_t;
+
+typedef struct {
+    char name[SOLAR_OS_BUS_NAME_MAX];
+    int clock_pin;
+    int data_pin;
+} solar_os_ps2_bus_descriptor_t;

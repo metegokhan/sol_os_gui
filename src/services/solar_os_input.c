@@ -1,5 +1,6 @@
 #include "solar_os_input.h"
 
+#include <ctype.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -16,7 +17,16 @@
 #define INPUT_NVS_NAMESPACE "input"
 #define INPUT_NVS_REPEAT_RATE_KEY "repeat_cps"
 #define INPUT_NVS_REPEAT_DELAY_KEY "repeat_delay"
+#define INPUT_NVS_LAYOUT_KEY "layout"
 #define INPUT_LEGACY_NVS_NAMESPACE "blekbd"
+
+#define INPUT_LATIN1_A_UMLAUT_UPPER ((uint8_t)0xc4)
+#define INPUT_LATIN1_O_UMLAUT_UPPER ((uint8_t)0xd6)
+#define INPUT_LATIN1_U_UMLAUT_UPPER ((uint8_t)0xdc)
+#define INPUT_LATIN1_SHARP_S ((uint8_t)0xdf)
+#define INPUT_LATIN1_A_UMLAUT_LOWER ((uint8_t)0xe4)
+#define INPUT_LATIN1_O_UMLAUT_LOWER ((uint8_t)0xf6)
+#define INPUT_LATIN1_U_UMLAUT_LOWER ((uint8_t)0xfc)
 
 typedef struct {
     bool active;
@@ -42,8 +52,15 @@ static size_t input_queue_head;
 static size_t input_queue_count;
 static uint16_t input_repeat_rate_cps = INPUT_REPEAT_RATE_DEFAULT;
 static uint16_t input_repeat_delay_ms = INPUT_REPEAT_DELAY_DEFAULT_MS;
+static solar_os_input_keyboard_layout_t input_keyboard_layout =
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US;
 static input_repeat_state_t input_repeat;
 static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static const char *const input_keyboard_layout_names[] = {
+    [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US] = "us",
+    [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE] = "de",
+};
 
 static uint32_t input_now_ms(void)
 {
@@ -186,33 +203,64 @@ static esp_err_t input_load_repeat_namespace(const char *namespace_name,
     return err;
 }
 
+static esp_err_t input_load_layout_namespace(const char *namespace_name,
+                                             uint16_t *layout)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(namespace_name, NVS_READONLY, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_get_u16(nvs, INPUT_NVS_LAYOUT_KEY, layout);
+    nvs_close(nvs);
+    return err;
+}
+
 esp_err_t solar_os_input_init(void)
 {
     uint16_t rate_cps = INPUT_REPEAT_RATE_DEFAULT;
     uint16_t delay_ms = INPUT_REPEAT_DELAY_DEFAULT_MS;
-    esp_err_t err = input_load_repeat_namespace(INPUT_NVS_NAMESPACE,
-                                                &rate_cps,
-                                                &delay_ms);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = input_load_repeat_namespace(INPUT_LEGACY_NVS_NAMESPACE,
-                                          &rate_cps,
-                                          &delay_ms);
+    esp_err_t repeat_err = input_load_repeat_namespace(INPUT_NVS_NAMESPACE,
+                                                       &rate_cps,
+                                                       &delay_ms);
+    if (repeat_err == ESP_ERR_NVS_NOT_FOUND) {
+        repeat_err = input_load_repeat_namespace(INPUT_LEGACY_NVS_NAMESPACE,
+                                                 &rate_cps,
+                                                 &delay_ms);
     }
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_OK;
+    if (repeat_err == ESP_ERR_NVS_NOT_FOUND) {
+        repeat_err = ESP_OK;
     }
-    if (err != ESP_OK) {
-        return err;
+    if (repeat_err == ESP_OK && !input_repeat_config_valid(rate_cps, delay_ms)) {
+        repeat_err = ESP_ERR_INVALID_ARG;
     }
-    if (!input_repeat_config_valid(rate_cps, delay_ms)) {
-        return ESP_ERR_INVALID_ARG;
+
+    uint16_t layout_value = SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US;
+    esp_err_t layout_err = input_load_layout_namespace(INPUT_NVS_NAMESPACE,
+                                                       &layout_value);
+    if (layout_err == ESP_ERR_NVS_NOT_FOUND) {
+        layout_err = input_load_layout_namespace(INPUT_LEGACY_NVS_NAMESPACE,
+                                                 &layout_value);
+    }
+    if (layout_err == ESP_ERR_NVS_NOT_FOUND) {
+        layout_err = ESP_OK;
+    }
+    if (layout_err == ESP_OK &&
+        layout_value >= sizeof(input_keyboard_layout_names) /
+            sizeof(input_keyboard_layout_names[0])) {
+        layout_err = ESP_ERR_INVALID_ARG;
     }
 
     portENTER_CRITICAL(&input_lock);
-    input_repeat_rate_cps = rate_cps;
-    input_repeat_delay_ms = delay_ms;
+    if (repeat_err == ESP_OK) {
+        input_repeat_rate_cps = rate_cps;
+        input_repeat_delay_ms = delay_ms;
+    }
+    if (layout_err == ESP_OK) {
+        input_keyboard_layout = (solar_os_input_keyboard_layout_t)layout_value;
+    }
     portEXIT_CRITICAL(&input_lock);
-    return ESP_OK;
+    return repeat_err != ESP_OK ? repeat_err : layout_err;
 }
 
 esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source)
@@ -495,6 +543,263 @@ size_t solar_os_input_get_pressed(solar_os_input_key_event_t *keys, size_t key_c
     }
     portEXIT_CRITICAL(&input_lock);
     return count;
+}
+
+solar_os_input_keyboard_layout_t solar_os_input_keyboard_layout(void)
+{
+    portENTER_CRITICAL(&input_lock);
+    const solar_os_input_keyboard_layout_t layout = input_keyboard_layout;
+    portEXIT_CRITICAL(&input_lock);
+    return layout;
+}
+
+esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t layout)
+{
+    if ((size_t)layout >= sizeof(input_keyboard_layout_names) /
+            sizeof(input_keyboard_layout_names[0])) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&input_lock);
+    input_keyboard_layout = layout;
+    portEXIT_CRITICAL(&input_lock);
+
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(INPUT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u16(nvs, INPUT_NVS_LAYOUT_KEY, (uint16_t)layout);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return err;
+}
+
+const char *solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout_t layout)
+{
+    if ((size_t)layout >= sizeof(input_keyboard_layout_names) /
+            sizeof(input_keyboard_layout_names[0])) {
+        return "unknown";
+    }
+    return input_keyboard_layout_names[layout];
+}
+
+bool solar_os_input_parse_keyboard_layout(const char *name,
+                                          solar_os_input_keyboard_layout_t *layout)
+{
+    if (name == NULL || layout == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof(input_keyboard_layout_names) /
+             sizeof(input_keyboard_layout_names[0]); i++) {
+        if (strcmp(name, input_keyboard_layout_names[i]) == 0) {
+            *layout = (solar_os_input_keyboard_layout_t)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint8_t input_shifted_digit(uint16_t usage)
+{
+    static const uint8_t shifted[] = {'!', '@', '#', '$', '%', '^', '&', '*', '(', ')'};
+    return shifted[usage - 0x1eU];
+}
+
+static uint8_t input_unshifted_digit(uint16_t usage)
+{
+    return usage == 0x27U ? '0' : (uint8_t)('1' + usage - 0x1eU);
+}
+
+static uint8_t input_usage_to_us(uint16_t usage, bool shift, bool caps_lock)
+{
+    if (usage >= 0x04U && usage <= 0x1dU) {
+        const bool upper = shift ^ caps_lock;
+        return (uint8_t)((upper ? 'A' : 'a') + usage - 0x04U);
+    }
+    if (usage >= 0x1eU && usage <= 0x27U) {
+        return shift ? input_shifted_digit(usage) : input_unshifted_digit(usage);
+    }
+    switch (usage) {
+    case 0x28: return '\n';
+    case 0x29: return SOLAR_OS_KEY_ESCAPE;
+    case 0x2a: return '\b';
+    case 0x2b: return '\t';
+    case 0x2c: return ' ';
+    case 0x2d: return shift ? '_' : '-';
+    case 0x2e: return shift ? '+' : '=';
+    case 0x2f: return shift ? '{' : '[';
+    case 0x30: return shift ? '}' : ']';
+    case 0x31: return shift ? '|' : '\\';
+    case 0x32: return shift ? '~' : '#';
+    case 0x33: return shift ? ':' : ';';
+    case 0x34: return shift ? '"' : '\'';
+    case 0x35: return shift ? '~' : '`';
+    case 0x36: return shift ? '<' : ',';
+    case 0x37: return shift ? '>' : '.';
+    case 0x38: return shift ? '?' : '/';
+    default: return 0;
+    }
+}
+
+static uint8_t input_usage_to_de(uint16_t usage,
+                                 uint8_t modifiers,
+                                 bool caps_lock)
+{
+    const bool shift = (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0;
+    const bool altgr = (modifiers & SOLAR_OS_INPUT_MOD_RIGHT_ALT) != 0;
+    if (altgr) {
+        switch (usage) {
+        case 0x14: return '@';
+        case 0x24: return '{';
+        case 0x25: return '[';
+        case 0x26: return ']';
+        case 0x27: return '}';
+        case 0x2d: return '\\';
+        case 0x30: return '~';
+        case 0x64: return '|';
+        default: return 0;
+        }
+    }
+    if (usage >= 0x04U && usage <= 0x1dU) {
+        uint8_t base = (uint8_t)('a' + usage - 0x04U);
+        if (base == 'y') {
+            base = 'z';
+        } else if (base == 'z') {
+            base = 'y';
+        }
+        return (shift ^ caps_lock) ? (uint8_t)toupper(base) : base;
+    }
+    if (usage >= 0x1eU && usage <= 0x27U) {
+        static const uint8_t shifted[] = {'!', '"', '#', '$', '%', '&', '/', '(', ')', '='};
+        return shift ? shifted[usage - 0x1eU] : input_unshifted_digit(usage);
+    }
+    switch (usage) {
+    case 0x28: return '\n';
+    case 0x29: return SOLAR_OS_KEY_ESCAPE;
+    case 0x2a: return '\b';
+    case 0x2b: return '\t';
+    case 0x2c: return ' ';
+    case 0x2d: return shift ? '?' : INPUT_LATIN1_SHARP_S;
+    case 0x2e: return shift ? '`' : 0;
+    case 0x2f: return shift ? INPUT_LATIN1_U_UMLAUT_UPPER : INPUT_LATIN1_U_UMLAUT_LOWER;
+    case 0x30: return shift ? '*' : '+';
+    case 0x31:
+    case 0x32: return shift ? '\'' : '#';
+    case 0x33: return shift ? INPUT_LATIN1_O_UMLAUT_UPPER : INPUT_LATIN1_O_UMLAUT_LOWER;
+    case 0x34: return shift ? INPUT_LATIN1_A_UMLAUT_UPPER : INPUT_LATIN1_A_UMLAUT_LOWER;
+    case 0x35: return shift ? 0 : '^';
+    case 0x36: return shift ? ';' : ',';
+    case 0x37: return shift ? ':' : '.';
+    case 0x38: return shift ? '_' : '-';
+    case 0x64: return shift ? '>' : '<';
+    default: return 0;
+    }
+}
+
+static uint8_t input_usage_to_function_key(uint16_t usage)
+{
+    if (usage >= 0x3aU && usage <= 0x45U) {
+        return (uint8_t)(SOLAR_OS_KEY_F1 + usage - 0x3aU);
+    }
+    return 0;
+}
+
+static uint8_t input_usage_to_nav_key(uint16_t usage, uint8_t modifiers)
+{
+    const bool ctrl = (modifiers & SOLAR_OS_INPUT_MOD_CTRL) != 0;
+    const bool shift = (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0;
+    switch (usage) {
+    case 0x4a:
+        return ctrl ? (shift ? SOLAR_OS_KEY_CTRL_SHIFT_HOME : SOLAR_OS_KEY_CTRL_HOME) :
+            (shift ? SOLAR_OS_KEY_SHIFT_HOME : SOLAR_OS_KEY_HOME);
+    case 0x4b: return shift ? SOLAR_OS_KEY_SHIFT_PAGE_UP : SOLAR_OS_KEY_PAGE_UP;
+    case 0x4c: return SOLAR_OS_KEY_DELETE;
+    case 0x4d:
+        return ctrl ? (shift ? SOLAR_OS_KEY_CTRL_SHIFT_END : SOLAR_OS_KEY_CTRL_END) :
+            (shift ? SOLAR_OS_KEY_SHIFT_END : SOLAR_OS_KEY_END);
+    case 0x4e: return shift ? SOLAR_OS_KEY_SHIFT_PAGE_DOWN : SOLAR_OS_KEY_PAGE_DOWN;
+    case 0x4f:
+        return ctrl ? (shift ? SOLAR_OS_KEY_CTRL_SHIFT_RIGHT : SOLAR_OS_KEY_CTRL_RIGHT) :
+            (shift ? SOLAR_OS_KEY_SHIFT_RIGHT : SOLAR_OS_KEY_RIGHT);
+    case 0x50:
+        return ctrl ? (shift ? SOLAR_OS_KEY_CTRL_SHIFT_LEFT : SOLAR_OS_KEY_CTRL_LEFT) :
+            (shift ? SOLAR_OS_KEY_SHIFT_LEFT : SOLAR_OS_KEY_LEFT);
+    case 0x51:
+        return ctrl ? (shift ? SOLAR_OS_KEY_CTRL_SHIFT_DOWN : SOLAR_OS_KEY_CTRL_DOWN) :
+            (shift ? SOLAR_OS_KEY_SHIFT_DOWN : SOLAR_OS_KEY_DOWN);
+    case 0x52:
+        return ctrl ? (shift ? SOLAR_OS_KEY_CTRL_SHIFT_UP : SOLAR_OS_KEY_CTRL_UP) :
+            (shift ? SOLAR_OS_KEY_SHIFT_UP : SOLAR_OS_KEY_UP);
+    default: return 0;
+    }
+}
+
+static uint8_t input_usage_to_control(uint16_t usage,
+                                      solar_os_input_keyboard_layout_t layout)
+{
+    if (usage >= 0x04U && usage <= 0x1dU) {
+        uint8_t base = (uint8_t)('a' + usage - 0x04U);
+        if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) {
+            if (base == 'y') {
+                base = 'z';
+            } else if (base == 'z') {
+                base = 'y';
+            }
+        }
+        return (uint8_t)(base - 'a' + 1U);
+    }
+    switch (usage) {
+    case 0x23: return 0x1e;
+    case 0x2d: return 0x1f;
+    case 0x30: return 0x1d;
+    case 0x31: return 0x1c;
+    default: return 0;
+    }
+}
+
+uint8_t solar_os_input_translate_hid_usage(uint16_t usage,
+                                           uint8_t modifiers,
+                                           bool caps_lock)
+{
+    const solar_os_input_keyboard_layout_t layout = solar_os_input_keyboard_layout();
+    const bool ctrl = (modifiers & SOLAR_OS_INPUT_MOD_CTRL) != 0;
+    const bool alt = (modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0;
+
+    if (ctrl && alt && usage == 0x4cU) {
+        return SOLAR_OS_KEY_APP_EXIT;
+    }
+    if (ctrl && !alt) {
+        if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US && usage == 0x30U) {
+            return SOLAR_OS_KEY_APP_EXIT;
+        }
+        if (usage == 0x2eU ||
+            (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE && usage == 0x30U)) {
+            return SOLAR_OS_KEY_CTRL_PLUS;
+        }
+        if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE && usage == 0x38U) {
+            return 0x1f;
+        }
+    }
+
+    uint8_t key = input_usage_to_function_key(usage);
+    if (key == 0) {
+        key = input_usage_to_nav_key(usage, modifiers);
+    }
+    if (key == 0 && ctrl) {
+        key = input_usage_to_control(usage, layout);
+    }
+    if (key != 0) {
+        return key;
+    }
+    if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) {
+        return input_usage_to_de(usage, modifiers, caps_lock);
+    }
+    return input_usage_to_us(usage,
+                             (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0,
+                             caps_lock);
 }
 
 void solar_os_input_get_repeat(uint16_t *rate_cps, uint16_t *delay_ms)

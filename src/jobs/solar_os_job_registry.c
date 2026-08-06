@@ -43,6 +43,9 @@
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 #include "solar_os_pocsag_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_PS2_KEYBOARD
+#include "solar_os_ps2_keyboard_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_RADIO_LINK
 #include "solar_os_radio_link_job.h"
 #endif
@@ -95,6 +98,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
     {"pocsag", "POCSAG pager receiver", &solar_os_pocsag_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_PS2_KEYBOARD
+    {"ps2-keyboard", "receive keyboard input from a named PS/2 bus", &solar_os_ps2_keyboard_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_RADIO_LINK
     {"radio-link", "SolarOS Link packet radio transport", &solar_os_radio_link_job},

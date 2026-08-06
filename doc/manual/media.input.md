@@ -18,13 +18,32 @@ operation.
 Local hardware input uses structured press, release, and repeat events. The
 input service tracks held keys by source and stable physical identity, while
 legacy shell and text applications continue to receive translated characters.
-BLE keyboards, fixed board buttons, `gpio-keys`, joysticks, and ADC D-pads share
+BLE and PS/2 keyboards, fixed board buttons, `gpio-keys`, joysticks, and ADC D-pads share
 one repeat policy. Configure it with `setterm keyrate`; the setting applies even
 on a build without BLE.
 
 Keyboard transports can additionally supply a canonical USB HID usage and
 modifier mask. This keeps physical controls independent of the selected text
-layout and provides the common representation needed by future keyboard buses.
+layout and lets BLE and PS/2 share the same US or German keymap.
+
+## PS/2 keyboard
+
+PS/2 uses a named, exclusive CLOCK/DATA bus and a background input job:
+
+```text
+expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
+job start ps2-keyboard ps2kbd
+```
+
+The receiver supports keyboard scan-code set 2, including normal and extended
+press/release sequences. SolarOS supplies repeat through the generic input
+service, so keyboard typematic make codes do not create duplicate presses.
+This first implementation is receive-only: keyboard LEDs and host-to-keyboard
+commands are not implemented.
+
+ESP32 pins are not 5 V tolerant. Use proper level shifting, or otherwise ensure
+that neither PS/2 signal can be pulled above 3.3 V. Do not connect a 5 V signal
+directly to a GPIO merely because PS/2 uses open-collector signalling.
 
 ## Audio
 

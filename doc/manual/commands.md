@@ -551,6 +551,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `expansion` | `expansion devices` | List manually attached expansion devices. |
 | `expansion` | `expansion bus create i2c <name> port=<i2c0\|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]` | Define a runtime I2C bus on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus create onewire <name> pin=<gpio>` | Define a runtime named 1-Wire bus on an approved expansion pin. |
+| `expansion` | `expansion bus create ps2 <name> clock=<gpio> data=<gpio>` | Define an exclusive PS/2 bus on two approved expansion pins. |
 | `expansion` | `expansion bus create spi <name> host=<spi2\|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio\|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]` | Define a runtime-routed SPI bus on a board-approved host and expansion pins. |
 | `expansion` | `expansion bus create uart <name> port=<uart1\|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]` | Define a lazy runtime UART on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus attach <name>` | Attach a named detachable bus and reserve its endpoint and signal pins. |

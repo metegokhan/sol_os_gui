@@ -37,3 +37,4 @@ app_scp = true
 job_log = true
 job_bridge = true
 job_gpio_keys = true
+job_ps2_keyboard = true

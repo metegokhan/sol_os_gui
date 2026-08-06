@@ -2,15 +2,15 @@
 id = "buses"
 title = "Named runtime buses"
 section = "api"
-summary = "Create and use resource-owned I2C, SPI, UART, and OneWire buses"
+summary = "Create and use resource-owned I2C, SPI, UART, OneWire, and PS/2 buses"
 aliases = ["bus"]
-keywords = "python lua buses resource named bus create attach detach i2c spi uart onewire lease"
+keywords = "python lua buses resource named bus create attach detach i2c spi uart onewire ps2 keyboard lease"
 packages_any = ["service_resources"]
 +++
 # Named runtime buses
 
 Named buses let scripts and expansion drivers share one description of a
-physical I2C, SPI, UART, or OneWire connection. The registry records pins,
+physical I2C, SPI, UART, OneWire, or PS/2 connection. The registry records pins,
 readiness, sharing policy, and active leases.
 
 ## Inspect before creating
@@ -35,7 +35,7 @@ fails.
 ## Quick reference
 
 Prefer solaros.buses for named hardware. list and get inspect registered buses;
-create_i2c, create_onewire, create_spi, and create_uart create runtime buses;
+create_i2c, create_onewire, create_ps2, create_spi, and create_uart create runtime buses;
 attach, detach, remove manage lifecycle. Transfer families are i2c_probe or
 scan or read_reg or write_reg, onewire_reset or scan or xfer, spi_xfer or read
 or write, and uart_read or write. Inspect descriptors before choosing names,

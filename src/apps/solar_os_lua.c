@@ -1770,7 +1770,7 @@ static int solua_pwm_off(lua_State *L)
 static bool solua_bus_find_any(const char *name, solar_os_bus_info_t *info)
 {
     for (solar_os_bus_protocol_t protocol = SOLAR_OS_BUS_PROTOCOL_I2C;
-         protocol <= SOLAR_OS_BUS_PROTOCOL_ONEWIRE;
+         protocol <= SOLAR_OS_BUS_PROTOCOL_PS2;
          protocol++) {
         if (solar_os_bus_find(name, protocol, info)) {
             return true;
@@ -1827,6 +1827,10 @@ static void solua_push_bus_info(lua_State *L, const solar_os_bus_info_t *info)
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         solua_set_int(L, -1, "pin", info->config.onewire.pin);
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        solua_set_int(L, -1, "clock_pin", info->config.ps2.clock_pin);
+        solua_set_int(L, -1, "data_pin", info->config.ps2.data_pin);
         break;
     default:
         break;
@@ -1968,6 +1972,31 @@ static int solua_buses_create_onewire(lua_State *L)
     (void)solua_check_esp(L, solar_os_bus_register(&definition));
     solar_os_bus_info_t info;
     if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info)) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solua_push_bus_info(L, &info);
+    return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_PS2
+static int solua_buses_create_ps2(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_PS2,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.ps2 = {
+            .clock_pin = solua_table_int(L, 2, "clock", true, -1),
+            .data_pin = solua_table_int(L, 2, "data", true, -1),
+        },
+    };
+    (void)solua_check_esp(L, solar_os_bus_register(&definition));
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_PS2, &info)) {
         return solua_check_esp(L, ESP_ERR_NOT_FOUND);
     }
     solua_push_bus_info(L, &info);

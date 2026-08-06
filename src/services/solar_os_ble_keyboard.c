@@ -1095,7 +1095,7 @@ esp_err_t solar_os_ble_keyboard_set_repeat(uint16_t rate_cps, uint16_t delay_ms)
 
 solar_os_ble_keyboard_layout_t solar_os_ble_keyboard_layout(void)
 {
-    return keyboard_layout;
+    return (solar_os_ble_keyboard_layout_t)solar_os_input_keyboard_layout();
 }
 
 esp_err_t solar_os_ble_keyboard_set_layout(solar_os_ble_keyboard_layout_t layout)
@@ -1103,11 +1103,13 @@ esp_err_t solar_os_ble_keyboard_set_layout(solar_os_ble_keyboard_layout_t layout
     if ((size_t)layout >= sizeof(keyboard_layout_names) / sizeof(keyboard_layout_names[0])) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (keyboard_layout == layout) {
-        return ESP_OK;
+    const esp_err_t ret = solar_os_input_set_keyboard_layout(
+        (solar_os_input_keyboard_layout_t)layout);
+    if (ret != ESP_OK) {
+        return ret;
     }
-
     keyboard_layout = layout;
+    /* Keep the legacy key synchronized for downgrade compatibility. */
     return save_keyboard_layout(layout);
 }
 
@@ -1784,7 +1786,8 @@ static char hid_keycode_to_system_key(uint8_t keycode, uint8_t modifiers)
     return '\0';
 }
 
-static char hid_keycode_to_char(uint8_t keycode, uint8_t modifiers)
+static char __attribute__((unused)) hid_keycode_to_char(uint8_t keycode,
+                                                        uint8_t modifiers)
 {
     const bool shift = (modifiers & HID_MOD_SHIFT) != 0;
     const char system_key = hid_keycode_to_system_key(keycode, modifiers);
@@ -1824,7 +1827,9 @@ static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys
     if (keys != NULL) {
         for (size_t i = 0; i < BLE_KEYBOARD_MAX_KEYS; i++) {
             next.keycodes[i] = keys[i];
-            next.chars[i] = (uint8_t)hid_keycode_to_char(keys[i], modifiers);
+            next.chars[i] = solar_os_input_translate_hid_usage(keys[i],
+                                                               modifiers,
+                                                               caps_lock);
         }
     }
 
@@ -1856,7 +1861,9 @@ static void handle_keyboard_report(const uint8_t *data, uint16_t length)
         (void)solar_os_input_write_key(input_source,
                                        key,
                                        key,
-                                       (uint8_t)hid_keycode_to_char(key, previous_modifiers),
+                                       solar_os_input_translate_hid_usage(key,
+                                                                          previous_modifiers,
+                                                                          caps_lock),
                                        modifiers,
                                        SOLAR_OS_INPUT_KEY_RELEASE);
     }
@@ -1871,7 +1878,9 @@ static void handle_keyboard_report(const uint8_t *data, uint16_t length)
             caps_lock = !caps_lock;
         }
 
-        const char ch = hid_keycode_to_char(key, modifiers);
+        const uint8_t ch = solar_os_input_translate_hid_usage(key,
+                                                              modifiers,
+                                                              caps_lock);
         (void)solar_os_input_write_key(input_source,
                                        key,
                                        key,

@@ -404,6 +404,7 @@ single-board-bus `solaros.spi` module.
 - `get(name)`: return one named bus dictionary or raise `OSError` when absent.
 - `create_i2c(name, config)`: create a runtime I2C bus and return its dictionary.
 - `create_onewire(name, config)`: create a runtime 1-Wire bus and return its dictionary.
+- `create_ps2(name, config)`: create an exclusive PS/2 bus from `clock` and `data` pins.
 - `create_spi(name, config)`: create a runtime SPI bus and return its dictionary.
 - `create_uart(name, config)`: create a lazy runtime UART bus and return its dictionary.
 - `attach(name)`: attach a named detachable bus and reserve its endpoint and pins.

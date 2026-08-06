@@ -1869,7 +1869,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_pwm_off_obj, solaros_pwm_off);
 static bool python_bus_find_any(const char *name, solar_os_bus_info_t *info)
 {
     for (solar_os_bus_protocol_t protocol = SOLAR_OS_BUS_PROTOCOL_I2C;
-         protocol <= SOLAR_OS_BUS_PROTOCOL_ONEWIRE;
+         protocol <= SOLAR_OS_BUS_PROTOCOL_PS2;
          protocol++) {
         if (solar_os_bus_find(name, protocol, info)) {
             return true;
@@ -1926,6 +1926,10 @@ static mp_obj_t python_bus_info_to_dict(const solar_os_bus_info_t *info)
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         python_dict_store_int(dict, "pin", info->config.onewire.pin);
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        python_dict_store_int(dict, "clock_pin", info->config.ps2.clock_pin);
+        python_dict_store_int(dict, "data_pin", info->config.ps2.data_pin);
         break;
     default:
         break;
@@ -2066,6 +2070,27 @@ static mp_obj_t solaros_buses_create_onewire(mp_obj_t name_obj, mp_obj_t config_
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_onewire_obj,
                           solaros_buses_create_onewire);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_PS2
+static mp_obj_t solaros_buses_create_ps2(mp_obj_t name_obj, mp_obj_t config_obj)
+{
+    solar_os_bus_definition_t definition = {
+        .name = mp_obj_str_get_str(name_obj),
+        .protocol = SOLAR_OS_BUS_PROTOCOL_PS2,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.ps2 = {
+            .clock_pin = -1,
+            .data_pin = -1,
+        },
+    };
+    python_get_dict_int(config_obj, "clock", &definition.config.ps2.clock_pin, true);
+    python_get_dict_int(config_obj, "data", &definition.config.ps2.data_pin, true);
+    python_check_esp(solar_os_bus_register(&definition));
+    return solaros_buses_get(name_obj);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_ps2_obj, solaros_buses_create_ps2);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_UART
