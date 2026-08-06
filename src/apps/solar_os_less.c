@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "esp_attr.h"
 #include "esp_err.h"
 #include "solar_os_keys.h"
 #include "solar_os_manual.h"
@@ -43,7 +44,7 @@ typedef struct {
     char message[LESS_MESSAGE_MAX];
 } less_state_t;
 
-static less_state_t less_state;
+static EXT_RAM_BSS_ATTR less_state_t less_state;
 static solar_os_shell_io_t less_fallback_io;
 
 static solar_os_shell_io_t *less_io(solar_os_context_t *ctx)

@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "esp_attr.h"
 #include "solar_os_clipboard.h"
 #include "solar_os_doc.h"
 #include "solar_os_gfx.h"
@@ -80,7 +81,7 @@ typedef struct {
     char message[WRITER_MESSAGE_MAX];
 } writer_state_t;
 
-static writer_state_t writer;
+static EXT_RAM_BSS_ATTR writer_state_t writer;
 
 static uint32_t writer_hash_bytes(uint32_t hash, const char *data, size_t len)
 {

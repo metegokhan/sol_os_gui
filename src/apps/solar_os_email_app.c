@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "solar_os_email.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
@@ -35,7 +36,7 @@ typedef struct {
     solar_os_email_status_t status;
 } email_app_state_t;
 
-static email_app_state_t email_app;
+static EXT_RAM_BSS_ATTR email_app_state_t email_app;
 
 static size_t email_app_char_len(const char *text)
 {

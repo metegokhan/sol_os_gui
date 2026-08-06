@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "esp_attr.h"
 #include "solar_os_inbox.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
@@ -41,7 +42,7 @@ typedef struct {
     solar_os_inbox_status_t status;
 } inbox_app_state_t;
 
-static inbox_app_state_t inbox_app;
+static EXT_RAM_BSS_ATTR inbox_app_state_t inbox_app;
 
 static size_t inbox_app_utf8_char_len(const char *text)
 {

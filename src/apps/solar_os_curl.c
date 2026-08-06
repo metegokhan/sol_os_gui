@@ -9,6 +9,7 @@
 #include <string.h>
 #include <strings.h>
 
+#include "esp_attr.h"
 #include "esp_err.h"
 #include "solar_os_log.h"
 #include "freertos/FreeRTOS.h"
@@ -87,7 +88,7 @@ typedef struct {
 } curl_app_state_t;
 
 static const char *TAG = "solar_os_curl";
-static curl_app_state_t curl_app;
+static EXT_RAM_BSS_ATTR curl_app_state_t curl_app;
 static solar_os_shell_io_t curl_fallback_io;
 
 static solar_os_shell_io_t *curl_io(solar_os_context_t *ctx)

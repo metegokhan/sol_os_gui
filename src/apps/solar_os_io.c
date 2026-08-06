@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "driver/spi_master.h"
+#include "esp_attr.h"
 #include "esp_err.h"
 #include "solar_os_board.h"
 #include "solar_os_board_caps.h"
@@ -103,7 +104,7 @@ typedef struct {
     io_form_t form;
 } io_state_t;
 
-static io_state_t io;
+static EXT_RAM_BSS_ATTR io_state_t io;
 
 static const uint32_t i2c_rates[] = {100000U, 400000U, 1000000U};
 static const uint32_t uart_rates[] = {9600U, 19200U, 38400U, 57600U, 115200U, 230400U, 460800U, 921600U};

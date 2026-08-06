@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
@@ -96,7 +97,7 @@ typedef struct {
     size_t input_view_offset;
 } notes_state_t;
 
-static notes_state_t notes;
+static EXT_RAM_BSS_ATTR notes_state_t notes;
 
 static void notes_set_message(const char *message)
 {

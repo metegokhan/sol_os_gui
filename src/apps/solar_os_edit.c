@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_clipboard.h"
@@ -55,7 +56,7 @@ typedef struct {
     char message[72];
 } editor_state_t;
 
-static editor_state_t editor;
+static EXT_RAM_BSS_ATTR editor_state_t editor;
 
 static const solar_os_terminal_text_size_t editor_text_sizes[] = {
     SOLAR_OS_TERMINAL_TEXT_SIZE_12,

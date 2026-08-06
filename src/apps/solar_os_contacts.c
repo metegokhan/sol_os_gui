@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "solar_os_contacts.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
@@ -36,7 +37,7 @@ typedef struct {
     uint32_t generation;
 } contacts_app_state_t;
 
-static contacts_app_state_t contacts_app;
+static EXT_RAM_BSS_ATTR contacts_app_state_t contacts_app;
 
 static size_t contacts_app_utf8_char_len(const char *text)
 {
