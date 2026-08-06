@@ -26,15 +26,20 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
-#include "solar_os_terminal.h"
 
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 #define audio_read solar_os_gameboy_audio_read
 #define audio_write solar_os_gameboy_audio_write
 #define ENABLE_SOUND 1
+#else
+#define ENABLE_SOUND 0
+#endif
 #define PEANUT_GB_12_COLOUR 0
 #include "vendor/peanut_gb/peanut_gb.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 #undef audio_read
 #undef audio_write
+#endif
 
 #define GAMEBOY_FRAME_PERIOD_US 16743LL
 #define GAMEBOY_INPUT_PULSE_US 140000LL
@@ -145,13 +150,15 @@ static void gameboy_free_state(bool save) {
 
 static esp_err_t gameboy_start_error(solar_os_context_t *ctx, const char *path,
                                      const char *detail) {
-  solar_os_terminal_t *terminal = solar_os_context_terminal(ctx);
-  if (terminal != NULL) {
-    solar_os_terminal_clear(terminal);
-    solar_os_terminal_printf(
-        terminal, "gameboy: %s%s%s\n", path != NULL ? path : "start failed",
-        detail != NULL ? ": " : "", detail != NULL ? detail : "");
-  }
+  char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+  snprintf(message, sizeof(message), "gameboy: %s%s%s",
+           path != NULL ? path : "start failed",
+           detail != NULL ? ": " : "", detail != NULL ? detail : "");
+  SOLAR_OS_LOGE(TAG, "start failed: %s%s%s",
+                path != NULL ? path : "gameboy",
+                detail != NULL ? ": " : "",
+                detail != NULL ? detail : "unknown error");
+  solar_os_context_set_status_message(ctx, message);
   gameboy_free_state(false);
   solar_os_context_set_graphics_active(ctx, false);
   solar_os_context_request_exit(ctx);
@@ -338,9 +345,10 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
   if (path_arg == NULL) {
     return gameboy_start_error(ctx, NULL, "usage: gameboy <file.gb>");
   }
-#if !SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2
+#if !SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2 &&                       \
+    !SOLAR_OS_BOARD_FREENOVE_ESP32_WROVER_V3
   return gameboy_start_error(ctx, path_arg,
-                             "currently supported only on Waveshare RLCD");
+                             "unsupported display target");
 #endif
 
   esp_err_t err = solar_os_storage_resolve_path(path_arg, gameboy.rom_path,

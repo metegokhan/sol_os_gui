@@ -55,7 +55,7 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.catalog.package_defs["app_gameboy"].depends,
-            ("service_synth",),
+            (),
         )
 
     def test_writerdeck_selects_writing_without_hardware_jobs_or_utils(self):
@@ -184,6 +184,81 @@ class FlavorPackagesTest(unittest.TestCase):
         for package, enabled in full_packages.items():
             if enabled:
                 self.assertTrue(retro_packages[package], package)
+
+    def test_rover_retro_is_a_focused_silent_gameboy_flavor(self):
+        name, _, groups, packages = self.resolve("rover-retro")
+
+        self.assertEqual(name, "rover-retro")
+        self.assertTrue(groups["retro"])
+        for group in (
+            "expansions",
+            "maintenance_apps",
+            "maintenance_jobs",
+            "hardware_jobs",
+            "audio",
+            "agent",
+            "media",
+            "games",
+            "python",
+            "lua",
+            "utils",
+        ):
+            self.assertFalse(groups[group], group)
+        self.assertTrue(groups["system"])
+        self.assertTrue(groups["net"])
+        # app_files is a writing-group trigger, but no other writing app is
+        # selected by the explicitly disabled group.
+        self.assertTrue(groups["writing"])
+
+        for package in (
+            "system_shell",
+            "service_ble",
+            "service_sd",
+            "service_resources",
+            "service_gpio",
+            "service_uart",
+            "service_wifi",
+            "service_ssh",
+            "core_fs_commands",
+            "service_zip",
+            "app_docs",
+            "app_edit",
+            "app_less",
+            "app_com",
+            "app_files",
+            "app_io",
+            "app_ssh",
+            "app_scp",
+            "app_gameboy",
+            "job_log",
+            "service_link",
+            "job_bridge",
+        ):
+            self.assertTrue(packages[package], package)
+        for package in (
+            "service_audio",
+            "service_synth",
+            "service_ota",
+            "service_net",
+            "service_mqtt",
+            "service_mail",
+            "service_http_client",
+            "service_http_server",
+            "app_invaders",
+            "app_curl",
+            "app_telnet",
+            "app_web",
+            "app_email",
+            "app_reader",
+            "app_writer",
+            "app_notes",
+            "app_python",
+            "app_lua",
+            "job_httpd",
+            "job_telnetd",
+            "job_ntp_sync",
+        ):
+            self.assertFalse(packages[package], package)
 
 
 if __name__ == "__main__":

@@ -146,15 +146,22 @@ esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *disp
                                                   uint16_t y,
                                                   uint16_t width,
                                                   uint16_t height,
-                                                  uint16_t stride)
+                                                  uint16_t stride,
+                                                  bool palette_inverted)
 {
-    (void)display;
-    (void)bitmap;
-    (void)bitmap_size;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
-    (void)stride;
-    return ESP_ERR_NOT_SUPPORTED;
+    (void)palette_inverted;
+    if (display == NULL || display->driver == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* The Rover direct monochrome path currently presents Game Boy frames.
+     * Keep their native palette independent of the inherited shell theme. */
+    return cvbs_pal_present_mono_xbm((cvbs_pal_t *)display->driver,
+                                     bitmap,
+                                     bitmap_size,
+                                     x,
+                                     y,
+                                     width,
+                                     height,
+                                     stride,
+                                     false);
 }

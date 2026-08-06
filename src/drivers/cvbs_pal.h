@@ -57,6 +57,15 @@ typedef struct {
 
 esp_err_t cvbs_pal_init(cvbs_pal_t *display);
 esp_err_t cvbs_pal_resume(cvbs_pal_t *display);
+esp_err_t cvbs_pal_present_mono_xbm(cvbs_pal_t *display,
+                                    const uint8_t *bitmap,
+                                    size_t bitmap_size,
+                                    uint16_t x,
+                                    uint16_t y,
+                                    uint16_t width,
+                                    uint16_t height,
+                                    uint16_t stride,
+                                    bool palette_inverted);
 void cvbs_pal_deinit(cvbs_pal_t *display);
 u8g2_t *cvbs_pal_get_u8g2(cvbs_pal_t *display);
 

@@ -622,10 +622,6 @@ esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
         height > UINT16_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (gfx->palette_inverted) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
     const esp_err_t ret = solar_os_display_present_mono_xbm(
         gfx->u8g2,
         bitmap,
@@ -634,7 +630,8 @@ esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
         (uint16_t)y,
         (uint16_t)width,
         (uint16_t)height,
-        (uint16_t)stride);
+        (uint16_t)stride,
+        gfx->palette_inverted);
     if (ret == ESP_OK) {
         gfx->dirty = false;
     }

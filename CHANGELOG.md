@@ -2,6 +2,18 @@
 
 ## 4.x
 
+- **4.6.5** — 2026-08-06 — Added the focused `rover-retro` flavor for running
+  the Game Boy emulator on the Freenove ESP32-WROVER v3.0 composite target. It
+  uses the normal system-service baseline with BLE, SD, UART ports, hardware
+  I/O, filesystem and maintenance apps, Log, Bridge, Wi-Fi, and SSH/SCP clients,
+  while keeping the remaining network stack, expansion drivers, scripting, and
+  unrelated application groups disabled.
+  Game Boy now supports Rover's full 384x288 PAL canvas through an asynchronous
+  direct XBM-to-scanout path with field-boundary swaps. It can compile without
+  the synth dependency;
+  Rover uses Peanut-GB's silent register path because composite scanout owns
+  I2S0, while Waveshare `retro` retains the MiniGB APU and shared synth output.
+  The 320x200 composite mode remains too short for the emulator's 320x288 image.
 - **4.6.4** — 2026-08-06 — Replaced the Freenove `composite` flavor with the
   expansion-capable `rover`, `rover-python`, and `rover-lua` family. All three
   include the writing suite, networking, media, utilities, the log job, and the

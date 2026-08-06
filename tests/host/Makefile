@@ -37,7 +37,8 @@ app_file_types_test: app_file_types_test.c $(ROOT)/src/apps/solar_os_app_file_ty
 		app_file_types_test.c $(ROOT)/src/apps/solar_os_app_file_types.c -o $@
 
 gameboy_support_test: gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c $(WRITER_DIR)/solar_os_gameboy_rom.h $(WRITER_DIR)/solar_os_gameboy_video.c $(WRITER_DIR)/solar_os_gameboy_video.h $(WRITER_DIR)/solar_os_gameboy_apu.c $(ROOT)/src/vendor/peanut_gb/peanut_gb.h $(ROOT)/src/vendor/peanut_gb/minigb_apu.c $(ROOT)/src/vendor/peanut_gb/minigb_apu.h
-	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable -I$(ROOT)/src -I$(WRITER_DIR) \
+	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable \
+		-DSOLAR_OS_GAMEBOY_APU_HOST_TEST -I$(ROOT)/src -I$(WRITER_DIR) \
 		gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.c \
 		$(WRITER_DIR)/solar_os_gameboy_video.c \
 		$(WRITER_DIR)/solar_os_gameboy_apu.c -o $@

@@ -1,0 +1,38 @@
+[flavor]
+name = "rover-retro"
+description = "SolarOS Rover Game Boy terminal."
+
+[packages]
+system = true
+expansions = false
+maintenance_apps = false
+maintenance_jobs = false
+hardware_jobs = false
+audio = false
+net = false
+agent = false
+media = false
+games = false
+retro = true
+python = false
+lua = false
+writing = false
+utils = false
+
+# Use the normal Rover system-service baseline. Keep audio off because PAL
+# scanout owns I2S0, but include the focused Wi-Fi and SSH/SCP client stack.
+# Avoid the rest of the network group so Game Boy retains CPU and SRAM margin.
+service_wifi = true
+service_audio = false
+service_synth = false
+core_fs_commands = true
+app_docs = true
+app_edit = true
+app_less = true
+app_com = true
+app_files = true
+app_io = true
+app_ssh = true
+app_scp = true
+job_log = true
+job_bridge = true

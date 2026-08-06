@@ -102,7 +102,8 @@ esp_err_t solar_os_display_present_mono_xbm(u8g2_t *u8g2,
                                             uint16_t y,
                                             uint16_t width,
                                             uint16_t height,
-                                            uint16_t stride);
+                                            uint16_t stride,
+                                            bool palette_inverted);
 
 /*
  * Frame export keeps one PSRAM snapshot per exported target. Readers hold an

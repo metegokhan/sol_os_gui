@@ -37,6 +37,13 @@ static const char *TAG = "solar_os_gameboy_presenter";
 static gameboy_presenter_state_t presenter;
 static portMUX_TYPE presenter_lock = portMUX_INITIALIZER_UNLOCKED;
 
+static esp_err_t gameboy_present_frame(void) {
+  return solar_os_gfx_present_mono_xbm(
+      presenter.gfx, presenter.bitmap, SOLAR_OS_GAMEBOY_BITMAP_BYTES,
+      presenter.x, presenter.y, (int)SOLAR_OS_GAMEBOY_BITMAP_WIDTH,
+      (int)SOLAR_OS_GAMEBOY_BITMAP_HEIGHT, SOLAR_OS_GAMEBOY_BITMAP_STRIDE);
+}
+
 static void gameboy_presenter_worker(void *arg) {
   (void)arg;
   while (true) {
@@ -49,10 +56,7 @@ static void gameboy_presenter_worker(void *arg) {
     }
 
     const int64_t started_us = esp_timer_get_time();
-    const esp_err_t err = solar_os_gfx_present_mono_xbm(
-        presenter.gfx, presenter.bitmap, SOLAR_OS_GAMEBOY_BITMAP_BYTES,
-        presenter.x, presenter.y, (int)SOLAR_OS_GAMEBOY_BITMAP_WIDTH,
-        (int)SOLAR_OS_GAMEBOY_BITMAP_HEIGHT, SOLAR_OS_GAMEBOY_BITMAP_STRIDE);
+    const esp_err_t err = gameboy_present_frame();
     const uint64_t elapsed_us =
         (uint64_t)(esp_timer_get_time() - started_us);
 
