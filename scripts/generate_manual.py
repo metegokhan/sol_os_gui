@@ -18,6 +18,15 @@ FRONT_MATTER_DELIMITER = "+++"
 QUICK_REFERENCE_HEADING = "quick reference"
 CATALOG_SCHEMA_VERSION = 2
 ARCHIVE_PATH = "manual.zip"
+COMMAND_GITHUB_HREFS = {
+    "agent": "agent.md",
+    "expansion": "expansion.md",
+    "help": "help.md",
+    "identity": "identity.md",
+    "job": "jobs.md",
+    "jobs": "jobs.md",
+    "link": "link.md",
+}
 SECTION_INFO = {
     "concept": (10, "Getting started"),
     "shell": (20, "Shell and storage"),
@@ -350,7 +359,7 @@ def derive_command_pages(
                 markdown=body,
                 contract="\n".join(table),
                 source_path=path,
-                source_href="commands.md",
+                source_href=COMMAND_GITHUB_HREFS.get(name, "commands.md"),
             )
         )
     return derived
