@@ -5,6 +5,7 @@
 
 #include "esp_err.h"
 #include "solar_os_pin_types.h"
+#include "solar_os_resources.h"
 
 #define SOLAR_OS_GPIO_OWNER_MAX 24
 
@@ -44,6 +45,17 @@ esp_err_t solar_os_gpio_configure(int pin, solar_os_gpio_mode_t mode, solar_os_g
 esp_err_t solar_os_gpio_read(int pin, bool *level);
 esp_err_t solar_os_gpio_write(int pin, bool level);
 esp_err_t solar_os_gpio_release(int pin);
+esp_err_t solar_os_gpio_claim_pins(const int *pins,
+                                   const char *const *labels,
+                                   size_t count,
+                                   const char *owner,
+                                   solar_os_resource_conflict_t *conflict);
+esp_err_t solar_os_gpio_configure_owned(int pin,
+                                        solar_os_gpio_mode_t mode,
+                                        solar_os_gpio_pull_t pull,
+                                        const char *owner);
+esp_err_t solar_os_gpio_read_owned(int pin, const char *owner, bool *level);
+esp_err_t solar_os_gpio_release_owned(int pin, const char *owner);
 const char *solar_os_gpio_mode_name(solar_os_gpio_mode_t mode);
 const char *solar_os_gpio_pull_name(solar_os_gpio_pull_t pull);
 bool solar_os_gpio_parse_mode(const char *text, solar_os_gpio_mode_t *mode);

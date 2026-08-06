@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test
 
 .PHONY: all test clean
 
@@ -49,6 +49,10 @@ storage_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage
 		storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c \
 		-Wl,--gc-sections -o $@
 
+keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		keys_test.c $(ROOT)/src/services/solar_os_keys.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -58,6 +62,7 @@ test: $(TARGETS)
 	./app_file_types_test
 	./gameboy_support_test
 	./storage_mounts_test
+	./keys_test
 
 clean:
 	$(RM) $(TARGETS)

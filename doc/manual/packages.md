@@ -30,7 +30,7 @@ The standard selectors are `system`, `expansions`, `maintenance_apps`,
 `maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,
 `retro`, `python`, `lua`, `writing`, and `utils`. Maintenance jobs contain
 background logging and battery monitoring. Hardware jobs contain Bridge, DAQ,
-and SUMP for hardware diagnostics and hacking. The `writing` group contains
+GPIO Keys, and SUMP for hardware diagnostics and hacking. The `writing` group contains
 Reader, Writer, Files, and Notes; general utilities contain Clock, Calculator,
 Plot, Logic, and Sheet.
 
@@ -47,7 +47,7 @@ smaller OTA slot.
 The `rover`, `rover-python`, and `rover-lua` flavors target the Freenove
 ESP32-WROVER v3.0 composite-video terminal. All three include the expansion
 framework and drivers, networking, media viewing, general utilities, the
-writing suite, the log job, and the Bridge job. They omit the battery monitor
+writing suite, the log job, Bridge, and the GPIO Keys job. They omit the battery monitor
 because the board has no battery hardware, and omit the DAQ and SUMP jobs by
 default. The Logic app is also omitted because its timing-sensitive capture
 buffer requires more internal-memory margin than this configuration provides.
@@ -61,7 +61,7 @@ synchronization. The embedded `docs` application remains available.
 `rover-retro` is a focused Freenove Game Boy build with the normal system
 service baseline. It includes BLE keyboard input, SD storage, UART ports,
 hardware I/O services, filesystem commands, Docs, Edit, Less, Com, Files, the
-log job, Bridge, Wi-Fi, and the SSH/SCP clients. It excludes the remaining
+log job, Bridge, GPIO Keys, Wi-Fi, and the SSH/SCP clients. It excludes the remaining
 network stack, expansion drivers, media, the rest of the writing suite,
 utilities, other games, scripting, and OTA. The Freenove board has no usable
 audio backend while

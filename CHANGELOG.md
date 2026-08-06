@@ -2,7 +2,13 @@
 
 ## 4.x
 
-- **4.6.6** — 2026-08-06 — Added a 10 px terminal text size, including regular,
+- **4.6.6** — 2026-08-06 — Added the `gpio-keys` job for mapping runtime-safe,
+  active-low pull-up GPIO buttons to debounced keyboard presses through the
+  normal SolarOS input dispatcher. Mappings can be supplied inline or loaded
+  from a file, claim their pins atomically as `job:gpio-keys`, appear
+  canonically in the IO application, and release cleanly when stopped. The job
+  is included in the hardware-jobs group and all Rover flavors. Added a 10 px
+  terminal text size, including regular,
   bold, italic, and bold-italic faces. The new size is available through
   `setterm textsize 10`, shell completion, the Setterm TUI, and the Edit and
   Hexedit text-size controls. Existing saved terminal text-size values remain

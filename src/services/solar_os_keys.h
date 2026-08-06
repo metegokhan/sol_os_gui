@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #define SOLAR_OS_KEY_UP 0x80u
 #define SOLAR_OS_KEY_DOWN 0x81u
 #define SOLAR_OS_KEY_LEFT 0x82u
@@ -48,3 +51,6 @@
 #define SOLAR_OS_KEY_CTRL 0xacu
 #define SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE 0xadu
 #define SOLAR_OS_KEY_ESCAPE 0x1bu
+
+bool solar_os_key_parse(const char *text, uint8_t *key);
+const char *solar_os_key_name(uint8_t key);

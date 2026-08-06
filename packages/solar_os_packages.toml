@@ -76,6 +76,7 @@ members = [
 members = [
   "job_bridge",
   "job_daq",
+  "job_gpio_keys",
   "job_sump",
 ]
 
@@ -203,6 +204,8 @@ sources = [
   "services/solar_os_display.c",
   "services/solar_os_gfx.c",
   "services/solar_os_identity.c",
+  "services/solar_os_input.c",
+  "services/solar_os_keys.c",
   "services/solar_os_log.c",
   "services/solar_os_manual.c",
   "services/solar_os_memory.c",
@@ -485,6 +488,7 @@ sources = ["services/solar_os_vector.c"]
 
 [packages.service_gpio]
 label = "service.gpio"
+depends = ["service_resources"]
 sources = ["services/solar_os_gpio.c", "services/solar_os_status_led.c"]
 requires = ["esp_driver_gpio"]
 capabilities = ["gpio"]
@@ -984,6 +988,12 @@ sources = [
   "jobs/solar_os_daq_job.c",
   "shell/solar_os_shell_daq.c",
 ]
+
+[packages.job_gpio_keys]
+label = "job.gpio-keys"
+depends = ["service_gpio"]
+sources = ["jobs/solar_os_gpio_keys_job.c"]
+capabilities = ["gpio"]
 
 [packages.job_sump]
 label = "job.sump"

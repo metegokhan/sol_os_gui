@@ -46,6 +46,7 @@
 #endif
 #include "solar_os_i2c.h"
 #include "solar_os_identity.h"
+#include "solar_os_input.h"
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
 #include "solar_os_inbox.h"
 #endif
@@ -908,12 +909,22 @@ static void dispatch_adc_dpad_chars(void)
 #endif
 }
 
+static void dispatch_injected_chars(void)
+{
+    char chars[16];
+    size_t count;
+    while ((count = solar_os_input_read_chars(chars, sizeof(chars))) > 0) {
+        dispatch_input_chars(chars, count);
+    }
+}
+
 static void dispatch_input_sources(void)
 {
     dispatch_keyboard_chars();
     dispatch_button_chars();
     dispatch_joystick_chars();
     dispatch_adc_dpad_chars();
+    dispatch_injected_chars();
 }
 
 static uint32_t requested_tick_interval_ms(void)
