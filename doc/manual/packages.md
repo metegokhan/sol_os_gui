@@ -45,12 +45,19 @@ group plus system, maintenance, and network tools. It excludes general
 utilities and hardware-diagnostics jobs to stay focused and fit the board's
 smaller OTA slot.
 
-The `composite` flavor is reserved for Freenove ESP32-WROVER v3.0
-composite-video terminal builds and is the only flavor intended for that board.
-It retains the Writerdeck package selection except for OTA and remote manual
-synchronization. The board's 4 MB flash cannot hold Writerdeck in a dual-OTA
-layout, so it uses one large factory application slot. The embedded `docs`
-application remains available.
+The `rover`, `rover-python`, and `rover-lua` flavors target the Freenove
+ESP32-WROVER v3.0 composite-video terminal. All three include the expansion
+framework and drivers, networking, media viewing, general utilities, the
+writing suite, the log job, and the Bridge job. They omit the battery monitor
+because the board has no battery hardware, and omit the DAQ and SUMP jobs by
+default. The Logic app is also omitted because its timing-sensitive capture
+buffer requires more internal-memory margin than this configuration provides.
+`rover` includes games and has no embedded interpreter;
+`rover-python` and `rover-lua` omit games and add only their selected scripting
+stack. Agent remains excluded because its runtime memory requirements exceed
+the practical internal-memory margin. The board's 4 MB flash uses one large
+factory application slot, so these flavors omit OTA and remote manual
+synchronization. The embedded `docs` application remains available.
 
 Network ownership is intentionally split. `network.base`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and

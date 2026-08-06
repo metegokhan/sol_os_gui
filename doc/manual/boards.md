@@ -530,7 +530,7 @@ centered 320x200 safe-area mode. Select it when building; the main and virtual
 display dimensions both change to 320x200:
 
 ```sh
-SOLAR_OS_FLAVOR=composite SOLAR_OS_CVBS_MODE=320x200 \
+SOLAR_OS_FLAVOR=rover SOLAR_OS_CVBS_MODE=320x200 \
   pio run -e freenove_esp32_wrover_v3
 ```
 
@@ -551,10 +551,10 @@ PWM and can form runtime I2C, SPI, UART, or 1-Wire buses. UART0 remains
 registered on the CH340 pins and cannot be detached by the shell using it.
 
 The board uses `partitions_4mb.csv`, with one 0x3D0000-byte factory application
-slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific
-`composite` flavor does not fit a dual-OTA layout on 4 MB flash. Install
-firmware through the CH340 serial connection; this partition layout does not
-support on-device OTA updates.
+slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific `rover`,
+`rover-python`, and `rover-lua` flavors do not use a dual-OTA layout on 4 MB
+flash. Install firmware through the CH340 serial connection; this partition
+layout does not support on-device OTA updates.
 
 ## ODROID-GO
 

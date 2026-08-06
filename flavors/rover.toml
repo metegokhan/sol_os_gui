@@ -1,27 +1,26 @@
 [flavor]
-name = "composite"
-description = "SolarOS composite video terminal on WROVER32."
+name = "rover"
+description = "SolarOS rover terminal with expansion support."
 
 [packages]
 system = true
-expansions = false
+expansions = true
 maintenance_apps = false
-maintenance_jobs = true
+maintenance_jobs = false
 hardware_jobs = false
 audio = false
 net = true
 agent = false
 media = true
-games = false
+games = true
 retro = false
-python = true
+python = false
 lua = false
-writing = false
+writing = true
 utils = true
 
-# The 4 MB WROVER needs one large factory slot. OTA and remote manual
-# synchronization require a second application slot and remain disabled. The
-# embedded manual remains available through docs.
+# The 4 MB WROVER uses one large factory slot. OTA and remote manual
+# synchronization remain disabled; the embedded manual stays available.
 service_contacts = true
 service_credentials = true
 service_messaging = true
@@ -36,3 +35,6 @@ app_edit = true
 app_less = true
 app_io = true
 app_files = true
+app_logic = false
+job_log = true
+job_bridge = true

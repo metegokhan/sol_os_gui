@@ -2,6 +2,16 @@
 
 ## 4.x
 
+- **4.6.4** — 2026-08-06 — Replaced the Freenove `composite` flavor with the
+  expansion-capable `rover`, `rover-python`, and `rover-lua` family. All three
+  include the writing suite, networking, media, utilities, the log job, and the
+  Bridge job while omitting OTA, battery monitoring, DAQ, SUMP, and the
+  internal-memory-sensitive Logic app. The base Rover flavor includes games;
+  the scripting variants instead add only their selected interpreter. Agent
+  remains excluded because its runtime memory requirements are not viable on
+  this configuration. Moved 11.7 KiB of
+  persistent foreground-application state from internal SRAM to PSRAM, giving
+  background jobs such as `telnetd` enough internal memory to start reliably.
 - **4.6.3** — 2026-08-05 — Added `files --launcher`, a read-only single-pane
   startup menu that hides dot-prefixed entries and uses the full terminal
   height without the file-operation bars. File-opening associations now live
