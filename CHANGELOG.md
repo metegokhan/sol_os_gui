@@ -2,12 +2,34 @@
 
 ## 4.x
 
+- **4.6.4** — 2026-08-06 — Replaced the Freenove `composite` flavor with the
+  expansion-capable `rover`, `rover-python`, and `rover-lua` family. All three
+  include the writing suite, networking, media, utilities, the log job, and the
+  Bridge job while omitting OTA, battery monitoring, DAQ, SUMP, and the
+  internal-memory-sensitive Logic app. The base Rover flavor includes games;
+  the scripting variants instead add only their selected interpreter. Agent
+  remains excluded because its runtime memory requirements are not viable on
+  this configuration. Moved 11.7 KiB of
+  persistent foreground-application state from internal SRAM to PSRAM, giving
+  background jobs such as `telnetd` enough internal memory to start reliably.
 - **4.6.3** — 2026-08-05 — Added `files --launcher`, a read-only single-pane
   startup menu that hides dot-prefixed entries and uses the full terminal
   height without the file-operation bars. File-opening associations now live
   in the installed app registry, including `.gb` ROMs for `gameboy`. Added
   `.sh` shell-script recognition in Files and direct shell execution through
-  paths such as `./somescript.sh`.
+  paths such as `./somescript.sh`. Added the initial Freenove ESP32-WROVER v3.0
+  board target and its 4 MB, serial-installed `composite` Writerdeck flavor.
+  Added its 384x288 monochrome PAL 625/50 display backend on GPIO25, using the
+  ESP32 DAC, I2S0 DMA, field-boundary framebuffer swaps, and timing adapted from
+  LovyanGFX. Added an optional centered 320x200 PAL safe-area build mode for
+  small composite displays and a 240 MHz board CPU floor for stable scanout.
+  Assigned the active-low GPIO0 BOOT buttons as SolarOS KEY inputs on the
+  Freenove WROVER and ESP32-S3-DevKitC-1 targets. Released the unsupported
+  Freenove camera signal pins for runtime GPIO, ADC, and PWM use while keeping
+  GPIO25 reserved for PAL composite output.
+  Virtual displays now inherit the board's main display dimensions; headless
+  boards retain the 400x300 fallback. Fixed `df` listing internal flash twice
+  on SD-capable boards.
 - **4.6.2** — 2026-08-05 — Fixed foreground application path arguments so
   relative files are resolved from the current shell directory before the app
   session starts. This now covers editors, readers, scripts, audio, images,

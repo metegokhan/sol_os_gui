@@ -80,6 +80,84 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertFalse(packages[package], package)
 
+    def test_rover_flavors_share_an_expansion_capable_baseline(self):
+        rover_name, _, rover_groups, rover_packages = self.resolve("rover")
+        python_name, _, python_groups, python_packages = self.resolve("rover-python")
+        lua_name, _, lua_groups, lua_packages = self.resolve("rover-lua")
+
+        self.assertEqual(rover_name, "rover")
+        self.assertEqual(python_name, "rover-python")
+        self.assertEqual(lua_name, "rover-lua")
+        for groups in (rover_groups, python_groups, lua_groups):
+            self.assertTrue(groups["expansions"])
+            self.assertFalse(groups["maintenance_apps"])
+            self.assertFalse(groups["maintenance_jobs"])
+            self.assertFalse(groups["hardware_jobs"])
+            self.assertFalse(groups["audio"])
+            self.assertFalse(groups["agent"])
+            self.assertTrue(groups["net"])
+            self.assertTrue(groups["media"])
+            self.assertTrue(groups["writing"])
+            self.assertTrue(groups["utils"])
+        for packages in (rover_packages, python_packages, lua_packages):
+            self.assertTrue(packages["service_expansion"])
+            self.assertTrue(packages["app_files"])
+            self.assertFalse(packages["service_ota"])
+            self.assertFalse(packages["service_docs"])
+            self.assertTrue(packages["job_log"])
+            self.assertTrue(packages["job_bridge"])
+            self.assertFalse(packages["job_batmon"])
+            self.assertFalse(packages["job_daq"])
+            self.assertFalse(packages["job_sump"])
+            self.assertFalse(packages["app_agent"])
+            self.assertFalse(packages["app_logic"])
+
+        self.assertTrue(rover_groups["games"])
+        self.assertTrue(rover_packages["app_invaders"])
+        self.assertFalse(rover_packages["app_python"])
+        self.assertFalse(rover_packages["app_lua"])
+        self.assertFalse(python_groups["games"])
+        self.assertFalse(python_packages["app_invaders"])
+        self.assertTrue(python_groups["python"])
+        self.assertTrue(python_packages["app_python"])
+        self.assertFalse(python_packages["app_lua"])
+        self.assertFalse(lua_groups["games"])
+        self.assertFalse(lua_packages["app_invaders"])
+        self.assertTrue(lua_groups["lua"])
+        self.assertTrue(lua_packages["app_lua"])
+        self.assertFalse(lua_packages["app_python"])
+
+        python_difference = {
+            package
+            for package in rover_packages
+            if rover_packages[package] != python_packages[package]
+        }
+        lua_difference = {
+            package
+            for package in rover_packages
+            if rover_packages[package] != lua_packages[package]
+        }
+        self.assertEqual(
+            python_difference,
+            {
+                "app_invaders",
+                "service_playground",
+                "service_script_runner",
+                "app_python",
+                "app_playground",
+            },
+        )
+        self.assertEqual(
+            lua_difference,
+            {
+                "app_invaders",
+                "service_playground",
+                "service_script_runner",
+                "app_lua",
+                "app_playground",
+            },
+        )
+
     def test_existing_flavors_preserve_hardware_job_selection(self):
         for flavor in ("core", "full", "netrunner"):
             with self.subTest(flavor=flavor):

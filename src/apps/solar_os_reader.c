@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "esp_attr.h"
 #include "esp_err.h"
 #include "solar_os_doc.h"
 #include "solar_os_epub.h"
@@ -74,7 +75,7 @@ typedef struct {
     size_t chapter;
 } reader_saved_position_t;
 
-static reader_state_t reader;
+static EXT_RAM_BSS_ATTR reader_state_t reader;
 
 static esp_err_t reader_state_path(char *path, size_t path_len, const char *leaf)
 {

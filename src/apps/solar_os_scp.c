@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "esp_attr.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_identity.h"
 #include "solar_os_scp.h"
@@ -53,7 +54,7 @@ typedef struct {
     bool remote_glob;
 } scp_app_state_t;
 
-static scp_app_state_t scp_app;
+static EXT_RAM_BSS_ATTR scp_app_state_t scp_app;
 static solar_os_shell_io_t scp_fallback_io;
 
 static solar_os_shell_io_t *scp_io(solar_os_context_t *ctx)

@@ -4,7 +4,7 @@ title = "Boards and hardware targets"
 section = "build"
 summary = "Supported boards, capabilities, porting structure, and validation"
 aliases = ["board", "targets"]
-keywords = "boards targets waveshare devkit odroid elecrow capabilities porting validation"
+keywords = "boards targets waveshare devkit odroid elecrow freenove wrover composite capabilities porting validation"
 packages_any = []
 +++
 # Defining SolarOS Boards
@@ -73,7 +73,8 @@ The current tree includes these board targets:
 | `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
-| `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
+| `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
+| `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
 ## Board Profile
 
@@ -205,6 +206,7 @@ Current built-in driver selector values:
 | `DISPLAY` | `drivers/display_st7305.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=st7305` |
 | `DISPLAY` | `drivers/display_ssd1683.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ssd1683` |
 | `DISPLAY` | `drivers/display_ili9341.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ili9341` |
+| `DISPLAY` | `drivers/display_cvbs_pal.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=cvbs_pal` |
 | `SD` | `drivers/storage_sdmmc.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdmmc` |
 | `SD` | `drivers/storage_sdspi.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdspi` |
 | `I2C` | `drivers/i2c_esp_idf.cmake` | `SOLAR_OS_BOARD_I2C_DRIVER=esp_idf` |
@@ -495,6 +497,65 @@ board = odroid_esp32
 board_build.cmake_extra_args = -DSOLAR_OS_BOARD=odroid_go -DSDKCONFIG_DEFAULTS=sdkconfig.defaults.odroid_go
 ```
 
+## Freenove ESP32-WROVER v3.0
+
+The `freenove_esp32_wrover_v3` target covers the FNK0060 v3.0 board with an
+ESP32-WROVER-E-N4R8 module, 4 MB flash, 8 MB physical PSRAM, a CH340 USB-to-UART
+bridge, and the rear microSD slot. It uses `uart0` on GPIO1/GPIO3 as the boot
+shell and one-bit SDMMC on GPIO14 clock, GPIO15 command, and GPIO2 data.
+The active-low BOOT button on GPIO0 is also the SolarOS KEY. A short press uses
+the configured KEY power action; a long press forgets the remembered BLE
+keyboard and starts pairing. Do not hold the button during reset or power-up,
+because GPIO0 low selects the ESP32 serial download boot mode.
+
+The target deliberately leaves the OV2640 camera unsupported. Remove or
+disconnect it before using this target. GPIO25 is reserved for PAL composite
+output because it conflicts with the camera's VSYNC signal. The other former
+camera signals are available as runtime expansion GPIOs; GPIO34, GPIO35,
+GPIO36, and GPIO39 are input-only and also support ADC. GPIO5 is a boot
+strapping pin, so external circuitry must not force it to the wrong level while
+the ESP32 resets.
+
+The `cvbs_pal` backend produces monochrome PAL through the original ESP32's
+DAC1 and I2S0 DMA hardware. Its default SolarOS canvas is 384x288 with PAL
+625/50 timing. The U8g2 draw buffer lives in PSRAM, while two scanout buffers
+in internal RAM swap only at PAL field boundaries so applications keep the
+normal display service and do not tear the active field. The timing and
+low-level peripheral setup are adapted from LovyanGFX `Panel_CVBS`; SolarOS
+keeps its own one-bit graphics stack instead of linking LovyanGFX's separate
+color framebuffer.
+
+Small composite displays that do not handle the full PAL raster well can use a
+centered 320x200 safe-area mode. Select it when building; the main and virtual
+display dimensions both change to 320x200:
+
+```sh
+SOLAR_OS_FLAVOR=rover SOLAR_OS_CVBS_MODE=320x200 \
+  pio run -e freenove_esp32_wrover_v3
+```
+
+Omit `SOLAR_OS_CVBS_MODE` (or set it to `384x288`) to build the default full
+PAL mode. Composite scanout requires the ESP32's full 240 MHz clock, so SolarOS
+clamps all power profiles to that board-specific CPU floor on this target.
+
+Connect GPIO25 to the composite input's center conductor and a board GND to its
+shield/ground. Keep both leads short and use a PAL-capable input with its normal
+75-ohm termination. The backend continuously owns I2S0 and the APLL while the
+display is active, so this board cannot use an I2S0 audio backend at the same
+time.
+
+Runtime GPIO is available on GPIO4, GPIO5, GPIO13, GPIO18, GPIO19,
+GPIO21-GPIO23, GPIO26, GPIO27, GPIO32-GPIO36, and GPIO39. GPIO34-GPIO36 and
+GPIO39 are input-only and support runtime ADC; the other runtime pins support
+PWM and can form runtime I2C, SPI, UART, or 1-Wire buses. UART0 remains
+registered on the CH340 pins and cannot be detached by the shell using it.
+
+The board uses `partitions_4mb.csv`, with one 0x3D0000-byte factory application
+slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific `rover`,
+`rover-python`, and `rover-lua` flavors do not use a dual-OTA layout on 4 MB
+flash. Install firmware through the CH340 serial connection; this partition
+layout does not support on-device OTA updates.
+
 ## ODROID-GO
 
 The built-in `odroid_go` target covers the classic ESP32 Hardkernel ODROID-GO.
@@ -608,6 +669,10 @@ and also enables expansion GPIO, ADC, PWM, I2C, and SPI. The default I2C bus is
 GPIO8 SDA and GPIO9 SCL. The default SPI bus is FSPI on GPIO12 SCK, GPIO13
 MISO, and GPIO11 MOSI, with chip-select slots on GPIO4, GPIO10, GPIO5, GPIO6,
 and GPIO7.
+Its active-low BOOT button on GPIO0 is also the SolarOS KEY for the configured
+short-press power action, light-sleep wake, and long-press BLE keyboard
+replacement. GPIO0 remains reserved from runtime routing. Do not hold the
+button during reset or power-up, because that selects download boot mode.
 The N16R8 target uses `partitions_16mb_devkit.csv`: each OTA application slot
 is 0x600000 bytes and the internal FAT filesystem partition is 0x3F0000 bytes.
 The larger local volume supports durable agent conversations and normal file

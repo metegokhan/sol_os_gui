@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test
 
 .PHONY: all test clean
 
@@ -42,6 +42,12 @@ gameboy_support_test: gameboy_support_test.c $(WRITER_DIR)/solar_os_gameboy_rom.
 		$(WRITER_DIR)/solar_os_gameboy_video.c \
 		$(WRITER_DIR)/solar_os_gameboy_apu.c -o $@
 
+storage_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h esp_log.h ff.h solar_os_board.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
+		-I. -I$(ROOT)/src/services -I$(ROOT)/src/board -I$(ROOT)/src/drivers \
+		storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c \
+		-Wl,--gc-sections -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -50,6 +56,7 @@ test: $(TARGETS)
 	./shell_launch_test
 	./app_file_types_test
 	./gameboy_support_test
+	./storage_mounts_test
 
 clean:
 	$(RM) $(TARGETS)

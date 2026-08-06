@@ -16,6 +16,11 @@
 #define SOLAR_OS_BOARD_PIN_UART_TX GPIO_NUM_43
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_44
 
+#define SOLAR_OS_BOARD_PIN_KEY GPIO_NUM_0
+#define SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL 0
+#define SOLAR_OS_BOARD_KEY_PULL_UP 1
+#define SOLAR_OS_BOARD_KEY_PULL_DOWN 0
+
 #define SOLAR_OS_BOARD_I2C_PORT I2C_NUM_0
 #define SOLAR_OS_BOARD_PIN_I2C_SDA GPIO_NUM_8
 #define SOLAR_OS_BOARD_PIN_I2C_SCL GPIO_NUM_9
@@ -117,7 +122,7 @@
     {.connector = "J1", .position = 13, .row = 12, .column = 0, .pin = GPIO_NUM_3, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO3"}, \
     {.connector = "J3", .position = 13, .row = 12, .column = 1, .pin = GPIO_NUM_35, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO35"}, \
     {.connector = "J1", .position = 14, .row = 13, .column = 0, .pin = GPIO_NUM_46, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO46"}, \
-    {.connector = "J3", .position = 14, .row = 13, .column = 1, .pin = GPIO_NUM_0, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO0"}, \
+    {.connector = "J3", .position = 14, .row = 13, .column = 1, .pin = GPIO_NUM_0, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO0/BOOT/KEY"}, \
     {.connector = "J1", .position = 15, .row = 14, .column = 0, .pin = GPIO_NUM_9, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO9"}, \
     {.connector = "J3", .position = 15, .row = 14, .column = 1, .pin = GPIO_NUM_45, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO45"}, \
     {.connector = "J1", .position = 16, .row = 15, .column = 0, .pin = GPIO_NUM_10, .kind = SOLAR_OS_CONNECTOR_PIN_GPIO, .label = "IO10"}, \
@@ -206,7 +211,7 @@
                                            (1ULL << GPIO_NUM_18))
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download"}, \
+    {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download / KEY"}, \
     {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "strapping"}, \

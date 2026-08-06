@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_app_file_types.h"
@@ -89,7 +90,7 @@ typedef struct {
     char message[FILES_MESSAGE_MAX];
 } files_state_t;
 
-static files_state_t files;
+static EXT_RAM_BSS_ATTR files_state_t files;
 
 static void files_set_message(const char *message);
 
