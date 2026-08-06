@@ -439,7 +439,10 @@ sources = [
 
 [packages.service_ble]
 label = "service.ble"
-sources = ["services/solar_os_ble_keyboard.c"]
+sources = [
+  "services/solar_os_ble_keyboard.c",
+  "services/solar_os_hid_keyboard_report.c",
+]
 requires = ["bt", "esp_hid", "nvs_flash"]
 capabilities = ["ble"]
 

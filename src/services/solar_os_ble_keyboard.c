@@ -18,6 +18,7 @@
 #include "esp_hidh.h"
 #include "esp_hidh_gattc.h"
 #include "esp_private/esp_hidh_private.h"
+#include "solar_os_hid_keyboard_report.h"
 #include "solar_os_log.h"
 #include "solar_os_input.h"
 #include "solar_os_power.h"
@@ -143,6 +144,7 @@ static ble_keyboard_scan_mode_t active_scan_mode = BLE_KEYBOARD_SCAN_DISCOVERY;
 static bool caps_lock;
 static uint8_t previous_keys[BLE_KEYBOARD_MAX_KEYS];
 static uint8_t previous_modifiers;
+static solar_os_hid_keyboard_report_tracker_t keyboard_report_tracker;
 static solar_os_input_source_t input_source;
 static solar_os_ble_keyboard_key_state_t key_state;
 static esp_hidh_dev_t *connected_dev;
@@ -174,6 +176,7 @@ static void keyboard_report_state_reset(bool is_connected)
     }
     memset(previous_keys, 0, sizeof(previous_keys));
     previous_modifiers = 0;
+    solar_os_hid_keyboard_report_reset(&keyboard_report_tracker);
 
     portENTER_CRITICAL(&key_state_lock);
     memset(&key_state, 0, sizeof(key_state));
@@ -1838,16 +1841,25 @@ static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys
     portEXIT_CRITICAL(&key_state_lock);
 }
 
-static void handle_keyboard_report(const uint8_t *data, uint16_t length)
+static void handle_keyboard_report(uint8_t map_index,
+                                   uint16_t report_id,
+                                   const uint8_t *data,
+                                   uint16_t length)
 {
-    if (data == NULL || length < 8) {
+    solar_os_hid_keyboard_report_state_t report_state;
+    if (!solar_os_hid_keyboard_report_update(&keyboard_report_tracker,
+                                             map_index,
+                                             report_id,
+                                             data,
+                                             length,
+                                             &report_state)) {
         return;
     }
 
-    const uint8_t modifiers = data[0];
-    const uint8_t *keys = &data[2];
+    const uint8_t modifiers = report_state.modifiers;
+    const uint8_t *keys = report_state.keys;
 
-    if (keys[0] == 0x01) {
+    if (key_in_report(0x01, keys)) {
         keyboard_report_state_reset(connected);
         previous_modifiers = modifiers;
         return;
@@ -2275,7 +2287,10 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                                 param->input.data,
                                 param->input.length);
         if (param->input.usage == ESP_HID_USAGE_KEYBOARD) {
-            handle_keyboard_report(param->input.data, param->input.length);
+            handle_keyboard_report(param->input.map_index,
+                                   param->input.report_id,
+                                   param->input.data,
+                                   param->input.length);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
         }
         break;

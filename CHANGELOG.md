@@ -23,7 +23,10 @@
   appear in `io`, and can be restored from startup scripts. The receive driver
   validates start, odd-parity, and stop bits in a GPIO edge ISR; the job decodes
   scan-code set 2 and publishes canonical HID transitions through the generic
-  input service. Python and Lua can create and inspect PS/2 buses too.
+  input service. Python and Lua can create and inspect PS/2 buses too. BLE HID
+  keyboard decoding now accepts both seven-byte report-protocol and eight-byte
+  boot reports and keeps composite-device report streams separate before
+  publishing their aggregate key state.
 - **4.6.5** — 2026-08-06 — Added the focused `rover-retro` flavor for running
   the Game Boy emulator on the Freenove ESP32-WROVER v3.0 composite target. It
   uses the normal system-service baseline with BLE, SD, UART ports, hardware
