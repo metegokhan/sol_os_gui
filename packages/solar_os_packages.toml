@@ -799,7 +799,6 @@ capabilities = ["gfx"]
 
 [packages.app_gameboy]
 label = "app.gameboy"
-depends = ["service_synth"]
 sources = [
   "apps/solar_os_gameboy.c",
   "apps/solar_os_gameboy_apu.c",

@@ -36,9 +36,8 @@ Plot, Logic, and Sheet.
 
 The `retro` flavor is the full firmware plus experimental emulation packages.
 Its `retro` group currently selects `app.gameboy`, which requires graphics,
-PSRAM, SD storage, and the audio-backed synth service. The app is currently
-usable only on the Waveshare ESP32-S3-RLCD-4.2 even if another capable target
-can compile the package.
+PSRAM, and SD storage. When `service.synth` is present, Game Boy also uses the
+MiniGB APU through the shared synth and audio services.
 
 The `writerdeck` flavor targets the Elecrow e-paper board with the `writing`
 group plus system, maintenance, and network tools. It excludes general
@@ -58,6 +57,16 @@ stack. Agent remains excluded because its runtime memory requirements exceed
 the practical internal-memory margin. The board's 4 MB flash uses one large
 factory application slot, so these flavors omit OTA and remote manual
 synchronization. The embedded `docs` application remains available.
+
+`rover-retro` is a focused Freenove Game Boy build with the normal system
+service baseline. It includes BLE keyboard input, SD storage, UART ports,
+hardware I/O services, filesystem commands, Docs, Edit, Less, Com, Files, the
+log job, Bridge, Wi-Fi, and the SSH/SCP clients. It excludes the remaining
+network stack, expansion drivers, media, the rest of the writing suite,
+utilities, other games, scripting, and OTA. The Freenove board has no usable
+audio backend while
+composite scanout owns I2S0, so Game Boy runs without MiniGB APU or synth output
+in this flavor.
 
 Network ownership is intentionally split. `network.base`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and

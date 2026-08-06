@@ -156,7 +156,8 @@ esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *disp
                                                   uint16_t y,
                                                   uint16_t width,
                                                   uint16_t height,
-                                                  uint16_t stride)
+                                                  uint16_t stride,
+                                                  bool palette_inverted)
 {
     if (display == NULL || display->driver == NULL) {
         return ESP_ERR_INVALID_STATE;
@@ -168,5 +169,6 @@ esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *disp
                                         y,
                                         width,
                                         height,
-                                        stride);
+                                        stride,
+                                        palette_inverted);
 }

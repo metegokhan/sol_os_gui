@@ -1259,7 +1259,8 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
                                        uint16_t y,
                                        uint16_t width,
                                        uint16_t height,
-                                       uint16_t stride)
+                                       uint16_t stride,
+                                       bool palette_inverted)
 {
     if (display == NULL ||
         display->spi == NULL ||
@@ -1283,7 +1284,7 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         return ESP_ERR_INVALID_STATE;
     }
 
-    memset(display->buffer, 0xFF, display->buffer_size);
+    memset(display->buffer, palette_inverted ? 0x00 : 0xFF, display->buffer_size);
     const size_t source_bytes = width / 8U;
     const size_t destination_byte = x / 8U;
     for (size_t source_y = 0; source_y < height; source_y++) {
@@ -1292,7 +1293,8 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         uint8_t *destination =
             display->buffer + destination_byte * RLCD_BUFFER_ROW_BYTES + native_x;
         for (size_t source_byte = 0; source_byte < source_bytes; source_byte++) {
-            destination[source_byte * RLCD_BUFFER_ROW_BYTES] = (uint8_t)~source[source_byte];
+            destination[source_byte * RLCD_BUFFER_ROW_BYTES] =
+                palette_inverted ? source[source_byte] : (uint8_t)~source[source_byte];
         }
     }
 

@@ -538,6 +538,25 @@ Omit `SOLAR_OS_CVBS_MODE` (or set it to `384x288`) to build the default full
 PAL mode. Composite scanout requires the ESP32's full 240 MHz clock, so SolarOS
 clamps all power profiles to that board-specific CPU floor on this target.
 
+For the Game Boy-focused build, use the full 384x288 PAL mode:
+
+```sh
+SOLAR_OS_FLAVOR=rover-retro pio run -e freenove_esp32_wrover_v3
+```
+
+This flavor uses the normal system-service baseline and includes BLE keyboard
+input, SD access, UART ports, hardware I/O, Files, basic maintenance apps, Log,
+Bridge, Wi-Fi, and the SSH/SCP clients. It keeps the rest of the network stack
+and unrelated application groups disabled so they do not compete with PAL
+scanout and emulation. For serial diagnostics, run:
+
+```text
+job start log uart0 debug
+```
+
+It is silent because composite scanout owns I2S0. Do not combine
+`rover-retro` with `SOLAR_OS_CVBS_MODE=320x200`; the Game Boy image is 320x288.
+
 Connect GPIO25 to the composite input's center conductor and a board GND to its
 shield/ground. Keep both leads short and use a PAL-capable input with its normal
 75-ohm termination. The backend continuously owns I2S0 and the APLL while the
@@ -552,9 +571,9 @@ registered on the CH340 pins and cannot be detached by the shell using it.
 
 The board uses `partitions_4mb.csv`, with one 0x3D0000-byte factory application
 slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific `rover`,
-`rover-python`, and `rover-lua` flavors do not use a dual-OTA layout on 4 MB
-flash. Install firmware through the CH340 serial connection; this partition
-layout does not support on-device OTA updates.
+`rover-python`, `rover-lua`, and `rover-retro` flavors do not use a dual-OTA
+layout on 4 MB flash. Install firmware through the CH340 serial connection;
+this partition layout does not support on-device OTA updates.
 
 ## ODROID-GO
 

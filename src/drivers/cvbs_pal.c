@@ -425,7 +425,7 @@ static inline uint8_t reverse_bits(uint8_t value)
     return (uint8_t)(((value & 0xAAU) >> 1U) | ((value & 0x55U) << 1U));
 }
 
-static esp_err_t cvbs_present_on_current_core(cvbs_pal_t *display)
+static int8_t cvbs_acquire_copy_buffer(cvbs_pal_t *display)
 {
     int8_t target = -1;
     portENTER_CRITICAL(&display->buffer_lock);
@@ -437,7 +437,22 @@ static esp_err_t cvbs_present_on_current_core(cvbs_pal_t *display)
         display->copying_buffer = target;
     }
     portEXIT_CRITICAL(&display->buffer_lock);
+    return target;
+}
 
+static void cvbs_commit_copy_buffer(cvbs_pal_t *display, int8_t target)
+{
+    portENTER_CRITICAL(&display->buffer_lock);
+    if (display->copying_buffer == target) {
+        display->copying_buffer = -1;
+        display->pending_buffer = target;
+    }
+    portEXIT_CRITICAL(&display->buffer_lock);
+}
+
+static esp_err_t cvbs_present_on_current_core(cvbs_pal_t *display)
+{
+    const int8_t target = cvbs_acquire_copy_buffer(display);
     if (target < 0) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -455,12 +470,7 @@ static esp_err_t cvbs_present_on_current_core(cvbs_pal_t *display)
         esp_rom_delay_us(4U);
     }
 
-    portENTER_CRITICAL(&display->buffer_lock);
-    if (display->copying_buffer == target) {
-        display->copying_buffer = -1;
-        display->pending_buffer = target;
-    }
-    portEXIT_CRITICAL(&display->buffer_lock);
+    cvbs_commit_copy_buffer(display, target);
     return ESP_OK;
 }
 
@@ -489,6 +499,53 @@ static esp_err_t cvbs_present(cvbs_pal_t *display)
                                                     cvbs_present_on_cpu0,
                                                     &context);
     return ipc_err == ESP_OK ? context.result : ipc_err;
+}
+
+esp_err_t cvbs_pal_present_mono_xbm(cvbs_pal_t *display,
+                                    const uint8_t *bitmap,
+                                    size_t bitmap_size,
+                                    uint16_t x,
+                                    uint16_t y,
+                                    uint16_t width,
+                                    uint16_t height,
+                                    uint16_t stride,
+                                    bool palette_inverted)
+{
+    const size_t source_bytes = (size_t)width / 8U;
+    const size_t scanout_stride = CVBS_PAL_WIDTH / 8U;
+    if (display == NULL || bitmap == NULL || width == 0 || height == 0 ||
+        (x & 7U) != 0U || (width & 7U) != 0U || stride < source_bytes ||
+        height > SIZE_MAX / stride || bitmap_size < (size_t)height * stride) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if ((uint32_t)x + width > CVBS_PAL_WIDTH ||
+        (uint32_t)y + height > CVBS_PAL_HEIGHT) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const int8_t target = cvbs_acquire_copy_buffer(display);
+    if (target < 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint8_t *scanout = display->scanout_buffers[target];
+    memset(scanout, palette_inverted ? 0x00 : 0xFF, display->buffer_size);
+    const size_t destination_x = x / 8U;
+    for (size_t row = 0; row < height; row++) {
+        const uint8_t *source = bitmap + row * stride;
+        uint8_t *destination =
+            scanout + ((size_t)y + row) * scanout_stride + destination_x;
+        for (size_t column = 0; column < source_bytes; column++) {
+            /* XBM is LSB-first and uses one bits for black; scanout is
+             * MSB-first and uses one bits for white. Palette inversion swaps
+             * both the frame background and the bitmap pixels. */
+            const uint8_t pixels = reverse_bits(source[column]);
+            destination[column] = palette_inverted ? pixels : (uint8_t)~pixels;
+        }
+    }
+
+    cvbs_commit_copy_buffer(display, target);
+    return ESP_OK;
 }
 
 static void cvbs_stop_signal(cvbs_pal_t *display)

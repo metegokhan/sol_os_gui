@@ -825,7 +825,8 @@ esp_err_t solar_os_display_present_mono_xbm(u8g2_t *u8g2,
                                             uint16_t y,
                                             uint16_t width,
                                             uint16_t height,
-                                            uint16_t stride)
+                                            uint16_t stride,
+                                            bool palette_inverted)
 {
     if (u8g2 == NULL || bitmap == NULL || width == 0 || height == 0 || stride == 0) {
         return ESP_ERR_INVALID_ARG;
@@ -855,7 +856,15 @@ esp_err_t solar_os_display_present_mono_xbm(u8g2_t *u8g2,
     portEXIT_CRITICAL(&display_targets_lock);
 
     const esp_err_t ret = solar_os_board_display_present_mono_xbm(
-        board_display, bitmap, bitmap_size, x, y, width, height, stride);
+        board_display,
+        bitmap,
+        bitmap_size,
+        x,
+        y,
+        width,
+        height,
+        stride,
+        palette_inverted);
     if (ret == ESP_OK) {
         display_publish_frame(u8g2);
     }

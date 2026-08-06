@@ -150,7 +150,8 @@ esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *disp
                                                   uint16_t y,
                                                   uint16_t width,
                                                   uint16_t height,
-                                                  uint16_t stride)
+                                                  uint16_t stride,
+                                                  bool palette_inverted)
 {
     (void)display;
     (void)bitmap;
@@ -160,5 +161,6 @@ esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *disp
     (void)width;
     (void)height;
     (void)stride;
+    (void)palette_inverted;
     return ESP_ERR_NOT_SUPPORTED;
 }

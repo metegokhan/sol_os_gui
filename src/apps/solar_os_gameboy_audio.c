@@ -1,5 +1,9 @@
 #include "solar_os_gameboy_audio.h"
 
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -147,3 +151,31 @@ void solar_os_gameboy_audio_write(uint16_t address, uint8_t value) {
   minigb_apu_audio_write(&gameboy_apu, address, value);
   gameboy_audio_unlock();
 }
+
+#else
+
+esp_err_t solar_os_gameboy_audio_init(void) {
+  return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t solar_os_gameboy_audio_resume(void) {
+  return ESP_ERR_NOT_SUPPORTED;
+}
+
+void solar_os_gameboy_audio_suspend(void) {}
+
+void solar_os_gameboy_audio_reset(void) {}
+
+void solar_os_gameboy_audio_deinit(void) {}
+
+uint8_t solar_os_gameboy_audio_read(uint16_t address) {
+  (void)address;
+  return 0xFFU;
+}
+
+void solar_os_gameboy_audio_write(uint16_t address, uint8_t value) {
+  (void)address;
+  (void)value;
+}
+
+#endif

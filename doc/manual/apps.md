@@ -589,26 +589,32 @@ Controls:
 ## gameboy
 
 Experimental original Game Boy (DMG) emulator for the Waveshare
-ESP32-S3-RLCD-4.2. It is included only in the `retro` flavor. The application
-loads a user-supplied ROM into PSRAM, renders its four shades as a 320x288
-dithered image, and writes battery-backed cartridge RAM beside the ROM as a
-`.sav` file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
-The MiniGB APU backend renders pulse, wave, and noise channels through the
-shared SolarOS synth and audio services at the global speaker volume.
+ESP32-S3-RLCD-4.2 and the full-PAL Freenove ESP32-WROVER v3.0 target. It is
+included in the `retro` and `rover-retro` flavors. The application loads a
+user-supplied ROM into PSRAM, renders its four shades as a 320x288 dithered
+image, and writes battery-backed cartridge RAM beside the ROM as a `.sav`
+file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
 
 The emulator runs the core independently from the relatively expensive RLCD
 update. It keeps Peanut-GB's hot state and up to two 16 KiB ROM banks in
 internal RAM when the SolarOS reserve permits, skips alternate core-rendered
-frames by default, and presents the newest frame once per four emulated
+frames by default, and presents the newest frame once per three emulated
 frames. On the Waveshare display, a dedicated monochrome presentation path
-rotates and streams the frame in one controller write sequence. Runtime logs
-report emulation and presentation rates separately.
+rotates and streams the frame in one controller write sequence. On Rover, a
+direct byte-aligned conversion copies XBM rows into the inactive PAL scanout
+buffer and swaps it at a field boundary; the 320x288 image is centered in the
+384x288 canvas and reaches the top and bottom edges. Runtime logs report
+emulation and presentation rates separately.
 
 Audio rendering runs in its own bounded worker and holds exclusive speaker
 output while Game Boy is active. RLCD presentation runs independently at about
 20 Hz, temporarily requests the panel's 25.5 Hz HPM profile, and drops stale
 frames instead of blocking emulation. Pausing, suspending, or exiting the app
 stops the synth and restores the previous display and audio policies.
+These audio and HPM behaviors apply to the Waveshare `retro` build. The Rover
+build deliberately compiles Game Boy without sound because PAL scanout owns
+I2S0. Its 320x200 composite safe-area mode is too short for the 320x288 Game
+Boy canvas and is not supported by `rover-retro`.
 
 Usage:
 
