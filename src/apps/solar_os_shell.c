@@ -1152,6 +1152,12 @@ static const char * const path_telnet[] = {"telnet"};
 static const char * const path_playground[] = {"playground"};
 static const char * const path_playground_install[] = {"playground", "install"};
 static const char * const path_playground_run[] = {"playground", "run"};
+static const char * const path_playground_run_file[] = {
+    "playground",
+    "run",
+    SHELL_COMPLETION_ANY,
+    "--file",
+};
 static const char * const path_playground_source[] = {"playground", "source"};
 static const char * const path_playground_storage[] = {"playground", "storage"};
 static const char * const path_playground_install_target[] = {
@@ -2130,6 +2136,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_playground, playground_subcommands),
     SHELL_COMPLETION_PLAYGROUND_APPS(path_playground_install),
     SHELL_COMPLETION_PLAYGROUND_APPS(path_playground_run),
+    SHELL_COMPLETION_PATH(path_playground_run_file, false),
     SHELL_COMPLETION_STATIC(path_playground_source, playground_source_values),
     SHELL_COMPLETION_STATIC(path_playground_storage, playground_storage_values),
     SHELL_COMPLETION_STATIC(path_playground_install_target, playground_target_values),
@@ -4093,6 +4100,44 @@ static shell_completion_parse_t *shell_alloc_completion_parse(void)
                                   sizeof(shell_completion_parse_t),
                                   SOLAR_OS_MEMORY_TRANSIENT,
                                   "shell.complete");
+}
+
+static bool shell_completion_expand_alias(const shell_completion_parse_t *parse,
+                                          size_t completed_count,
+                                          char *expanded_line,
+                                          size_t expanded_line_len,
+                                          char **expanded_tokens,
+                                          size_t *expanded_count)
+{
+    if (parse == NULL || parse->count == 0 || completed_count > parse->count ||
+        expanded_line == NULL || expanded_line_len == 0 ||
+        expanded_tokens == NULL || expanded_count == NULL) {
+        return false;
+    }
+
+    char *user_argv[SHELL_ARG_MAX] = {0};
+    for (size_t i = 0; i < completed_count; i++) {
+        user_argv[i] = (char *)parse->tokens[i];
+    }
+    shell_alias_expand_t expand = {
+        .name = parse->tokens[0],
+        .user_argc = (int)completed_count,
+        .user_argv = user_argv,
+    };
+    (void)shell_for_each_alias(shell_alias_expand_callback, &expand);
+    if (!expand.found || expand.too_long) {
+        return false;
+    }
+
+    strlcpy(expanded_line, expand.expanded, expanded_line_len);
+    const solar_os_shell_parse_result_t result =
+        solar_os_shell_tokenize(expanded_line, expanded_tokens, SHELL_ARG_MAX);
+    if (result.error != SOLAR_OS_SHELL_PARSE_OK || result.argc <= 0) {
+        return false;
+    }
+
+    *expanded_count = (size_t)result.argc;
+    return true;
 }
 
 typedef struct {
@@ -6098,8 +6143,9 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
 {
     const char *completed_tokens[SHELL_ARG_MAX];
     char effective_command[SHELL_INPUT_MAX];
+    char *alias_tokens[SHELL_ARG_MAX] = {0};
     const char *prefix = "";
-    const size_t completed_count = current_index;
+    size_t completed_count = current_index;
     shell_completion_match_t state;
 
     if (parse == NULL || parse->count == 0 || current_index >= SHELL_ARG_MAX) {
@@ -6110,12 +6156,25 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
         completed_tokens[i] = parse->tokens[i];
     }
 
-    if (!shell_alias_lookup_target_command(parse->tokens[0],
-                                           effective_command,
-                                           sizeof(effective_command))) {
+    size_t alias_count = 0;
+    if (shell_completion_expand_alias(parse,
+                                      completed_count,
+                                      effective_command,
+                                      sizeof(effective_command),
+                                      alias_tokens,
+                                      &alias_count)) {
+        completed_count = alias_count;
+        for (size_t i = 0; i < completed_count; i++) {
+            completed_tokens[i] = alias_tokens[i];
+        }
+    } else if (!shell_alias_lookup_target_command(parse->tokens[0],
+                                                  effective_command,
+                                                  sizeof(effective_command))) {
         strlcpy(effective_command, parse->tokens[0], sizeof(effective_command));
     }
-    completed_tokens[0] = effective_command;
+    if (alias_count == 0) {
+        completed_tokens[0] = effective_command;
+    }
 
     if (!parse->trailing_space && current_index < parse->count) {
         prefix = parse->tokens[current_index];

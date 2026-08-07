@@ -163,6 +163,8 @@ name command-or-app fixed-args...
 ```
 
 Arguments typed after the alias are appended.
+Tab completion expands the complete fixed alias target. For example,
+`run playground run` completes installed application IDs after `run `.
 
 The inbox is a persistent, producer-neutral message sink. Radio decoders,
 background chat or mail jobs, and shell scripts publish messages with a source,

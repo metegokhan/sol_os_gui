@@ -9,6 +9,9 @@
   default OpenSSH public key without access to private key material. Added
   bounded `solaros.storage.read_file(...)` access to both scripting runtimes.
   `playground run ID [ARG...]` now forwards script arguments to Python and Lua.
+  Playground recognizes the canonical forwarded `--file PATH` script option
+  and completes its paths. Shell completion now expands all fixed tokens in
+  multi-token aliases.
 - **4.6.7** — 2026-08-07 — Fixed `displayd` browser keyboard lag and event
   reordering by queueing input in the browser and sending ordered batches.
   Corrected the Elecrow rotary wheel direction mapping and made all three

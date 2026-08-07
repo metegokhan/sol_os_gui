@@ -51,6 +51,10 @@ to Python through `sys.argv` or to Lua through `arg`. For example:
 playground run qr-share --file /notes/wifi.txt
 ```
 
+`--file PATH` is the canonical optional convention for a Playground script's
+primary input file. After `--file`, Tab completes filesystem paths. This also
+works through a multi-token alias such as `run playground run`.
+
 After the catalog is loaded, Tab completes installed application IDs for both
 `install` and `run` without keeping a second ID list in memory. These commands
 use the loaded local catalog.
