@@ -1061,6 +1061,40 @@ static mp_obj_t solaros_storage_resolve(mp_obj_t path_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_resolve_obj, solaros_storage_resolve);
 
+static mp_obj_t solaros_storage_read_file(size_t n_args, const mp_obj_t *args)
+{
+    const uint32_t max_bytes = python_optional_u32(n_args, args, 1, 4096U);
+    if (max_bytes == 0 || max_bytes > SOLAR_OS_STORAGE_READ_MAX_BYTES) {
+        mp_raise_ValueError(MP_ERROR_TEXT("max_bytes must be 1..65536"));
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(args[0], path, sizeof(path));
+
+    uint8_t *data = python_alloc_psram_first(max_bytes);
+    if (data == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+
+    size_t read_len = 0;
+    const esp_err_t err = solar_os_storage_read_file(path,
+                                                      data,
+                                                      max_bytes,
+                                                      &read_len);
+    if (err != ESP_OK) {
+        solar_os_memory_free(data);
+        python_check_esp(err);
+    }
+
+    mp_obj_t result = mp_obj_new_bytes(data, read_len);
+    solar_os_memory_free(data);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_storage_read_file_obj,
+                                    1,
+                                    2,
+                                    solaros_storage_read_file);
+
 static mp_obj_t solaros_storage_rescan(void)
 {
     python_check_esp(solar_os_storage_rescan());
@@ -4752,6 +4786,9 @@ static void python_register_solaros_module(void)
     python_module_store(storage, "mount_point", MP_OBJ_FROM_PTR(&solaros_storage_mount_point_obj));
     python_module_store(storage, "usage", MP_OBJ_FROM_PTR(&solaros_storage_usage_obj));
     python_module_store(storage, "resolve", MP_OBJ_FROM_PTR(&solaros_storage_resolve_obj));
+    python_module_store(storage,
+                        "read_file",
+                        MP_OBJ_FROM_PTR(&solaros_storage_read_file_obj));
     python_module_store(storage, "rescan", MP_OBJ_FROM_PTR(&solaros_storage_rescan_obj));
     python_module_store(storage, "blocks", MP_OBJ_FROM_PTR(&solaros_storage_blocks_obj));
     python_module_store(storage, "block_count", MP_OBJ_FROM_PTR(&solaros_storage_block_count_obj));

@@ -11,6 +11,7 @@
 #define SOLAR_OS_STORAGE_FS_NAME_MAX 8
 #define SOLAR_OS_STORAGE_TYPE_NAME_MAX 12
 #define SOLAR_OS_STORAGE_MOUNT_POINT_MAX 32
+#define SOLAR_OS_STORAGE_READ_MAX_BYTES 65536U
 #define SOLAR_OS_STORAGE_LOGICAL_VOLUME_INVALID UINT8_MAX
 
 #ifdef __cplusplus
@@ -110,6 +111,10 @@ esp_err_t solar_os_storage_mkdir(const char *path);
 esp_err_t solar_os_storage_rmdir(const char *path);
 esp_err_t solar_os_storage_remove(const char *path);
 esp_err_t solar_os_storage_rename(const char *old_path, const char *new_path);
+esp_err_t solar_os_storage_read_file(const char *path,
+                                     void *buffer,
+                                     size_t buffer_len,
+                                     size_t *read_len);
 esp_err_t solar_os_storage_copy_file(const char *source_path, const char *dest_path);
 
 #ifdef __cplusplus

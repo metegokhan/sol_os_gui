@@ -1095,6 +1095,38 @@ static int solua_storage_resolve(lua_State *L)
     return 1;
 }
 
+static int solua_storage_read_file(lua_State *L)
+{
+    const uint32_t max_bytes = solua_optional_u32(L, 2, 4096U);
+    if (max_bytes == 0 || max_bytes > SOLAR_OS_STORAGE_READ_MAX_BYTES) {
+        return luaL_error(L, "max_bytes must be 1..65536");
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    solua_resolve_path(L, 1, path, sizeof(path));
+
+    uint8_t *data = solar_os_memory_alloc(max_bytes,
+                                           SOLAR_OS_MEMORY_TRANSIENT,
+                                           "lua.storage");
+    if (data == NULL) {
+        return solua_check_esp(L, ESP_ERR_NO_MEM);
+    }
+
+    size_t read_len = 0;
+    const esp_err_t err = solar_os_storage_read_file(path,
+                                                      data,
+                                                      max_bytes,
+                                                      &read_len);
+    if (err != ESP_OK) {
+        solar_os_memory_free(data);
+        return solua_check_esp(L, err);
+    }
+
+    lua_pushlstring(L, (const char *)data, read_len);
+    solar_os_memory_free(data);
+    return 1;
+}
+
 static int solua_storage_rescan(lua_State *L)
 {
     return solua_check_esp(L, solar_os_storage_rescan());
@@ -4508,6 +4540,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "mount_point", solua_storage_mount_point);
     solua_set_func(L, mod, "usage", solua_storage_usage);
     solua_set_func(L, mod, "resolve", solua_storage_resolve);
+    solua_set_func(L, mod, "read_file", solua_storage_read_file);
     solua_set_func(L, mod, "rescan", solua_storage_rescan);
     solua_set_func(L, mod, "blocks", solua_storage_blocks);
     solua_set_func(L, mod, "block_count", solua_storage_block_count);

@@ -130,6 +130,8 @@ Storage functions expose SD mount and filesystem service operations.
   when mounted, otherwise internal flash).
 - `usage([path])`: return disk usage for the default volume or the volume containing `path`.
 - `resolve(path)`: return the internal resolved path.
+- `read_file(path[, max_bytes])`: return up to `max_bytes` bytes from a regular
+  file. The default is 4096 and the maximum is 65536.
 - `rescan()`: rescan SD block devices and partitions.
 - `blocks()`: return a list of block device and partition dictionaries.
 - `block_count()`: return the number of known blocks.
@@ -152,6 +154,7 @@ if not solaros.storage.is_mounted():
     solaros.storage.mount()
 
 print(solaros.storage.usage("/"))
+print(solaros.storage.read_file("/notes/example.txt", 512))
 for block in solaros.storage.blocks():
     print(block["name"], block["type"], block["mounted"], block["mount_point"])
 ```

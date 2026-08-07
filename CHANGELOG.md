@@ -6,7 +6,8 @@
   Python and Lua `solaros.gfx` APIs. Both runtimes expose `gfx.bitmap(...)` and
   its `gfx.sprite(...)` alias for reflective-display-friendly pixel art. Added
   `solaros.ssh_keys.public_key()` to both runtimes so scripts can share the
-  default OpenSSH public key without access to private key material.
+  default OpenSSH public key without access to private key material. Added
+  bounded `solaros.storage.read_file(...)` access to both scripting runtimes.
 - **4.6.7** — 2026-08-07 — Fixed `displayd` browser keyboard lag and event
   reordering by queueing input in the browser and sending ordered batches.
   Corrected the Elecrow rotary wheel direction mapping and made all three
