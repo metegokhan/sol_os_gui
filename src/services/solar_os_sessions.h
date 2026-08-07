@@ -39,6 +39,7 @@ bool solar_os_sessions_switch_to_app_with_policy(const solar_os_app_t *app,
                                                  solar_os_launch_policy_t policy);
 void solar_os_sessions_cycle_next(void);
 bool solar_os_sessions_cycle_input_focus(void);
+bool solar_os_sessions_cycle_input_focus_previous(void);
 void solar_os_sessions_mark_foreground_dirty(void);
 
 void solar_os_sessions_dispatch_foreground_event(const solar_os_event_t *event);

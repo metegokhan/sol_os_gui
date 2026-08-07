@@ -30,8 +30,14 @@ int main(void)
 
     char *reader_file[] = {"reader", "books/manual.md"};
     char *reader_manual[] = {"reader", "man:storage"};
+    char *reader_pager_file[] = {"reader", "--pager", "books/manual.md"};
+    char *reader_file_pager[] = {"reader", "books/manual.md", "--pager"};
+    char *reader_pager_manual[] = {"reader", "--pager", "man:storage"};
     assert(path_arg(2, reader_file) == 1);
     assert(path_arg(2, reader_manual) == -1);
+    assert(path_arg(3, reader_pager_file) == 2);
+    assert(path_arg(3, reader_file_pager) == 1);
+    assert(path_arg(3, reader_pager_manual) == -1);
 
     char *plot[] = {"plot", "--rate", "500", "--file", "logs/data.csv"};
     assert(path_arg(5, plot) == 4);

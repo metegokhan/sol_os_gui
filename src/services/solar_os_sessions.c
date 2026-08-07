@@ -1516,6 +1516,22 @@ static solar_os_session_entry_t *session_next_in_ring(void)
     return NULL;
 }
 
+static solar_os_session_entry_t *session_previous_in_ring(void)
+{
+    const uint8_t start = session_state.foreground_session != NULL ?
+        session_state.foreground_session->id :
+        0;
+    for (size_t step = 1; step <= SOLAR_OS_SESSION_MAX; step++) {
+        const uint8_t index = (uint8_t)((start + SOLAR_OS_SESSION_MAX - step) %
+                                        SOLAR_OS_SESSION_MAX);
+        if (session_state.sessions[index].used &&
+            session_state.sessions[index].app != NULL) {
+            return &session_state.sessions[index];
+        }
+    }
+    return NULL;
+}
+
 static solar_os_session_entry_t *session_next_for_display(
     const char *target_name,
     const solar_os_session_entry_t *current)
@@ -1526,6 +1542,27 @@ static solar_os_session_entry_t *session_next_for_display(
     const uint8_t start = current != NULL ? current->id : 0;
     for (size_t step = 1; step <= SOLAR_OS_SESSION_MAX; step++) {
         const uint8_t index = (uint8_t)((start + step) % SOLAR_OS_SESSION_MAX);
+        solar_os_session_entry_t *candidate = &session_state.sessions[index];
+        if (candidate->used &&
+            candidate->app != NULL &&
+            strcmp(candidate->display_target, target_name) == 0) {
+            return candidate;
+        }
+    }
+    return NULL;
+}
+
+static solar_os_session_entry_t *session_previous_for_display(
+    const char *target_name,
+    const solar_os_session_entry_t *current)
+{
+    if (target_name == NULL || target_name[0] == '\0') {
+        return NULL;
+    }
+    const uint8_t start = current != NULL ? current->id : 0;
+    for (size_t step = 1; step <= SOLAR_OS_SESSION_MAX; step++) {
+        const uint8_t index = (uint8_t)((start + SOLAR_OS_SESSION_MAX - step) %
+                                        SOLAR_OS_SESSION_MAX);
         solar_os_session_entry_t *candidate = &session_state.sessions[index];
         if (candidate->used &&
             candidate->app != NULL &&
@@ -1955,6 +1992,26 @@ bool solar_os_sessions_cycle_input_focus(void)
         return next == current || switch_to_session(next, true);
     }
     return switch_detached_display_session(current, next);
+}
+
+bool solar_os_sessions_cycle_input_focus_previous(void)
+{
+    char target_name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    if (!session_copy_input_focus(target_name, sizeof(target_name))) {
+        solar_os_session_entry_t *previous = session_previous_in_ring();
+        return previous != NULL && switch_to_session(previous, true);
+    }
+
+    solar_os_session_entry_t *current = session_active_for_display(target_name);
+    solar_os_session_entry_t *previous =
+        session_previous_for_display(target_name, current);
+    if (current == NULL || previous == NULL) {
+        return false;
+    }
+    if (current == session_state.foreground_session) {
+        return previous == current || switch_to_session(previous, true);
+    }
+    return switch_detached_display_session(current, previous);
 }
 
 void solar_os_sessions_mark_foreground_dirty(void)

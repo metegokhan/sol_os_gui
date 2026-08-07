@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define SOLAR_OS_KEY_ENTER ((uint8_t)'\n')
 #define SOLAR_OS_KEY_UP 0x80u
 #define SOLAR_OS_KEY_DOWN 0x81u
 #define SOLAR_OS_KEY_LEFT 0x82u

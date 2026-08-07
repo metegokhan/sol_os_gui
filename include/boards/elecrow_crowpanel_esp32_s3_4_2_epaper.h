@@ -72,9 +72,9 @@
 
 #define SOLAR_OS_BOARD_BUTTONS { \
     {.pin = GPIO_NUM_1, .name = "EXIT", .key = SOLAR_OS_KEY_APP_EXIT, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
-    {.pin = GPIO_NUM_6, .name = "ROTARY-UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
-    {.pin = GPIO_NUM_4, .name = "ROTARY-DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
-    {.pin = GPIO_NUM_5, .name = "ROTARY-OK", .key = '\n', .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
+    {.pin = GPIO_NUM_6, .name = "ROTARY-DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
+    {.pin = GPIO_NUM_4, .name = "ROTARY-UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
+    {.pin = GPIO_NUM_5, .name = "ROTARY-OK", .key = SOLAR_OS_KEY_ENTER, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
 }
 
 #define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_TITLE "U5 2x10 GPIO header"
@@ -146,9 +146,9 @@
     {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EXIT button"}, \
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "MENU / SolarOS KEY"}, \
     {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "expansion / strapping"}, \
-    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "rotary down"}, \
+    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "rotary up"}, \
     {.pin = 5, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "rotary confirm"}, \
-    {.pin = 6, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "rotary up"}, \
+    {.pin = 6, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "rotary down"}, \
     {.pin = 7, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EPD power"}, \
     {.pin = 8, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 9, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \

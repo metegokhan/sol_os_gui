@@ -796,16 +796,23 @@ static void files_render(solar_os_context_t *ctx)
     }
 
     solar_os_tui_clear(&files.tui);
-    solar_os_tui_fill(&files.tui, 0, 0, 1, cols, ' ', SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
-    const char *title = files.launcher_mode ?
-        "launcher  Enter open  q quit" :
-        (files.show_hidden ? "files  hidden:on  Tab switch  Enter open  q quit"
-                           : "files  hidden:off Tab switch  Enter open  q quit");
-    files_add_clipped(0,
-                      0,
-                      cols,
-                      title,
-                      SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    if (!files.launcher_mode) {
+        solar_os_tui_fill(&files.tui,
+                          0,
+                          0,
+                          1,
+                          cols,
+                          ' ',
+                          SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+        const char *title = files.show_hidden ?
+            "files  hidden:on  Tab switch  Enter open  q quit" :
+            "files  hidden:off Tab switch  Enter open  q quit";
+        files_add_clipped(0,
+                          0,
+                          cols,
+                          title,
+                          SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    }
 
     const size_t pane_row = 1;
     if (files.launcher_mode) {
@@ -896,7 +903,10 @@ static const char *files_default_viewer(const char *path)
     return files_app_available("edit") ? "edit" : NULL;
 }
 
-static bool files_launch_app(solar_os_context_t *ctx, const char *app_name, const char *path)
+static bool files_launch_app(solar_os_context_t *ctx,
+                             const char *app_name,
+                             const char *option,
+                             const char *path)
 {
     const solar_os_app_registry_entry_t *entry = solar_os_app_registry_find(app_name);
     if (entry == NULL || entry->app == NULL) {
@@ -905,13 +915,20 @@ static bool files_launch_app(solar_os_context_t *ctx, const char *app_name, cons
     }
 
     char app_arg[SOLAR_OS_APP_ARG_LEN];
+    char option_arg[SOLAR_OS_APP_ARG_LEN];
     char path_arg[SOLAR_OS_APP_ARG_LEN];
-    char *argv[] = {app_arg, path_arg};
+    char *argv[3] = {app_arg, NULL, NULL};
+    int argc = 1;
     strlcpy(app_arg, app_name, sizeof(app_arg));
+    if (option != NULL && option[0] != '\0') {
+        strlcpy(option_arg, option, sizeof(option_arg));
+        argv[argc++] = option_arg;
+    }
     strlcpy(path_arg, path, sizeof(path_arg));
+    argv[argc++] = path_arg;
     const esp_err_t err = solar_os_context_request_launch_ex(ctx,
                                                              entry->app,
-                                                             2,
+                                                             argc,
                                                              argv,
                                                              SOLAR_OS_LAUNCH_CHILD_RETURN);
     if (err != ESP_OK) {
@@ -927,7 +944,12 @@ static bool files_open_file(solar_os_context_t *ctx, const char *path)
         (void)solar_os_shell_run_script(ctx, path, path, true);
         return true;
     }
-    return files_launch_app(ctx, files_default_viewer(path), path);
+    const char *app_name = files_default_viewer(path);
+    const char *option = files.launcher_mode && app_name != NULL &&
+                                 strcmp(app_name, "reader") == 0
+                             ? "--pager"
+                             : NULL;
+    return files_launch_app(ctx, app_name, option, path);
 }
 
 static void files_open_selected(solar_os_context_t *ctx)
@@ -1758,7 +1780,7 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         char path[SOLAR_OS_STORAGE_PATH_MAX];
         files_entry_t *entry = files_selected_entry(pane);
         if (entry != NULL && !entry->is_dir && files_selected_path(pane, path, sizeof(path))) {
-            files_launch_app(ctx, "edit", path);
+            files_launch_app(ctx, "edit", NULL, path);
         }
         break;
     }

@@ -19,7 +19,9 @@ Exit behavior:
 - Port shells: `Ctrl+]` exits foreground apps.
 - Port shells: `Ctrl+Z` suspends a resumable app and returns to the prompt;
   `fg` restores the most recently suspended app.
-- `Alt+Tab` switches between resumable foreground sessions on display builds.
+- `Alt+Tab` or `Alt+Right` switches to the next resumable foreground session on
+  the locally focused display. `Alt+Left` switches to the previous session.
+  Either Alt key is accepted, including AltGr on compact keyboards.
 
 ## agent
 
@@ -421,7 +423,8 @@ the active firmware can be selected. Associations include images to `view`,
 WAV/MP3 to `aplay`, CSV to `sheet`, Python and Lua scripts to their runtimes,
 documents to `reader` (or `writer` when Reader is unavailable), and `.gb` ROMs
 to `gameboy`. Unknown files fall back to `less` or `edit`. A `.sh` file runs
-through the built-in SolarOS shell.
+through the built-in SolarOS shell. In launcher mode, documents associated with
+Reader open as `reader --pager` for row-aware page navigation.
 
 Controls:
 
@@ -849,13 +852,17 @@ reading position and zoom per opened file when storage is available.
 Usage:
 
 ```text
-reader <file.txt|file.md|file.epub>
+reader [--pager] <file.txt|file.md|file.epub|man:topic>
 ```
+
+With `--pager`, `Up` and `Down` page instead of scrolling one layout row. Each
+forward page starts with the final visible row from the previous page, so
+mixed font sizes and wrapped Markdown retain a precise reading overlap.
 
 Controls:
 
-- `Up`/`Down` scroll by line.
-- `Page Up`/`Page Down` page.
+- `Up`/`Down` scroll by layout row, or page when `--pager` is active.
+- `Page Up`/`Page Down` page with the same precise row overlap.
 - `Home`/`End` jump to start/end.
 - `+`/`-` adjust zoom.
 - `/` starts search, `n`/`N` repeat search.

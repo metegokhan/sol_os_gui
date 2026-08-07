@@ -631,8 +631,8 @@ controls are mapped as follows:
 
 - GPIO1: EXIT, mapped to the foreground app-exit key.
 - GPIO2: MENU, used as the SolarOS KEY for sleep/wake and BLE pairing.
-- GPIO6: rotary counter-clockwise/previous, mapped to Up.
-- GPIO4: rotary clockwise/next, mapped to Down.
+- GPIO6: rotary counter-clockwise/previous, mapped to Down.
+- GPIO4: rotary clockwise/next, mapped to Up.
 - GPIO5: rotary press, mapped to Enter.
 
 The 20-pin GPIO header exposes GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, and GPIO38.
