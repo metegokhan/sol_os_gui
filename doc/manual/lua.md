@@ -392,9 +392,15 @@ Functions:
 - `pixel(x, y)`, `line(x0, y0, x1, y1)`
 - `rect(x, y, width, height)`, `fill_rect(x, y, width, height)`
 - `circle(x, y, radius)`, `fill_circle(x, y, radius)`
+- `bitmap(x, y, width, height, data)`, `sprite(...)` alias
 - `text(x, baseline_y, text)`
 - `refresh()`, `present()`
 - `getch([timeout_ms])`
+
+Bitmap and sprite rows are packed least-significant bit first, with
+`(width + 7) // 8` bytes per row. Set bits draw in the current color and clear
+bits remain transparent. One call accepts at most 128 packed bytes, enough for
+a 32 by 32 sprite. Lua passes the packed bytes in a binary string.
 
 Example:
 

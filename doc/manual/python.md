@@ -992,10 +992,17 @@ Functions:
 - `fill_rect(x, y, width, height)`: draw a filled rectangle.
 - `circle(x, y, radius)`: draw a circle outline.
 - `fill_circle(x, y, radius)`: draw a filled circle.
+- `bitmap(x, y, width, height, data)`: draw a transparent packed 1-bit XBM.
+- `sprite(x, y, width, height, data)`: alias for `bitmap()`.
 - `text(x, baseline_y, text)`: draw UTF-8 text.
 - `refresh()`: present the graphics buffer.
 - `present()`: alias for `refresh()`.
 - `getch([timeout_ms])`: return a key code or `None`.
+
+Bitmap and sprite rows are packed least-significant bit first, with
+`(width + 7) // 8` bytes per row. Set bits draw in the current color and clear
+bits remain transparent. One call accepts at most 128 packed bytes, enough for
+a 32 by 32 sprite.
 
 Example:
 

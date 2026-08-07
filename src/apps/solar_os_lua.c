@@ -145,6 +145,7 @@ typedef enum {
     SOLUA_EVENT_GFX_FILL_RECT,
     SOLUA_EVENT_GFX_CIRCLE,
     SOLUA_EVENT_GFX_FILL_CIRCLE,
+    SOLUA_EVENT_GFX_BITMAP,
     SOLUA_EVENT_GFX_TEXT,
     SOLUA_EVENT_DONE,
 } solua_event_type_t;
@@ -4170,6 +4171,40 @@ static int solua_gfx_fill_circle(lua_State *L)
     return 0;
 }
 
+static int solua_gfx_bitmap(lua_State *L)
+{
+    const uint16_t width = solua_check_u16_size(L, 3);
+    const uint16_t height = solua_check_u16_size(L, 4);
+    if (width == 0 || height == 0) {
+        return luaL_error(L, "bitmap dimensions must be positive");
+    }
+
+    const size_t required = (((size_t)width + 7U) / 8U) * (size_t)height;
+    if (required > SOLUA_EVENT_DATA_MAX) {
+        return luaL_error(L, "bitmap too large (maximum %u packed bytes)",
+                          (unsigned)SOLUA_EVENT_DATA_MAX);
+    }
+
+    size_t len = 0;
+    const char *bitmap = luaL_checklstring(L, 5, &len);
+    if (len != required) {
+        return luaL_error(L, "bitmap data must contain exactly %u packed bytes",
+                          (unsigned)required);
+    }
+
+    solua_event_t event = {
+        .type = SOLUA_EVENT_GFX_BITMAP,
+        .x0 = (int32_t)luaL_checkinteger(L, 1),
+        .y0 = (int32_t)luaL_checkinteger(L, 2),
+        .width = width,
+        .height = height,
+        .data_len = len,
+    };
+    memcpy(event.data, bitmap, len);
+    solua_ui_send_event(L, &event);
+    return 0;
+}
+
 static int solua_gfx_text(lua_State *L)
 {
     size_t len = 0;
@@ -4921,6 +4956,8 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "fill_rect", solua_gfx_fill_rect);
     solua_set_func(L, mod, "circle", solua_gfx_circle);
     solua_set_func(L, mod, "fill_circle", solua_gfx_fill_circle);
+    solua_set_func(L, mod, "bitmap", solua_gfx_bitmap);
+    solua_set_func(L, mod, "sprite", solua_gfx_bitmap);
     solua_set_func(L, mod, "text", solua_gfx_text);
     solua_set_func(L, mod, "getch", solua_tui_getch);
     lua_pop(L, 1);
@@ -5714,6 +5751,14 @@ static void solua_apply_gfx_event(solar_os_context_t *ctx, const solua_event_t *
     case SOLUA_EVENT_GFX_FILL_CIRCLE:
         solar_os_gfx_fill_circle(gfx, (int)event->x0, (int)event->y0, (int)event->width);
         break;
+    case SOLUA_EVENT_GFX_BITMAP:
+        solar_os_gfx_bitmap(gfx,
+                            (int)event->x0,
+                            (int)event->y0,
+                            (int)event->width,
+                            (int)event->height,
+                            (const uint8_t *)event->data);
+        break;
     case SOLUA_EVENT_GFX_TEXT:
         solar_os_gfx_text(gfx, (int)event->x0, (int)event->y0, event->data);
         break;
@@ -5774,6 +5819,7 @@ static void solua_drain_events(solar_os_context_t *ctx)
         case SOLUA_EVENT_GFX_FILL_RECT:
         case SOLUA_EVENT_GFX_CIRCLE:
         case SOLUA_EVENT_GFX_FILL_CIRCLE:
+        case SOLUA_EVENT_GFX_BITMAP:
         case SOLUA_EVENT_GFX_TEXT:
             solua_apply_gfx_event(ctx, &event);
             break;

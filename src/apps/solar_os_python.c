@@ -124,6 +124,7 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PYTHON_TASK_STACK);
 #define PYTHON_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define PYTHON_EVENT_QUEUE_LEN 32
 #define PYTHON_EVENT_DATA_MAX 192
+#define PYTHON_GFX_BITMAP_MAX 128
 #define PYTHON_INPUT_QUEUE_LEN 4
 #define PYTHON_KEY_QUEUE_LEN 32
 #define PYTHON_REPL_LINE_MAX 192
@@ -158,6 +159,7 @@ typedef enum {
     PYTHON_EVENT_GFX_FILL_RECT,
     PYTHON_EVENT_GFX_CIRCLE,
     PYTHON_EVENT_GFX_FILL_CIRCLE,
+    PYTHON_EVENT_GFX_BITMAP,
     PYTHON_EVENT_GFX_TEXT,
     PYTHON_EVENT_DONE,
 } python_event_type_t;
@@ -4664,6 +4666,40 @@ static mp_obj_t solaros_gfx_fill_circle(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_fill_circle_obj, 3, 3, solaros_gfx_fill_circle);
 
+static mp_obj_t solaros_gfx_bitmap(size_t n_args, const mp_obj_t *args)
+{
+    (void)n_args;
+    const uint16_t width = python_u16_from_size(python_size_from_obj(args[2]));
+    const uint16_t height = python_u16_from_size(python_size_from_obj(args[3]));
+    if (width == 0 || height == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bitmap dimensions must be positive"));
+    }
+
+    const size_t required = (((size_t)width + 7U) / 8U) * (size_t)height;
+    if (required > PYTHON_GFX_BITMAP_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bitmap too large (maximum 128 packed bytes)"));
+    }
+
+    mp_buffer_info_t bitmap;
+    mp_get_buffer_raise(args[4], &bitmap, MP_BUFFER_READ);
+    if (bitmap.len != required) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bitmap data length does not match dimensions"));
+    }
+
+    python_event_t event = {
+        .type = PYTHON_EVENT_GFX_BITMAP,
+        .x0 = python_i32_from_obj(args[0]),
+        .y0 = python_i32_from_obj(args[1]),
+        .width = width,
+        .height = height,
+        .data_len = bitmap.len,
+    };
+    memcpy(event.data, bitmap.buf, bitmap.len);
+    python_gfx_send_event(&event);
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_bitmap_obj, 5, 5, solaros_gfx_bitmap);
+
 static mp_obj_t solaros_gfx_text(size_t n_args, const mp_obj_t *args)
 {
     (void)n_args;
@@ -5143,6 +5179,8 @@ static void python_register_solaros_module(void)
     python_module_store(gfx, "fill_rect", MP_OBJ_FROM_PTR(&solaros_gfx_fill_rect_obj));
     python_module_store(gfx, "circle", MP_OBJ_FROM_PTR(&solaros_gfx_circle_obj));
     python_module_store(gfx, "fill_circle", MP_OBJ_FROM_PTR(&solaros_gfx_fill_circle_obj));
+    python_module_store(gfx, "bitmap", MP_OBJ_FROM_PTR(&solaros_gfx_bitmap_obj));
+    python_module_store(gfx, "sprite", MP_OBJ_FROM_PTR(&solaros_gfx_bitmap_obj));
     python_module_store(gfx, "text", MP_OBJ_FROM_PTR(&solaros_gfx_text_obj));
     python_module_store(gfx, "getch", MP_OBJ_FROM_PTR(&solaros_tui_getch_obj));
 }
@@ -6021,6 +6059,14 @@ static void python_apply_gfx_event(solar_os_context_t *ctx, const python_event_t
     case PYTHON_EVENT_GFX_FILL_CIRCLE:
         solar_os_gfx_fill_circle(gfx, (int)event->x0, (int)event->y0, (int)event->width);
         break;
+    case PYTHON_EVENT_GFX_BITMAP:
+        solar_os_gfx_bitmap(gfx,
+                            (int)event->x0,
+                            (int)event->y0,
+                            (int)event->width,
+                            (int)event->height,
+                            (const uint8_t *)event->data);
+        break;
     case PYTHON_EVENT_GFX_TEXT:
         solar_os_gfx_text(gfx, (int)event->x0, (int)event->y0, event->data);
         break;
@@ -6086,6 +6132,7 @@ static void python_drain_events(solar_os_context_t *ctx)
         case PYTHON_EVENT_GFX_FILL_RECT:
         case PYTHON_EVENT_GFX_CIRCLE:
         case PYTHON_EVENT_GFX_FILL_CIRCLE:
+        case PYTHON_EVENT_GFX_BITMAP:
         case PYTHON_EVENT_GFX_TEXT:
             python_apply_gfx_event(ctx, &event);
             break;

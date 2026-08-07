@@ -53,6 +53,20 @@ Use `gfx.WHITE`, `gfx.LIGHT`, `gfx.DARK`, `gfx.BLACK`, or `gfx.gray(level)`.
 Do not use color-name strings or guessed integer values. Read dimensions with
 `width()`, `height()`, or `size()` rather than assuming a panel size.
 
+## Bitmaps and sprites
+
+`gfx.bitmap(x, y, width, height, data)` draws packed 1-bit XBM data in the
+current color. `gfx.sprite(...)` is an alias intended for transparent pixel-art
+objects. Rows contain `(width + 7) // 8` bytes, least-significant bit first.
+Set bits are drawn and clear bits leave the existing framebuffer unchanged.
+The data must be a bytes-like object of exactly the required size, with a
+maximum of 128 packed bytes per call.
+
+```python
+person = bytes((0x18, 0x3C, 0x18, 0x7E, 0x18, 0x24, 0x42, 0x00))
+gfx.sprite(20, 20, 8, 8, person)
+```
+
 ## Quick reference
 
 Python: import solaros; from solaros import gfx. gfx.begin() uses the current
@@ -62,6 +76,8 @@ pass a returned ready name to gfx.begin(name); scripts can verify names with
 solaros.expansion.devices(). An absent name raises ESP_ERR_NOT_FOUND. Use
 width(), height(), or size(); clear(color); color(color); pixel, line, rect,
 fill_rect, circle, fill_circle, text; refresh() or present(); then end().
+Use bitmap(x, y, width, height, data) or its sprite alias for transparent
+packed 1-bit XBM data, with at most 128 bytes per call.
 Standard min() and max() are available. Colors are gfx.WHITE, gfx.LIGHT,
 gfx.DARK, gfx.BLACK, and gfx.gray(level); pass these constants to clear() and
 color(), never color-name strings or guessed integers. Required
