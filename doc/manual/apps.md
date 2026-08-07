@@ -631,11 +631,12 @@ Controls:
 - `p` pauses and `r` resets.
 - `q`, `Esc`, or the app-exit key exits.
 
-For a connected BLE keyboard, Game Boy reads the complete six-key HID state in
-addition to the normal SolarOS character stream. Held directions and buttons
-therefore remain active until release, and combinations such as diagonal
-movement or direction plus A/B work simultaneously. Inputs without held-key
-state, including port-shell input, retain the short button-pulse fallback.
+Game Boy reads the generic SolarOS held-key state. BLE keyboards, fixed board
+buttons, `gpio-keys`, joysticks, and ADC D-pads therefore remain active until
+release, and combinations such as diagonal movement or direction plus A/B work
+simultaneously. USB HID usages preserve the physical Z/X positions across
+keyboard layouts. Character-only inputs such as port-shell input retain the
+short button-pulse fallback.
 
 ## less
 

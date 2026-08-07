@@ -2,9 +2,9 @@
 
 #include <stdbool.h>
 
-#include "esp_timer.h"
 #include "adc_port.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_input.h"
 #include "solar_os_log.h"
 
 #if SOLAR_OS_BOARD_HAS_ADC_DPAD
@@ -12,13 +12,6 @@
 
 #ifndef SOLAR_OS_BOARD_ADC_DPAD_AXES
 #error "Board enables ADC_DPAD but does not define SOLAR_OS_BOARD_ADC_DPAD_AXES."
-#endif
-
-#ifndef SOLAR_OS_ADC_DPAD_REPEAT_DELAY_MS
-#define SOLAR_OS_ADC_DPAD_REPEAT_DELAY_MS 350U
-#endif
-#ifndef SOLAR_OS_ADC_DPAD_REPEAT_INTERVAL_MS
-#define SOLAR_OS_ADC_DPAD_REPEAT_INTERVAL_MS 90U
 #endif
 
 #define ADC_DPAD_IDLE_MARGIN 300
@@ -29,7 +22,6 @@ typedef struct {
     adc_channel_t channel;
     bool configured;
     solar_os_adc_dpad_zone_t zone;
-    uint32_t next_repeat_ms;
     uint16_t idle_max;
     uint16_t mid_min;
     uint16_t mid_max;
@@ -43,11 +35,7 @@ static const char *TAG = "solar_os_adc_dpad";
 static const solar_os_adc_dpad_axis_def_t dpad_axes[] = SOLAR_OS_BOARD_ADC_DPAD_AXES;
 static adc_dpad_axis_state_t dpad_states[sizeof(dpad_axes) / sizeof(dpad_axes[0])];
 static bool dpad_initialized;
-
-static uint32_t dpad_millis(void)
-{
-    return (uint32_t)(esp_timer_get_time() / 1000ULL);
-}
+static solar_os_input_source_t dpad_input_source;
 
 static esp_err_t dpad_read_raw(size_t axis_index, int *raw)
 {
@@ -104,6 +92,31 @@ static uint8_t dpad_key_for_zone(const solar_os_adc_dpad_axis_def_t *axis,
     }
     return 0;
 }
+
+static uint16_t dpad_physical_key(size_t axis_index, solar_os_adc_dpad_zone_t zone)
+{
+    return (uint16_t)(axis_index * 2U +
+                      (zone == SOLAR_OS_ADC_DPAD_ZONE_MID ? 1U : 2U));
+}
+
+static void dpad_publish(size_t axis_index,
+                         solar_os_adc_dpad_zone_t zone,
+                         solar_os_input_key_action_t action)
+{
+    if (zone == SOLAR_OS_ADC_DPAD_ZONE_IDLE) {
+        return;
+    }
+    const uint8_t key = dpad_key_for_zone(&dpad_axes[axis_index], zone);
+    if (key == 0) {
+        return;
+    }
+    (void)solar_os_input_write_key(dpad_input_source,
+                                   dpad_physical_key(axis_index, zone),
+                                   SOLAR_OS_INPUT_USAGE_NONE,
+                                   key,
+                                   0,
+                                   action);
+}
 #endif
 
 esp_err_t solar_os_adc_dpad_init(void)
@@ -134,7 +147,6 @@ esp_err_t solar_os_adc_dpad_init(void)
             .channel = channel,
             .configured = true,
             .zone = SOLAR_OS_ADC_DPAD_ZONE_IDLE,
-            .next_repeat_ms = 0,
             .idle_max = axis->idle_max,
             .mid_min = axis->mid_min,
             .mid_max = axis->mid_max,
@@ -149,11 +161,13 @@ esp_err_t solar_os_adc_dpad_init(void)
             dpad_states[i].zone = dpad_zone_from_raw(&dpad_states[i],
                                                      raw,
                                                      SOLAR_OS_ADC_DPAD_ZONE_IDLE);
-            if (dpad_states[i].zone != SOLAR_OS_ADC_DPAD_ZONE_IDLE) {
-                dpad_states[i].next_repeat_ms =
-                    dpad_millis() + SOLAR_OS_ADC_DPAD_REPEAT_DELAY_MS;
-            }
         }
+    }
+
+    const esp_err_t input_err =
+        solar_os_input_source_open("adc-dpad", &dpad_input_source);
+    if (input_err != ESP_OK) {
+        return input_err;
     }
 
     dpad_initialized = true;
@@ -246,8 +260,8 @@ esp_err_t solar_os_adc_dpad_calibrate_idle(void)
             idle_max = 0;
         }
         state->idle_max = (uint16_t)idle_max;
+        dpad_publish(i, state->zone, SOLAR_OS_INPUT_KEY_RELEASE);
         state->zone = SOLAR_OS_ADC_DPAD_ZONE_IDLE;
-        state->next_repeat_ms = 0;
     }
     return ESP_OK;
 #endif
@@ -269,26 +283,21 @@ esp_err_t solar_os_adc_dpad_calibrate_reset(void)
         state->mid_min = axis->mid_min;
         state->mid_max = axis->mid_max;
         state->high_min = axis->high_min;
+        dpad_publish(i, state->zone, SOLAR_OS_INPUT_KEY_RELEASE);
         state->zone = SOLAR_OS_ADC_DPAD_ZONE_IDLE;
-        state->next_repeat_ms = 0;
     }
     return ESP_OK;
 #endif
 }
 
-size_t solar_os_adc_dpad_read_chars(char *buffer, size_t buffer_len)
+void solar_os_adc_dpad_poll(void)
 {
 #if !SOLAR_OS_BOARD_HAS_ADC_DPAD
-    (void)buffer;
-    (void)buffer_len;
-    return 0;
+    return;
 #else
-    if (buffer == NULL || buffer_len == 0 || !dpad_initialized) {
-        return 0;
+    if (!dpad_initialized) {
+        return;
     }
-
-    const uint32_t now_ms = dpad_millis();
-    size_t count = 0;
 
     for (size_t i = 0; i < sizeof(dpad_axes) / sizeof(dpad_axes[0]); i++) {
         adc_dpad_axis_state_t *state = &dpad_states[i];
@@ -298,34 +307,23 @@ size_t solar_os_adc_dpad_read_chars(char *buffer, size_t buffer_len)
         }
 
         const solar_os_adc_dpad_zone_t zone = dpad_zone_from_raw(state, raw, state->zone);
-        bool emit = false;
         if (zone != state->zone) {
+            dpad_publish(i, state->zone, SOLAR_OS_INPUT_KEY_RELEASE);
             state->zone = zone;
-            state->next_repeat_ms = zone == SOLAR_OS_ADC_DPAD_ZONE_IDLE ?
-                0 :
-                now_ms + SOLAR_OS_ADC_DPAD_REPEAT_DELAY_MS;
-            emit = zone != SOLAR_OS_ADC_DPAD_ZONE_IDLE;
-        } else if (zone != SOLAR_OS_ADC_DPAD_ZONE_IDLE &&
-                   (int32_t)(now_ms - state->next_repeat_ms) >= 0) {
-            state->next_repeat_ms = now_ms + SOLAR_OS_ADC_DPAD_REPEAT_INTERVAL_MS;
-            emit = true;
+            dpad_publish(i, zone, SOLAR_OS_INPUT_KEY_PRESS);
         }
-
-        if (!emit) {
-            continue;
-        }
-
-        const uint8_t key = dpad_key_for_zone(&dpad_axes[i], zone);
-        if (key == 0) {
-            continue;
-        }
-
-        if (count >= buffer_len) {
-            break;
-        }
-        buffer[count++] = (char)key;
     }
+#endif
+}
 
-    return count;
+size_t solar_os_adc_dpad_read_chars(char *buffer, size_t buffer_len)
+{
+    solar_os_adc_dpad_poll();
+#if !SOLAR_OS_BOARD_HAS_ADC_DPAD
+    (void)buffer;
+    (void)buffer_len;
+    return 0;
+#else
+    return solar_os_input_read_source_chars(dpad_input_source, buffer, buffer_len);
 #endif
 }

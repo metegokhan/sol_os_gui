@@ -6,7 +6,7 @@
   Glyphs: 191/191
   BBX Build Mode: 0
 */
-const uint8_t u8g2_font_solar_os_default_b_16_tf[2670] U8G2_FONT_SECTION("u8g2_font_solar_os_default_b_16_tf") = 
+const uint8_t u8g2_font_solar_os_default_b_16_tf[2670] U8G2_FONT_SECTION("u8g2_font_solar_os_default_b_16_tf") =
   "\277\0\3\3\4\4\3\5\5\10\21\0\375\12\375\13\375\1\267\3L\12Q \5\0\364\30!\7\242\207"
   "\30O\4\42\10U\265\30\22^\4#\26\250\204x\21aDr\70\210\42\302\210\350p\220D\204\21\31"
   "\0$\20\326uXB\331\301H#\322\16\21\232P\4%\24\247\204\30\63I(\222\42\231D\303\321\310"

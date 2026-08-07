@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test
 
 .PHONY: all test clean
 
@@ -49,6 +49,22 @@ storage_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage
 		storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c \
 		-Wl,--gc-sections -o $@
 
+keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		keys_test.c $(ROOT)/src/services/solar_os_keys.c -o $@
+
+input_test: input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h esp_timer.h nvs.h freertos/FreeRTOS.h
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src/services \
+		input_test.c $(ROOT)/src/services/solar_os_input.c -o $@
+
+hid_keyboard_report_test: hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_hid_keyboard_report.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c -o $@
+
+ps2_keyboard_test: ps2_keyboard_test.c $(ROOT)/src/services/solar_os_ps2_keyboard.c $(ROOT)/src/services/solar_os_ps2_keyboard.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		ps2_keyboard_test.c $(ROOT)/src/services/solar_os_ps2_keyboard.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -58,6 +74,10 @@ test: $(TARGETS)
 	./app_file_types_test
 	./gameboy_support_test
 	./storage_mounts_test
+	./keys_test
+	./input_test
+	./hid_keyboard_report_test
+	./ps2_keyboard_test
 
 clean:
 	$(RM) $(TARGETS)

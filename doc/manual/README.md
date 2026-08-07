@@ -16,7 +16,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Commands
 
 - [adc command](commands.md) — Show ADC service status.
-- [agent command](commands.md) — Open a new native LLM agent TUI or make one unsaved foreground request.
+- [agent command](agent.md) — Open a new native LLM agent TUI or make one unsaved foreground request.
 - [apps command](commands.md) — List registered foreground apps compiled into the firmware.
 - [audio command](commands.md) — Show audio state, global speaker level, tone queue, and active synth telemetry.
 - [battery command](commands.md) — Show voltage, estimated charge, power source, config, and monitor trend.
@@ -38,20 +38,20 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [email command](commands.md) — Open the receive-only email app.
 - [engine command](commands.md) — Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations.
 - [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell when another interactive shell remains.
-- [expansion command](commands.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
+- [expansion command](expansion.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gateway command](commands.md) — Show gateway configuration, connection state, and traffic counters.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
-- [help command](commands.md) — Browse the package-aware manual or manage its signed exact-version SD copy.
+- [help command](help.md) — Browse the package-aware manual or manage its signed exact-version SD copy.
 - [humidity command](commands.md) — Read the board humidity sensor when available.
 - [i2c command](commands.md) — Show every named I2C bus, or one selected bus.
-- [identity command](commands.md) — Show the configured user and hostname.
+- [identity command](identity.md) — Show the configured user and hostname.
 - [inbox command](commands.md) — Open the universal incoming-message browser.
-- [job command](commands.md) — Show one job or all jobs.
-- [jobs command](commands.md) — List registered jobs and their state.
+- [job command](jobs.md) — Show one job or all jobs.
+- [jobs command](jobs.md) — List registered jobs and their state.
 - [joystick command](commands.md) — Show joystick axes, raw values, direction, and thresholds.
 - [led command](commands.md) — Inspect or control the built-in status LED when available.
-- [link command](commands.md) — List active SolarOS Link instances and their queue/protocol counters.
+- [link command](link.md) — List active SolarOS Link instances and their queue/protocol counters.
 - [log command](commands.md) — Show runtime log ring status.
 - [ls command](commands.md) — List files. Hidden files are shown only with -a; sizes are human-readable with -h.
 - [man command](commands.md) — Read or search the package-aware SolarOS manual.
@@ -150,11 +150,13 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [displayd job](jobs.reference.md#displayd) — Authenticated HTTP display and remote control. It has two modes:
 - [email-sync job](jobs.reference.md#email-sync) — Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local email app and publishes each new message to the universal inbox.
 - [gateway-sync job](jobs.reference.md#gateway-sync) — Background synchronizer for the gateway messaging provider. Start and stop it explicitly, using the same lifecycle as email-sync:
+- [gpio-keys job](jobs.reference.md#gpio-keys) — Maps runtime-safe GPIO inputs to SolarOS keyboard presses. The job configures each pin as an input with its internal pull-up enabled, treats a low level as pressed, and applies the same 25 ms debounce used by fixed board buttons. Each debounced transition publishes a generic SolarOS key press or release. Held keys use the system repeat rate configured by setterm keyrate.
 - [httpd job](jobs.reference.md#httpd) — Static HTTP file server for a folder on mounted storage.
 - [log job](jobs.reference.md#log) — Runtime SolarOS log follower. It mirrors log entries to a byte-stream port or appends them to a file.
 - [meshcore job](jobs.reference.md#meshcore) — Non-forwarding MeshCore companion provider for Contacts and Messages.
 - [ntp-sync job](jobs.reference.md#ntp-sync) — Network time synchronization job. It updates the SolarOS wall clock from NTP and also updates the hardware RTC when the board provides one.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
+- [ps2-keyboard job](jobs.reference.md#ps2-keyboard) — Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes press and release transitions through the generic SolarOS input service.
 - [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for the transport-independent SolarOS Link service.
 - [slip job](jobs.reference.md#slip) — IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines, headless boards, and serial networking experiments.
 - [sump job](jobs.reference.md#sump) — SUMP-compatible logic analyzer server on cdc0. It claims the CDC port and uses the shared logic analyzer service for acquisition. PulseView and sigrok can connect with the OpenBench Logic Sniffer/SUMP serial driver.
@@ -167,7 +169,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## Hardware and expansion
 
-- [Audio, BLE keyboard, and clipboard APIs](media.input.md) — Use installed media and input services
+- [Audio, keyboard input, and clipboard APIs](media.input.md) — Use installed media and input services
 - [Expansion drivers and attached devices](expansion.md) — Discover, attach, and detach package-gated expansion devices
 - [Expansion hardware reference](expansion.reference.md) — Resource rules, workflows, drivers, bindings, and wiring examples
 - [GPIO, ADC, PWM, and LED APIs](gpio.analog.md) — Use runtime-safe digital and analog expansion pins
@@ -179,7 +181,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Lua API reference](lua.md) — Complete Lua service API, conventions, and examples
 - [Lua graphics API](lua.gfx.md) — Draw through SolarOS displays from Lua
 - [Lua text user-interface API](lua.tui.md) — Build terminal applications from Lua
-- [Named runtime buses](buses.md) — Create and use resource-owned I2C, SPI, UART, and OneWire buses
+- [Named runtime buses](buses.md) — Create and use resource-owned I2C, SPI, UART, OneWire, and PS/2 buses
 - [Python API reference](python.md) — Complete MicroPython service API, conventions, and examples
 - [Python graphics API](python.gfx.md) — Draw through SolarOS displays from MicroPython
 - [Python text user-interface API](python.tui.md) — Build terminal applications from MicroPython

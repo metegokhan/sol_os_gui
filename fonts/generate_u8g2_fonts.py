@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 FONT_DIR = Path(__file__).resolve().parent
-DEFAULT_SIZES = [12, 14, 16, 18, 20]
+DEFAULT_SIZES = [10, 12, 14, 16, 18, 20]
 DEFAULT_RANGES = [(0x20, 0x7E), (0xA0, 0xFF)]
 
 
@@ -277,7 +277,9 @@ def run_bdfconv(
     subprocess.run(cmd, check=True)
     contents = c_path.read_text(encoding="utf-8")
     if '#include "u8g2.h"' not in contents[:200]:
-        c_path.write_text('#include "u8g2.h"\n\n' + contents, encoding="utf-8")
+        contents = '#include "u8g2.h"\n\n' + contents
+    contents = "\n".join(line.rstrip() for line in contents.splitlines()) + "\n"
+    c_path.write_text(contents, encoding="utf-8")
 
 
 def draw_preview(
@@ -457,7 +459,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--sizes",
         type=parse_sizes,
         default=DEFAULT_SIZES,
-        help="comma-separated pixel sizes, default: 12,14,16,18,20",
+        help="comma-separated pixel sizes, default: 10,12,14,16,18,20",
     )
     parser.add_argument(
         "--glyph-ranges",

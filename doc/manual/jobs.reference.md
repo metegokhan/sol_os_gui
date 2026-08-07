@@ -77,6 +77,11 @@ Jobs that use byte-stream ports claim those ports while running. If a port is
 already owned, SolarOS reports the owner, for example `job log owns cdc0`.
 Radio listeners expose their radio as a custom job resource.
 
+GPIO-key mappings claim each selected pin through the same resource model. The
+`io` application therefore shows assignments such as `key:UP`, their
+`job:gpio-keys` owner, and the board's canonical pin policy without special
+GPIO-key display logic.
+
 Tick intervals and execution-time deadlines are declared by each event-driven
 job. A zero descriptor value selects the runtime default. Deadline misses do
 not forcibly terminate a cooperative handler; SolarOS counts them, records the
@@ -799,6 +804,84 @@ Notes:
 - The selected port is claimed by the SLIP job until it stops.
 - `cdc0` is useful for Linux host testing; `uart0` is the natural expansion
   port path.
+
+## gpio-keys
+
+Maps runtime-safe GPIO inputs to SolarOS keyboard presses. The job configures
+each pin as an input with its internal pull-up enabled, treats a low level as
+pressed, and applies the same 25 ms debounce used by fixed board buttons. Each
+debounced transition publishes a generic SolarOS key press or release. Held
+keys use the system repeat rate configured by `setterm keyrate`.
+
+Inline usage:
+
+```text
+job start gpio-keys gpio17:UP gpio2:ENTER gpio3:ESCAPE
+job stop gpio-keys
+job status gpio-keys
+```
+
+Configuration-file usage:
+
+```text
+job start gpio-keys --config /flash/gpio-keys.conf
+```
+
+The file contains one mapping per line. A colon or whitespace can separate the
+pin and key. Empty lines and text after `#` are ignored:
+
+```text
+# navigation buttons, active low
+gpio17:UP
+gpio16 DOWN
+gpio4:ENTER
+```
+
+Canonical pins use `gpioN`; the job also accepts the `ioN` shorthand. Key names
+are case-insensitive. Canonical directional names are `UP`, `DOWN`, `LEFT`, and
+`RIGHT`; aliases such as `ARROW_UP` are accepted. Other names include `ENTER`,
+`SPACE`, `TAB`, `BACKSPACE`, `ESCAPE`, `HOME`, `END`, `DELETE`, `PAGE_UP`,
+`PAGE_DOWN`, `F1` through `F12`, and the modified SolarOS navigation keys. A
+single character maps that exact character.
+
+The complete configuration is validated before any pin is changed. Up to 16
+pins can be loaded from a file; the shell's argument limit allows up to seven
+inline mappings. Duplicate pins, fixed/reserved pins, unknown keys, and busy
+pins reject the complete start. Starting with a button already held does not
+generate a press. The file is read only at startup; restart the job to reload
+it.
+
+While the job runs, every pin has owner `job:gpio-keys` and an assignment such
+as `key:UP` in the `io` Pins and Claims views. Stopping the job resets the pins,
+releases their claims, and discards queued events from this input source. The
+fixed ODROID-GO button service remains independent of this job but uses the
+same held-key and repeat service.
+
+## ps2-keyboard
+
+Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes
+press and release transitions through the generic SolarOS input service.
+
+```text
+expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
+job start ps2-keyboard ps2kbd
+job status ps2-keyboard
+job stop ps2-keyboard
+```
+
+The bus descriptor owns the CLOCK and DATA pins as `bus:ps2kbd`; the running
+job holds an exclusive lease and appears as `job:ps2-keyboard`. Normal and
+extended keys, modifiers, navigation keys, function keys, and keypad usages are
+translated to canonical USB HID identities. The configured `setterm keyboard`
+layout and `setterm keyrate` repeat policy apply equally to BLE and PS/2.
+
+The receiver validates each PS/2 frame's start bit, odd parity, and stop bit in
+the GPIO clock-edge handler. Scan-code parsing and input publication run from
+the normal job tick, outside interrupt context. The current driver only
+receives keyboard data; it does not send LED or reset commands to the keyboard.
+
+Use a bidirectional level shifter or another circuit that guarantees no more
+than 3.3 V at the ESP32 GPIOs. ESP32 inputs are not 5 V tolerant.
 
 ## sump
 

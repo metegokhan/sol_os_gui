@@ -8,10 +8,8 @@
 #include <string.h>
 
 #include "solar_os_config.h"
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-#include "solar_os_ble_keyboard.h"
-#endif
 #include "solar_os_display.h"
+#include "solar_os_input.h"
 #include "solar_os_keys.h"
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
 #include "solar_os_ota.h"
@@ -40,10 +38,8 @@ typedef enum {
     SETTERM_TUI_TEXTSIZE,
     SETTERM_TUI_PALETTE,
     SETTERM_TUI_BRIGHTNESS,
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     SETTERM_TUI_KEYBOARD,
     SETTERM_TUI_KEYRATE,
-#endif
     SETTERM_TUI_TIMEZONE,
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     SETTERM_TUI_OTAURL,
@@ -75,10 +71,8 @@ static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_TEXTSIZE] = {.label = "textsize"},
     [SETTERM_TUI_PALETTE] = {.label = "palette"},
     [SETTERM_TUI_BRIGHTNESS] = {.label = "brightness"},
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     [SETTERM_TUI_KEYBOARD] = {.label = "keyboard"},
     [SETTERM_TUI_KEYRATE] = {.label = "keyrate"},
-#endif
     [SETTERM_TUI_TIMEZONE] = {.label = "timezone"},
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     [SETTERM_TUI_OTAURL] = {.label = "otaurl"},
@@ -156,16 +150,15 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
         }
         break;
     }
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_KEYBOARD:
         strlcpy(buffer,
-                solar_os_ble_keyboard_layout_name(solar_os_ble_keyboard_layout()),
+                solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout()),
                 buffer_len);
         break;
     case SETTERM_TUI_KEYRATE: {
         uint16_t rate = 0;
         uint16_t delay_ms = 0;
-        solar_os_ble_keyboard_get_repeat(&rate, &delay_ms);
+        solar_os_input_get_repeat(&rate, &delay_ms);
         if (rate == 0) {
             strlcpy(buffer, "off", buffer_len);
         } else {
@@ -173,7 +166,6 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
         }
         break;
     }
-#endif
     case SETTERM_TUI_TIMEZONE:
         solar_os_time_get_timezone(buffer, buffer_len, NULL, 0);
         break;
@@ -306,7 +298,7 @@ static bool setterm_tui_cycle_selected(int direction)
 {
     static const char * const orientation_values[] = {"0", "90", "180", "270"};
     static const char * const font_values[] = {"mono", "compact"};
-    static const char * const textsize_values[] = {"12", "14", "16", "18", "20"};
+    static const char * const textsize_values[] = {"10", "12", "14", "16", "18", "20"};
     static const char * const palette_values[] = {"normal", "inverted"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -369,7 +361,6 @@ static int setterm_tui_tokenize(char *line, char **argv, int argv_max)
     return argc;
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
 static bool setterm_tui_apply_keyrate(void)
 {
     char text[SETTERM_TUI_EDIT_MAX];
@@ -382,31 +373,30 @@ static bool setterm_tui_apply_keyrate(void)
         return false;
     }
 
-    solar_os_ble_keyboard_get_repeat(NULL, &current_delay_ms);
+    solar_os_input_get_repeat(NULL, &current_delay_ms);
     if (strcmp(argv[0], "off") == 0) {
         return argc == 1 &&
-            solar_os_ble_keyboard_set_repeat(0, current_delay_ms) == ESP_OK;
+            solar_os_input_set_repeat(0, current_delay_ms) == ESP_OK;
     }
 
     size_t rate = 0;
     size_t delay_ms = current_delay_ms;
     if (!parse_size_arg(argv[0],
-                        SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MIN,
-                        SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MAX,
+                        SOLAR_OS_INPUT_REPEAT_RATE_MIN,
+                        SOLAR_OS_INPUT_REPEAT_RATE_MAX,
                         &rate)) {
         return false;
     }
     if (argc == 2 &&
         !parse_size_arg(argv[1],
-                        SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MIN_MS,
-                        SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MAX_MS,
+                        SOLAR_OS_INPUT_REPEAT_DELAY_MIN_MS,
+                        SOLAR_OS_INPUT_REPEAT_DELAY_MAX_MS,
                         &delay_ms)) {
         return false;
     }
 
-    return solar_os_ble_keyboard_set_repeat((uint16_t)rate, (uint16_t)delay_ms) == ESP_OK;
+    return solar_os_input_set_repeat((uint16_t)rate, (uint16_t)delay_ms) == ESP_OK;
 }
-#endif
 
 static bool setterm_tui_apply_selected(void)
 {
@@ -444,15 +434,13 @@ static bool setterm_tui_apply_selected(void)
         return parse_size_arg(setterm_tui.edit_text, 0, 100, &percent) &&
             solar_os_display_set_brightness((uint8_t)percent) == ESP_OK;
     }
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_KEYBOARD: {
-        solar_os_ble_keyboard_layout_t layout;
-        return solar_os_ble_keyboard_parse_layout(setterm_tui.edit_text, &layout) &&
-            solar_os_ble_keyboard_set_layout(layout) == ESP_OK;
+        solar_os_input_keyboard_layout_t layout;
+        return solar_os_input_parse_keyboard_layout(setterm_tui.edit_text, &layout) &&
+            solar_os_input_set_keyboard_layout(layout) == ESP_OK;
     }
     case SETTERM_TUI_KEYRATE:
         return setterm_tui_apply_keyrate();
-#endif
     case SETTERM_TUI_TIMEZONE:
         return solar_os_time_set_timezone(setterm_tui.edit_text) == ESP_OK;
 #if SOLAR_OS_PACKAGE_SERVICE_OTA

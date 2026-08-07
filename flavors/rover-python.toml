@@ -38,3 +38,5 @@ app_files = true
 app_logic = false
 job_log = true
 job_bridge = true
+job_gpio_keys = true
+job_ps2_keyboard = true

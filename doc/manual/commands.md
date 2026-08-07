@@ -228,7 +228,7 @@ Profiles:
 setterm
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
-setterm textsize [12|14|16|18|20]
+setterm textsize [10|12|14|16|18|20]
 setterm palette [normal|inverted]
 setterm brightness [0..100]
 setterm backlight [0..100]
@@ -239,6 +239,10 @@ setterm keyrate [off|1..60 [delay-ms]]
 setterm timezone [UTC|Europe/Berlin|POSIX-TZ]
 setterm otaurl [url]
 ```
+
+`setterm keyrate` configures the shared repeat policy for BLE keyboards, fixed
+board buttons, `gpio-keys`, joysticks, ADC D-pads, and future keyboard buses.
+The value is stored in NVS and is available on builds without BLE.
 
 `setterm profile` and `setterm charset` are runtime-only and apply to the
 current port shell. From the display shell they print guidance to configure
@@ -336,6 +340,8 @@ job start bridge cdc0 uart0
 job start bridge uart0 link0 broadcast
 link stream create link0 vser0 0x12345678
 job start bridge cdc0 vser0
+job start gpio-keys gpio17:UP gpio2:ENTER
+job start gpio-keys --config /flash/gpio-keys.conf
 job start httpd /www
 job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once
@@ -545,6 +551,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `expansion` | `expansion devices` | List manually attached expansion devices. |
 | `expansion` | `expansion bus create i2c <name> port=<i2c0\|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]` | Define a runtime I2C bus on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus create onewire <name> pin=<gpio>` | Define a runtime named 1-Wire bus on an approved expansion pin. |
+| `expansion` | `expansion bus create ps2 <name> clock=<gpio> data=<gpio>` | Define an exclusive PS/2 bus on two approved expansion pins. |
 | `expansion` | `expansion bus create spi <name> host=<spi2\|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio\|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]` | Define a runtime-routed SPI bus on a board-approved host and expansion pins. |
 | `expansion` | `expansion bus create uart <name> port=<uart1\|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]` | Define a lazy runtime UART on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus attach <name>` | Attach a named detachable bus and reserve its endpoint and signal pins. |

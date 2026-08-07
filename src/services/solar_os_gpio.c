@@ -85,7 +85,7 @@ static bool gpio_claim_is_ours(int pin, solar_os_resource_claim_t *claim)
 #endif
 }
 
-static esp_err_t gpio_claim(int pin, bool *claimed_here)
+static esp_err_t gpio_claim_direct(int pin, bool *claimed_here)
 {
     if (claimed_here != NULL) {
         *claimed_here = false;
@@ -241,7 +241,7 @@ esp_err_t solar_os_gpio_configure(int pin, solar_os_gpio_mode_t mode, solar_os_g
     }
 
     bool claimed_here = false;
-    esp_err_t err = gpio_claim(pin, &claimed_here);
+    esp_err_t err = gpio_claim_direct(pin, &claimed_here);
     if (err != ESP_OK) {
         return err;
     }
@@ -342,6 +342,144 @@ esp_err_t solar_os_gpio_release(int pin)
         gpio_release_claim(pin);
     }
     return ret;
+#endif
+}
+
+esp_err_t solar_os_gpio_claim_pins(const int *pins,
+                                   const char *const *labels,
+                                   size_t count,
+                                   const char *owner,
+                                   solar_os_resource_conflict_t *conflict)
+{
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pins;
+    (void)labels;
+    (void)count;
+    (void)owner;
+    (void)conflict;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (pins == NULL || labels == NULL || count == 0 ||
+        count > SOLAR_OS_RESOURCE_BUNDLE_MAX || owner == NULL || owner[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    solar_os_resource_request_t requests[SOLAR_OS_RESOURCE_BUNDLE_MAX];
+    for (size_t i = 0; i < count; i++) {
+        if (!solar_os_gpio_is_runtime_allowed(pins[i]) ||
+            labels[i] == NULL || labels[i][0] == '\0') {
+            return ESP_ERR_NOT_ALLOWED;
+        }
+        requests[i] = (solar_os_resource_request_t) {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = pins[i],
+            .secondary = -1,
+            .label = labels[i],
+        };
+    }
+    return solar_os_resource_claim_bundle(requests, count, owner, conflict);
+#endif
+}
+
+static esp_err_t gpio_check_owned(int pin, const char *owner)
+{
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    (void)owner;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (find_slot(pin) == NULL || owner == NULL || owner[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!solar_os_gpio_is_runtime_allowed(pin)) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
+    solar_os_resource_claim_t claim;
+    if (!solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &claim)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    return strcmp(claim.owner, owner) == 0 ? ESP_OK : ESP_ERR_INVALID_STATE;
+#endif
+}
+
+esp_err_t solar_os_gpio_configure_owned(int pin,
+                                        solar_os_gpio_mode_t mode,
+                                        solar_os_gpio_pull_t pull,
+                                        const char *owner)
+{
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    (void)mode;
+    (void)pull;
+    (void)owner;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    gpio_slot_t *slot = find_slot(pin);
+    esp_err_t err = gpio_check_owned(pin, owner);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if ((mode != SOLAR_OS_GPIO_MODE_INPUT && mode != SOLAR_OS_GPIO_MODE_OUTPUT) ||
+        (pull != SOLAR_OS_GPIO_PULL_NONE &&
+         pull != SOLAR_OS_GPIO_PULL_UP &&
+         pull != SOLAR_OS_GPIO_PULL_DOWN)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    err = gpio_port_configure((gpio_num_t)pin, to_port_mode(mode), to_port_pull(pull));
+    if (err == ESP_OK) {
+        slot->configured = true;
+        slot->mode = mode;
+        slot->pull = pull;
+    }
+    return err;
+#endif
+}
+
+esp_err_t solar_os_gpio_read_owned(int pin, const char *owner, bool *level)
+{
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    (void)owner;
+    (void)level;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    gpio_slot_t *slot = find_slot(pin);
+    if (level == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t err = gpio_check_owned(pin, owner);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (slot == NULL || !slot->configured || slot->mode != SOLAR_OS_GPIO_MODE_INPUT) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return gpio_port_read((gpio_num_t)pin, level);
+#endif
+}
+
+esp_err_t solar_os_gpio_release_owned(int pin, const char *owner)
+{
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    (void)owner;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    gpio_slot_t *slot = find_slot(pin);
+    const esp_err_t owned_err = gpio_check_owned(pin, owner);
+    if (owned_err != ESP_OK) {
+        return owned_err;
+    }
+
+    const esp_err_t reset_err = gpio_reset_pin((gpio_num_t)pin);
+    if (reset_err != ESP_OK) {
+        return reset_err;
+    }
+    slot->configured = false;
+    slot->mode = SOLAR_OS_GPIO_MODE_INPUT;
+    slot->pull = SOLAR_OS_GPIO_PULL_NONE;
+    return solar_os_resource_release(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, owner);
 #endif
 }
 

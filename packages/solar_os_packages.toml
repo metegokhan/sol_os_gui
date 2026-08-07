@@ -76,6 +76,8 @@ members = [
 members = [
   "job_bridge",
   "job_daq",
+  "job_gpio_keys",
+  "job_ps2_keyboard",
   "job_sump",
 ]
 
@@ -203,6 +205,8 @@ sources = [
   "services/solar_os_display.c",
   "services/solar_os_gfx.c",
   "services/solar_os_identity.c",
+  "services/solar_os_input.c",
+  "services/solar_os_keys.c",
   "services/solar_os_log.c",
   "services/solar_os_manual.c",
   "services/solar_os_memory.c",
@@ -435,7 +439,10 @@ sources = [
 
 [packages.service_ble]
 label = "service.ble"
-sources = ["services/solar_os_ble_keyboard.c"]
+sources = [
+  "services/solar_os_ble_keyboard.c",
+  "services/solar_os_hid_keyboard_report.c",
+]
 requires = ["bt", "esp_hid", "nvs_flash"]
 capabilities = ["ble"]
 
@@ -485,6 +492,7 @@ sources = ["services/solar_os_vector.c"]
 
 [packages.service_gpio]
 label = "service.gpio"
+depends = ["service_resources"]
 sources = ["services/solar_os_gpio.c", "services/solar_os_status_led.c"]
 requires = ["esp_driver_gpio"]
 capabilities = ["gpio"]
@@ -493,6 +501,12 @@ capabilities = ["gpio"]
 label = "service.onewire"
 sources = ["services/solar_os_onewire.c"]
 requires = ["onewire_bus"]
+capabilities = ["gpio"]
+
+[packages.service_ps2]
+label = "service.ps2"
+sources = ["drivers/ps2_bus.c", "services/solar_os_ps2_keyboard.c"]
+requires = ["esp_driver_gpio", "esp_timer"]
 capabilities = ["gpio"]
 
 [packages.service_logic]
@@ -984,6 +998,18 @@ sources = [
   "jobs/solar_os_daq_job.c",
   "shell/solar_os_shell_daq.c",
 ]
+
+[packages.job_gpio_keys]
+label = "job.gpio-keys"
+depends = ["service_gpio"]
+sources = ["jobs/solar_os_gpio_keys_job.c"]
+capabilities = ["gpio"]
+
+[packages.job_ps2_keyboard]
+label = "job.ps2-keyboard"
+depends = ["service_ps2", "service_resources"]
+sources = ["jobs/solar_os_ps2_keyboard_job.c"]
+capabilities = ["gpio"]
 
 [packages.job_sump]
 label = "job.sump"

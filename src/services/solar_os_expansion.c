@@ -596,6 +596,7 @@ bool solar_os_expansion_available(void)
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE) > 0 ||
+        solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_PS2) > 0 ||
         solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_ADC) ||
         solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_PWM);
 }

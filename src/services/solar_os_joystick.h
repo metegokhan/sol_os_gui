@@ -39,4 +39,5 @@ size_t solar_os_joystick_axis_count(void);
 bool solar_os_joystick_get_axis_status(size_t index, solar_os_joystick_axis_status_t *status);
 esp_err_t solar_os_joystick_calibrate_center(void);
 esp_err_t solar_os_joystick_calibrate_reset(void);
+void solar_os_joystick_poll(void);
 size_t solar_os_joystick_read_chars(char *buffer, size_t buffer_len);

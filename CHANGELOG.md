@@ -2,6 +2,31 @@
 
 ## 4.x
 
+- **4.6.6** — 2026-08-06 — Added the `gpio-keys` job for mapping runtime-safe,
+  active-low pull-up GPIO buttons to debounced keyboard presses through the
+  normal SolarOS input dispatcher. Mappings can be supplied inline or loaded
+  from a file, claim their pins atomically as `job:gpio-keys`, appear
+  canonically in the IO application, and release cleanly when stopped. The job
+  is included in the hardware-jobs group and all Rover flavors. Added a 10 px
+  terminal text size, including regular,
+  bold, italic, and bold-italic faces. The new size is available through
+  `setterm textsize 10`, shell completion, the Setterm TUI, and the Edit and
+  Hexedit text-size controls. Existing saved terminal text-size values remain
+  compatible. Reworked local hardware input around a generic structured key
+  service with press, release, held-state, modifiers, HID usage identity, and a
+  shared repeat policy. BLE keyboards, fixed buttons, `gpio-keys`, joysticks,
+  and ADC D-pads now use that service; existing text applications retain
+  character input compatibility. Game Boy now consumes generic held state, so
+  non-BLE controls support simultaneous buttons and release tracking too.
+  Added named, exclusive PS/2 buses and the `ps2-keyboard` job. Runtime bus
+  definitions claim CLOCK and DATA pins through the normal resource registry,
+  appear in `io`, and can be restored from startup scripts. The receive driver
+  validates start, odd-parity, and stop bits in a GPIO edge ISR; the job decodes
+  scan-code set 2 and publishes canonical HID transitions through the generic
+  input service. Python and Lua can create and inspect PS/2 buses too. BLE HID
+  keyboard decoding now accepts both seven-byte report-protocol and eight-byte
+  boot reports and keeps composite-device report streams separate before
+  publishing their aggregate key state.
 - **4.6.5** — 2026-08-06 — Added the focused `rover-retro` flavor for running
   the Game Boy emulator on the Freenove ESP32-WROVER v3.0 composite target. It
   uses the normal system-service baseline with BLE, SD, UART ports, hardware

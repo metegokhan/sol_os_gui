@@ -33,7 +33,7 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertEqual(
             set(self.catalog.group_defs["hardware_jobs"].members),
-            {"job_bridge", "job_daq", "job_sump"},
+            {"job_bridge", "job_daq", "job_gpio_keys", "job_ps2_keyboard", "job_sump"},
         )
         self.assertEqual(
             set(self.catalog.group_defs["writing"].members),

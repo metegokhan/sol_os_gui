@@ -62,7 +62,7 @@ python3 fonts/generate_u8g2_fonts.py --bdfconv /path/to/bdfconv
 
 Defaults:
 
-- Sizes: `12, 14, 16, 18, 20`
+- Sizes: `10, 12, 14, 16, 18, 20`
 - Styles: regular, bold, italic, bold italic
 - Glyphs: ASCII plus Latin-1 supplement, `0x20-0x7e` and `0xa0-0xff`
 - Rendering: monochrome FreeType output, no antialiasing

@@ -22,4 +22,5 @@ typedef struct {
 } solar_os_button_def_t;
 
 esp_err_t solar_os_buttons_init(void);
+void solar_os_buttons_poll(void);
 size_t solar_os_buttons_read_chars(char *buffer, size_t buffer_len);

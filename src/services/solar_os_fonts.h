@@ -2,6 +2,10 @@
 
 #include <stdint.h>
 
+extern const uint8_t u8g2_font_solar_os_default_r_10_tf[];
+extern const uint8_t u8g2_font_solar_os_default_b_10_tf[];
+extern const uint8_t u8g2_font_solar_os_default_i_10_tf[];
+extern const uint8_t u8g2_font_solar_os_default_bi_10_tf[];
 extern const uint8_t u8g2_font_solar_os_default_r_12_tf[];
 extern const uint8_t u8g2_font_solar_os_default_b_12_tf[];
 extern const uint8_t u8g2_font_solar_os_default_i_12_tf[];

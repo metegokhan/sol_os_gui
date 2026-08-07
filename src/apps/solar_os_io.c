@@ -92,7 +92,7 @@ typedef struct {
     io_mode_t mode;
     size_t selected[IO_VIEW_COUNT];
     size_t protocol_selected;
-    solar_os_bus_protocol_t protocols[4];
+    solar_os_bus_protocol_t protocols[5];
     size_t protocol_count;
     io_action_t actions[IO_ACTION_MAX];
     size_t action_count;
@@ -227,6 +227,10 @@ static bool io_bus_uses_pin(const solar_os_bus_info_t *bus,
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         signal = pin == bus->config.onewire.pin ? "1W" : NULL;
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        signal = pin == bus->config.ps2.clock_pin ? "CLOCK" :
+            pin == bus->config.ps2.data_pin ? "DATA" : NULL;
         break;
     default:
         break;
@@ -691,6 +695,13 @@ static void io_bus_description(const solar_os_bus_info_t *bus, char *buffer, siz
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         snprintf(buffer, buffer_size, "GPIO%d", bus->config.onewire.pin);
         break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        snprintf(buffer,
+                 buffer_size,
+                 "CLOCK=%d DATA=%d",
+                 bus->config.ps2.clock_pin,
+                 bus->config.ps2.data_pin);
+        break;
     default:
         strlcpy(buffer, "-", buffer_size);
         break;
@@ -1014,6 +1025,13 @@ static esp_err_t io_bus_create_command(const solar_os_bus_info_t *bus,
                                  "expansion bus create onewire %s pin=gpio%d",
                                  name,
                                  bus->config.onewire.pin);
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        return io_command_append(command,
+                                 command_len,
+                                 "expansion bus create ps2 %s clock=gpio%d data=gpio%d",
+                                 name,
+                                 bus->config.ps2.clock_pin,
+                                 bus->config.ps2.data_pin);
     default:
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -1250,7 +1268,8 @@ static void io_default_bus_name(solar_os_bus_protocol_t protocol, char *name, si
 {
     const char *prefix = protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? "i2c" :
         protocol == SOLAR_OS_BUS_PROTOCOL_SPI ? "spi" :
-        protocol == SOLAR_OS_BUS_PROTOCOL_UART ? "uart" : "ow";
+        protocol == SOLAR_OS_BUS_PROTOCOL_UART ? "uart" :
+        protocol == SOLAR_OS_BUS_PROTOCOL_PS2 ? "ps2" : "ow";
     for (unsigned i = 0; i < 10U; i++) {
         snprintf(name, name_size, "%s%u", prefix, i);
         if (!io_bus_name_exists(name)) {
@@ -1330,7 +1349,7 @@ static void io_form_begin(solar_os_bus_protocol_t protocol)
 
     size_t required = protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? 2U :
         protocol == SOLAR_OS_BUS_PROTOCOL_SPI ? 4U :
-        protocol == SOLAR_OS_BUS_PROTOCOL_UART ? 2U : 1U;
+        protocol == SOLAR_OS_BUS_PROTOCOL_UART || protocol == SOLAR_OS_BUS_PROTOCOL_PS2 ? 2U : 1U;
     size_t filled = 0;
     if (io.selected_pin >= 0 && io_pin_unclaimed(io.selected_pin)) {
         io.form.pins[filled++] = io.selected_pin;
@@ -1380,6 +1399,11 @@ static void io_protocols_build(void)
         io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_ONEWIRE;
     }
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_PS2
+    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_GPIO)) {
+        io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_PS2;
+    }
+#endif
     if (io.protocol_selected >= io.protocol_count) {
         io.protocol_selected = 0;
     }
@@ -1423,6 +1447,8 @@ static size_t io_form_field_count(void)
         return 6U;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         return 3U;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        return 4U;
     default:
         return 0;
     }
@@ -1494,6 +1520,14 @@ static void io_form_field(size_t index,
         if (index == 1) {
             strlcpy(label, "Pin", label_size);
             snprintf(value, value_size, "GPIO%d", io.form.pins[0]);
+        } else {
+            strlcpy(label, "Create", label_size);
+        }
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        if (index == 1 || index == 2) {
+            strlcpy(label, index == 1 ? "Clock" : "Data", label_size);
+            snprintf(value, value_size, "GPIO%d", io.form.pins[index - 1U]);
         } else {
             strlcpy(label, "Create", label_size);
         }
@@ -1694,6 +1728,14 @@ static void io_form_cycle(int delta)
             io.form.pins[0] = io_cycle_pin(io.form.pins[0], delta, false, 0);
         }
         break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        if (field == 1 || field == 2) {
+            io.form.pins[field - 1U] = io_cycle_pin(io.form.pins[field - 1U],
+                                                   delta,
+                                                   false,
+                                                   field - 1U);
+        }
+        break;
     default:
         break;
     }
@@ -1706,7 +1748,8 @@ static esp_err_t io_form_create(void)
         .protocol = io.form.protocol,
         .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
         .sharing = io.form.protocol == SOLAR_OS_BUS_PROTOCOL_UART ||
-                io.form.protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE
+                io.form.protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE ||
+                io.form.protocol == SOLAR_OS_BUS_PROTOCOL_PS2
             ? SOLAR_OS_BUS_EXCLUSIVE
             : SOLAR_OS_BUS_SHARED,
     };
@@ -1746,6 +1789,12 @@ static esp_err_t io_form_create(void)
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         definition.config.onewire.pin = io.form.pins[0];
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        definition.config.ps2 = (solar_os_bus_ps2_config_t) {
+            .clock_pin = io.form.pins[0],
+            .data_pin = io.form.pins[1],
+        };
         break;
     default:
         return ESP_ERR_INVALID_ARG;

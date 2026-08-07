@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_input.h"
 
 #define SOLAR_OS_APP_ARG_MAX 8
 #define SOLAR_OS_APP_ARG_LEN 160
@@ -22,6 +23,8 @@ typedef void (*solar_os_session_list_fn)(solar_os_shell_io_t *io, void *user);
 #define SOLAR_OS_APP_FLAG_RESUMABLE (1U << 0)
 /* Reuse a launching display shell's terminal instead of allocating a new one. */
 #define SOLAR_OS_APP_FLAG_SHELL_INLINE (1U << 1)
+/* Receive structured local key events instead of their legacy character form. */
+#define SOLAR_OS_APP_FLAG_KEY_EVENTS (1U << 2)
 
 typedef enum {
     SOLAR_OS_LAUNCH_REPLACE,
@@ -58,6 +61,7 @@ typedef struct {
 
 typedef enum {
     SOLAR_OS_EVENT_CHAR,
+    SOLAR_OS_EVENT_KEY,
     SOLAR_OS_EVENT_TICK,
     SOLAR_OS_EVENT_RESUME,
 } solar_os_event_type_t;
@@ -66,6 +70,7 @@ typedef struct {
     solar_os_event_type_t type;
     union {
         char ch;
+        solar_os_input_key_event_t key;
         uint32_t tick_ms;
     } data;
 } solar_os_event_t;
