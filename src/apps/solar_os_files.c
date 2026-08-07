@@ -796,16 +796,23 @@ static void files_render(solar_os_context_t *ctx)
     }
 
     solar_os_tui_clear(&files.tui);
-    solar_os_tui_fill(&files.tui, 0, 0, 1, cols, ' ', SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
-    const char *title = files.launcher_mode ?
-        "launcher  Enter open  q quit" :
-        (files.show_hidden ? "files  hidden:on  Tab switch  Enter open  q quit"
-                           : "files  hidden:off Tab switch  Enter open  q quit");
-    files_add_clipped(0,
-                      0,
-                      cols,
-                      title,
-                      SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    if (!files.launcher_mode) {
+        solar_os_tui_fill(&files.tui,
+                          0,
+                          0,
+                          1,
+                          cols,
+                          ' ',
+                          SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+        const char *title = files.show_hidden ?
+            "files  hidden:on  Tab switch  Enter open  q quit" :
+            "files  hidden:off Tab switch  Enter open  q quit";
+        files_add_clipped(0,
+                          0,
+                          cols,
+                          title,
+                          SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    }
 
     const size_t pane_row = 1;
     if (files.launcher_mode) {

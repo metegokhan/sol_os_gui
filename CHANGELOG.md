@@ -2,6 +2,13 @@
 
 ## 4.x
 
+- **4.6.7** — 2026-08-07 — Fixed `displayd` browser keyboard lag and event
+  reordering by queueing input in the browser and sending ordered batches.
+  Corrected the Elecrow rotary wheel direction mapping and made all three
+  rotary controls emit one debounced key event on release, preventing slow
+  e-paper refreshes from leaving Enter in a repeating state. The rotary press
+  now uses the canonical Enter key mapping. Removed the top help bar from
+  `files --launcher` while retaining its empty first row.
 - **4.6.6** — 2026-08-06 — Added the `gpio-keys` job for mapping runtime-safe,
   active-low pull-up GPIO buttons to debounced keyboard presses through the
   normal SolarOS input dispatcher. Mappings can be supplied inline or loaded

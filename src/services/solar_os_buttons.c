@@ -138,6 +138,13 @@ void solar_os_buttons_poll(void)
         if (def->key == 0) {
             continue;
         }
+        if (def->emit_on_release) {
+            if (!pressed) {
+                (void)solar_os_input_write_char(buttons_input_source,
+                                                (char)def->key);
+            }
+            continue;
+        }
         (void)solar_os_input_write_key(buttons_input_source,
                                        (uint16_t)def->pin + 1U,
                                        SOLAR_OS_INPUT_USAGE_NONE,

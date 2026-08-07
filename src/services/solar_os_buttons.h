@@ -18,6 +18,7 @@ typedef struct {
     const char *name;
     uint8_t key;
     bool active_low;
+    bool emit_on_release;
     solar_os_button_pull_t pull;
 } solar_os_button_def_t;
 
