@@ -164,7 +164,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## Networking and security
 
-- [SSH identity keys](ssh_keys.md) — Inspect, generate, and remove the default SSH key pair
+- [SSH identity keys](ssh_keys.md) — Inspect, share, generate, and remove the default SSH key pair
 - [Wi-Fi, MQTT, and network APIs](network.md) — Connect, inspect, and communicate over installed network services
 
 ## Hardware and expansion

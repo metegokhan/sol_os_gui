@@ -803,6 +803,7 @@ SSH key functions manage the default SolarOS SSH key pair.
 - `default_paths()`: return private and public key paths.
 - `default_exists()`: return whether both default key files exist.
 - `status()`: return key existence, sizes, and paths.
+- `public_key()`: return the default OpenSSH public-key line without its newline.
 - `generate([bits[, overwrite]])`: generate RSA keys.
 - `remove()`: remove the default key pair.
 
@@ -815,6 +816,7 @@ if not solaros.ssh_keys.default_exists():
     solaros.ssh_keys.generate()
 
 print(solaros.ssh_keys.status())
+print(solaros.ssh_keys.public_key())
 ```
 
 ## `solaros.jobs`

@@ -71,7 +71,7 @@ service packages are not available on that board.
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
 - `solaros.identity`: `user`, `hostname`, `set_user`, `set_hostname`, `format`
 - `solaros.net`: `ping` when `network.base` is compiled
-- `solaros.ssh_keys`: `default_paths`, `default_exists`, `status`, `generate`, `remove` when `network.ssh` is compiled
+- `solaros.ssh_keys`: `default_paths`, `default_exists`, `status`, `public_key`, `generate`, `remove` when `network.ssh` is compiled
 - `solaros.jobs`: `list`, `count`, `status`, `start`, `stop`
 - `solaros.sessions`: `create_shell`, `close`
 - `solaros.apps`: `list`, `find`

@@ -3463,6 +3463,18 @@ static int solua_ssh_keys_status(lua_State *L)
     return 1;
 }
 
+static int solua_ssh_keys_public_key(lua_State *L)
+{
+    char public_key[SOLAR_OS_SSH_PUBLIC_KEY_MAX];
+    size_t public_key_len = 0;
+    (void)solua_check_esp(L,
+                          solar_os_ssh_keys_read_public(public_key,
+                                                        sizeof(public_key),
+                                                        &public_key_len));
+    lua_pushlstring(L, public_key, public_key_len);
+    return 1;
+}
+
 static int solua_ssh_keys_generate(lua_State *L)
 {
     const uint32_t bits = solua_optional_u32(L, 1, SOLAR_OS_SSH_KEY_DEFAULT_BITS);
@@ -4815,6 +4827,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "default_paths", solua_ssh_keys_default_paths);
     solua_set_func(L, mod, "default_exists", solua_ssh_keys_default_exists);
     solua_set_func(L, mod, "status", solua_ssh_keys_status);
+    solua_set_func(L, mod, "public_key", solua_ssh_keys_public_key);
     solua_set_func(L, mod, "generate", solua_ssh_keys_generate);
     solua_set_func(L, mod, "remove", solua_ssh_keys_remove);
     lua_pop(L, 1);

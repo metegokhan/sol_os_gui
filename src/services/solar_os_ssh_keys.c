@@ -156,6 +156,47 @@ esp_err_t solar_os_ssh_keys_get_status(solar_os_ssh_key_status_t *status)
     return ESP_OK;
 }
 
+esp_err_t solar_os_ssh_keys_read_public(char *public_key,
+                                        size_t public_key_len,
+                                        size_t *written)
+{
+    if (public_key == NULL || public_key_len < 2) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char path[160];
+    esp_err_t ret = solar_os_ssh_keys_default_paths(NULL, 0, path, sizeof(path));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
+
+    size_t length = fread(public_key, 1, public_key_len - 1, file);
+    const bool too_large = length == public_key_len - 1 && fgetc(file) != EOF;
+    const bool read_failed = ferror(file) != 0;
+    const int close_ret = fclose(file);
+    if (too_large) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (read_failed || close_ret != 0) {
+        return ESP_FAIL;
+    }
+
+    while (length > 0 &&
+           (public_key[length - 1] == '\n' || public_key[length - 1] == '\r')) {
+        length--;
+    }
+    public_key[length] = '\0';
+    if (written != NULL) {
+        *written = length;
+    }
+    return length > 0 ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
 static bool put_u32(uint8_t *buffer, size_t buffer_len, size_t *offset, uint32_t value)
 {
     if (buffer == NULL || offset == NULL || *offset + 4 > buffer_len) {

@@ -3605,6 +3605,18 @@ static mp_obj_t solaros_ssh_keys_status(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ssh_keys_status_obj, solaros_ssh_keys_status);
 
+static mp_obj_t solaros_ssh_keys_public_key(void)
+{
+    char public_key[SOLAR_OS_SSH_PUBLIC_KEY_MAX];
+    size_t public_key_len = 0;
+    python_check_esp(solar_os_ssh_keys_read_public(public_key,
+                                                   sizeof(public_key),
+                                                   &public_key_len));
+    return mp_obj_new_str(public_key, public_key_len);
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ssh_keys_public_key_obj,
+                          solaros_ssh_keys_public_key);
+
 static mp_obj_t solaros_ssh_keys_generate(size_t n_args, const mp_obj_t *args)
 {
     const uint32_t bits = python_optional_u32(n_args,
@@ -5036,6 +5048,9 @@ static void python_register_solaros_module(void)
                         "default_exists",
                         MP_OBJ_FROM_PTR(&solaros_ssh_keys_default_exists_obj));
     python_module_store(ssh_keys, "status", MP_OBJ_FROM_PTR(&solaros_ssh_keys_status_obj));
+    python_module_store(ssh_keys,
+                        "public_key",
+                        MP_OBJ_FROM_PTR(&solaros_ssh_keys_public_key_obj));
     python_module_store(ssh_keys, "generate", MP_OBJ_FROM_PTR(&solaros_ssh_keys_generate_obj));
     python_module_store(ssh_keys, "remove", MP_OBJ_FROM_PTR(&solaros_ssh_keys_remove_obj));
 #endif
