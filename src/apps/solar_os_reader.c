@@ -47,6 +47,7 @@ typedef struct {
     bool error_only;
     bool suspended;
     bool epub;
+    bool pager;
     bool layout_valid;
     int scroll_y;
     int zoom;
@@ -945,32 +946,6 @@ static void reader_scroll_lines(solar_os_context_t *ctx, int delta_lines)
     reader_scroll_to_line(ctx, (size_t)target);
 }
 
-static size_t reader_line_for_target_y(int target_y, bool forward)
-{
-    if (!reader.layout_valid || reader.layout.line_count == 0) {
-        return 0;
-    }
-
-    size_t result = 0;
-    if (forward) {
-        for (size_t i = 0; i < reader.layout.line_count; i++) {
-            if (reader.layout.lines[i].y >= target_y) {
-                return i;
-            }
-            result = i;
-        }
-        return result;
-    }
-
-    for (size_t i = 0; i < reader.layout.line_count; i++) {
-        if (reader.layout.lines[i].y > target_y) {
-            break;
-        }
-        result = i;
-    }
-    return result;
-}
-
 static bool reader_match_to_y(int *out_y, int *out_height)
 {
     if (!reader.match.valid || !reader.layout_valid) {
@@ -1336,6 +1311,30 @@ static esp_err_t reader_load_manual_page(const solar_os_manual_page_t *page)
     return parse_err;
 }
 
+static bool reader_parse_args(solar_os_context_t *ctx, const char **target)
+{
+    if (ctx == NULL || target == NULL) {
+        return false;
+    }
+
+    *target = NULL;
+    const int argc = solar_os_context_argc(ctx);
+    for (int i = 1; i < argc; i++) {
+        const char *arg = solar_os_context_argv(ctx, i);
+        if (arg != NULL && strcmp(arg, "--pager") == 0) {
+            if (reader.pager) {
+                return false;
+            }
+            reader.pager = true;
+        } else if (arg == NULL || *target != NULL) {
+            return false;
+        } else {
+            *target = arg;
+        }
+    }
+    return *target != NULL;
+}
+
 static esp_err_t reader_start(solar_os_context_t *ctx)
 {
     memset(&reader, 0, sizeof(reader));
@@ -1354,18 +1353,17 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
         return ESP_ERR_INVALID_STATE;
     }
 
-    const int argc = solar_os_context_argc(ctx);
-    if (argc != 2) {
+    const char *arg = NULL;
+    if (!reader_parse_args(ctx, &arg)) {
         reader.error_only = true;
         snprintf(reader.message,
                  sizeof(reader.message),
-                 "usage: reader <file.txt|file.md|file.epub|man:topic>");
+                 "usage: reader [--pager] <file.txt|file.md|file.epub|man:topic>");
         solar_os_context_set_graphics_active(ctx, true);
         reader_render(ctx);
         return ESP_OK;
     }
 
-    const char *arg = solar_os_context_argv(ctx, 1);
     strlcpy(reader.display_name, arg != NULL ? arg : "", sizeof(reader.display_name));
 
     const bool manual_target = arg != NULL && strncmp(arg, "man:", 4U) == 0;
@@ -1503,6 +1501,46 @@ static void reader_title(solar_os_context_t *ctx, char *buffer, size_t buffer_le
     strlcpy(buffer, "reader", buffer_len);
 }
 
+static size_t reader_last_visible_line(size_t first_line, int view_h)
+{
+    const int view_bottom = reader.scroll_y + view_h;
+    size_t last_line = first_line;
+
+    for (size_t i = first_line; i < reader.layout.line_count; i++) {
+        const solar_os_doc_layout_line_t *line = &reader.layout.lines[i];
+        if (line->y >= view_bottom) {
+            break;
+        }
+        if (line->y + line->height > reader.scroll_y) {
+            last_line = i;
+        }
+    }
+    return last_line;
+}
+
+static size_t reader_previous_page_line(size_t first_line, int view_h)
+{
+    const solar_os_doc_layout_line_t *current = &reader.layout.lines[first_line];
+    const solar_os_doc_layout_line_t *next =
+        first_line + 1U < reader.layout.line_count ?
+            &reader.layout.lines[first_line + 1U] : NULL;
+    size_t target_line = first_line;
+
+    for (size_t i = first_line + 1U; i > 0; i--) {
+        const size_t candidate_index = i - 1U;
+        const solar_os_doc_layout_line_t *candidate =
+            &reader.layout.lines[candidate_index];
+        const int view_bottom = candidate->y + view_h;
+        if (current->y >= view_bottom) {
+            break;
+        }
+        if (next == NULL || next->y >= view_bottom) {
+            target_line = candidate_index;
+        }
+    }
+    return target_line;
+}
+
 static void reader_page(solar_os_context_t *ctx, bool down)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -1530,19 +1568,17 @@ static void reader_page(solar_os_context_t *ctx, bool down)
         return;
     }
 
-    const solar_os_doc_layout_line_t *line = &reader.layout.lines[line_index];
     const int view_h = reader_content_area_height(gfx);
-    int overlap = line->height;
-    if (overlap < 1) {
-        overlap = 1;
+    size_t target_line = down ?
+        reader_last_visible_line(line_index, view_h) :
+        reader_previous_page_line(line_index, view_h);
+    if (target_line == line_index) {
+        if (down && line_index + 1U < reader.layout.line_count) {
+            target_line++;
+        } else if (!down && line_index > 0) {
+            target_line--;
+        }
     }
-    int step = view_h - overlap;
-    if (step < overlap) {
-        step = view_h > 1 ? view_h - 1 : 1;
-    }
-
-    const int target_y = down ? reader.scroll_y + step : reader.scroll_y - step;
-    const size_t target_line = reader_line_for_target_y(target_y, down);
     reader_scroll_to_line(ctx, target_line);
 }
 
@@ -1594,10 +1630,18 @@ static bool reader_handle_char(solar_os_context_t *ctx, char raw_ch)
         }
         break;
     case SOLAR_OS_KEY_UP:
-        reader_scroll_lines(ctx, -1);
+        if (reader.pager) {
+            reader_page(ctx, false);
+        } else {
+            reader_scroll_lines(ctx, -1);
+        }
         break;
     case SOLAR_OS_KEY_DOWN:
-        reader_scroll_lines(ctx, 1);
+        if (reader.pager) {
+            reader_page(ctx, true);
+        } else {
+            reader_scroll_lines(ctx, 1);
+        }
         break;
     case SOLAR_OS_KEY_PAGE_UP:
         reader_page(ctx, false);

@@ -1091,6 +1091,7 @@ static const char * const plot_live_options[] = {"--rate"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_FILES
 static const char * const files_options[] = {"--launcher"};
+static const char * const reader_options[] = {"--pager"};
 #endif
 
 static const char * const path_ls[] = {"ls"};
@@ -1187,6 +1188,7 @@ static const char * const path_plot_stream[] = {"plot", SHELL_COMPLETION_ANY};
 #endif
 #if SOLAR_OS_PACKAGE_APP_READER
 static const char * const path_reader[] = {"reader"};
+static const char * const path_reader_pager[] = {"reader", "--pager"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_WRITER
 static const char * const path_writer[] = {"writer"};
@@ -2162,8 +2164,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PATH(path_plot_long_file, false),
 #endif
 #if SOLAR_OS_PACKAGE_APP_READER
+    SHELL_COMPLETION_OPTIONS(path_reader, reader_options),
     SHELL_COMPLETION_PATH(path_reader, false),
     SHELL_COMPLETION_MANUAL_REFERENCES(path_reader),
+    SHELL_COMPLETION_PATH(path_reader_pager, false),
+    SHELL_COMPLETION_MANUAL_REFERENCES(path_reader_pager),
 #endif
 #if SOLAR_OS_PACKAGE_APP_WRITER
     SHELL_COMPLETION_PATH(path_writer, false),

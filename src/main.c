@@ -876,6 +876,19 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     }
 
     solar_os_power_note_activity(millis_u32());
+    if ((event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0 &&
+        (event->key == SOLAR_OS_KEY_RIGHT ||
+         event->key == SOLAR_OS_KEY_LEFT)) {
+        if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
+            if (event->key == SOLAR_OS_KEY_RIGHT) {
+                (void)solar_os_sessions_cycle_input_focus();
+            } else {
+                (void)solar_os_sessions_cycle_input_focus_previous();
+            }
+            process_app_requests();
+        }
+        return;
+    }
     if (event->action == SOLAR_OS_INPUT_KEY_RELEASE || event->key == 0) {
         if (input_focus_accepts_key_events()) {
             dispatch_key_to_input_focus(event);

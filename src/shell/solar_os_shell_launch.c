@@ -60,8 +60,17 @@ int solar_os_shell_launch_path_arg(const char *app_name,
         return strcmp(argv[1], "--launcher") == 0 ?
             (argc >= 3 ? 2 : -1) : 1;
     }
-    if (strcmp(app_name, "less") == 0 || strcmp(app_name, "reader") == 0) {
+    if (strcmp(app_name, "less") == 0) {
         return strncmp(argv[1], "man:", 4U) == 0 ? -1 : 1;
+    }
+    if (strcmp(app_name, "reader") == 0) {
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "--pager") == 0) {
+                continue;
+            }
+            return strncmp(argv[i], "man:", 4U) == 0 ? -1 : i;
+        }
+        return -1;
     }
     if (strcmp(app_name, "plot") == 0) {
         return option_path_arg(argc, argv, "-f", "--file");

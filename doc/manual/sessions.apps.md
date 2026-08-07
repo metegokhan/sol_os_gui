@@ -22,8 +22,11 @@ session fg 3
 session close 3
 ```
 
-`Alt+Tab` switches between sessions on the locally focused display. `session
-fg` explicitly foregrounds its session and moves local input focus to that
+`Alt+Tab` or `Alt+Right` switches to the next session on the locally focused
+display. `Alt+Left` switches to the previous session. Either Alt key is
+accepted, including AltGr on compact keyboards. Both directions follow wrapped
+session-ID order, and the display shell remains in the cycle. `session fg`
+explicitly foregrounds its session and moves local input focus to that
 session's display. Closing an application returns to that display's shell.
 
 On UART, USB CDC, Telnet, and other port shells, press `Ctrl+Z` to suspend a
@@ -102,8 +105,8 @@ session focus oled0
 ```
 
 Changing focus does not move or restart a session. It only assigns local input
-and target-scoped `Alt+Tab`. Browser input from `displayd` remains assigned to
-the display being controlled.
+and target-scoped session-cycle shortcuts. Browser input from `displayd`
+remains assigned to the display being controlled.
 
 ## Quick reference
 

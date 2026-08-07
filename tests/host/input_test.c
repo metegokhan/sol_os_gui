@@ -81,6 +81,9 @@ int main(void)
                                               false) == SOLAR_OS_KEY_APP_EXIT);
     assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
     assert(solar_os_input_translate_hid_usage(0x1c, 0, false) == 'z');
+    assert(solar_os_input_translate_hid_usage(0x2b,
+                                              SOLAR_OS_INPUT_MOD_RIGHT_ALT,
+                                              false) == '\t');
     assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
 
     solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
