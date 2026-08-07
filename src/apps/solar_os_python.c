@@ -124,6 +124,7 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PYTHON_TASK_STACK);
 #define PYTHON_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define PYTHON_EVENT_QUEUE_LEN 32
 #define PYTHON_EVENT_DATA_MAX 192
+#define PYTHON_GFX_BITMAP_MAX 128
 #define PYTHON_INPUT_QUEUE_LEN 4
 #define PYTHON_KEY_QUEUE_LEN 32
 #define PYTHON_REPL_LINE_MAX 192
@@ -158,6 +159,7 @@ typedef enum {
     PYTHON_EVENT_GFX_FILL_RECT,
     PYTHON_EVENT_GFX_CIRCLE,
     PYTHON_EVENT_GFX_FILL_CIRCLE,
+    PYTHON_EVENT_GFX_BITMAP,
     PYTHON_EVENT_GFX_TEXT,
     PYTHON_EVENT_DONE,
 } python_event_type_t;
@@ -1058,6 +1060,40 @@ static mp_obj_t solaros_storage_resolve(mp_obj_t path_obj)
     return mp_obj_new_str_from_cstr(path);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_resolve_obj, solaros_storage_resolve);
+
+static mp_obj_t solaros_storage_read_file(size_t n_args, const mp_obj_t *args)
+{
+    const uint32_t max_bytes = python_optional_u32(n_args, args, 1, 4096U);
+    if (max_bytes == 0 || max_bytes > SOLAR_OS_STORAGE_READ_MAX_BYTES) {
+        mp_raise_ValueError(MP_ERROR_TEXT("max_bytes must be 1..65536"));
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(args[0], path, sizeof(path));
+
+    uint8_t *data = python_alloc_psram_first(max_bytes);
+    if (data == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+
+    size_t read_len = 0;
+    const esp_err_t err = solar_os_storage_read_file(path,
+                                                      data,
+                                                      max_bytes,
+                                                      &read_len);
+    if (err != ESP_OK) {
+        solar_os_memory_free(data);
+        python_check_esp(err);
+    }
+
+    mp_obj_t result = mp_obj_new_bytes(data, read_len);
+    solar_os_memory_free(data);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_storage_read_file_obj,
+                                    1,
+                                    2,
+                                    solaros_storage_read_file);
 
 static mp_obj_t solaros_storage_rescan(void)
 {
@@ -3603,6 +3639,18 @@ static mp_obj_t solaros_ssh_keys_status(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ssh_keys_status_obj, solaros_ssh_keys_status);
 
+static mp_obj_t solaros_ssh_keys_public_key(void)
+{
+    char public_key[SOLAR_OS_SSH_PUBLIC_KEY_MAX];
+    size_t public_key_len = 0;
+    python_check_esp(solar_os_ssh_keys_read_public(public_key,
+                                                   sizeof(public_key),
+                                                   &public_key_len));
+    return mp_obj_new_str(public_key, public_key_len);
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ssh_keys_public_key_obj,
+                          solaros_ssh_keys_public_key);
+
 static mp_obj_t solaros_ssh_keys_generate(size_t n_args, const mp_obj_t *args)
 {
     const uint32_t bits = python_optional_u32(n_args,
@@ -4664,6 +4712,40 @@ static mp_obj_t solaros_gfx_fill_circle(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_fill_circle_obj, 3, 3, solaros_gfx_fill_circle);
 
+static mp_obj_t solaros_gfx_bitmap(size_t n_args, const mp_obj_t *args)
+{
+    (void)n_args;
+    const uint16_t width = python_u16_from_size(python_size_from_obj(args[2]));
+    const uint16_t height = python_u16_from_size(python_size_from_obj(args[3]));
+    if (width == 0 || height == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bitmap dimensions must be positive"));
+    }
+
+    const size_t required = (((size_t)width + 7U) / 8U) * (size_t)height;
+    if (required > PYTHON_GFX_BITMAP_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bitmap too large (maximum 128 packed bytes)"));
+    }
+
+    mp_buffer_info_t bitmap;
+    mp_get_buffer_raise(args[4], &bitmap, MP_BUFFER_READ);
+    if (bitmap.len != required) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bitmap data length does not match dimensions"));
+    }
+
+    python_event_t event = {
+        .type = PYTHON_EVENT_GFX_BITMAP,
+        .x0 = python_i32_from_obj(args[0]),
+        .y0 = python_i32_from_obj(args[1]),
+        .width = width,
+        .height = height,
+        .data_len = bitmap.len,
+    };
+    memcpy(event.data, bitmap.buf, bitmap.len);
+    python_gfx_send_event(&event);
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_bitmap_obj, 5, 5, solaros_gfx_bitmap);
+
 static mp_obj_t solaros_gfx_text(size_t n_args, const mp_obj_t *args)
 {
     (void)n_args;
@@ -4704,6 +4786,9 @@ static void python_register_solaros_module(void)
     python_module_store(storage, "mount_point", MP_OBJ_FROM_PTR(&solaros_storage_mount_point_obj));
     python_module_store(storage, "usage", MP_OBJ_FROM_PTR(&solaros_storage_usage_obj));
     python_module_store(storage, "resolve", MP_OBJ_FROM_PTR(&solaros_storage_resolve_obj));
+    python_module_store(storage,
+                        "read_file",
+                        MP_OBJ_FROM_PTR(&solaros_storage_read_file_obj));
     python_module_store(storage, "rescan", MP_OBJ_FROM_PTR(&solaros_storage_rescan_obj));
     python_module_store(storage, "blocks", MP_OBJ_FROM_PTR(&solaros_storage_blocks_obj));
     python_module_store(storage, "block_count", MP_OBJ_FROM_PTR(&solaros_storage_block_count_obj));
@@ -5000,6 +5085,9 @@ static void python_register_solaros_module(void)
                         "default_exists",
                         MP_OBJ_FROM_PTR(&solaros_ssh_keys_default_exists_obj));
     python_module_store(ssh_keys, "status", MP_OBJ_FROM_PTR(&solaros_ssh_keys_status_obj));
+    python_module_store(ssh_keys,
+                        "public_key",
+                        MP_OBJ_FROM_PTR(&solaros_ssh_keys_public_key_obj));
     python_module_store(ssh_keys, "generate", MP_OBJ_FROM_PTR(&solaros_ssh_keys_generate_obj));
     python_module_store(ssh_keys, "remove", MP_OBJ_FROM_PTR(&solaros_ssh_keys_remove_obj));
 #endif
@@ -5143,6 +5231,8 @@ static void python_register_solaros_module(void)
     python_module_store(gfx, "fill_rect", MP_OBJ_FROM_PTR(&solaros_gfx_fill_rect_obj));
     python_module_store(gfx, "circle", MP_OBJ_FROM_PTR(&solaros_gfx_circle_obj));
     python_module_store(gfx, "fill_circle", MP_OBJ_FROM_PTR(&solaros_gfx_fill_circle_obj));
+    python_module_store(gfx, "bitmap", MP_OBJ_FROM_PTR(&solaros_gfx_bitmap_obj));
+    python_module_store(gfx, "sprite", MP_OBJ_FROM_PTR(&solaros_gfx_bitmap_obj));
     python_module_store(gfx, "text", MP_OBJ_FROM_PTR(&solaros_gfx_text_obj));
     python_module_store(gfx, "getch", MP_OBJ_FROM_PTR(&solaros_tui_getch_obj));
 }
@@ -6021,6 +6111,14 @@ static void python_apply_gfx_event(solar_os_context_t *ctx, const python_event_t
     case PYTHON_EVENT_GFX_FILL_CIRCLE:
         solar_os_gfx_fill_circle(gfx, (int)event->x0, (int)event->y0, (int)event->width);
         break;
+    case PYTHON_EVENT_GFX_BITMAP:
+        solar_os_gfx_bitmap(gfx,
+                            (int)event->x0,
+                            (int)event->y0,
+                            (int)event->width,
+                            (int)event->height,
+                            (const uint8_t *)event->data);
+        break;
     case PYTHON_EVENT_GFX_TEXT:
         solar_os_gfx_text(gfx, (int)event->x0, (int)event->y0, event->data);
         break;
@@ -6086,6 +6184,7 @@ static void python_drain_events(solar_os_context_t *ctx)
         case PYTHON_EVENT_GFX_FILL_RECT:
         case PYTHON_EVENT_GFX_CIRCLE:
         case PYTHON_EVENT_GFX_FILL_CIRCLE:
+        case PYTHON_EVENT_GFX_BITMAP:
         case PYTHON_EVENT_GFX_TEXT:
             python_apply_gfx_event(ctx, &event);
             break;

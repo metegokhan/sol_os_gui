@@ -858,6 +858,42 @@ esp_err_t solar_os_storage_rename(const char *old_path, const char *new_path)
     return rename(old_path, new_path) == 0 ? ESP_OK : ESP_FAIL;
 }
 
+esp_err_t solar_os_storage_read_file(const char *path,
+                                     void *buffer,
+                                     size_t buffer_len,
+                                     size_t *read_len)
+{
+    if (path == NULL || path[0] == '\0' || buffer == NULL || buffer_len == 0) {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return ESP_FAIL;
+    }
+
+    const size_t length = fread(buffer, 1, buffer_len, file);
+    const bool read_failed = ferror(file) != 0;
+    const int read_errno = read_failed ? errno : 0;
+    const int close_ret = fclose(file);
+    const int close_errno = close_ret != 0 ? errno : 0;
+    if (read_failed || close_ret != 0) {
+        errno = read_errno != 0 ? read_errno : (close_errno != 0 ? close_errno : EIO);
+        return ESP_FAIL;
+    }
+
+    if (read_len != NULL) {
+        *read_len = length;
+    }
+    return ESP_OK;
+}
+
 esp_err_t solar_os_storage_copy_file(const char *source_path, const char *dest_path)
 {
     if (source_path == NULL || source_path[0] == '\0' || dest_path == NULL || dest_path[0] == '\0') {

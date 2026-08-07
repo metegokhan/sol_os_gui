@@ -2,7 +2,7 @@
 id = "ssh_keys"
 title = "SSH identity keys"
 section = "network"
-summary = "Inspect, generate, and remove the default SSH key pair"
+summary = "Inspect, share, generate, and remove the default SSH key pair"
 aliases = ["sshkeys", "sshkey"]
 keywords = "python lua ssh scp keys identity private public generate remove credentials"
 packages_any = ["service_ssh"]
@@ -31,7 +31,8 @@ requests that exact operation. The agent's storage tools reject paths below
 
 ## Quick reference
 
-solaros.ssh_keys provides default_paths, default_exists, status, generate
-(optional bits and overwrite), and remove when SSH is installed. Do not
-inspect, expose, replace, or delete private key material unless the user
-explicitly requests that operation.
+solaros.ssh_keys provides default_paths, default_exists, status, public_key,
+generate (optional bits and overwrite), and remove when SSH is installed.
+`public_key()` returns only the default OpenSSH public-key line. Do not inspect,
+expose, replace, or delete private key material unless the user explicitly
+requests that operation.

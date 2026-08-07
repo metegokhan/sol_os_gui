@@ -145,6 +145,7 @@ typedef enum {
     SOLUA_EVENT_GFX_FILL_RECT,
     SOLUA_EVENT_GFX_CIRCLE,
     SOLUA_EVENT_GFX_FILL_CIRCLE,
+    SOLUA_EVENT_GFX_BITMAP,
     SOLUA_EVENT_GFX_TEXT,
     SOLUA_EVENT_DONE,
 } solua_event_type_t;
@@ -1091,6 +1092,38 @@ static int solua_storage_resolve(lua_State *L)
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     solua_resolve_path(L, 1, path, sizeof(path));
     lua_pushstring(L, path);
+    return 1;
+}
+
+static int solua_storage_read_file(lua_State *L)
+{
+    const uint32_t max_bytes = solua_optional_u32(L, 2, 4096U);
+    if (max_bytes == 0 || max_bytes > SOLAR_OS_STORAGE_READ_MAX_BYTES) {
+        return luaL_error(L, "max_bytes must be 1..65536");
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    solua_resolve_path(L, 1, path, sizeof(path));
+
+    uint8_t *data = solar_os_memory_alloc(max_bytes,
+                                           SOLAR_OS_MEMORY_TRANSIENT,
+                                           "lua.storage");
+    if (data == NULL) {
+        return solua_check_esp(L, ESP_ERR_NO_MEM);
+    }
+
+    size_t read_len = 0;
+    const esp_err_t err = solar_os_storage_read_file(path,
+                                                      data,
+                                                      max_bytes,
+                                                      &read_len);
+    if (err != ESP_OK) {
+        solar_os_memory_free(data);
+        return solua_check_esp(L, err);
+    }
+
+    lua_pushlstring(L, (const char *)data, read_len);
+    solar_os_memory_free(data);
     return 1;
 }
 
@@ -3462,6 +3495,18 @@ static int solua_ssh_keys_status(lua_State *L)
     return 1;
 }
 
+static int solua_ssh_keys_public_key(lua_State *L)
+{
+    char public_key[SOLAR_OS_SSH_PUBLIC_KEY_MAX];
+    size_t public_key_len = 0;
+    (void)solua_check_esp(L,
+                          solar_os_ssh_keys_read_public(public_key,
+                                                        sizeof(public_key),
+                                                        &public_key_len));
+    lua_pushlstring(L, public_key, public_key_len);
+    return 1;
+}
+
 static int solua_ssh_keys_generate(lua_State *L)
 {
     const uint32_t bits = solua_optional_u32(L, 1, SOLAR_OS_SSH_KEY_DEFAULT_BITS);
@@ -4170,6 +4215,40 @@ static int solua_gfx_fill_circle(lua_State *L)
     return 0;
 }
 
+static int solua_gfx_bitmap(lua_State *L)
+{
+    const uint16_t width = solua_check_u16_size(L, 3);
+    const uint16_t height = solua_check_u16_size(L, 4);
+    if (width == 0 || height == 0) {
+        return luaL_error(L, "bitmap dimensions must be positive");
+    }
+
+    const size_t required = (((size_t)width + 7U) / 8U) * (size_t)height;
+    if (required > SOLUA_EVENT_DATA_MAX) {
+        return luaL_error(L, "bitmap too large (maximum %u packed bytes)",
+                          (unsigned)SOLUA_EVENT_DATA_MAX);
+    }
+
+    size_t len = 0;
+    const char *bitmap = luaL_checklstring(L, 5, &len);
+    if (len != required) {
+        return luaL_error(L, "bitmap data must contain exactly %u packed bytes",
+                          (unsigned)required);
+    }
+
+    solua_event_t event = {
+        .type = SOLUA_EVENT_GFX_BITMAP,
+        .x0 = (int32_t)luaL_checkinteger(L, 1),
+        .y0 = (int32_t)luaL_checkinteger(L, 2),
+        .width = width,
+        .height = height,
+        .data_len = len,
+    };
+    memcpy(event.data, bitmap, len);
+    solua_ui_send_event(L, &event);
+    return 0;
+}
+
 static int solua_gfx_text(lua_State *L)
 {
     size_t len = 0;
@@ -4461,6 +4540,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "mount_point", solua_storage_mount_point);
     solua_set_func(L, mod, "usage", solua_storage_usage);
     solua_set_func(L, mod, "resolve", solua_storage_resolve);
+    solua_set_func(L, mod, "read_file", solua_storage_read_file);
     solua_set_func(L, mod, "rescan", solua_storage_rescan);
     solua_set_func(L, mod, "blocks", solua_storage_blocks);
     solua_set_func(L, mod, "block_count", solua_storage_block_count);
@@ -4780,6 +4860,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "default_paths", solua_ssh_keys_default_paths);
     solua_set_func(L, mod, "default_exists", solua_ssh_keys_default_exists);
     solua_set_func(L, mod, "status", solua_ssh_keys_status);
+    solua_set_func(L, mod, "public_key", solua_ssh_keys_public_key);
     solua_set_func(L, mod, "generate", solua_ssh_keys_generate);
     solua_set_func(L, mod, "remove", solua_ssh_keys_remove);
     lua_pop(L, 1);
@@ -4921,6 +5002,8 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "fill_rect", solua_gfx_fill_rect);
     solua_set_func(L, mod, "circle", solua_gfx_circle);
     solua_set_func(L, mod, "fill_circle", solua_gfx_fill_circle);
+    solua_set_func(L, mod, "bitmap", solua_gfx_bitmap);
+    solua_set_func(L, mod, "sprite", solua_gfx_bitmap);
     solua_set_func(L, mod, "text", solua_gfx_text);
     solua_set_func(L, mod, "getch", solua_tui_getch);
     lua_pop(L, 1);
@@ -5714,6 +5797,14 @@ static void solua_apply_gfx_event(solar_os_context_t *ctx, const solua_event_t *
     case SOLUA_EVENT_GFX_FILL_CIRCLE:
         solar_os_gfx_fill_circle(gfx, (int)event->x0, (int)event->y0, (int)event->width);
         break;
+    case SOLUA_EVENT_GFX_BITMAP:
+        solar_os_gfx_bitmap(gfx,
+                            (int)event->x0,
+                            (int)event->y0,
+                            (int)event->width,
+                            (int)event->height,
+                            (const uint8_t *)event->data);
+        break;
     case SOLUA_EVENT_GFX_TEXT:
         solar_os_gfx_text(gfx, (int)event->x0, (int)event->y0, event->data);
         break;
@@ -5774,6 +5865,7 @@ static void solua_drain_events(solar_os_context_t *ctx)
         case SOLUA_EVENT_GFX_FILL_RECT:
         case SOLUA_EVENT_GFX_CIRCLE:
         case SOLUA_EVENT_GFX_FILL_CIRCLE:
+        case SOLUA_EVENT_GFX_BITMAP:
         case SOLUA_EVENT_GFX_TEXT:
             solua_apply_gfx_event(ctx, &event);
             break;

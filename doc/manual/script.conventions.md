@@ -35,10 +35,25 @@ lua /app.lua argument
 Python arguments are in `sys.argv`. Lua arguments follow the runtime's standard
 argument table.
 
+## File argument convention
+
+Scripts that accept one primary input file should use the canonical option
+`--file PATH`. The option is not mandatory for scripts that do not consume a
+file. Playground recognizes this exact option and completes filesystem paths
+for its following argument:
+
+```text
+playground run APP-ID --file PATH
+```
+
+Document `--file` in the application's README when it is supported. The
+manifest does not need a separate argument declaration.
+
 ## Quick reference
 
 Python imports the native solaros module; arguments are in sys.argv. Lua uses
 the preloaded global solaros or require with the module name. Mutating service
 failures surface as SolarOS errors. Optional modules are package-gated.
 Interactive code should check solaros.should_exit(). Use SolarOS service APIs
-instead of assuming Unix process, filesystem, or device APIs.
+instead of assuming Unix process, filesystem, or device APIs. Use `--file PATH`
+for a primary input file.

@@ -9,6 +9,7 @@
 #define SOLAR_OS_SSH_KEY_DEFAULT_BITS 2048U
 #define SOLAR_OS_SSH_KEY_MIN_BITS 2048U
 #define SOLAR_OS_SSH_KEY_MAX_BITS 4096U
+#define SOLAR_OS_SSH_PUBLIC_KEY_MAX 1280U
 
 typedef struct {
     bool private_key_exists;
@@ -25,5 +26,8 @@ esp_err_t solar_os_ssh_keys_default_paths(char *private_key_path,
                                           size_t public_key_path_len);
 bool solar_os_ssh_keys_default_exists(void);
 esp_err_t solar_os_ssh_keys_get_status(solar_os_ssh_key_status_t *status);
+esp_err_t solar_os_ssh_keys_read_public(char *public_key,
+                                        size_t public_key_len,
+                                        size_t *written);
 esp_err_t solar_os_ssh_keys_generate_rsa(uint32_t bits, bool overwrite);
 esp_err_t solar_os_ssh_keys_remove_default(void);

@@ -130,6 +130,8 @@ Storage functions expose SD mount and filesystem service operations.
   when mounted, otherwise internal flash).
 - `usage([path])`: return disk usage for the default volume or the volume containing `path`.
 - `resolve(path)`: return the internal resolved path.
+- `read_file(path[, max_bytes])`: return up to `max_bytes` bytes from a regular
+  file. The default is 4096 and the maximum is 65536.
 - `rescan()`: rescan SD block devices and partitions.
 - `blocks()`: return a list of block device and partition dictionaries.
 - `block_count()`: return the number of known blocks.
@@ -152,6 +154,7 @@ if not solaros.storage.is_mounted():
     solaros.storage.mount()
 
 print(solaros.storage.usage("/"))
+print(solaros.storage.read_file("/notes/example.txt", 512))
 for block in solaros.storage.blocks():
     print(block["name"], block["type"], block["mounted"], block["mount_point"])
 ```
@@ -803,6 +806,7 @@ SSH key functions manage the default SolarOS SSH key pair.
 - `default_paths()`: return private and public key paths.
 - `default_exists()`: return whether both default key files exist.
 - `status()`: return key existence, sizes, and paths.
+- `public_key()`: return the default OpenSSH public-key line without its newline.
 - `generate([bits[, overwrite]])`: generate RSA keys.
 - `remove()`: remove the default key pair.
 
@@ -815,6 +819,7 @@ if not solaros.ssh_keys.default_exists():
     solaros.ssh_keys.generate()
 
 print(solaros.ssh_keys.status())
+print(solaros.ssh_keys.public_key())
 ```
 
 ## `solaros.jobs`
@@ -992,10 +997,17 @@ Functions:
 - `fill_rect(x, y, width, height)`: draw a filled rectangle.
 - `circle(x, y, radius)`: draw a circle outline.
 - `fill_circle(x, y, radius)`: draw a filled circle.
+- `bitmap(x, y, width, height, data)`: draw a transparent packed 1-bit XBM.
+- `sprite(x, y, width, height, data)`: alias for `bitmap()`.
 - `text(x, baseline_y, text)`: draw UTF-8 text.
 - `refresh()`: present the graphics buffer.
 - `present()`: alias for `refresh()`.
 - `getch([timeout_ms])`: return a key code or `None`.
+
+Bitmap and sprite rows are packed least-significant bit first, with
+`(width + 7) // 8` bytes per row. Set bits draw in the current color and clear
+bits remain transparent. One call accepts at most 128 packed bytes, enough for
+a 32 by 32 sprite.
 
 Example:
 

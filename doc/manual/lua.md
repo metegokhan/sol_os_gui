@@ -48,7 +48,7 @@ example, an ODROID-GO full build includes Lua with `solaros.spi` and
 `solaros.onewire`, while omitting `solaros.adc` and `solaros.i2c` because those
 service packages are not available on that board.
 
-- `solaros.storage`: `status`, `is_mounted`, `mount`, `unmount`, `mount_point`, `usage`, `resolve`, `rescan`, `blocks`, `block_count`, `block`, `usage_for_block`, `mkdir`, `rmdir`, `remove`, `rename`, `copy`, `mount_volume`, `unmount_volume`
+- `solaros.storage`: `status`, `is_mounted`, `mount`, `unmount`, `mount_point`, `usage`, `resolve`, `read_file`, `rescan`, `blocks`, `block_count`, `block`, `usage_for_block`, `mkdir`, `rmdir`, `remove`, `rename`, `copy`, `mount_volume`, `unmount_volume`
 - `solaros.time`: `uptime_ms`, `uptime`, `datetime`, `utc_datetime`, `set_datetime`, `set_utc_datetime`, `utc_to_local`, `local_to_utc`, `is_valid`, `timezone`, `set_timezone`, `ntp_sync`
 - `solaros.battery`: `status` when battery support is compiled
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
@@ -71,7 +71,7 @@ service packages are not available on that board.
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
 - `solaros.identity`: `user`, `hostname`, `set_user`, `set_hostname`, `format`
 - `solaros.net`: `ping` when `network.base` is compiled
-- `solaros.ssh_keys`: `default_paths`, `default_exists`, `status`, `generate`, `remove` when `network.ssh` is compiled
+- `solaros.ssh_keys`: `default_paths`, `default_exists`, `status`, `public_key`, `generate`, `remove` when `network.ssh` is compiled
 - `solaros.jobs`: `list`, `count`, `status`, `start`, `stop`
 - `solaros.sessions`: `create_shell`, `close`
 - `solaros.apps`: `list`, `find`
@@ -392,9 +392,15 @@ Functions:
 - `pixel(x, y)`, `line(x0, y0, x1, y1)`
 - `rect(x, y, width, height)`, `fill_rect(x, y, width, height)`
 - `circle(x, y, radius)`, `fill_circle(x, y, radius)`
+- `bitmap(x, y, width, height, data)`, `sprite(...)` alias
 - `text(x, baseline_y, text)`
 - `refresh()`, `present()`
 - `getch([timeout_ms])`
+
+Bitmap and sprite rows are packed least-significant bit first, with
+`(width + 7) // 8` bytes per row. Set bits draw in the current color and clear
+bits remain transparent. One call accepts at most 128 packed bytes, enough for
+a 32 by 32 sprite. Lua passes the packed bytes in a binary string.
 
 Example:
 
