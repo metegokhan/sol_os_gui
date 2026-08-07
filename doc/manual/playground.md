@@ -20,7 +20,7 @@ Start the browser:
 playground
 playground search QUERY...
 playground install APP-ID [auto|flash|sd]
-playground run APP-ID
+playground run APP-ID [ARG...]
 playground delete
 playground reload
 playground refresh
@@ -44,9 +44,16 @@ downloads and verifies one ID to the configured filesystem, or to an explicit
 `flash` or `sd` target. The omitted and `auto` targets both use the persistent
 Playground storage setting. `run` resolves the installed entry in the
 shell and launches its Python or Lua runtime directly; it does not create a
-Playground session. After the catalog is loaded, Tab completes installed
-application IDs for both `install` and `run` without keeping a second ID list
-in memory. These commands use the loaded local catalog.
+Playground session. Additional arguments after the application ID are passed
+to Python through `sys.argv` or to Lua through `arg`. For example:
+
+```text
+playground run qr-share --file /notes/wifi.txt
+```
+
+After the catalog is loaded, Tab completes installed application IDs for both
+`install` and `run` without keeping a second ID list in memory. These commands
+use the loaded local catalog.
 
 Opening the Playground TUI never accesses the network automatically. It shows
 the catalog saved by the last successful refresh. Press `r` or run `playground
@@ -138,5 +145,5 @@ saved catalog without a network request. Use `playground source [URL|reset]` to
 inspect or change the catalog source, and `playground storage [flash|sd]` to
 choose persistent catalog and application storage. Packages are hash-checked
 but scripts are not sandboxed. Shell automation can use `playground search
-QUERY`, `playground install ID [auto|flash|sd]`, `playground run ID`, and
+QUERY`, `playground install ID [auto|flash|sd]`, `playground run ID [ARG...]`, and
 `playground delete`.

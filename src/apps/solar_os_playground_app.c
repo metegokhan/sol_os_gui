@@ -1050,7 +1050,7 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
         solar_os_shell_io_writeln(
             io,
             "usage: playground [delete|refresh|reload|search QUERY|install ID [target]|"
-            "run ID|source [url|reset]|storage [flash|sd]]");
+            "run ID [ARG...]|source [url|reset]|storage [flash|sd]]");
         solar_os_context_request_exit(ctx);
         return ESP_OK;
     }

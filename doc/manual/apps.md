@@ -786,7 +786,7 @@ Usage:
 playground
 playground search QUERY...
 playground install APP-ID [auto|flash|sd]
-playground run APP-ID
+playground run APP-ID [ARG...]
 playground delete
 playground refresh
 playground reload
@@ -812,9 +812,12 @@ The shell subcommands use the local catalog: `refresh` downloads and saves it,
 `install` downloads and verifies an application by ID, and `run` launches an
 installed ID directly through its declared Python or Lua runtime without
 creating a Playground session. Tab completes installed catalog IDs after
-`playground install` and `playground run`. Opening the TUI reloads the saved
-catalog automatically and does not refresh it. At the top-level catalog tree,
-`Esc`, `q`, and the app-exit key exit Playground.
+`playground install` and `playground run`. Arguments after the application ID
+are forwarded unchanged to the selected Python or Lua script. For example,
+`playground run qr-share --file /notes/wifi.txt` passes both options to QR
+Share. Opening the TUI reloads the saved catalog automatically and does not
+refresh it. At the top-level catalog tree, `Esc`, `q`, and the app-exit key exit
+Playground.
 
 `playground storage` shows the persistent catalog and default application
 storage. Set it with `playground storage flash` or `playground storage sd`.

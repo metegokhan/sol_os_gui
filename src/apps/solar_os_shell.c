@@ -7122,14 +7122,17 @@ static bool shell_launch_playground_script(solar_os_context_t *ctx,
                                            char **argv)
 {
     solar_os_shell_io_t *io = terminal(ctx);
-    if (argc != 3) {
-        if (argc < 3) {
-            solar_os_shell_diag_missing(io, "playground run", "app ID",
-                                        "playground run <APP-ID>");
-        } else {
-            solar_os_shell_diag_unexpected(io, "playground run", argv[3],
-                                           "playground run <APP-ID>");
-        }
+    if (argc < 3) {
+        solar_os_shell_diag_missing(io, "playground run", "app ID",
+                                    "playground run <APP-ID> [ARG...]");
+        return true;
+    }
+    const int runtime_argc = argc - 1;
+    if (runtime_argc > SOLAR_OS_APP_ARG_MAX) {
+        solar_os_shell_io_printf(
+            io,
+            "playground: too many script arguments (maximum %u)\n",
+            (unsigned)(SOLAR_OS_APP_ARG_MAX - 2));
         return true;
     }
     if (shell_session(ctx)->watch_executing) {
@@ -7184,9 +7187,18 @@ static bool shell_launch_playground_script(solar_os_context_t *ctx,
         return true;
     }
 
-    char *launch_argv[] = {(char *)runtime_name, path};
+    char *launch_argv[SOLAR_OS_APP_ARG_MAX] = {
+        (char *)runtime_name,
+        path,
+    };
+    for (int i = 3; i < argc; i++) {
+        launch_argv[i - 1] = argv[i];
+    }
     const esp_err_t err =
-        solar_os_context_request_launch(ctx, runtime->app, 2, launch_argv);
+        solar_os_context_request_launch(ctx,
+                                        runtime->app,
+                                        runtime_argc,
+                                        launch_argv);
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "playground: launch failed: %s\n",
