@@ -2,6 +2,24 @@
 
 ## 4.x
 
+- **4.6.15** — 2026-08-08 — Added mono mode with glide to `synth` and released
+  audio-driver memory when synth streams close.
+- **4.6.14** — 2026-08-08 — Added factory and persistent user presets to
+  `synth`.
+- **4.6.13** — 2026-08-08 — Removed unintended `synth` filter saturation and
+  added a tunable second oscillator.
+- **4.6.12** — 2026-08-08 — Added native sine-wave playback and a Supersaw
+  starting shape to the `synth` wavetable editor.
+- **4.6.11** — 2026-08-08 — Added a resonant low-pass filter with a dedicated
+  graphical filter-envelope tab to `synth`.
+- **4.6.10** — 2026-08-08 — Added a graphical waveform-editor tab to `synth`
+  with selectable resolution, baseline shapes, brush editing, smoothing,
+  normalization, undo, immediate custom-wavetable playback, and smooth
+  polyphonic voice transitions.
+- **4.6.9** — 2026-08-07 — Added an eight-voice native synthesizer with a
+  physical-key piano, waveform and ADSR controls, envelope graph, oscilloscope,
+  and global volume control. Added matching Python and Lua APIs, including
+  cooperative sequencer timing, and fixed oscillator clipping.
 - **4.6.8** — Added transparent packed 1-bit bitmap and sprite drawing to the
   Python and Lua `solaros.gfx` APIs. Both runtimes expose `gfx.bitmap(...)` and
   its `gfx.sprite(...)` alias for reflective-display-friendly pixel art. Added

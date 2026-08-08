@@ -982,6 +982,60 @@ Controls:
 - App-exit key closes the SSH app.
 - `Alt+Tab` leaves the session running in the background on display builds.
 
+## synth
+
+Open the native synthesizer and sound designer:
+
+```text
+synth
+```
+
+The app uses the same eight-voice fixed-point engine exposed to Python and Lua,
+but keyboard events reach it directly. Its Play tab contains the waveform,
+envelope, volume, ADSR, and piano controls. The Wave tab is a graphical
+wavetable editor with selectable 16, 32, or 64-point resolution;
+edits reshape held notes immediately while the piano remains playable. The
+Filter tab adds a resonant low-pass response graph, cutoff, resonance, envelope
+amount, and an independent graphical ADSR filter envelope. The Oscillator 2 tab
+adds a second per-note source with waveform, octave, fine detune, and unity-safe
+mix controls. Both oscillators share the filter and envelopes. The Preset tab
+provides eight factory sounds and eight persistent user slots. User presets
+capture both oscillators, both envelopes, the filter, mono/poly mode, glide,
+and the complete custom wavetable. The Glide tab provides monophonic last-note
+playback and portamento. The display also reports active voices, output sample
+rate, and audio errors. The volume button changes the shared SolarOS speaker
+volume.
+
+Controls:
+
+- `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
+  physical, so the `Y` position is the `Z` key on a German keyboard. The piano
+  remains active on all tabs.
+- `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
+  Number keys `1` through `6` select those tabs in that order.
+- On Play, `Left`/`Right` selects the waveform, global volume, or an ADSR knob;
+  `Up`/`Down` changes it, and `+`/`-` changes note velocity.
+- On Wave, `Left`/`Right` moves the edit cursor and `Up`/`Down` changes the
+  waveform. Shifted arrows move or draw faster, and `+`/`-` changes brush size.
+- On Wave, `Enter` cycles the editor through 16, 32, and 64 points. New sessions
+  start at 16 points.
+  The current waveform is resampled rather than reset.
+- On Wave, `B` applies the next square, triangle, saw, Supersaw, sine, or flat
+  baseline; `R` restores that baseline, `M` smooths, `N` normalizes, `0`
+  clears, and `Backspace` or `Delete` exchanges the current waveform with the
+  undo state.
+- On Filter, `Left`/`Right` selects cutoff, resonance, envelope amount, or a
+  filter ADSR knob; `Up`/`Down` changes it, and `+`/`-` changes note velocity.
+- On Oscillator 2, `Left`/`Right` selects waveform, octave, fine detune, or mix;
+  `Up`/`Down` changes it, and `+`/`-` changes note velocity. Octave ranges from
+  -2 through +2, detune from -100 through +100 cents, and mix from 0 through
+  100 percent.
+- On Preset, arrows select a factory or user slot and `Enter` loads it. `V`
+  saves the current sound to the selected user slot. Factory presets are
+  read-only.
+- `Page Up`/`Page Down` changes octave from 2 through 6 on any tab.
+- `Esc` or the app-exit key exits and immediately releases audio ownership.
+
 ## telnet
 
 Telnet client for classic TCP terminal sessions. It supports basic Telnet

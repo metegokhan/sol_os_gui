@@ -30,6 +30,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+#include "solar_os_synth_voice.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
 #endif
@@ -118,6 +121,7 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLUA_TASK_STACK);
 #define SOLUA_STOP_WAIT_MS 800
 #define SOLUA_HOOK_INSTRUCTION_COUNT 10000
 #define SOLUA_EXIT_MARKER "__solaros_lua_exit__"
+#define SOLUA_SLEEP_MAX_MS (60U * 60U * 1000U)
 
 typedef enum {
     SOLUA_EVENT_OUTPUT,
@@ -1242,6 +1246,43 @@ static int solua_time_uptime_ms(lua_State *L)
 {
     lua_pushinteger(L, (lua_Integer)solar_os_time_uptime_ms());
     return 1;
+}
+
+static int solua_time_sleep_ms(lua_State *L)
+{
+    const uint32_t duration_ms = solua_check_u32(L, 1);
+    if (duration_ms > SOLUA_SLEEP_MAX_MS) {
+        return luaL_error(L, "sleep limited to 3600000 ms");
+    }
+    if (duration_ms == 0) {
+        taskYIELD();
+        return 0;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    TickType_t duration_ticks = pdMS_TO_TICKS(duration_ms);
+    if (duration_ticks == 0) {
+        duration_ticks = 1;
+    }
+    while (!solua_should_cancel(NULL) &&
+           (solua_runner_control == NULL ||
+            !solar_os_script_run_should_cancel(solua_runner_control)) &&
+           (xTaskGetTickCount() - started) < duration_ticks) {
+        const TickType_t elapsed = xTaskGetTickCount() - started;
+        const TickType_t remaining = duration_ticks - elapsed;
+        const TickType_t slice = remaining < pdMS_TO_TICKS(20)
+                                     ? remaining
+                                     : pdMS_TO_TICKS(20);
+        vTaskDelay(slice > 0 ? slice : 1);
+    }
+    if (solua_should_cancel(NULL) ||
+        (solua_runner_control != NULL &&
+         solar_os_script_run_should_cancel(solua_runner_control))) {
+        solua.interrupt_requested = true;
+        solua.interrupted = true;
+        return luaL_error(L, "interrupted");
+    }
+    return 0;
 }
 
 static int solua_time_uptime(lua_State *L)
@@ -3203,6 +3244,227 @@ static int solua_audio_play_wav(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+#define SOLUA_SYNTH_OWNER "lua"
+
+static int solua_synth_status(lua_State *L)
+{
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+
+    lua_newtable(L);
+    solua_set_bool(L, -1, "running", status.running);
+    solua_set_str(L, -1, "owner", status.owner);
+    solua_set_str(L,
+                  -1,
+                  "waveform",
+                  solar_os_synth_waveform_name(status.config.waveform));
+    solua_set_int(L, -1, "attack_ms", status.config.attack_ms);
+    solua_set_int(L, -1, "decay_ms", status.config.decay_ms);
+    solua_set_int(L, -1, "sustain_percent", status.config.sustain_percent);
+    solua_set_int(L, -1, "release_ms", status.config.release_ms);
+    solua_set_str(
+        L,
+        -1,
+        "oscillator2_waveform",
+        solar_os_synth_waveform_name(status.config.oscillator2.waveform));
+    solua_set_int(L, -1, "oscillator2_octave", status.config.oscillator2.octave);
+    solua_set_int(L,
+                  -1,
+                  "oscillator2_detune_cents",
+                  status.config.oscillator2.detune_cents);
+    solua_set_int(L,
+                  -1,
+                  "oscillator2_mix_percent",
+                  status.config.oscillator2.mix_percent);
+    solua_set_int(L, -1, "filter_cutoff_hz", status.config.filter.cutoff_hz);
+    solua_set_int(L,
+                  -1,
+                  "filter_resonance_percent",
+                  status.config.filter.resonance_percent);
+    solua_set_int(L,
+                  -1,
+                  "filter_envelope_amount_percent",
+                  status.config.filter.envelope_amount_percent);
+    solua_set_int(L, -1, "filter_attack_ms", status.config.filter.attack_ms);
+    solua_set_int(L, -1, "filter_decay_ms", status.config.filter.decay_ms);
+    solua_set_int(L,
+                  -1,
+                  "filter_sustain_percent",
+                  status.config.filter.sustain_percent);
+    solua_set_int(L, -1, "filter_release_ms", status.config.filter.release_ms);
+    solua_set_bool(L, -1, "mono", status.performance.mono);
+    solua_set_int(L, -1, "glide_ms", status.performance.glide_ms);
+    solua_set_int(L, -1, "active_voices", status.active_voices);
+    solua_set_int(L, -1, "max_voices", SOLAR_OS_SYNTH_VOICE_MAX);
+    solua_set_int(L, -1, "stolen_voices", status.stolen_voices);
+    solua_set_int(L, -1, "sample_rate", status.sample_rate);
+    solua_set_int(L,
+                  -1,
+                  "render_deadline_misses",
+                  status.render_deadline_misses);
+    solua_set_str(L,
+                  -1,
+                  "pcm_waveform",
+                  solar_os_synth_waveform_name(status.pcm_waveform));
+    solua_set_int(L, -1, "pcm_generation", status.pcm_generation);
+    solua_set_int(L, -1, "pcm_hash", status.pcm_hash);
+    solua_set_int(L, -1, "pcm_mean_abs", status.pcm_mean_abs);
+    solua_set_int(L, -1, "pcm_min", status.pcm_min);
+    solua_set_int(L, -1, "pcm_max", status.pcm_max);
+    lua_newtable(L);
+    const int pcm_samples = lua_gettop(L);
+    for (size_t i = 0; i < status.pcm_sample_count; i++) {
+        lua_pushinteger(L, status.pcm_samples[i]);
+        lua_rawseti(L, pcm_samples, (lua_Integer)i + 1);
+    }
+    lua_setfield(L, -2, "pcm_samples");
+    solua_set_int(L, -1, "last_error", status.last_error);
+    solua_set_str(L, -1, "last_error_name", esp_err_to_name(status.last_error));
+    return 1;
+}
+
+static int solua_synth_configure(lua_State *L)
+{
+    solar_os_synth_waveform_t waveform;
+    if (!solar_os_synth_parse_waveform(luaL_checkstring(L, 1), &waveform)) {
+        return luaL_error(L,
+                          "expected square, triangle, saw, sine, or noise");
+    }
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+    const solar_os_synth_voice_config_t config = {
+        .waveform = waveform,
+        .attack_ms = solua_optional_u32(
+            L, 2, SOLAR_OS_SYNTH_VOICE_DEFAULT_ATTACK_MS),
+        .decay_ms = solua_optional_u32(
+            L, 3, SOLAR_OS_SYNTH_VOICE_DEFAULT_DECAY_MS),
+        .sustain_percent = solua_optional_u8(
+            L, 4, SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT),
+        .release_ms = solua_optional_u32(
+            L, 5, SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS),
+        .oscillator2 = status.config.oscillator2,
+        .filter = status.config.filter,
+    };
+    return solua_check_esp(
+        L, solar_os_synth_voice_configure(SOLUA_SYNTH_OWNER, &config));
+}
+
+static int solua_synth_configure_oscillator2(lua_State *L)
+{
+    solar_os_synth_waveform_t waveform;
+    if (!solar_os_synth_parse_waveform(luaL_checkstring(L, 1), &waveform)) {
+        return luaL_error(L,
+                          "expected square, triangle, saw, sine, or noise");
+    }
+    const lua_Integer octave = lua_isnoneornil(L, 2)
+                                   ? SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_OCTAVE
+                                   : luaL_checkinteger(L, 2);
+    const lua_Integer detune =
+        lua_isnoneornil(L, 3)
+            ? SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_DETUNE_CENTS
+            : luaL_checkinteger(L, 3);
+    if (octave < SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MIN ||
+        octave > SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MAX) {
+        return luaL_error(L, "oscillator2 octave must be -2..2");
+    }
+    if (detune < SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MIN_CENTS ||
+        detune > SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MAX_CENTS) {
+        return luaL_error(L,
+                          "oscillator2 detune must be -100..100 cents");
+    }
+
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+    solar_os_synth_voice_config_t config = status.config;
+    config.oscillator2 = (solar_os_synth_oscillator_config_t){
+        .waveform = waveform,
+        .octave = (int8_t)octave,
+        .detune_cents = (int16_t)detune,
+        .mix_percent = solua_optional_u8(
+            L, 4, SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_MIX_PERCENT),
+    };
+    return solua_check_esp(
+        L, solar_os_synth_voice_configure(SOLUA_SYNTH_OWNER, &config));
+}
+
+static int solua_synth_configure_performance(lua_State *L)
+{
+    const uint32_t glide_ms = solua_optional_u32(
+        L, 2, SOLAR_OS_SYNTH_VOICE_DEFAULT_GLIDE_MS);
+    if (glide_ms > SOLAR_OS_SYNTH_VOICE_GLIDE_MAX_MS) {
+        return luaL_error(L, "glide_ms must be 0..2500");
+    }
+    const solar_os_synth_voice_performance_t performance = {
+        .mono = lua_isnoneornil(L, 1)
+                    ? SOLAR_OS_SYNTH_VOICE_DEFAULT_MONO
+                    : lua_toboolean(L, 1) != 0,
+        .glide_ms = (uint16_t)glide_ms,
+    };
+    return solua_check_esp(
+        L,
+        solar_os_synth_voice_configure_performance(SOLUA_SYNTH_OWNER,
+                                                   &performance));
+}
+
+static int solua_synth_configure_filter(lua_State *L)
+{
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+    solar_os_synth_voice_config_t config = status.config;
+    config.filter = (solar_os_synth_filter_config_t){
+        .cutoff_hz = solua_check_u32(L, 1),
+        .resonance_percent = solua_optional_u8(
+            L, 2, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RESONANCE_PERCENT),
+        .envelope_amount_percent = solua_optional_u8(
+            L,
+            3,
+            SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ENVELOPE_AMOUNT_PERCENT),
+        .attack_ms = solua_optional_u32(
+            L, 4, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ATTACK_MS),
+        .decay_ms = solua_optional_u32(
+            L, 5, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_DECAY_MS),
+        .sustain_percent = solua_optional_u8(
+            L, 6, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_SUSTAIN_PERCENT),
+        .release_ms = solua_optional_u32(
+            L, 7, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RELEASE_MS),
+    };
+    return solua_check_esp(
+        L, solar_os_synth_voice_configure(SOLUA_SYNTH_OWNER, &config));
+}
+
+static int solua_synth_note_on(lua_State *L)
+{
+    return solua_check_esp(
+        L,
+        solar_os_synth_voice_note_on(
+            SOLUA_SYNTH_OWNER,
+            solua_check_u32(L, 1),
+            solua_optional_u8(L,
+                              2,
+                              SOLAR_OS_SYNTH_VOICE_DEFAULT_VELOCITY)));
+}
+
+static int solua_synth_note_off(lua_State *L)
+{
+    return solua_check_esp(
+        L,
+        solar_os_synth_voice_note_off(SOLUA_SYNTH_OWNER,
+                                      solua_check_u32(L, 1)));
+}
+
+static int solua_synth_all_notes_off(lua_State *L)
+{
+    return solua_check_esp(
+        L, solar_os_synth_voice_all_notes_off(SOLUA_SYNTH_OWNER));
+}
+
+static int solua_synth_stop(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER));
+}
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 static int solua_ble_status(lua_State *L)
 {
@@ -4558,6 +4820,7 @@ static void solua_open_solaros(lua_State *L)
     solua_new_submodule(L, solaros, "time");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "uptime_ms", solua_time_uptime_ms);
+    solua_set_func(L, mod, "sleep_ms", solua_time_sleep_ms);
     solua_set_func(L, mod, "uptime", solua_time_uptime);
     solua_set_func(L, mod, "datetime", solua_time_datetime);
     solua_set_func(L, mod, "utc_datetime", solua_time_utc_datetime);
@@ -4759,6 +5022,27 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "wav_info", solua_audio_wav_info);
     solua_set_func(L, mod, "record_wav", solua_audio_record_wav);
     solua_set_func(L, mod, "play_wav", solua_audio_play_wav);
+    lua_pop(L, 1);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+    solua_new_submodule(L, solaros, "synth");
+    mod = lua_gettop(L);
+    solua_set_func(L, mod, "status", solua_synth_status);
+    solua_set_func(L, mod, "configure", solua_synth_configure);
+    solua_set_func(L, mod, "configure_filter", solua_synth_configure_filter);
+    solua_set_func(L,
+                   mod,
+                   "configure_oscillator2",
+                   solua_synth_configure_oscillator2);
+    solua_set_func(L,
+                   mod,
+                   "configure_performance",
+                   solua_synth_configure_performance);
+    solua_set_func(L, mod, "note_on", solua_synth_note_on);
+    solua_set_func(L, mod, "note_off", solua_synth_note_off);
+    solua_set_func(L, mod, "all_notes_off", solua_synth_all_notes_off);
+    solua_set_func(L, mod, "stop", solua_synth_stop);
     lua_pop(L, 1);
 #endif
 
@@ -5222,6 +5506,9 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
         solar_os_script_run_error(&control, ESP_FAIL, "Lua execution failed");
     }
 
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+    (void)solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER);
+#endif
     lua_close(L);
 
 cleanup:
@@ -5300,6 +5587,9 @@ done:
     if (L != NULL) {
 #if SOLAR_OS_PACKAGE_SERVICE_HID
         solar_os_hid_release_all();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+        (void)solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER);
 #endif
         lua_close(L);
     }
@@ -5559,6 +5849,9 @@ static void solua_stop(solar_os_context_t *ctx)
         solua.key_input = NULL;
     }
     solua_gfx_release_target();
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+    (void)solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
     solar_os_hid_release_all();
 #endif

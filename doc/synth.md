@@ -21,6 +21,85 @@ errors, maximum render time, and the last service error.
 
 The worker uses an internal-memory stack and a bounded internal PCM block. It
 opens an exclusive `solar_os_audio_stream_t`, renders and writes blocks until
-stopped, submits one silent tail block, and then releases the stream. The
-stream must be opened, written, and closed by the same task because the audio
+stopped, submits one silent tail block, and then releases the stream and its
+I2S/codec resources. The stream must be opened, written, and closed by the
+same task because the audio
 service serializes complete operations with a FreeRTOS mutex.
+
+## Native voice engine
+
+`solar_os_synth_voice.h` builds a bounded musical voice engine on the callback
+layer. It provides eight voices, automatic release-first voice stealing,
+per-note velocity, two oscillators with square, triangle, saw, sine, noise, and
+custom-wavetable sources, and a unity-safe oscillator balance. Oscillator 2 adds
+octave and fine-detune controls. Each voice also has a shared resonant low-pass
+filter with cutoff, resonance, envelope amount, and an independent ADSR
+envelope. Configuration changes update active voices immediately and also set
+the defaults for new notes.
+The render path uses fixed-point oscillators and envelopes; scripting runtimes
+only submit control changes and never run inside the audio callback. The mixed
+voice signal retains the same PCM headroom as the system tone generator before
+the codec applies global speaker volume. Periodic oscillators are evaluated at
+eight evenly spaced sub-samples per output frame and averaged before mixing.
+The custom oscillator reads a service-owned 256-sample signed wavetable with
+linear interpolation; complete table updates are copied under the voice lock so
+the render callback never reads mutable client memory.
+Oscillator 2 is disabled by an exact zero-mix bypass by default. Mix changes,
+pitch changes, and waveform changes are ramped or crossfaded on held notes
+before both oscillators enter the shared filter and amplifier envelope.
+The filter uses a two-pole state-variable topology. Its coefficients update at
+a bounded control rate, transitions between dry and filtered output are ramped,
+and resonant peaks use the voice mixer's existing output headroom instead of
+altering ordinary filtered samples.
+The service latches a consecutive 64-sample trace and fingerprint of a complete
+final mono PCM block so status reports describe the samples submitted to audio
+rather than inferring them from the selected waveform.
+
+`solar_os_synth_voice_note_on()` lazily claims output for its owner. Matching
+`note_off()` calls enter the release stage, `all_notes_off()` releases every
+voice, and `stop()` immediately stops the worker and gives up audio ownership.
+The global audio service remains responsible for speaker volume.
+Mono mode uses last-note priority: a new held note takes over the single voice,
+and releasing it returns to the most recently held note. Configurable
+portamento glides between those pitches without retriggering either envelope.
+
+Python and Lua expose the engine as `solaros.synth`. Their runtime owners are
+released automatically on normal exit, error, cancellation, or foreground-app
+shutdown, so a script cannot leave an audio stream or sustained note behind.
+
+The native foreground `synth` app turns the voice engine into a playable
+instrument. Its Play tab pairs the waveform selector and live PCM oscilloscope
+with an envelope graph, global speaker volume, editable ADSR knobs, and the
+physical-key piano. Its Wave tab draws the custom wavetable at full width and
+supports selectable 16, 32, and 64-point resolution, starting at 16; square,
+triangle, saw, Supersaw, sine, and flat starting shapes; cursor and brush
+editing; smoothing; normalization; reset; and undo. `Enter` cycles the resolution and
+resamples the current shape into the new point count. The piano remains active
+while editing, the graph includes the cyclic last-to-first interval, and table
+changes reshape held notes immediately.
+The Filter tab pairs a live low-pass response graph with the independent filter
+envelope. Cutoff, resonance, envelope amount, and filter ADSR are editable while
+the piano remains active.
+The Oscillator 2 tab shows both sources and provides waveform, octave from -2
+through +2, fine detune from -100 through +100 cents, and mix from 0 through
+100 percent. Both oscillators use the same custom wavetable when selected.
+The Preset tab contains eight read-only factory sounds and eight user slots.
+`Enter` loads the selected patch and `V` saves the complete current sound to a
+user slot. A patch contains both oscillators, amplifier and filter envelopes,
+filter controls, mono/poly mode, glide time, and the custom wavetable;
+performance octave, velocity, and global speaker volume remain unchanged. The
+Glide tab selects polyphonic or monophonic last-note playback and glide from 0
+through 2500 ms. User slots are stored as versioned,
+checksummed files below `.solar/synth/presets` on the preferred persistent
+volume, with internal flash used when no SD card is mounted.
+All six tabs use the same compact piano. `Tab` cycles through Play, Filter,
+Wave, Oscillator 2, Glide, and Presets. Number keys `1` through `6` select them
+in that order.
+
+The app also shows current octave and velocity, active voices, sample rate, and
+audio errors. Keyboard press and release events sustain held notes and support
+chords. Waveform and envelope edits keep oscillator phase and pitch continuous.
+After a note renders, the waveform panel shows the captured PCM trace with
+automatic vertical scaling and the low 16 bits of its block fingerprint.
+Python and Lua synth status return the same fingerprint, range, mean absolute
+level, and trace samples.

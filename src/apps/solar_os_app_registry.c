@@ -38,6 +38,9 @@
 #if SOLAR_OS_PACKAGE_APP_CLOCK
 #include "solar_os_clock.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_SYNTH
+#include "solar_os_synth_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_CALC
 #include "solar_os_calc.h"
 #endif
@@ -143,6 +146,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
     APP_ENTRY("clock", "clock, countdown alarm, stopwatch", &solar_os_clock_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "clock [-s | -a MM:SS]", 1, 3),
+#endif
+#if SOLAR_OS_PACKAGE_APP_SYNTH
+    APP_ENTRY("synth", "polyphonic synthesizer and sound designer", &solar_os_synth_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "synth", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CALC
     APP_ENTRY("calc", "scientific calculator and function plotter", &solar_os_calc_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "calc [--text | -e expression]", 1, 0),

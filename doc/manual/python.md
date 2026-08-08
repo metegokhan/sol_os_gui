@@ -54,8 +54,8 @@ Optional API groups follow these package gates:
 - `service.messaging`: `solaros.contacts` and `solaros.messages`
 - `service.adc`, `service.pwm`, `service.i2c`, `service.spi`, and
   `service.uart`: their matching submodules
-- `service.audio`, `service.battery`, and `service.sensors`: their matching
-  helpers and submodules
+- `service.audio`, `service.synth`, `service.battery`, and `service.sensors`:
+  their matching helpers and submodules
 
 ```python
 print(solaros.storage.resolve("/.shell/history"))
@@ -164,6 +164,7 @@ for block in solaros.storage.blocks():
 Time functions use the SolarOS RTC/time service.
 
 - `uptime_ms()`: return uptime in milliseconds.
+- `sleep_ms(ms)`: delay for up to one hour while remaining responsive to script cancellation.
 - `uptime()`: return formatted uptime text.
 - `datetime()`: return the local wall-clock datetime.
 - `utc_datetime()`: return UTC datetime.
@@ -686,6 +687,40 @@ solaros.audio.tone(880, 200, 40)
 sound = solaros.audio.tone_async(1175, 70)
 print(solaros.audio.queue_status())
 print(solaros.audio.level(500))
+```
+
+## `solaros.synth`
+
+Available when the firmware includes the synth service. The native engine has
+eight voices and renders continuously without running Python in the real-time
+audio callback. It uses the system's global speaker volume.
+
+- `status()`: return ownership, both oscillator configurations, amplifier and filter envelopes, mono and glide settings, voice, sample-rate, and render-deadline telemetry.
+- `configure(waveform[, attack_ms[, decay_ms[, sustain_percent[, release_ms]]]])`: configure active voices immediately and set the defaults for future notes. Waveforms are `square`, `triangle`, `saw`, `sine`, and `noise`; envelope times are 0 through 10000 ms and sustain is 0 through 100 percent.
+- `configure_oscillator2(waveform[, octave[, detune_cents[, mix_percent]]])`: configure the second oscillator. Octave is -2 through +2, detune is -100 through +100 cents, and mix is 0 through 100 percent. A zero mix is an exact oscillator-1 bypass.
+- `configure_performance([mono[, glide_ms]])`: select polyphonic or monophonic last-note playback and set portamento from 0 through 2500 ms.
+- `configure_filter(cutoff_hz[, resonance_percent[, envelope_amount_percent[, attack_ms[, decay_ms[, sustain_percent[, release_ms]]]]]])`: configure the resonant low-pass filter. Cutoff is 40 through 18000 Hz; percentages are 0 through 100; times are 0 through 10000 ms.
+- `note_on(frequency_hz[, velocity])`: start or retrigger a note from 20 through 8000 Hz. Velocity defaults to 100 and ranges from 1 through 127.
+- `note_off(frequency_hz)`: release the matching note.
+- `all_notes_off()`: release all active notes through their configured release envelopes.
+- `stop()`: stop immediately and release audio ownership.
+
+The first `note_on()` claims the exclusive audio output lazily. A script also
+releases that ownership automatically when it exits or is interrupted.
+
+```python
+import solaros
+
+solaros.synth.configure("saw", 5, 80, 65, 140)
+solaros.synth.configure_oscillator2("square", 0, 7, 35)
+solaros.synth.configure_filter(1200, 35, 80, 5, 250, 20, 180)
+solaros.synth.configure_performance(True, 80)
+solaros.synth.note_on(440, 110)
+solaros.synth.note_on(554, 90)
+solaros.time.sleep_ms(250)
+solaros.synth.all_notes_off()
+solaros.time.sleep_ms(150)
+solaros.synth.stop()
 ```
 
 ## `solaros.ble`
