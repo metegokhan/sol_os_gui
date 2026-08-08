@@ -30,8 +30,10 @@ service serializes complete operations with a FreeRTOS mutex.
 `solar_os_synth_voice.h` builds a bounded musical voice engine on the callback
 layer. It provides eight voices, automatic release-first voice stealing,
 per-note velocity, square, triangle, saw, and noise waveforms, and a custom
-wavetable. Configuration changes update active voices immediately and also set
-the defaults for new notes.
+wavetable. Each voice also has a resonant low-pass filter with cutoff,
+resonance, envelope amount, and an independent ADSR envelope. Configuration
+changes update active voices immediately and also set the defaults for new
+notes.
 The render path uses fixed-point oscillators and envelopes; scripting runtimes
 only submit control changes and never run inside the audio callback. The mixed
 voice signal retains the same PCM headroom as the system tone generator before
@@ -40,6 +42,9 @@ eight evenly spaced sub-samples per output frame and averaged before mixing.
 The custom oscillator reads a service-owned 256-sample signed wavetable with
 linear interpolation; complete table updates are copied under the voice lock so
 the render callback never reads mutable client memory.
+The filter uses a two-pole state-variable topology. Its coefficients update at
+a bounded control rate, transitions between dry and filtered output are ramped,
+and resonant peaks use soft limiting before voice mixing.
 The service latches a consecutive 64-sample trace and fingerprint of a complete
 final mono PCM block so status reports describe the samples submitted to audio
 rather than inferring them from the selected waveform.
@@ -62,6 +67,9 @@ triangle, saw, sine, and flat starting shapes; cursor and brush editing;
 smoothing; normalization; reset; and undo. `Enter` cycles the resolution and
 resamples the current shape into the new point count. The piano remains active
 while editing, and table changes reshape held notes immediately.
+The Filter tab pairs a live low-pass response graph with the independent filter
+envelope. Cutoff, resonance, envelope amount, and filter ADSR are editable while
+the piano remains active.
 
 The app also shows current octave and velocity, active voices, sample rate, and
 audio errors. Keyboard press and release events sustain held notes and support

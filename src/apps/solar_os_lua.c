@@ -3263,6 +3263,22 @@ static int solua_synth_status(lua_State *L)
     solua_set_int(L, -1, "decay_ms", status.config.decay_ms);
     solua_set_int(L, -1, "sustain_percent", status.config.sustain_percent);
     solua_set_int(L, -1, "release_ms", status.config.release_ms);
+    solua_set_int(L, -1, "filter_cutoff_hz", status.config.filter.cutoff_hz);
+    solua_set_int(L,
+                  -1,
+                  "filter_resonance_percent",
+                  status.config.filter.resonance_percent);
+    solua_set_int(L,
+                  -1,
+                  "filter_envelope_amount_percent",
+                  status.config.filter.envelope_amount_percent);
+    solua_set_int(L, -1, "filter_attack_ms", status.config.filter.attack_ms);
+    solua_set_int(L, -1, "filter_decay_ms", status.config.filter.decay_ms);
+    solua_set_int(L,
+                  -1,
+                  "filter_sustain_percent",
+                  status.config.filter.sustain_percent);
+    solua_set_int(L, -1, "filter_release_ms", status.config.filter.release_ms);
     solua_set_int(L, -1, "active_voices", status.active_voices);
     solua_set_int(L, -1, "max_voices", SOLAR_OS_SYNTH_VOICE_MAX);
     solua_set_int(L, -1, "stolen_voices", status.stolen_voices);
@@ -3298,6 +3314,8 @@ static int solua_synth_configure(lua_State *L)
     if (!solar_os_synth_parse_waveform(luaL_checkstring(L, 1), &waveform)) {
         return luaL_error(L, "expected square, triangle, saw, or noise");
     }
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
     const solar_os_synth_voice_config_t config = {
         .waveform = waveform,
         .attack_ms = solua_optional_u32(
@@ -3308,6 +3326,33 @@ static int solua_synth_configure(lua_State *L)
             L, 4, SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT),
         .release_ms = solua_optional_u32(
             L, 5, SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS),
+        .filter = status.config.filter,
+    };
+    return solua_check_esp(
+        L, solar_os_synth_voice_configure(SOLUA_SYNTH_OWNER, &config));
+}
+
+static int solua_synth_configure_filter(lua_State *L)
+{
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+    solar_os_synth_voice_config_t config = status.config;
+    config.filter = (solar_os_synth_filter_config_t){
+        .cutoff_hz = solua_check_u32(L, 1),
+        .resonance_percent = solua_optional_u8(
+            L, 2, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RESONANCE_PERCENT),
+        .envelope_amount_percent = solua_optional_u8(
+            L,
+            3,
+            SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ENVELOPE_AMOUNT_PERCENT),
+        .attack_ms = solua_optional_u32(
+            L, 4, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ATTACK_MS),
+        .decay_ms = solua_optional_u32(
+            L, 5, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_DECAY_MS),
+        .sustain_percent = solua_optional_u8(
+            L, 6, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_SUSTAIN_PERCENT),
+        .release_ms = solua_optional_u32(
+            L, 7, SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RELEASE_MS),
     };
     return solua_check_esp(
         L, solar_os_synth_voice_configure(SOLUA_SYNTH_OWNER, &config));
@@ -4910,6 +4955,7 @@ static void solua_open_solaros(lua_State *L)
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_synth_status);
     solua_set_func(L, mod, "configure", solua_synth_configure);
+    solua_set_func(L, mod, "configure_filter", solua_synth_configure_filter);
     solua_set_func(L, mod, "note_on", solua_synth_note_on);
     solua_set_func(L, mod, "note_off", solua_synth_note_off);
     solua_set_func(L, mod, "all_notes_off", solua_synth_all_notes_off);

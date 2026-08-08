@@ -984,7 +984,7 @@ Controls:
 
 ## synth
 
-Open the native polyphonic synthesizer and waveform editor:
+Open the native polyphonic synthesizer and sound designer:
 
 ```text
 synth
@@ -995,6 +995,8 @@ but keyboard events reach it directly. Its Play tab contains the waveform,
 envelope, volume, ADSR, and piano controls. The Wave tab is a graphical
 wavetable editor with selectable 16, 32, 64, 128, or 256-point resolution;
 edits reshape held notes immediately while the piano remains playable. The
+Filter tab adds a resonant low-pass response graph, cutoff, resonance, envelope
+amount, and an independent graphical ADSR filter envelope. The
 display also reports active voices, output sample rate, and audio errors. The
 volume button changes the shared SolarOS speaker volume.
 
@@ -1002,8 +1004,8 @@ Controls:
 
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
   physical, so the `Y` position is the `Z` key on a German keyboard. The piano
-  remains active on both tabs.
-- `Tab` switches between Play and Wave.
+  remains active on all tabs.
+- `Tab` cycles through Play, Wave, and Filter.
 - On Play, `Left`/`Right` selects the waveform, global volume, or an ADSR knob;
   `Up`/`Down` changes it, and `+`/`-` changes note velocity.
 - On Wave, `Left`/`Right` moves the edit cursor and `Up`/`Down` changes the
@@ -1013,7 +1015,9 @@ Controls:
 - On Wave, `B` applies the next square, triangle, saw, sine, or flat baseline;
   `R` restores that baseline, `M` smooths, `N` normalizes, `0` clears, and
   `Backspace` or `Delete` exchanges the current waveform with the undo state.
-- `Page Up`/`Page Down` changes octave from 2 through 6 on either tab.
+- On Filter, `Left`/`Right` selects cutoff, resonance, envelope amount, or a
+  filter ADSR knob; `Up`/`Down` changes it, and `+`/`-` changes note velocity.
+- `Page Up`/`Page Down` changes octave from 2 through 6 on any tab.
 - `Esc` or the app-exit key exits and immediately releases audio ownership.
 
 ## telnet

@@ -88,7 +88,7 @@ content after use.
 
 solaros.audio provides status, deinit or off, set_volume, set_mic_gain, tone,
 tone_async, cancel, queue_status, level, loopback, wav_info, record_wav, and
-play_wav. solaros.synth provides status, configure, note_on, note_off,
-all_notes_off, and stop. solaros.ble provides
+play_wav. solaros.synth provides status, configure, configure_filter, note_on,
+note_off, all_notes_off, and stop. solaros.ble provides
 status, connected, pair, forget, layout, read. solaros.clipboard provides set,
 get, size, clear. Audio, synth, and BLE are package-gated.

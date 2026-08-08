@@ -17,6 +17,16 @@
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_DECAY_MS 80U
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT 70U
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS 120U
+#define SOLAR_OS_SYNTH_VOICE_FILTER_CUTOFF_MIN_HZ 40U
+#define SOLAR_OS_SYNTH_VOICE_FILTER_CUTOFF_MAX_HZ 18000U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_CUTOFF_HZ \
+    SOLAR_OS_SYNTH_VOICE_FILTER_CUTOFF_MAX_HZ
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RESONANCE_PERCENT 0U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ENVELOPE_AMOUNT_PERCENT 0U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ATTACK_MS 5U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_DECAY_MS 250U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_SUSTAIN_PERCENT 0U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RELEASE_MS 120U
 #define SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES 64U
 #define SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES 256U
 
@@ -29,11 +39,22 @@ typedef enum {
 } solar_os_synth_waveform_t;
 
 typedef struct {
+    uint32_t cutoff_hz;
+    uint8_t resonance_percent;
+    uint8_t envelope_amount_percent;
+    uint32_t attack_ms;
+    uint32_t decay_ms;
+    uint8_t sustain_percent;
+    uint32_t release_ms;
+} solar_os_synth_filter_config_t;
+
+typedef struct {
     solar_os_synth_waveform_t waveform;
     uint32_t attack_ms;
     uint32_t decay_ms;
     uint8_t sustain_percent;
     uint32_t release_ms;
+    solar_os_synth_filter_config_t filter;
 } solar_os_synth_voice_config_t;
 
 typedef struct {

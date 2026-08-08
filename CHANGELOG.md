@@ -2,6 +2,8 @@
 
 ## 4.x
 
+- **4.6.11** — 2026-08-08 — Added a resonant low-pass filter with a dedicated
+  graphical filter-envelope tab to `synth`.
 - **4.6.10** — 2026-08-08 — Added a graphical waveform-editor tab to `synth`
   with selectable resolution, baseline shapes, brush editing, smoothing,
   normalization, undo, immediate custom-wavetable playback, and smooth
