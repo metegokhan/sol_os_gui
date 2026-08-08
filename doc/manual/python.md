@@ -411,6 +411,7 @@ single-board-bus `solaros.spi` module.
 - `create_ps2(name, config)`: create an exclusive PS/2 bus from `clock` and `data` pins.
 - `create_spi(name, config)`: create a runtime SPI bus and return its dictionary.
 - `create_uart(name, config)`: create a lazy runtime UART bus and return its dictionary.
+- `create_midi(name, config)`: create an exclusive MIDI bus and automatically select its UART backend.
 - `attach(name)`: attach a named detachable bus and reserve its endpoint and pins.
 - `detach(name)`: detach an idle named bus without deleting its descriptor.
 - `remove(name)`: remove an idle runtime bus. Board-defined or leased buses
@@ -435,7 +436,7 @@ Bus dictionaries contain `id`, `name`, `protocol`, `origin`, `sharing`,
 `attached`, `detachable`, `ready`, and `lease_count`, plus protocol-specific pins and configuration. SPI
 buses include `host`, `sclk_pin`, `miso_pin`, `mosi_pin`,
 `max_transfer_size`, and `cs` slot dictionaries. I2C buses include `port`,
-`sda_pin`, `scl_pin`, and `speed_hz`. UART buses include `port`, `tx_pin`,
+`sda_pin`, `scl_pin`, and `speed_hz`. UART and MIDI buses include `port`, `tx_pin`,
 `rx_pin`, and `baud_rate`.
 
 Named I2C operations are present when both the resource and I2C services are
@@ -457,6 +458,10 @@ Runtime descriptors are detachable and removable. Board descriptors whose
 signal pins are marked releasable are detachable but never removable;
 fixed-pin board descriptors reject detach. Attached buses own their hardware
 endpoint and signal pins, while protocol hardware starts for the first lease.
+
+`create_midi` requires `tx` and `rx`; optional `baud_rate` defaults to 31250.
+SolarOS selects an unused board-approved UART controller. The returned `port`
+is diagnostic backend information, not an input to the MIDI API.
 
 `create_spi` accepts a configuration dictionary with required `host`, `sclk`,
 `mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.

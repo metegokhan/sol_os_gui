@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test
 
 .PHONY: all test clean
 
@@ -65,6 +65,10 @@ ps2_keyboard_test: ps2_keyboard_test.c $(ROOT)/src/services/solar_os_ps2_keyboar
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		ps2_keyboard_test.c $(ROOT)/src/services/solar_os_ps2_keyboard.c -o $@
 
+midi_codec_test: midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c $(ROOT)/src/services/solar_os_midi_codec.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -78,6 +82,7 @@ test: $(TARGETS)
 	./input_test
 	./hid_keyboard_report_test
 	./ps2_keyboard_test
+	./midi_codec_test
 
 clean:
 	$(RM) $(TARGETS)

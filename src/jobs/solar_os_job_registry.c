@@ -34,6 +34,9 @@
 #if SOLAR_OS_PACKAGE_JOB_LOG
 #include "solar_os_log_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_MIDI
+#include "solar_os_midi_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
 #include "solar_os_meshcore_job.h"
 #endif
@@ -89,6 +92,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_LOG
     {"log", "stream SolarOS logs to a port or file", &solar_os_log_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_MIDI
+    {"midi", "bidirectional MIDI transport", &solar_os_midi_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
     {"meshcore", "MeshCore secure radio messaging", &solar_os_meshcore_job},

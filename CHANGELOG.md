@@ -2,6 +2,8 @@
 
 ## 4.x
 
+- **4.6.16** — 2026-08-08 — Added bidirectional MIDI expansion buses and MIDI
+  keyboard control to `synth`.
 - **4.6.15** — 2026-08-08 — Added mono mode with glide to `synth` and released
   audio-driver memory when synth streams close.
 - **4.6.14** — 2026-08-08 — Added factory and persistent user presets to

@@ -70,6 +70,7 @@ SOLAR_OS_SCRIPT_API_FUNCTION(buses, create_ps2, create_ps2);
 
 #if SOLAR_OS_PACKAGE_SERVICE_UART
 SOLAR_OS_SCRIPT_API_FUNCTION(buses, create_uart, create_uart);
+SOLAR_OS_SCRIPT_API_FUNCTION(buses, create_midi, create_midi);
 SOLAR_OS_SCRIPT_API_FUNCTION(buses, uart_write, uart_write);
 SOLAR_OS_SCRIPT_API_FUNCTION(buses, uart_read, uart_read);
 #endif

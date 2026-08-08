@@ -4,14 +4,14 @@ title = "Expansion hardware reference"
 section = "hardware"
 summary = "Resource rules, workflows, drivers, bindings, and wiring examples"
 aliases = ["hardware.expansion"]
-keywords = "expansion ports gpio adc pwm buses i2c spi uart wiring displays neopixel ws2812 rgb led strip"
+keywords = "expansion ports gpio adc pwm buses i2c spi uart midi wiring displays neopixel ws2812 rgb led strip"
 packages_any = []
 +++
 # Expansion Ports
 
 SolarOS treats an expansion port as a board-described collection of resources,
 not as one fixed connector standard. A board may expose individual GPIO pins,
-named I2C, SPI, or UART buses, or free pins that can be routed to an approved
+named I2C, SPI, UART, or MIDI buses, or free pins that can be routed to an approved
 spare peripheral host at runtime.
 
 Use `expansion layout` for the physical connector arrangement, and use
@@ -69,11 +69,11 @@ voltage and current requirements before connecting it.
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 | ESP32-WROVER v3.0 | `uart0`: TX GPIO1, RX GPIO3 | I2C, SPI on `spi2`/`spi3`, UART on `uart1`/`uart2`, or 1-Wire, using free output-capable GPIO4, GPIO5, GPIO13, GPIO18, GPIO19, GPIO21-GPIO23, GPIO26, GPIO27, GPIO32, or GPIO33 | The rear SD slot uses the dedicated one-bit SDMMC host. GPIO34-GPIO36 and GPIO39 are available only for input signals and ADC. |
 
-I2C and SPI buses accept shared logical leases. UART and registered 1-Wire bus
+I2C and SPI buses accept shared logical leases. UART, MIDI, and registered 1-Wire bus
 instances are exclusive. Registered 1-Wire buses appear in expansion status
 and can be addressed by name. Bus names are unique across protocols.
 
-I2C, SPI, UART, and 1-Wire buses can be created at runtime. Runtime hardware
+I2C, SPI, UART, MIDI, and 1-Wire buses can be created at runtime. Runtime hardware
 buses require an unused board-approved controller or host; all signal pins must
 be approved by the board's runtime pin policy. Every named UART has an explicit
 attached state. Attaching reserves its controller and pins; the hardware driver
@@ -128,7 +128,22 @@ uart write uart1 AT
 expansion bus detach uart1
 expansion bus attach uart1
 expansion bus remove uart1
+
+expansion bus create midi midi0 tx=gpio1 rx=gpio2
+job start midi midi0
+midi status
+midi note-on 1 60 100
+midi note-off 1 60
+job stop midi
+expansion bus remove midi0
 ```
+
+MIDI is a user-facing bus type with an automatically selected UART backend.
+Its optional `baud=` defaults to 31250; there is no `port=` argument. The
+resolved `uartN` appears in status output only to help diagnose controller
+allocation. A standard DIN connection requires an optoisolated MIDI IN circuit
+and a current-limited MIDI OUT driver. Never connect DIN MIDI pins directly to
+ESP32 GPIOs.
 
 On the Waveshare board, `uart0` owns the releasable GPIO43/GPIO44 pair while it
 is attached. From a display or other non-`uart0` shell, detach it before reusing

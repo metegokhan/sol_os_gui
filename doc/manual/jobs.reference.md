@@ -883,6 +883,31 @@ receives keyboard data; it does not send LED or reset commands to the keyboard.
 Use a bidirectional level shifter or another circuit that guarantees no more
 than 3.3 V at the ESP32 GPIOs. ESP32 inputs are not 5 V tolerant.
 
+## midi
+
+Bidirectional MIDI transport on an exclusive named MIDI bus. The bus selects
+an available UART controller internally; users supply only its MIDI name, TX
+and RX pins, and an optional baud rate.
+
+```text
+expansion bus create midi midi0 tx=gpio1 rx=gpio2
+job start midi midi0
+job status midi
+midi status
+job stop midi
+```
+
+The default rate is the MIDI DIN rate of 31250 baud. Incoming channel voice,
+system-common, and realtime messages are decoded with running-status support
+and published to subscribers such as the Synth app. Outgoing messages are
+queued with `midi note-on`, `midi note-off`, `midi cc`, `midi program`, or
+`midi send`. Status reports RX and TX byte/message counts, unsupported parser
+input, queue drops, and the last transport error.
+
+Use a compliant electrical interface: MIDI IN requires an optoisolated
+receiver and MIDI OUT requires a current-limited driver. Do not connect DIN
+MIDI pins directly to ESP32 GPIOs.
+
 ## sump
 
 SUMP-compatible logic analyzer server on `cdc0`. It claims the CDC port and

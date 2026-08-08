@@ -13,6 +13,10 @@ Expansion drivers turn named buses and safe GPIO slots into active displays,
 radios, sensors, or manual resource profiles. Drivers are package-gated, so the
 available list depends on the firmware and board.
 
+Named MIDI connections are created as buses rather than attached drivers. Use
+`expansion bus create midi <name> tx=<gpio> rx=<gpio>`; SolarOS chooses the UART
+backend and the `midi` background job owns the connection while it runs.
+
 ## Discover what is present
 
 ```text
