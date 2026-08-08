@@ -92,7 +92,7 @@ typedef struct {
     io_mode_t mode;
     size_t selected[IO_VIEW_COUNT];
     size_t protocol_selected;
-    solar_os_bus_protocol_t protocols[5];
+    solar_os_bus_protocol_t protocols[6];
     size_t protocol_count;
     io_action_t actions[IO_ACTION_MAX];
     size_t action_count;
@@ -108,6 +108,7 @@ static EXT_RAM_BSS_ATTR io_state_t io;
 
 static const uint32_t i2c_rates[] = {100000U, 400000U, 1000000U};
 static const uint32_t uart_rates[] = {9600U, 19200U, 38400U, 57600U, 115200U, 230400U, 460800U, 921600U};
+static const uint32_t midi_rates[] = {31250U, 38400U, 57600U, 115200U};
 static const uint32_t spi_sizes[] = {256U, 1024U, 4096U, 8192U, 16384U, 65536U};
 
 static const char *io_view_name(io_view_t view)
@@ -222,6 +223,7 @@ static bool io_bus_uses_pin(const solar_os_bus_info_t *bus,
         }
         break;
     case SOLAR_OS_BUS_PROTOCOL_UART:
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
         signal = pin == bus->config.uart.tx_pin ? "TX" :
             pin == bus->config.uart.rx_pin ? "RX" : NULL;
         break;
@@ -692,6 +694,15 @@ static void io_bus_description(const solar_os_bus_info_t *bus, char *buffer, siz
                  bus->config.uart.rx_pin,
                  bus->config.uart.baud_rate);
         break;
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
+        snprintf(buffer,
+                 buffer_size,
+                 "TX=%d RX=%d @%" PRIu32 " (uart%d)",
+                 bus->config.uart.tx_pin,
+                 bus->config.uart.rx_pin,
+                 bus->config.uart.baud_rate,
+                 bus->config.uart.port);
+        break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         snprintf(buffer, buffer_size, "GPIO%d", bus->config.onewire.pin);
         break;
@@ -1019,6 +1030,14 @@ static esp_err_t io_bus_create_command(const solar_os_bus_info_t *bus,
                                  bus->config.uart.tx_pin,
                                  bus->config.uart.rx_pin,
                                  bus->config.uart.baud_rate);
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
+        return io_command_append(command,
+                                 command_len,
+                                 "expansion bus create midi %s tx=gpio%d rx=gpio%d baud=%" PRIu32,
+                                 name,
+                                 bus->config.uart.tx_pin,
+                                 bus->config.uart.rx_pin,
+                                 bus->config.uart.baud_rate);
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         return io_command_append(command,
                                  command_len,
@@ -1269,6 +1288,7 @@ static void io_default_bus_name(solar_os_bus_protocol_t protocol, char *name, si
     const char *prefix = protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? "i2c" :
         protocol == SOLAR_OS_BUS_PROTOCOL_SPI ? "spi" :
         protocol == SOLAR_OS_BUS_PROTOCOL_UART ? "uart" :
+        protocol == SOLAR_OS_BUS_PROTOCOL_MIDI ? "midi" :
         protocol == SOLAR_OS_BUS_PROTOCOL_PS2 ? "ps2" : "ow";
     for (unsigned i = 0; i < 10U; i++) {
         snprintf(name, name_size, "%s%u", prefix, i);
@@ -1338,7 +1358,9 @@ static void io_form_begin(solar_os_bus_protocol_t protocol)
     memset(&io.form, 0, sizeof(io.form));
     io.form.protocol = protocol;
     io.form.endpoint = io_first_allowed_endpoint(protocol);
-    io.form.rate = protocol == SOLAR_OS_BUS_PROTOCOL_UART
+    io.form.rate = protocol == SOLAR_OS_BUS_PROTOCOL_MIDI
+        ? SOLAR_OS_BUS_MIDI_DEFAULT_BAUD_RATE
+        : protocol == SOLAR_OS_BUS_PROTOCOL_UART
         ? SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE
         : SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ;
     io.form.max_transfer = 4096U;
@@ -1349,7 +1371,9 @@ static void io_form_begin(solar_os_bus_protocol_t protocol)
 
     size_t required = protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? 2U :
         protocol == SOLAR_OS_BUS_PROTOCOL_SPI ? 4U :
-        protocol == SOLAR_OS_BUS_PROTOCOL_UART || protocol == SOLAR_OS_BUS_PROTOCOL_PS2 ? 2U : 1U;
+        protocol == SOLAR_OS_BUS_PROTOCOL_UART ||
+            protocol == SOLAR_OS_BUS_PROTOCOL_MIDI ||
+            protocol == SOLAR_OS_BUS_PROTOCOL_PS2 ? 2U : 1U;
     size_t filled = 0;
     if (io.selected_pin >= 0 && io_pin_unclaimed(io.selected_pin)) {
         io.form.pins[filled++] = io.selected_pin;
@@ -1392,6 +1416,7 @@ static void io_protocols_build(void)
     if (solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_UART) &&
         SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK != 0U) {
         io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_UART;
+        io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_MIDI;
     }
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
@@ -1445,6 +1470,8 @@ static size_t io_form_field_count(void)
         return 11U;
     case SOLAR_OS_BUS_PROTOCOL_UART:
         return 6U;
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
+        return 5U;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         return 3U;
     case SOLAR_OS_BUS_PROTOCOL_PS2:
@@ -1510,6 +1537,17 @@ static void io_form_field(size_t index,
             strlcpy(label, index == 2 ? "TX" : "RX", label_size);
             snprintf(value, value_size, "GPIO%d", io.form.pins[index - 2U]);
         } else if (index == 4) {
+            strlcpy(label, "Baud", label_size);
+            snprintf(value, value_size, "%" PRIu32, io.form.rate);
+        } else {
+            strlcpy(label, "Create", label_size);
+        }
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
+        if (index == 1 || index == 2) {
+            strlcpy(label, index == 1 ? "TX" : "RX", label_size);
+            snprintf(value, value_size, "GPIO%d", io.form.pins[index - 1U]);
+        } else if (index == 3) {
             strlcpy(label, "Baud", label_size);
             snprintf(value, value_size, "%" PRIu32, io.form.rate);
         } else {
@@ -1723,6 +1761,20 @@ static void io_form_cycle(int delta)
                                                                sizeof(uart_rates) / sizeof(uart_rates[0]));
         }
         break;
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
+        if (field == 1 || field == 2) {
+            io.form.pins[field - 1U] = io_cycle_pin(io.form.pins[field - 1U],
+                                                   delta,
+                                                   false,
+                                                   field - 1U);
+        } else if (field == 3) {
+            io.form.rate = (uint32_t)io_cycle_list_value(
+                io.form.rate,
+                delta,
+                midi_rates,
+                sizeof(midi_rates) / sizeof(midi_rates[0]));
+        }
+        break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         if (field == 1) {
             io.form.pins[0] = io_cycle_pin(io.form.pins[0], delta, false, 0);
@@ -1748,6 +1800,7 @@ static esp_err_t io_form_create(void)
         .protocol = io.form.protocol,
         .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
         .sharing = io.form.protocol == SOLAR_OS_BUS_PROTOCOL_UART ||
+                io.form.protocol == SOLAR_OS_BUS_PROTOCOL_MIDI ||
                 io.form.protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE ||
                 io.form.protocol == SOLAR_OS_BUS_PROTOCOL_PS2
             ? SOLAR_OS_BUS_EXCLUSIVE
@@ -1782,6 +1835,14 @@ static esp_err_t io_form_create(void)
     case SOLAR_OS_BUS_PROTOCOL_UART:
         definition.config.uart = (solar_os_bus_uart_config_t) {
             .port = io.form.endpoint,
+            .tx_pin = io.form.pins[0],
+            .rx_pin = io.form.pins[1],
+            .baud_rate = io.form.rate,
+        };
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
+        definition.config.uart = (solar_os_bus_uart_config_t) {
+            .port = -1,
             .tx_pin = io.form.pins[0],
             .rx_pin = io.form.pins[1],
             .baud_rate = io.form.rate,

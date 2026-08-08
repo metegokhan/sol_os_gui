@@ -196,7 +196,7 @@ The package- and policy-gated tools discoverable through `tool_search` are:
 - `gpio_read`: inspect one real board GPIO slot. It returns a level only when
   the pin is already configured and readable; it never claims or configures the
   pin as a side effect.
-- `buses_list`: registered I2C, SPI, UART, and OneWire buses with their actual
+- `buses_list`: registered I2C, SPI, UART, MIDI, OneWire, and PS/2 buses with their actual
   names, pin configuration, readiness, origin, sharing mode, and lease count.
 - `network_status`: current Wi-Fi station, IP, access-point, signal, channel,
   and NAT state without changing the provider connection.

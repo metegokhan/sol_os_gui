@@ -554,6 +554,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `expansion` | `expansion bus create i2c <name> port=<i2c0\|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]` | Define a runtime I2C bus on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus create onewire <name> pin=<gpio>` | Define a runtime named 1-Wire bus on an approved expansion pin. |
 | `expansion` | `expansion bus create ps2 <name> clock=<gpio> data=<gpio>` | Define an exclusive PS/2 bus on two approved expansion pins. |
+| `expansion` | `expansion bus create midi <name> tx=<gpio> rx=<gpio> [baud=<rate>]` | Define an exclusive MIDI bus; SolarOS selects the UART backend and defaults to 31250 baud. |
 | `expansion` | `expansion bus create spi <name> host=<spi2\|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio\|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]` | Define a runtime-routed SPI bus on a board-approved host and expansion pins. |
 | `expansion` | `expansion bus create uart <name> port=<uart1\|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]` | Define a lazy runtime UART on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus attach <name>` | Attach a named detachable bus and reserve its endpoint and signal pins. |
@@ -565,6 +566,11 @@ and writes the inactive ESP-IDF OTA partition.
 | `neopixel` | `neopixel set <name> <index> <red> <green> <blue>` | Set one zero-based pixel and immediately refresh the strip. |
 | `neopixel` | `neopixel fill <name> <red> <green> <blue>` | Fill and immediately refresh the strip. Color components are `0..255`. |
 | `neopixel` | `neopixel clear\|show <name>` | Clear a strip immediately, or transmit its buffered colors. |
+| `midi` | `midi status` | Show MIDI worker, traffic, parser, and queue status. |
+| `midi` | `midi note-on\|note-off <channel> <note> [velocity]` | Queue a MIDI note message for transmission. |
+| `midi` | `midi cc <channel> <controller> <value>` | Queue a MIDI control-change message. |
+| `midi` | `midi program <channel> <program>` | Queue a MIDI program-change message. |
+| `midi` | `midi send <status> [data1] [data2]` | Queue one validated raw MIDI message. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
 | `radio` | `radio status|list` | List packet radios registered by expansion drivers. |
 | `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |

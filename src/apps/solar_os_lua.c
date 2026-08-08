@@ -1844,7 +1844,7 @@ static int solua_pwm_off(lua_State *L)
 static bool solua_bus_find_any(const char *name, solar_os_bus_info_t *info)
 {
     for (solar_os_bus_protocol_t protocol = SOLAR_OS_BUS_PROTOCOL_I2C;
-         protocol <= SOLAR_OS_BUS_PROTOCOL_PS2;
+         protocol <= SOLAR_OS_BUS_PROTOCOL_MIDI;
          protocol++) {
         if (solar_os_bus_find(name, protocol, info)) {
             return true;
@@ -1894,6 +1894,7 @@ static void solua_push_bus_info(lua_State *L, const solar_os_bus_info_t *info)
         lua_setfield(L, -2, "cs");
         break;
     case SOLAR_OS_BUS_PROTOCOL_UART:
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
         solua_set_int(L, -1, "port", info->config.uart.port);
         solua_set_int(L, -1, "tx_pin", info->config.uart.tx_pin);
         solua_set_int(L, -1, "rx_pin", info->config.uart.rx_pin);
@@ -2107,6 +2108,40 @@ static int solua_buses_create_uart(lua_State *L)
     (void)solua_check_esp(L, solar_os_bus_register(&definition));
     solar_os_bus_info_t info;
     if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, &info)) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solua_push_bus_info(L, &info);
+    return 1;
+}
+
+static int solua_buses_create_midi(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_MIDI,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.uart = {
+            .port = -1,
+            .tx_pin = solua_table_int(L, 2, "tx", true, -1),
+            .rx_pin = solua_table_int(L, 2, "rx", true, -1),
+            .baud_rate = (uint32_t)solua_table_int(L,
+                                                   2,
+                                                   "baud_rate",
+                                                   false,
+                                                   SOLAR_OS_BUS_MIDI_DEFAULT_BAUD_RATE),
+        },
+    };
+    if (definition.config.uart.baud_rate < SOLAR_OS_BUS_UART_MIN_BAUD_RATE ||
+        definition.config.uart.baud_rate > SOLAR_OS_BUS_UART_MAX_BAUD_RATE) {
+        return luaL_error(L, "expected baud_rate 300..921600");
+    }
+
+    (void)solua_check_esp(L, solar_os_bus_register(&definition));
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_MIDI, &info)) {
         return solua_check_esp(L, ESP_ERR_NOT_FOUND);
     }
     solua_push_bus_info(L, &info);

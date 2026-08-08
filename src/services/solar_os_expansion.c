@@ -595,6 +595,7 @@ bool solar_os_expansion_available(void)
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART) > 0 ||
+        solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_PS2) > 0 ||
         solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_ADC) ||
@@ -628,7 +629,8 @@ bool solar_os_expansion_driver_supported(const char *name)
     if (solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI) > 0) {
         caps |= SOLAR_OS_BOARD_CAP_EXPANSION_SPI;
     }
-    if (solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART) > 0) {
+    if (solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART) > 0 ||
+        solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI) > 0) {
         caps |= SOLAR_OS_BOARD_CAP_EXPANSION_UART;
     }
     return driver->required_capabilities == 0 ||

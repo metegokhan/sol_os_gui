@@ -543,7 +543,7 @@ server-side read flags are not implemented yet.
 Interactive expansion I/O manager. Its default Layout view presents the
 board's connectors in their physical arrangement, followed by the existing
 pin, named-bus, and resource-claim views. It uses the same ownership and
-validation services as the `gpio`, `i2c`, `spi`, `uart`, `onewire`, and
+validation services as the `gpio`, `i2c`, `spi`, `uart`, `midi`, `onewire`, and
 `expansion` commands.
 
 Usage:
@@ -564,7 +564,7 @@ Controls:
 - Layout markers are `*` free, `~` releasable, `@` claimed, `!` fixed/control,
   `+` power, `-` ground, and `x` not connected.
 - `Enter` opens context-sensitive actions for a pin or bus.
-- `n` creates a board-approved named I2C, SPI, UART, or 1-Wire bus.
+- `n` creates a board-approved named I2C, SPI, UART, MIDI, or 1-Wire bus.
 - Bus creation uses arrows to select fields and values; the generated bus name
   can be edited directly.
 - Runtime buses can be attached, detached, or removed when their lease state
@@ -991,7 +991,7 @@ synth
 ```
 
 The app uses the same eight-voice fixed-point engine exposed to Python and Lua,
-but keyboard events reach it directly. Its Play tab contains the waveform,
+but keyboard and MIDI events reach it directly. Its Play tab contains the waveform,
 envelope, volume, ADSR, and piano controls. The Wave tab is a graphical
 wavetable editor with selectable 16, 32, or 64-point resolution;
 edits reshape held notes immediately while the piano remains playable. The
@@ -1035,6 +1035,18 @@ Controls:
   read-only.
 - `Page Up`/`Page Down` changes octave from 2 through 6 on any tab.
 - `Esc` or the app-exit key exits and immediately releases audio ownership.
+
+For an external MIDI keyboard, create and start a named MIDI bus before
+opening Synth:
+
+```text
+expansion bus create midi midi0 tx=gpio1 rx=gpio2
+job start midi midi0
+synth
+```
+
+MIDI Note On/Off, velocity, sustain (CC64), All Sound Off (CC120), and All
+Notes Off (CC123) are supported on all 16 channels.
 
 ## telnet
 

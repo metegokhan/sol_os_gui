@@ -43,6 +43,7 @@ static void expansion_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  expansion bus create ps2 <name> clock=<gpio> data=<gpio>");
     solar_os_shell_io_writeln(term, "  expansion bus create spi <name> host=<spi2|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]");
     solar_os_shell_io_writeln(term, "  expansion bus create uart <name> port=<uart1|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]");
+    solar_os_shell_io_writeln(term, "  expansion bus create midi <name> tx=<gpio> rx=<gpio> [baud=<rate>]");
     solar_os_shell_io_writeln(term, "  expansion bus attach <name>");
     solar_os_shell_io_writeln(term, "  expansion bus detach <name>");
     solar_os_shell_io_writeln(term, "  expansion bus remove <name>");
@@ -157,6 +158,10 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
                   SOLAR_OS_BOARD_CAP_EXPANSION_UART,
                   SOLAR_OS_BUS_PROTOCOL_UART,
                   "uart");
+    print_bus_cap(term,
+                  SOLAR_OS_BOARD_CAP_EXPANSION_UART,
+                  SOLAR_OS_BUS_PROTOCOL_MIDI,
+                  "midi");
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
     print_bus_cap(term,
@@ -227,6 +232,20 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
                                      port.rx_pin,
                                      port.baud_rate);
             expansion_print_bus_meta(term, port.name, SOLAR_OS_BUS_PROTOCOL_UART);
+            solar_os_shell_io_put_char(term, '\n');
+        }
+    }
+
+    for (size_t i = 0; i < solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI); i++) {
+        solar_os_bus_info_t bus;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI, i, &bus)) {
+            solar_os_shell_io_printf(term,
+                                     "MIDI %-5s TX GPIO%d RX GPIO%d baud=%" PRIu32,
+                                     bus.name,
+                                     bus.config.uart.tx_pin,
+                                     bus.config.uart.rx_pin,
+                                     bus.config.uart.baud_rate);
+            expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_MIDI);
             solar_os_shell_io_put_char(term, '\n');
         }
     }
@@ -1070,6 +1089,12 @@ static bool expansion_print_bus_resource_conflict(solar_os_shell_io_t *term,
             return true;
         }
         break;
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
+        if (expansion_print_gpio_conflict(term, operation, config->uart.tx_pin) ||
+            expansion_print_gpio_conflict(term, operation, config->uart.rx_pin)) {
+            return true;
+        }
+        break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         if (expansion_print_gpio_conflict(term, operation, config->onewire.pin)) {
             return true;
@@ -1123,6 +1148,7 @@ static void expansion_print_bus_attach_error(solar_os_shell_io_t *term,
         solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, &info) == false &&
         solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_SPI, &info) == false &&
         solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, &info) == false &&
+        solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_MIDI, &info) == false &&
         solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info) == false &&
         solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_PS2, &info) == false) {
         expansion_print_bus_error(term, "attach", err);
@@ -1412,6 +1438,86 @@ static void expansion_cmd_bus_create_uart(solar_os_shell_io_t *term,
                              definition.name,
                              definition.config.uart.port);
 }
+
+static void expansion_cmd_bus_create_midi(solar_os_shell_io_t *term,
+                                          int argc,
+                                          char **argv)
+{
+    if (argc < 7) {
+        solar_os_shell_diag_problem(
+            term, "expansion bus create midi",
+            "tx and rx options are required",
+            "expansion bus create midi <name> tx=<gpio> rx=<gpio> [baud=<rate>]",
+            NULL);
+        return;
+    }
+
+    solar_os_bus_definition_t definition = {
+        .name = argv[4],
+        .protocol = SOLAR_OS_BUS_PROTOCOL_MIDI,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.uart = {
+            .port = -1,
+            .tx_pin = -1,
+            .rx_pin = -1,
+            .baud_rate = SOLAR_OS_BUS_MIDI_DEFAULT_BAUD_RATE,
+        },
+    };
+
+    for (int i = 5; i < argc; i++) {
+        const char *eq = strchr(argv[i], '=');
+        if (eq == NULL || eq == argv[i] || eq[1] == '\0') {
+            solar_os_shell_diag_invalid(term, "expansion bus create midi", "option", argv[i],
+                                        "key=value", NULL, false);
+            return;
+        }
+        const size_t key_len = (size_t)(eq - argv[i]);
+        const char *value = eq + 1;
+        int parsed = -1;
+        if (key_len == 2 && strncmp(argv[i], "tx", key_len) == 0) {
+            if (!parse_int_arg(value, 0, 63, &definition.config.uart.tx_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 2 && strncmp(argv[i], "rx", key_len) == 0) {
+            if (!parse_int_arg(value, 0, 63, &definition.config.uart.rx_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 4 && strncmp(argv[i], "baud", key_len) == 0) {
+            if (!parse_int_arg(value,
+                               SOLAR_OS_BUS_UART_MIN_BAUD_RATE,
+                               SOLAR_OS_BUS_UART_MAX_BAUD_RATE,
+                               &parsed)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+            definition.config.uart.baud_rate = (uint32_t)parsed;
+        } else {
+            solar_os_shell_diag_unknown(term, "expansion bus create midi", "option", argv[i],
+                                        NULL, NULL);
+            return;
+        }
+    }
+
+    const esp_err_t err = solar_os_bus_register(&definition);
+    if (err != ESP_OK) {
+        expansion_print_bus_create_error(term, &definition, err);
+        return;
+    }
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(definition.name, SOLAR_OS_BUS_PROTOCOL_MIDI, &info)) {
+        expansion_print_bus_error(term, "create", ESP_ERR_NOT_FOUND);
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "created MIDI bus %s on TX GPIO%d RX GPIO%d (backend uart%d)\n",
+                             info.name,
+                             info.config.uart.tx_pin,
+                             info.config.uart.rx_pin,
+                             info.config.uart.port);
+}
 #endif
 
 static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
@@ -1511,7 +1617,7 @@ static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
     if (argc >= 3 && strcmp(argv[2], "create") == 0) {
         if (argc < 4) {
             solar_os_shell_diag_missing(term, "expansion bus create", "<protocol>",
-                                        "expansion bus create <i2c|onewire|ps2|spi|uart> ...");
+                                        "expansion bus create <i2c|midi|onewire|ps2|spi|uart> ...");
             return;
         }
         if (argc < 5) {
@@ -1538,17 +1644,21 @@ static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
 #if SOLAR_OS_PACKAGE_SERVICE_UART
+        if (strcmp(argv[3], "midi") == 0) {
+            expansion_cmd_bus_create_midi(term, argc, argv);
+            return;
+        }
         if (strcmp(argv[3], "uart") == 0) {
             expansion_cmd_bus_create_uart(term, argc, argv);
             return;
         }
 #endif
-        static const char * const protocols[] = {"i2c", "onewire", "ps2", "spi", "uart"};
+        static const char * const protocols[] = {"i2c", "midi", "onewire", "ps2", "spi", "uart"};
         const char *suggestion = solar_os_shell_suggest(
             argv[3], protocols, sizeof(protocols) / sizeof(protocols[0]));
         solar_os_shell_diag_unknown(term, "expansion bus create", "protocol", argv[3],
                                     suggestion,
-                                    "expansion bus create <i2c|onewire|ps2|spi|uart> ...");
+                                    "expansion bus create <i2c|midi|onewire|ps2|spi|uart> ...");
         return;
     }
     if (argc >= 3 && strcmp(argv[2], "attach") == 0) {

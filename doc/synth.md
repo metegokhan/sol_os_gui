@@ -96,6 +96,21 @@ All six tabs use the same compact piano. `Tab` cycles through Play, Filter,
 Wave, Oscillator 2, Glide, and Presets. Number keys `1` through `6` select them
 in that order.
 
+The app also accepts note input from the shared MIDI service. MIDI Note On and
+Note Off preserve channel and velocity, controller 64 provides sustain, and
+controllers 120 and 123 release the notes on their channel. Start the MIDI job
+on a named MIDI bus before opening the app:
+
+```text
+expansion bus create midi midi0 tx=gpio1 rx=gpio2
+job start midi midi0
+synth
+```
+
+The bus chooses an available UART controller internally and uses the standard
+31250 baud rate unless `baud=` is supplied. The controller number is visible
+in status output for diagnostics but is not part of the MIDI bus interface.
+
 The app also shows current octave and velocity, active voices, sample rate, and
 audio errors. Keyboard press and release events sustain held notes and support
 chords. Waveform and envelope edits keep oscillator phase and pitch continuous.

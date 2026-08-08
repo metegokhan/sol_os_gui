@@ -141,6 +141,7 @@ typedef struct {
     bool complete_i2c_arguments;
     bool complete_onewire_buses;
     bool complete_ps2_buses;
+    bool complete_midi_buses;
     bool complete_spi_buses;
     bool complete_uart_buses;
     bool complete_com_arguments;
@@ -306,6 +307,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
     {"uart", "UART port tools", solar_os_shell_cmd_uart},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_MIDI
+    {"midi", "MIDI transport tools", solar_os_shell_cmd_midi},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     {"i2c", "I2C bus tools", solar_os_shell_cmd_i2c},
@@ -606,6 +610,11 @@ static const char * const expansion_subcommands[] = {
     "detach",
 };
 static const char * const expansion_bus_subcommands[] = {"create", "attach", "detach", "remove"};
+#if SOLAR_OS_PACKAGE_JOB_MIDI
+static const char * const midi_subcommands[] = {
+    "status", "note-on", "note-off", "cc", "program", "send",
+};
+#endif
 static const char * const expansion_bus_protocols[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     "i2c",
@@ -620,6 +629,7 @@ static const char * const expansion_bus_protocols[] = {
     "spi",
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
+    "midi",
     "uart",
 #endif
 };
@@ -1325,6 +1335,9 @@ static const char * const path_job_start_ps2_keyboard[] = {
     "job", "start", "ps2-keyboard"
 };
 #endif
+#if SOLAR_OS_PACKAGE_JOB_MIDI
+static const char * const path_job_start_midi[] = {"job", "start", "midi"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_LINK
 static const char * const path_job_start_bridge_link[] = {
     "job", "start", "bridge", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
@@ -1732,6 +1745,9 @@ static const char * const path_expansion_bus_detach[] = {"expansion", "bus", "de
 static const char * const path_expansion_bus_remove[] = {"expansion", "bus", "remove"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_expansion_detach[] = {"expansion", "detach"};
+#if SOLAR_OS_PACKAGE_JOB_MIDI
+static const char * const path_midi[] = {"midi"};
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 static const char * const path_neopixel[] = {"neopixel"};
 static const char * const path_neopixel_status[] = {"neopixel", "status"};
@@ -2057,6 +2073,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_ps2_buses = true, \
     }
+#define SHELL_COMPLETION_MIDI_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_midi_buses = true, \
+    }
 #define SHELL_COMPLETION_SPI_CS(path_array) \
     { \
         .path = path_array, \
@@ -2226,6 +2248,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_PS2_KEYBOARD
     SHELL_COMPLETION_PS2_BUSES(path_job_start_ps2_keyboard),
+#endif
+#if SOLAR_OS_PACKAGE_JOB_MIDI
+    SHELL_COMPLETION_MIDI_BUSES(path_job_start_midi),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_LINK
     SHELL_COMPLETION_LINKS(path_job_start_bridge_port),
@@ -2490,6 +2515,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
     SHELL_COMPLETION_STATIC(path_expansion_attach, expansion_driver_values),
     SHELL_COMPLETION_EXPANSION_DEVICES(path_expansion_detach),
+#endif
+#if SOLAR_OS_PACKAGE_JOB_MIDI
+    SHELL_COMPLETION_STATIC(path_midi, midi_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
     SHELL_COMPLETION_STATIC(path_neopixel, neopixel_subcommands),
@@ -5096,6 +5124,21 @@ static void shell_completion_emit_ps2_buses(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_midi_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_UART
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_uart_buses(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_UART
@@ -6067,6 +6110,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_ps2_buses) {
             shell_completion_emit_ps2_buses(state);
+        }
+        if (rule->complete_midi_buses) {
+            shell_completion_emit_midi_buses(state);
         }
         if (rule->complete_spi_buses) {
             shell_completion_emit_spi_buses(state);

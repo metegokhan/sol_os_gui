@@ -755,14 +755,14 @@ static const agent_tool_definition_t AGENT_TOOL_REGISTRY[] = {
         .provider = {
             .name = "buses_list",
             .description =
-                "List registered I2C, SPI, UART, and OneWire buses with their "
+                "List registered I2C, SPI, UART, MIDI, OneWire, and PS/2 buses with their "
                 "real names, pins, readiness, origin, sharing, and leases.",
             .parameters_json = AGENT_TOOL_SCHEMA_EMPTY,
             .strict = true,
         },
         .domain = "buses",
         .search_terms =
-            "bus i2c spi uart onewire serial pins names leases hardware",
+            "bus i2c spi uart midi onewire ps2 serial pins names leases hardware",
         .output_schema_json = AGENT_TOOL_OUTPUT_BUSES_LIST,
         .required_capability = "resources",
         .risk = SOLAR_OS_AGENT_TOOL_RISK_READ_ONLY,
@@ -3038,6 +3038,7 @@ static esp_err_t agent_tool_buses_list(const char *arguments,
                 (unsigned)info.config.spi.cs_count);
             break;
         case SOLAR_OS_BUS_PROTOCOL_UART:
+        case SOLAR_OS_BUS_PROTOCOL_MIDI:
             pins_written = snprintf(
                 pins,
                 sizeof(pins),

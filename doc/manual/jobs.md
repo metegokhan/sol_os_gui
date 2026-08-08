@@ -41,6 +41,7 @@ and the resource owner before retrying.
 ```text
 job start batmon 60
 job start log file /logs/system.log info
+job start midi midi0
 job stop log
 ```
 
@@ -56,3 +57,7 @@ The shell's detailed status adds the current start-admission disposition and
 reason.
 Waiting means launch admission has not yet succeeded; failed records a terminal
 launch or runtime error.
+
+The `midi` job owns one named MIDI bus and moves messages in both directions.
+Create the bus with `expansion bus create midi`, then use `midi status` to
+inspect its counters.

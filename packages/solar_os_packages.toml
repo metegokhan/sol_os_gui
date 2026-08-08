@@ -42,6 +42,7 @@ members = [
   "expansion_pcd8544",
   "expansion_ssd1306",
   "expansion_neopixel",
+  "job_midi",
   "job_pocsag",
   "job_radio_link",
   "job_meshcore",
@@ -474,6 +475,13 @@ sources = [
 requires = ["esp_timer"]
 capabilities = ["audio"]
 
+[packages.service_midi]
+label = "service.midi"
+sources = [
+  "services/solar_os_midi.c",
+  "services/solar_os_midi_codec.c",
+]
+
 [packages.service_resources]
 label = "service.resources"
 sources = [
@@ -731,7 +739,7 @@ capabilities = ["audio"]
 
 [packages.app_synth]
 label = "app.synth"
-depends = ["service_synth"]
+depends = ["service_midi", "service_synth"]
 sources = ["apps/solar_os_synth_app.c"]
 capabilities = ["audio", "gfx"]
 
@@ -1019,6 +1027,15 @@ label = "job.ps2-keyboard"
 depends = ["service_ps2", "service_resources"]
 sources = ["jobs/solar_os_ps2_keyboard_job.c"]
 capabilities = ["gpio"]
+
+[packages.job_midi]
+label = "job.midi"
+depends = ["service_midi", "service_resources", "service_uart"]
+sources = [
+  "jobs/solar_os_midi_job.c",
+  "shell/solar_os_shell_midi.c",
+]
+capabilities = ["expansion_uart"]
 
 [packages.job_sump]
 label = "job.sump"

@@ -1941,7 +1941,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_pwm_off_obj, solaros_pwm_off);
 static bool python_bus_find_any(const char *name, solar_os_bus_info_t *info)
 {
     for (solar_os_bus_protocol_t protocol = SOLAR_OS_BUS_PROTOCOL_I2C;
-         protocol <= SOLAR_OS_BUS_PROTOCOL_PS2;
+         protocol <= SOLAR_OS_BUS_PROTOCOL_MIDI;
          protocol++) {
         if (solar_os_bus_find(name, protocol, info)) {
             return true;
@@ -1991,6 +1991,7 @@ static mp_obj_t python_bus_info_to_dict(const solar_os_bus_info_t *info)
         break;
     }
     case SOLAR_OS_BUS_PROTOCOL_UART:
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
         python_dict_store_int(dict, "port", info->config.uart.port);
         python_dict_store_int(dict, "tx_pin", info->config.uart.tx_pin);
         python_dict_store_int(dict, "rx_pin", info->config.uart.rx_pin);
@@ -2198,6 +2199,38 @@ static mp_obj_t solaros_buses_create_uart(mp_obj_t name_obj, mp_obj_t config_obj
     return solaros_buses_get(name_obj);
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_uart_obj, solaros_buses_create_uart);
+
+static mp_obj_t solaros_buses_create_midi(mp_obj_t name_obj, mp_obj_t config_obj)
+{
+    const char *name = mp_obj_str_get_str(name_obj);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_MIDI,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.uart = {
+            .port = -1,
+            .tx_pin = -1,
+            .rx_pin = -1,
+            .baud_rate = SOLAR_OS_BUS_MIDI_DEFAULT_BAUD_RATE,
+        },
+    };
+
+    python_get_dict_int(config_obj, "tx", &definition.config.uart.tx_pin, true);
+    python_get_dict_int(config_obj, "rx", &definition.config.uart.rx_pin, true);
+    int baud_rate = 0;
+    if (python_get_dict_int(config_obj, "baud_rate", &baud_rate, false)) {
+        if (baud_rate < (int)SOLAR_OS_BUS_UART_MIN_BAUD_RATE ||
+            baud_rate > (int)SOLAR_OS_BUS_UART_MAX_BAUD_RATE) {
+            mp_raise_ValueError(MP_ERROR_TEXT("expected baud_rate 300..921600"));
+        }
+        definition.config.uart.baud_rate = (uint32_t)baud_rate;
+    }
+
+    python_check_esp(solar_os_bus_register(&definition));
+    return solaros_buses_get(name_obj);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_midi_obj, solaros_buses_create_midi);
 #endif
 
 static mp_obj_t solaros_buses_remove(mp_obj_t name_obj)

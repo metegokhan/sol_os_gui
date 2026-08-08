@@ -60,7 +60,7 @@ service packages are not available on that board.
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
 - `solaros.adc`: `pins`, `read` when ADC support is compiled
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
-- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `attach`, `detach`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_ps2` is present with PS/2 support; `create_uart`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
+- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `attach`, `detach`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_ps2` is present with PS/2 support; `create_uart`, `create_midi`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
 - `solaros.expansion`: `drivers`, `devices`, `attach`, `detach` when the expansion service is compiled
 - `solaros.neopixel`: `list`, `set`, `fill`, `show`, `clear` when the NeoPixel expansion package is compiled
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg` when I2C support is compiled
@@ -137,6 +137,7 @@ of the legacy single-board-bus and direct-pin service tables.
 - `create_onewire(name, config)` creates a runtime 1-Wire bus and returns its table.
 - `create_spi(name, config)` creates a runtime SPI bus and returns its table.
 - `create_uart(name, config)` creates a lazy runtime UART bus and returns its table.
+- `create_midi(name, config)` creates an exclusive MIDI bus and automatically selects its UART backend.
 - `attach(name)` attaches a named detachable bus and reserves its endpoint and pins.
 - `detach(name)` detaches an idle named bus without deleting its descriptor.
 - `remove(name)` removes an idle runtime bus.
@@ -175,6 +176,10 @@ until `remove(name)`.
 whose signal pins are marked releasable are detachable but never removable;
 fixed-pin board descriptors reject detach. Attached buses own their hardware
 endpoint and signal pins, while protocol hardware starts on first lease.
+
+`create_midi` requires `tx` and `rx`; optional `baud_rate` defaults to 31250.
+SolarOS selects an unused board-approved UART controller. The returned `port`
+is diagnostic backend information, not an input to the MIDI API.
 
 ```lua
 local solaros = require("solaros")

@@ -120,7 +120,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [hexedit application](apps.md#hexedit) — Two-pane binary editor for files on mounted storage. Each row shows a file offset, hexadecimal bytes, and their synchronized printable ASCII view. The number of bytes per row adapts to the terminal width. It uses the same 256 KiB PSRAM and 32 KiB internal-memory limits as edit.
 - [inbox application](apps.md#inbox) — Universal incoming-message browser for pages, chat notifications, mail, and other background producers. It reads the same shared inbox that supplies the status-bar unread count. Messages and read state survive reboot in the bounded /.inbox/messages.bin store; the service retains at most 64 entries and keeps the file below 32 KB even when internal flash is the only storage.
 - [invaders application](apps.md#invaders) — Graphical arcade shooter.
-- [io application](apps.md#io) — Interactive expansion I/O manager. Its default Layout view presents the board's connectors in their physical arrangement, followed by the existing pin, named-bus, and resource-claim views. It uses the same ownership and validation services as the gpio, i2c, spi, uart, onewire, and expansion commands.
+- [io application](apps.md#io) — Interactive expansion I/O manager. Its default Layout view presents the board's connectors in their physical arrangement, followed by the existing pin, named-bus, and resource-claim views. It uses the same ownership and validation services as the gpio, i2c, spi, uart, midi, onewire, and expansion commands.
 - [less application](apps.md#less) — Terminal pager for text files. It preserves original text layout and is useful for quick file inspection.
 - [logic application](apps.md#logic) — On-device logic analyzer waveform viewer. It displays the latest capture made by the shared logic analyzer service or the SUMP job. With pin arguments it makes a new local capture before opening the viewer.
 - [lua application](apps.md#lua) — Embedded Lua runtime. It can run an interactive REPL or execute .lua scripts from storage. Lua scripts can use SolarOS service bindings when the selected firmware includes the corresponding packages.
@@ -182,7 +182,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Lua API reference](lua.md) — Complete Lua service API, conventions, and examples
 - [Lua graphics API](lua.gfx.md) — Draw through SolarOS displays from Lua
 - [Lua text user-interface API](lua.tui.md) — Build terminal applications from Lua
-- [Named runtime buses](buses.md) — Create and use resource-owned I2C, SPI, UART, OneWire, and PS/2 buses
+- [Named runtime buses](buses.md) — Create and use resource-owned I2C, SPI, UART, MIDI, OneWire, and PS/2 buses
 - [Python API reference](python.md) — Complete MicroPython service API, conventions, and examples
 - [Python graphics API](python.gfx.md) — Draw through SolarOS displays from MicroPython
 - [Python text user-interface API](python.tui.md) — Build terminal applications from MicroPython

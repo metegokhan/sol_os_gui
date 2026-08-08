@@ -12,6 +12,7 @@
 #include "solar_os_gfx.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
+#include "solar_os_midi.h"
 #include "solar_os_storage.h"
 #include "solar_os_synth_voice.h"
 
@@ -102,12 +103,16 @@ typedef enum {
 
 typedef struct {
   bool active;
+  bool midi;
+  bool release_pending;
   solar_os_input_source_t source;
   uint16_t physical_key;
   uint16_t usage;
   uint32_t frequency_hz;
   uint32_t release_at_ms;
   uint8_t semitone;
+  uint8_t midi_channel;
+  uint8_t midi_note;
 } synth_held_note_t;
 
 typedef struct {
@@ -130,6 +135,9 @@ typedef struct {
   synth_oscillator2_control_t oscillator2_selected;
   synth_mode_control_t mode_selected;
   synth_held_note_t held[SYNTH_APP_HELD_MAX];
+  solar_os_midi_subscription_t midi_subscription;
+  bool midi_subscribed;
+  bool midi_sustain[16];
   int octave;
   uint8_t velocity;
   uint8_t volume;
@@ -1982,6 +1990,9 @@ static synth_held_note_t *synth_find_held(const solar_os_input_key_event_t *key,
     if (!held->active) {
       continue;
     }
+    if (held->midi) {
+      continue;
+    }
     if (key->physical_key != SOLAR_OS_INPUT_PHYSICAL_NONE) {
       if (held->source == key->source &&
           held->physical_key == key->physical_key) {
@@ -2061,6 +2072,143 @@ static bool synth_release_held(synth_held_note_t *held) {
 static bool synth_note_off(const solar_os_input_key_event_t *key,
                            int semitone) {
   return synth_release_held(synth_find_held(key, semitone));
+}
+
+static synth_held_note_t *synth_find_midi_held(uint8_t channel, uint8_t note) {
+  for (size_t i = 0; i < SYNTH_APP_HELD_MAX; i++) {
+    synth_held_note_t *held = &synth_app.held[i];
+    if (held->active && held->midi && held->midi_channel == channel &&
+        held->midi_note == note) {
+      return held;
+    }
+  }
+  return NULL;
+}
+
+static uint32_t synth_midi_frequency(uint8_t note) {
+  const float frequency = 440.0f * powf(2.0f, ((float)note - 69.0f) / 12.0f);
+  if (frequency < (float)SOLAR_OS_SYNTH_VOICE_FREQUENCY_MIN_HZ ||
+      frequency > (float)SOLAR_OS_SYNTH_VOICE_FREQUENCY_MAX_HZ) {
+    return 0U;
+  }
+  return (uint32_t)(frequency + 0.5f);
+}
+
+static bool synth_midi_note_on(uint8_t channel, uint8_t note,
+                               uint8_t velocity) {
+  if (velocity == 0U) {
+    synth_held_note_t *held = synth_find_midi_held(channel, note);
+    if (held == NULL) {
+      return false;
+    }
+    if (synth_app.midi_sustain[channel]) {
+      held->release_pending = true;
+      return true;
+    }
+    return synth_release_held(held);
+  }
+  synth_held_note_t *held = synth_find_midi_held(channel, note);
+  if (held != NULL) {
+    held->release_pending = false;
+    const esp_err_t error = solar_os_synth_voice_note_on(
+        SYNTH_APP_OWNER, held->frequency_hz, velocity);
+    synth_app.last_error = error;
+    return true;
+  }
+  held = synth_allocate_held();
+  const uint32_t frequency = synth_midi_frequency(note);
+  if (held == NULL || frequency == 0U) {
+    return false;
+  }
+  const esp_err_t error = solar_os_synth_voice_note_on(SYNTH_APP_OWNER,
+                                                       frequency,
+                                                       velocity);
+  synth_app.last_error = error;
+  if (error != ESP_OK) {
+    return true;
+  }
+  *held = (synth_held_note_t) {
+      .active = true,
+      .midi = true,
+      .source = SOLAR_OS_INPUT_SOURCE_INVALID,
+      .physical_key = SOLAR_OS_INPUT_PHYSICAL_NONE,
+      .frequency_hz = frequency,
+      .midi_channel = channel,
+      .midi_note = note,
+  };
+  return true;
+}
+
+static bool synth_midi_note_off(uint8_t channel, uint8_t note) {
+  synth_held_note_t *held = synth_find_midi_held(channel, note);
+  if (held == NULL) {
+    return false;
+  }
+  if (synth_app.midi_sustain[channel]) {
+    held->release_pending = true;
+    return true;
+  }
+  return synth_release_held(held);
+}
+
+static bool synth_midi_release_channel(uint8_t channel, bool pending_only) {
+  bool changed = false;
+  for (size_t i = 0; i < SYNTH_APP_HELD_MAX; i++) {
+    synth_held_note_t *held = &synth_app.held[i];
+    if (held->active && held->midi && held->midi_channel == channel &&
+        (!pending_only || held->release_pending)) {
+      changed |= synth_release_held(held);
+    }
+  }
+  return changed;
+}
+
+static bool synth_handle_midi_message(const solar_os_midi_message_t *message) {
+  if (message == NULL || message->status < 0x80U || message->status >= 0xf0U) {
+    return false;
+  }
+  const uint8_t kind = message->status & 0xf0U;
+  const uint8_t channel = message->status & 0x0fU;
+  if (kind == 0x90U) {
+    return synth_midi_note_on(channel, message->data1, message->data2);
+  }
+  if (kind == 0x80U) {
+    return synth_midi_note_off(channel, message->data1);
+  }
+  if (kind == 0xb0U && message->data1 == 64U) {
+    const bool sustain = message->data2 >= 64U;
+    if (synth_app.midi_sustain[channel] == sustain) {
+      return false;
+    }
+    synth_app.midi_sustain[channel] = sustain;
+    return sustain ? true : synth_midi_release_channel(channel, true);
+  }
+  if (kind == 0xb0U && (message->data1 == 120U || message->data1 == 123U)) {
+    synth_app.midi_sustain[channel] = false;
+    return synth_midi_release_channel(channel, false);
+  }
+  return false;
+}
+
+static void synth_midi_subscribe(void) {
+  if (synth_app.midi_subscribed) {
+    return;
+  }
+  synth_app.midi_subscription =
+      (solar_os_midi_subscription_t)SOLAR_OS_MIDI_SUBSCRIPTION_INIT;
+  synth_app.midi_subscribed =
+      solar_os_midi_subscribe(SYNTH_APP_OWNER, &synth_app.midi_subscription) ==
+      ESP_OK;
+}
+
+static void synth_midi_unsubscribe(void) {
+  if (synth_app.midi_subscribed) {
+    (void)solar_os_midi_unsubscribe(&synth_app.midi_subscription);
+  }
+  synth_app.midi_subscribed = false;
+  synth_app.midi_subscription =
+      (solar_os_midi_subscription_t)SOLAR_OS_MIDI_SUBSCRIPTION_INIT;
+  memset(synth_app.midi_sustain, 0, sizeof(synth_app.midi_sustain));
 }
 
 static void synth_release_all(bool stop) {
@@ -2751,6 +2899,8 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
   }
 
   memset(&synth_app, 0, sizeof(synth_app));
+  synth_app.midi_subscription =
+      (solar_os_midi_subscription_t)SOLAR_OS_MIDI_SUBSCRIPTION_INIT;
   synth_app.config = synth_default_config();
   synth_app.performance = synth_default_performance();
   synth_app.octave = 4;
@@ -2772,6 +2922,7 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
     synth_app.last_error =
         solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
   }
+  synth_midi_subscribe();
   if (synth_app.last_error == ESP_OK) {
     synth_app.last_error = solar_os_synth_voice_configure_performance(
         SYNTH_APP_OWNER, &synth_app.performance);
@@ -2782,12 +2933,14 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
 }
 
 static void synth_stop(solar_os_context_t *ctx) {
+  synth_midi_unsubscribe();
   synth_release_all(true);
   synth_app.suspended = false;
   solar_os_context_set_graphics_active(ctx, false);
 }
 
 static void synth_suspend(solar_os_context_t *ctx) {
+  synth_midi_unsubscribe();
   synth_release_all(true);
   synth_app.suspended = true;
   solar_os_context_set_graphics_active(ctx, false);
@@ -2800,6 +2953,7 @@ static void synth_resume(solar_os_context_t *ctx) {
     synth_app.last_error =
         solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
   }
+  synth_midi_subscribe();
   if (synth_app.last_error == ESP_OK) {
     synth_app.last_error = solar_os_synth_voice_configure_performance(
         SYNTH_APP_OWNER, &synth_app.performance);
@@ -2849,6 +3003,13 @@ static bool synth_event(solar_os_context_t *ctx,
 
   if (event->type == SOLAR_OS_EVENT_TICK) {
     bool changed = false;
+    if (synth_app.midi_subscribed) {
+      solar_os_midi_message_t message;
+      while (solar_os_midi_receive(&synth_app.midi_subscription, &message) ==
+             ESP_OK) {
+        changed |= synth_handle_midi_message(&message);
+      }
+    }
     for (size_t i = 0; i < SYNTH_APP_HELD_MAX; i++) {
       synth_held_note_t *held = &synth_app.held[i];
       if (held->active && held->release_at_ms != 0 &&
@@ -2890,6 +3051,6 @@ const solar_os_app_t solar_os_synth_app = {
     .resume = synth_resume,
     .stop = synth_stop,
     .event = synth_event,
-    .tick_interval_ms = 25U,
+    .tick_interval_ms = 5U,
     .tick_deadline_ms = 10U,
 };
