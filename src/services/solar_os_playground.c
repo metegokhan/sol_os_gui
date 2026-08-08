@@ -165,6 +165,62 @@ static esp_err_t playground_normalize_source(const char *url,
         ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
+static esp_err_t playground_catalog_fetch_url(const char *source,
+                                              char *fetch_url,
+                                              size_t fetch_url_len,
+                                              bool *uses_github_api)
+{
+    static const char raw_prefix[] =
+        "https://raw.githubusercontent.com/";
+    static const char catalog_suffix[] = "/dist/catalog.json";
+    if (source == NULL || fetch_url == NULL || fetch_url_len == 0U ||
+        uses_github_api == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *uses_github_api = false;
+    if (strncmp(source, raw_prefix, strlen(raw_prefix)) == 0) {
+        const char *owner = source + strlen(raw_prefix);
+        const char *owner_end = strchr(owner, '/');
+        const char *repository = owner_end != NULL ? owner_end + 1U : NULL;
+        const char *repository_end =
+            repository != NULL ? strchr(repository, '/') : NULL;
+        const char *ref =
+            repository_end != NULL ? repository_end + 1U : NULL;
+        const size_t ref_and_suffix_len = ref != NULL ? strlen(ref) : 0U;
+        const size_t suffix_len = strlen(catalog_suffix);
+        if (owner_end != NULL && owner_end != owner && repository_end != NULL &&
+            repository_end != repository && ref_and_suffix_len > suffix_len &&
+            strcmp(ref + ref_and_suffix_len - suffix_len,
+                   catalog_suffix) == 0) {
+            const size_t ref_len = ref_and_suffix_len - suffix_len;
+            if (memchr(ref, '/', ref_len) == NULL &&
+                memchr(ref, '?', ref_len) == NULL &&
+                memchr(ref, '#', ref_len) == NULL) {
+                const int written = snprintf(
+                    fetch_url,
+                    fetch_url_len,
+                    "https://api.github.com/repos/%.*s/%.*s/contents/"
+                    "dist/catalog.json?ref=%.*s",
+                    (int)(owner_end - owner),
+                    owner,
+                    (int)(repository_end - repository),
+                    repository,
+                    (int)ref_len,
+                    ref);
+                if (written < 0 || (size_t)written >= fetch_url_len) {
+                    return ESP_ERR_INVALID_SIZE;
+                }
+                *uses_github_api = true;
+                return ESP_OK;
+            }
+        }
+    }
+
+    return strlcpy(fetch_url, source, fetch_url_len) < fetch_url_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
 static bool playground_id_valid(const char *id)
 {
     if (id == NULL || id[0] == '\0') {
@@ -351,6 +407,8 @@ static esp_err_t playground_http_event(const solar_os_http_event_t *event,
 static esp_err_t playground_download(
     const char *url,
     size_t max_len,
+    const solar_os_http_header_t *headers,
+    size_t header_count,
     volatile bool *cancel,
     solar_os_playground_progress_stage_t stage,
     solar_os_playground_progress_fn progress_fn,
@@ -384,6 +442,8 @@ static esp_err_t playground_download(
     const solar_os_http_request_options_t options = {
         .url = url,
         .method = SOLAR_OS_HTTP_METHOD_GET,
+        .headers = headers,
+        .header_count = header_count,
         .user_agent = "SolarOS-playground/" SOLAR_OS_VERSION,
         .follow_redirects = true,
         .timeout_ms = PLAYGROUND_HTTP_TIMEOUT_MS,
@@ -1560,16 +1620,38 @@ esp_err_t solar_os_playground_refresh(
     storage = playground_storage;
     portEXIT_CRITICAL(&playground_lock);
 
+    char catalog_url[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX];
+    bool uses_github_api = false;
+    esp_err_t err = playground_catalog_fetch_url(source,
+                                                 catalog_url,
+                                                 sizeof(catalog_url),
+                                                 &uses_github_api);
+    const solar_os_http_header_t github_headers[] = {
+        {
+            .name = "Accept",
+            .value = "application/vnd.github.raw+json",
+        },
+        {
+            .name = "X-GitHub-Api-Version",
+            .value = "2022-11-28",
+        },
+    };
     char *body = NULL;
     size_t body_len = 0U;
-    esp_err_t err = playground_download(source,
-                                        PLAYGROUND_CATALOG_MAX,
-                                        cancel,
-                                        SOLAR_OS_PLAYGROUND_PROGRESS_CATALOG,
-                                        progress_fn,
-                                        progress_user,
-                                        &body,
-                                        &body_len);
+    if (err == ESP_OK) {
+        err = playground_download(
+            catalog_url,
+            PLAYGROUND_CATALOG_MAX,
+            uses_github_api ? github_headers : NULL,
+            uses_github_api ? sizeof(github_headers) / sizeof(github_headers[0])
+                            : 0U,
+            cancel,
+            SOLAR_OS_PLAYGROUND_PROGRESS_CATALOG,
+            progress_fn,
+            progress_user,
+            &body,
+            &body_len);
+    }
     playground_catalog_t *parsed = NULL;
     if (err == ESP_OK) {
         portENTER_CRITICAL(&playground_lock);
@@ -1775,6 +1857,8 @@ esp_err_t solar_os_playground_install(
         err = playground_download(
             package_url,
             app->size,
+            NULL,
+            0U,
             cancel,
             SOLAR_OS_PLAYGROUND_PROGRESS_PACKAGE,
             progress_fn,
