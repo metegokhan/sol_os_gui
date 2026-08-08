@@ -48,6 +48,7 @@ class FlavorPackagesTest(unittest.TestCase):
             {"app_gameboy"},
         )
         self.assertIn("service_synth", self.catalog.group_defs["system"].members)
+        self.assertIn("job_controls", self.catalog.group_defs["system"].members)
         self.assertIn("service_synth", self.catalog.group_defs["audio"].members)
         self.assertEqual(
             self.catalog.package_defs["service_synth"].depends,
@@ -68,6 +69,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(groups["utils"])
         for package in ("app_reader", "app_writer", "app_files", "app_notes", "job_log"):
             self.assertTrue(packages[package], package)
+        self.assertTrue(packages["job_controls"])
         for package in (
             "job_bridge",
             "job_daq",
@@ -164,6 +166,7 @@ class FlavorPackagesTest(unittest.TestCase):
                 _, _, groups, packages = self.resolve(flavor)
                 self.assertTrue(groups["hardware_jobs"])
                 self.assertTrue(packages["job_bridge"])
+                self.assertTrue(packages["job_controls"])
                 self.assertTrue(packages["job_daq"])
                 self.assertTrue(packages["job_sump"])
 

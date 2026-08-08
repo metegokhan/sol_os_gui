@@ -1048,6 +1048,32 @@ synth
 MIDI Note On/Off, velocity, sustain (CC64), All Sound Off (CC120), and All
 Notes Off (CC123) are supported on all 16 channels.
 
+### Published parameters
+
+While Synth is running, `control parameters` exposes these native continuous
+parameters:
+
+- `synth.volume`: 0 through 100 percent, linear.
+- `synth.envelope.attack`: 0 through 10000 ms, linear.
+- `synth.envelope.decay`: 0 through 10000 ms, linear.
+- `synth.envelope.sustain`: 0 through 100 percent, linear.
+- `synth.envelope.release`: 0 through 10000 ms, linear.
+- `synth.filter.cutoff`: 40 through 18000 Hz, logarithmic.
+- `synth.filter.resonance`: 0 through 100 percent, linear.
+- `synth.filter.envelope.amount`: 0 through 100 percent, linear.
+- `synth.filter.envelope.attack`: 0 through 10000 ms, linear.
+- `synth.filter.envelope.decay`: 0 through 10000 ms, linear.
+- `synth.filter.envelope.sustain`: 0 through 100 percent, linear.
+- `synth.filter.envelope.release`: 0 through 10000 ms, linear.
+- `synth.osc2.octave`: -2 through +2 octaves, linear.
+- `synth.osc2.detune`: -100 through +100 cents, linear.
+- `synth.osc2.mix`: 0 through 100 percent, linear.
+- `synth.glide`: 0 through 2500 ms, linear.
+
+These paths exist only while the app is active. Bindings remain configured
+when Synth is suspended or stopped and reconnect when it resumes. See
+`man controls` for control creation, soft pickup, and MIDI CC mappings.
+
 ## telnet
 
 Telnet client for classic TCP terminal sessions. It supports basic Telnet

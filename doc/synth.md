@@ -111,6 +111,24 @@ The bus chooses an available UART controller internally and uses the standard
 31250 baud rate unless `baud=` is supplied. The controller number is visible
 in status output for diagnostics but is not part of the MIDI bus interface.
 
+While it is running, the app publishes stable native continuous parameters for
+volume, amplifier ADSR, filter cutoff/resonance/envelope ADSR and amount,
+oscillator 2 octave/detune/mix, and glide. `control parameters` lists their
+current ranges and values. A physical ADC knob can control the cutoff without
+synth-specific input code:
+
+```text
+control create cutoff adc1 0 3300 smooth=40 deadband=8
+control bind cutoff parameter synth.filter.cutoff pickup=on
+job start controls
+synth
+```
+
+The cutoff parameter declares a logarithmic 40 through 18000 Hz curve, so a
+linear physical potentiometer has musically useful travel across the audible
+range. Parameters disappear while Synth is suspended or stopped; bindings stay
+configured and reconnect when Synth resumes.
+
 The app also shows current octave and velocity, active voices, sample rate, and
 audio errors. Keyboard press and release events sustain held notes and support
 chords. Waveform and envelope edits keep oscillator phase and pitch continuous.

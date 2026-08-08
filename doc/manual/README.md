@@ -28,6 +28,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [close command](commands.md) — Close a display app, display shell, or retained port app, or stop a port shell session. The final interactive shell cannot be closed.
 - [commands command](commands.md) — List built-in shell commands.
 - [contacts command](commands.md) — Open the searchable provider-neutral contact browser.
+- [control command](commands.md) — Inspect normalized controls, native app parameters, or target bindings.
 - [cp command](commands.md) — Copy a file or matched set.
 - [daq command](commands.md) — Print DAQ usage.
 - [date command](commands.md) — Show or set the local date.
@@ -58,6 +59,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [mem command](commands.md) — Print heap status; policy also shows allocation-class counters, guarded fallback limits, and the last tagged failure.
 - [meshcore command](commands.md) — Show MeshCore identity, radio, packet, delivery, duplicate, memory, and stack state.
 - [messages command](commands.md) — Show bounded-store, persistence, drop, and live provider state.
+- [midi command](commands.md) — Show MIDI worker, traffic, parser, and queue status.
 - [mkdir command](commands.md) — Create directories.
 - [mqtt command](commands.md) — MQTT/MQTTS client.
 - [mv command](commands.md) — Rename or move a file or matched set.
@@ -147,6 +149,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [batmon job](jobs.reference.md#batmon) — Battery monitor. It periodically samples battery voltage, maintains a smoothed trend, estimates power state, and can request light sleep when the configured minimum voltage is reached.
 - [bridge job](jobs.reference.md#bridge) — Bidirectional byte bridge between two byte-stream ports, or between one byte-stream port and an active SolarOS Link instance.
 - [chatd job](jobs.reference.md#chatd) — Local SolarOS chat gateway server. It is useful for testing the chat app or for small trusted local networks.
+- [controls job](jobs.reference.md#controls) — Continuous-control mapper. It samples every configured scalar-stream control at 50 Hz, applies smoothing, deadband, calibration, and inversion, then updates changed native parameter and MIDI CC bindings.
 - [daq job](jobs.reference.md#daq) — Data acquisition job. It captures scalar streams to timestamped CSV, or one byte stream directly to a raw file.
 - [displayd job](jobs.reference.md#displayd) — Authenticated HTTP display and remote control. It has two modes:
 - [email-sync job](jobs.reference.md#email-sync) — Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local email app and publishes each new message to the universal inbox.
@@ -155,6 +158,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [httpd job](jobs.reference.md#httpd) — Static HTTP file server for a folder on mounted storage.
 - [log job](jobs.reference.md#log) — Runtime SolarOS log follower. It mirrors log entries to a byte-stream port or appends them to a file.
 - [meshcore job](jobs.reference.md#meshcore) — Non-forwarding MeshCore companion provider for Contacts and Messages.
+- [midi job](jobs.reference.md#midi) — Bidirectional MIDI transport on an exclusive named MIDI bus. The bus selects an available UART controller internally; users supply only its MIDI name, TX and RX pins, and an optional baud rate.
 - [ntp-sync job](jobs.reference.md#ntp-sync) — Network time synchronization job. It updates the SolarOS wall clock from NTP and also updates the hardware RTC when the board provides one.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
 - [ps2-keyboard job](jobs.reference.md#ps2-keyboard) — Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes press and release transitions through the generic SolarOS input service.
@@ -171,6 +175,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Hardware and expansion
 
 - [Audio, keyboard input, and clipboard APIs](media.input.md) — Use installed media and input services
+- [Continuous controls](controls.md) — Map analog and other scalar inputs to app parameters or MIDI CC
 - [Expansion drivers and attached devices](expansion.md) — Discover, attach, and detach package-gated expansion devices
 - [Expansion hardware reference](expansion.reference.md) — Resource rules, workflows, drivers, bindings, and wiring examples
 - [GPIO, ADC, PWM, and LED APIs](gpio.analog.md) — Use runtime-safe digital and analog expansion pins

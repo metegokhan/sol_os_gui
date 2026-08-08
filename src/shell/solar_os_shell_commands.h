@@ -28,6 +28,9 @@ void solar_os_shell_cmd_email(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 void solar_os_shell_cmd_contacts(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+void solar_os_shell_cmd_control(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
 void solar_os_shell_cmd_messages(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_outbox(solar_os_context_t *ctx, int argc, char **argv);

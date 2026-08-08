@@ -27,6 +27,10 @@
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 #include "solar_os_buses.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+#include "solar_os_controls.h"
+#include "solar_os_parameters.h"
+#endif
 #include "solar_os_display.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
@@ -150,6 +154,8 @@ typedef struct {
     bool complete_spi_cs;
     bool complete_streams;
     bool scalar_streams_only;
+    bool complete_controls;
+    bool complete_parameters;
     bool complete_wifi_ssids;
     bool complete_path;
     bool dirs_only;
@@ -310,6 +316,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MIDI
     {"midi", "MIDI transport tools", solar_os_shell_cmd_midi},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+    {"control", "map continuous controls", solar_os_shell_cmd_control},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     {"i2c", "I2C bus tools", solar_os_shell_cmd_i2c},
@@ -614,6 +623,14 @@ static const char * const expansion_bus_subcommands[] = {"create", "attach", "de
 static const char * const midi_subcommands[] = {
     "status", "note-on", "note-off", "cc", "program", "send",
 };
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+static const char * const control_subcommands[] = {
+    "list", "parameters", "bindings", "create", "delete", "clear",
+    "get", "set", "bind", "unbind", "parameter",
+};
+static const char * const control_bind_targets[] = {"midi", "parameter"};
+static const char * const control_parameter_subcommands[] = {"get", "set"};
 #endif
 static const char * const expansion_bus_protocols[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
@@ -1748,6 +1765,20 @@ static const char * const path_expansion_detach[] = {"expansion", "detach"};
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 static const char * const path_midi[] = {"midi"};
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+static const char * const path_control[] = {"control"};
+static const char * const path_control_bind[] = {"control", "bind"};
+static const char * const path_control_bind_target[] = {
+    "control", "bind", SHELL_COMPLETION_ANY
+};
+static const char * const path_control_bind_parameter[] = {
+    "control", "bind", SHELL_COMPLETION_ANY, "parameter"
+};
+static const char * const path_control_get[] = {"control", "get"};
+static const char * const path_control_set[] = {"control", "set"};
+static const char * const path_control_unbind[] = {"control", "unbind"};
+static const char * const path_control_parameter[] = {"control", "parameter"};
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 static const char * const path_neopixel[] = {"neopixel"};
 static const char * const path_neopixel_status[] = {"neopixel", "status"};
@@ -2097,6 +2128,18 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_streams = true, \
         .scalar_streams_only = true, \
+    }
+#define SHELL_COMPLETION_CONTROLS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_controls = true, \
+    }
+#define SHELL_COMPLETION_PARAMETERS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_parameters = true, \
     }
 #define SHELL_COMPLETION_WIFI_SSIDS(path_array) \
     { \
@@ -2518,6 +2561,17 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MIDI
     SHELL_COMPLETION_STATIC(path_midi, midi_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+    SHELL_COMPLETION_STATIC(path_control, control_subcommands),
+    SHELL_COMPLETION_CONTROLS(path_control_bind),
+    SHELL_COMPLETION_STATIC(path_control_bind_target, control_bind_targets),
+    SHELL_COMPLETION_PARAMETERS(path_control_bind_parameter),
+    SHELL_COMPLETION_CONTROLS(path_control_get),
+    SHELL_COMPLETION_CONTROLS(path_control_set),
+    SHELL_COMPLETION_CONTROLS(path_control_unbind),
+    SHELL_COMPLETION_STATIC(path_control_parameter,
+                            control_parameter_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
     SHELL_COMPLETION_STATIC(path_neopixel, neopixel_subcommands),
@@ -5386,6 +5440,32 @@ static void shell_completion_emit_streams(shell_completion_match_t *state, bool 
     }
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+static void shell_completion_emit_controls(shell_completion_match_t *state)
+{
+    const size_t count = solar_os_control_count();
+
+    for (size_t i = 0; i < count; i++) {
+        solar_os_control_info_t info;
+        if (solar_os_control_get_info(i, &info)) {
+            shell_completion_emit(state, info.config.name);
+        }
+    }
+}
+
+static void shell_completion_emit_parameters(shell_completion_match_t *state)
+{
+    const size_t count = solar_os_parameter_count();
+
+    for (size_t i = 0; i < count; i++) {
+        solar_os_parameter_info_t info;
+        if (solar_os_parameter_get_info(i, &info)) {
+            shell_completion_emit(state, info.path);
+        }
+    }
+}
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static bool shell_completion_token_is_safe(const char *value)
 {
@@ -6135,6 +6215,14 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         if (rule->complete_streams) {
             shell_completion_emit_streams(state, rule->scalar_streams_only);
         }
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+        if (rule->complete_controls) {
+            shell_completion_emit_controls(state);
+        }
+        if (rule->complete_parameters) {
+            shell_completion_emit_parameters(state);
+        }
+#endif
         if (rule->complete_wifi_ssids) {
             shell_completion_emit_wifi_ssids(state);
         }

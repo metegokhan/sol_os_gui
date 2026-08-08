@@ -70,3 +70,9 @@ esp_err_t solar_os_stream_csv_header(const solar_os_stream_info_t *info,
 esp_err_t solar_os_stream_read_csv(solar_os_stream_handle_t *handle,
                                    const solar_os_stream_read_options_t *options,
                                    solar_os_stream_csv_record_t *record);
+
+/* Read the stream's primary numeric value in the unit reported by info. */
+esp_err_t solar_os_stream_read_scalar(
+    solar_os_stream_handle_t *handle,
+    const solar_os_stream_read_options_t *options,
+    float *value);
