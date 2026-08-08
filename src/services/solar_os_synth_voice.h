@@ -34,6 +34,9 @@
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_DECAY_MS 250U
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_SUSTAIN_PERCENT 0U
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RELEASE_MS 120U
+#define SOLAR_OS_SYNTH_VOICE_GLIDE_MAX_MS 2500U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_MONO false
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_GLIDE_MS 0U
 #define SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES 64U
 #define SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES 256U
 
@@ -74,9 +77,15 @@ typedef struct {
 } solar_os_synth_voice_config_t;
 
 typedef struct {
+    bool mono;
+    uint16_t glide_ms;
+} solar_os_synth_voice_performance_t;
+
+typedef struct {
     bool running;
     char owner[SOLAR_OS_SYNTH_OWNER_MAX];
     solar_os_synth_voice_config_t config;
+    solar_os_synth_voice_performance_t performance;
     size_t active_voices;
     uint32_t stolen_voices;
     uint32_t sample_rate;
@@ -100,6 +109,11 @@ bool solar_os_synth_parse_waveform(const char *name,
 esp_err_t solar_os_synth_voice_configure(
     const char *owner,
     const solar_os_synth_voice_config_t *config);
+
+/* Performance configuration applies to the shared voice allocator. */
+esp_err_t solar_os_synth_voice_configure_performance(
+    const char *owner,
+    const solar_os_synth_voice_performance_t *performance);
 
 /* note_on starts and claims the native synth lazily for owner. */
 esp_err_t solar_os_synth_voice_note_on(const char *owner,

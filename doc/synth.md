@@ -21,8 +21,9 @@ errors, maximum render time, and the last service error.
 
 The worker uses an internal-memory stack and a bounded internal PCM block. It
 opens an exclusive `solar_os_audio_stream_t`, renders and writes blocks until
-stopped, submits one silent tail block, and then releases the stream. The
-stream must be opened, written, and closed by the same task because the audio
+stopped, submits one silent tail block, and then releases the stream and its
+I2S/codec resources. The stream must be opened, written, and closed by the
+same task because the audio
 service serializes complete operations with a FreeRTOS mutex.
 
 ## Native voice engine
@@ -58,6 +59,9 @@ rather than inferring them from the selected waveform.
 `note_off()` calls enter the release stage, `all_notes_off()` releases every
 voice, and `stop()` immediately stops the worker and gives up audio ownership.
 The global audio service remains responsible for speaker volume.
+Mono mode uses last-note priority: a new held note takes over the single voice,
+and releasing it returns to the most recently held note. Configurable
+portamento glides between those pitches without retriggering either envelope.
 
 Python and Lua expose the engine as `solaros.synth`. Their runtime owners are
 released automatically on normal exit, error, cancellation, or foreground-app
@@ -82,12 +86,15 @@ through +2, fine detune from -100 through +100 cents, and mix from 0 through
 The Preset tab contains eight read-only factory sounds and eight user slots.
 `Enter` loads the selected patch and `V` saves the complete current sound to a
 user slot. A patch contains both oscillators, amplifier and filter envelopes,
-filter controls, and the custom wavetable; performance octave, velocity, and
-global speaker volume remain unchanged. User slots are stored as versioned,
+filter controls, mono/poly mode, glide time, and the custom wavetable;
+performance octave, velocity, and global speaker volume remain unchanged. The
+Glide tab selects polyphonic or monophonic last-note playback and glide from 0
+through 2500 ms. User slots are stored as versioned,
 checksummed files below `.solar/synth/presets` on the preferred persistent
 volume, with internal flash used when no SD card is mounted.
-All five tabs use the same compact piano, `Tab` cycles between them, and number
-keys `1` through `5` select them directly.
+All six tabs use the same compact piano. `Tab` cycles through Play, Filter,
+Wave, Oscillator 2, Glide, and Presets. Number keys `1` through `6` select them
+in that order.
 
 The app also shows current octave and velocity, active voices, sample rate, and
 audio errors. Keyboard press and release events sustain held notes and support

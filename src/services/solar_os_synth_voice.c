@@ -28,6 +28,7 @@
 #define OSCILLATOR_WAVE_CROSSFADE_STEP 1024U
 #define OSCILLATOR_PITCH_RAMP_FRAMES 64U
 #define VOICE_RENDER_LOCK_WAIT_MS 1U
+#define MONO_HELD_MAX 16U
 
 typedef enum {
     VOICE_STAGE_OFF = 0,
@@ -50,6 +51,8 @@ typedef struct {
     uint32_t filter_envelope_step;
     uint32_t phase;
     uint32_t phase_step;
+    uint32_t phase_step_target;
+    uint32_t glide_frames_remaining;
     uint32_t oscillator2_phase;
     uint32_t oscillator2_phase_step;
     uint32_t oscillator2_phase_step_target;
@@ -74,11 +77,21 @@ typedef struct {
 } synth_voice_t;
 
 typedef struct {
+    bool active;
+    uint32_t frequency_hz;
+    uint8_t velocity;
+    uint32_t age;
+} mono_held_note_t;
+
+typedef struct {
     SemaphoreHandle_t mutex;
     bool claimed;
     char owner[SOLAR_OS_SYNTH_OWNER_MAX];
     solar_os_synth_voice_config_t config;
+    solar_os_synth_voice_performance_t performance;
     synth_voice_t voices[SOLAR_OS_SYNTH_VOICE_MAX];
+    mono_held_note_t mono_held[MONO_HELD_MAX];
+    uint32_t mono_next_age;
     uint32_t next_age;
     uint32_t stolen_voices;
     solar_os_synth_waveform_t pcm_waveform;
@@ -127,6 +140,11 @@ static const solar_os_synth_voice_config_t default_config = {
     },
 };
 
+static const solar_os_synth_voice_performance_t default_performance = {
+    .mono = SOLAR_OS_SYNTH_VOICE_DEFAULT_MONO,
+    .glide_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_GLIDE_MS,
+};
+
 static const int16_t sine_quarter_wave[65] = {
     0,     804,   1608,  2410,  3212,  4011,  4808,  5602,  6393,  7179,
     7962,  8739,  9512,  10278, 11039, 11793, 12539, 13279, 14010, 14732,
@@ -151,6 +169,7 @@ static esp_err_t voice_ensure_mutex(void)
     if (voice_state.mutex == NULL) {
         voice_state.mutex = xSemaphoreCreateMutexStatic(&voice_mutex_storage);
         voice_state.config = default_config;
+        voice_state.performance = default_performance;
         voice_state.oscillator2_pitch_ratio = 1.0f;
         voice_init_wavetable();
     }
@@ -208,6 +227,13 @@ static bool voice_config_valid(const solar_os_synth_voice_config_t *config)
            config->filter.sustain_percent <= 100U &&
            config->filter.release_ms <=
                SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS;
+}
+
+static bool voice_performance_valid(
+    const solar_os_synth_voice_performance_t *performance)
+{
+    return performance != NULL &&
+           performance->glide_ms <= SOLAR_OS_SYNTH_VOICE_GLIDE_MAX_MS;
 }
 
 static uint32_t envelope_step(uint32_t distance,
@@ -369,33 +395,46 @@ static void voice_enter_filter_stage(synth_voice_t *voice,
     }
 }
 
+static uint32_t voice_phase_step_for_frequency(uint32_t frequency_hz,
+                                               uint32_t sample_rate)
+{
+    return sample_rate > 0U
+               ? (uint32_t)(((uint64_t)frequency_hz << 32) / sample_rate)
+               : 0U;
+}
+
+static uint32_t voice_oscillator2_phase_step_for_frequency(
+    uint32_t frequency_hz,
+    uint32_t sample_rate)
+{
+    if (sample_rate == 0U) {
+        return 0U;
+    }
+    float frequency =
+        (float)frequency_hz * voice_state.oscillator2_pitch_ratio;
+    const float maximum_frequency = (float)sample_rate / 2.0f - 1.0f;
+    if (frequency > maximum_frequency) {
+        frequency = maximum_frequency;
+    }
+    return (uint32_t)((double)frequency * 4294967296.0 /
+                      (double)sample_rate);
+}
+
 static void voice_prepare_rate(synth_voice_t *voice, uint32_t sample_rate)
 {
     if (voice->sample_rate == sample_rate) {
         return;
     }
     voice->sample_rate = sample_rate;
-    voice->phase_step = sample_rate > 0
-                            ? (uint32_t)(((uint64_t)voice->frequency_hz << 32) /
-                                         sample_rate)
-                            : 0;
-    if (sample_rate > 0) {
-        float oscillator2_frequency =
-            (float)voice->frequency_hz * voice_state.oscillator2_pitch_ratio;
-        const float maximum_frequency = (float)sample_rate / 2.0f - 1.0f;
-        if (oscillator2_frequency > maximum_frequency) {
-            oscillator2_frequency = maximum_frequency;
-        }
-        voice->oscillator2_phase_step_target =
-            (uint32_t)((double)oscillator2_frequency * 4294967296.0 /
-                       (double)sample_rate);
-        voice->oscillator2_phase_step = voice->oscillator2_phase_step_target;
-        voice->oscillator2_pitch_ramp_remaining = 0U;
-    } else {
-        voice->oscillator2_phase_step_target = 0U;
-        voice->oscillator2_phase_step = 0U;
-        voice->oscillator2_pitch_ramp_remaining = 0U;
-    }
+    voice->phase_step_target =
+        voice_phase_step_for_frequency(voice->frequency_hz, sample_rate);
+    voice->phase_step = voice->phase_step_target;
+    voice->oscillator2_phase_step_target =
+        voice_oscillator2_phase_step_for_frequency(voice->frequency_hz,
+                                                   sample_rate);
+    voice->oscillator2_phase_step = voice->oscillator2_phase_step_target;
+    voice->glide_frames_remaining = 0U;
+    voice->oscillator2_pitch_ramp_remaining = 0U;
     voice_enter_stage(voice, voice->stage, sample_rate);
     voice_enter_filter_stage(voice, voice->filter_stage, sample_rate);
     voice->filter_coefficient_index = UINT16_MAX;
@@ -568,25 +607,59 @@ static void voice_update_oscillator2_pitch_target(synth_voice_t *voice)
     if (voice->sample_rate == 0U) {
         return;
     }
-    float frequency =
-        (float)voice->frequency_hz * voice_state.oscillator2_pitch_ratio;
-    const float maximum_frequency = (float)voice->sample_rate / 2.0f - 1.0f;
-    if (frequency > maximum_frequency) {
-        frequency = maximum_frequency;
-    }
-    const uint32_t target =
-        (uint32_t)((double)frequency * 4294967296.0 /
-                   (double)voice->sample_rate);
+    const uint32_t target = voice_oscillator2_phase_step_for_frequency(
+        voice->frequency_hz, voice->sample_rate);
     if (target != voice->oscillator2_phase_step_target) {
         voice->oscillator2_phase_step_target = target;
-        voice->oscillator2_pitch_ramp_remaining =
-            OSCILLATOR_PITCH_RAMP_FRAMES;
+        if (voice->glide_frames_remaining == 0U) {
+            voice->oscillator2_pitch_ramp_remaining =
+                OSCILLATOR_PITCH_RAMP_FRAMES;
+        }
     }
 }
 
-static int32_t voice_oscillator2_sample(synth_voice_t *voice)
+static void voice_set_frequency(synth_voice_t *voice,
+                                uint32_t frequency_hz,
+                                uint16_t glide_ms)
 {
-    if (voice->oscillator2_pitch_ramp_remaining > 0U) {
+    voice->frequency_hz = frequency_hz;
+    voice->phase_step_target =
+        voice_phase_step_for_frequency(frequency_hz, voice->sample_rate);
+    voice->oscillator2_phase_step_target =
+        voice_oscillator2_phase_step_for_frequency(frequency_hz,
+                                                   voice->sample_rate);
+    uint32_t glide_frames =
+        (uint32_t)(((uint64_t)glide_ms * voice->sample_rate) / 1000U);
+    if (voice->sample_rate == 0U || glide_frames == 0U) {
+        voice->phase_step = voice->phase_step_target;
+        voice->oscillator2_phase_step = voice->oscillator2_phase_step_target;
+        glide_frames = 0U;
+    }
+    voice->glide_frames_remaining = glide_frames;
+    voice->oscillator2_pitch_ramp_remaining = 0U;
+}
+
+static void voice_advance_pitch(synth_voice_t *voice)
+{
+    if (voice->glide_frames_remaining > 0U) {
+        const int64_t phase_difference =
+            (int64_t)voice->phase_step_target - voice->phase_step;
+        const int64_t oscillator2_difference =
+            (int64_t)voice->oscillator2_phase_step_target -
+            voice->oscillator2_phase_step;
+        voice->phase_step = (uint32_t)(
+            (int64_t)voice->phase_step +
+            phase_difference / voice->glide_frames_remaining);
+        voice->oscillator2_phase_step = (uint32_t)(
+            (int64_t)voice->oscillator2_phase_step +
+            oscillator2_difference / voice->glide_frames_remaining);
+        voice->glide_frames_remaining--;
+        if (voice->glide_frames_remaining == 0U) {
+            voice->phase_step = voice->phase_step_target;
+            voice->oscillator2_phase_step =
+                voice->oscillator2_phase_step_target;
+        }
+    } else if (voice->oscillator2_pitch_ramp_remaining > 0U) {
         const int64_t difference =
             (int64_t)voice->oscillator2_phase_step_target -
             voice->oscillator2_phase_step;
@@ -599,6 +672,10 @@ static int32_t voice_oscillator2_sample(synth_voice_t *voice)
                 voice->oscillator2_phase_step_target;
         }
     }
+}
+
+static int32_t voice_oscillator2_sample(synth_voice_t *voice)
+{
 
     const uint32_t previous = voice->oscillator2_phase;
     voice->oscillator2_phase += voice->oscillator2_phase_step;
@@ -638,6 +715,7 @@ static int32_t voice_oscillator2_sample(synth_voice_t *voice)
 
 static int32_t voice_oscillator_mix_sample(synth_voice_t *voice)
 {
+    voice_advance_pitch(voice);
     const int32_t oscillator1 = voice_wave_sample(voice);
     const uint16_t target = (uint16_t)(
         (uint32_t)voice->config.oscillator2.mix_percent *
@@ -913,6 +991,7 @@ static esp_err_t voice_claim(const char *owner)
         voice_state.claimed = false;
         voice_state.owner[0] = '\0';
         memset(voice_state.voices, 0, sizeof(voice_state.voices));
+        memset(voice_state.mono_held, 0, sizeof(voice_state.mono_held));
     }
     voice_state.claimed = true;
     strlcpy(voice_state.owner, owner, sizeof(voice_state.owner));
@@ -931,6 +1010,7 @@ static esp_err_t voice_claim(const char *owner)
             voice_state.claimed = false;
             voice_state.owner[0] = '\0';
             memset(voice_state.voices, 0, sizeof(voice_state.voices));
+            memset(voice_state.mono_held, 0, sizeof(voice_state.mono_held));
         }
         voice_unlock();
     } else {
@@ -1042,6 +1122,146 @@ esp_err_t solar_os_synth_voice_configure(
     return ESP_OK;
 }
 
+esp_err_t solar_os_synth_voice_configure_performance(
+    const char *owner,
+    const solar_os_synth_voice_performance_t *performance)
+{
+    if (owner == NULL || owner[0] == '\0' ||
+        !voice_performance_valid(performance)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = voice_ensure_mutex();
+    if (err != ESP_OK) {
+        return err;
+    }
+    voice_lock();
+    if (voice_state.claimed && !voice_owner_matches(owner)) {
+        voice_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (voice_state.performance.mono != performance->mono) {
+        memset(voice_state.mono_held, 0, sizeof(voice_state.mono_held));
+        for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_MAX; i++) {
+            synth_voice_t *voice = &voice_state.voices[i];
+            if (voice->active && voice->stage != VOICE_STAGE_RELEASE) {
+                voice_enter_stage(voice,
+                                  VOICE_STAGE_RELEASE,
+                                  voice->sample_rate);
+                voice_enter_filter_stage(voice,
+                                         VOICE_STAGE_RELEASE,
+                                         voice->sample_rate);
+            }
+        }
+    }
+    voice_state.performance = *performance;
+    voice_unlock();
+    return ESP_OK;
+}
+
+static mono_held_note_t *voice_mono_held_find(uint32_t frequency_hz)
+{
+    for (size_t i = 0; i < MONO_HELD_MAX; i++) {
+        if (voice_state.mono_held[i].active &&
+            voice_state.mono_held[i].frequency_hz == frequency_hz) {
+            return &voice_state.mono_held[i];
+        }
+    }
+    return NULL;
+}
+
+static mono_held_note_t *voice_mono_held_latest(void)
+{
+    mono_held_note_t *latest = NULL;
+    for (size_t i = 0; i < MONO_HELD_MAX; i++) {
+        mono_held_note_t *note = &voice_state.mono_held[i];
+        if (note->active && (latest == NULL || note->age > latest->age)) {
+            latest = note;
+        }
+    }
+    return latest;
+}
+
+static mono_held_note_t *voice_mono_held_press(uint32_t frequency_hz,
+                                               uint8_t velocity)
+{
+    mono_held_note_t *selected = voice_mono_held_find(frequency_hz);
+    mono_held_note_t *oldest = NULL;
+    if (selected == NULL) {
+        for (size_t i = 0; i < MONO_HELD_MAX; i++) {
+            mono_held_note_t *note = &voice_state.mono_held[i];
+            if (!note->active) {
+                selected = note;
+                break;
+            }
+            if (oldest == NULL || note->age < oldest->age) {
+                oldest = note;
+            }
+        }
+    }
+    if (selected == NULL) {
+        selected = oldest;
+    }
+    *selected = (mono_held_note_t){
+        .active = true,
+        .frequency_hz = frequency_hz,
+        .velocity = velocity,
+        .age = ++voice_state.mono_next_age,
+    };
+    return selected;
+}
+
+static synth_voice_t *voice_mono_active(void)
+{
+    synth_voice_t *selected = NULL;
+    for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_MAX; i++) {
+        synth_voice_t *voice = &voice_state.voices[i];
+        if (!voice->active) {
+            continue;
+        }
+        if (selected == NULL || voice->age > selected->age) {
+            selected = voice;
+        }
+    }
+    return selected;
+}
+
+static void voice_start(synth_voice_t *voice,
+                        uint32_t frequency_hz,
+                        uint8_t velocity)
+{
+    memset(voice, 0, sizeof(*voice));
+    voice->active = true;
+    voice->frequency_hz = frequency_hz;
+    voice->velocity = velocity;
+    voice->config = voice_state.config;
+    voice->noise = NOISE_SEED ^ frequency_hz;
+    voice->oscillator2_noise = NOISE_SEED ^ frequency_hz ^ 0xa5a5a5a5U;
+    voice->age = ++voice_state.next_age;
+    voice->filter_coefficient_index = UINT16_MAX;
+    voice_enter_stage(voice, VOICE_STAGE_ATTACK, 0);
+    voice_enter_filter_stage(voice, VOICE_STAGE_ATTACK, 0);
+}
+
+static void voice_mono_retarget(synth_voice_t *voice,
+                                const mono_held_note_t *note)
+{
+    const bool retrigger = voice->stage == VOICE_STAGE_RELEASE;
+    voice->velocity = note->velocity;
+    voice->config = voice_state.config;
+    voice->age = ++voice_state.next_age;
+    voice_set_frequency(voice,
+                        note->frequency_hz,
+                        retrigger ? 0U : voice_state.performance.glide_ms);
+    if (retrigger) {
+        voice_enter_stage(voice, VOICE_STAGE_ATTACK, voice->sample_rate);
+        voice_enter_filter_stage(voice,
+                                 VOICE_STAGE_ATTACK,
+                                 voice->sample_rate);
+    }
+    voice->filter_coefficient_index = UINT16_MAX;
+    voice->filter_control_countdown = 0U;
+}
+
 esp_err_t solar_os_synth_voice_note_on(const char *owner,
                                        uint32_t frequency_hz,
                                        uint8_t velocity)
@@ -1057,6 +1277,19 @@ esp_err_t solar_os_synth_voice_note_on(const char *owner,
     }
 
     voice_lock();
+    if (voice_state.performance.mono) {
+        const mono_held_note_t *note =
+            voice_mono_held_press(frequency_hz, velocity);
+        synth_voice_t *voice = voice_mono_active();
+        if (voice == NULL) {
+            voice = &voice_state.voices[0];
+            voice_start(voice, frequency_hz, velocity);
+        } else {
+            voice_mono_retarget(voice, note);
+        }
+        voice_unlock();
+        return ESP_OK;
+    }
     synth_voice_t *selected = NULL;
     synth_voice_t *oldest = NULL;
     synth_voice_t *oldest_releasing = NULL;
@@ -1081,18 +1314,7 @@ esp_err_t solar_os_synth_voice_note_on(const char *owner,
         selected = oldest_releasing != NULL ? oldest_releasing : oldest;
         voice_state.stolen_voices++;
     }
-    memset(selected, 0, sizeof(*selected));
-    selected->active = true;
-    selected->frequency_hz = frequency_hz;
-    selected->velocity = velocity;
-    selected->config = voice_state.config;
-    selected->noise = NOISE_SEED ^ frequency_hz;
-    selected->oscillator2_noise =
-        NOISE_SEED ^ frequency_hz ^ 0xa5a5a5a5U;
-    selected->age = ++voice_state.next_age;
-    selected->filter_coefficient_index = UINT16_MAX;
-    voice_enter_stage(selected, VOICE_STAGE_ATTACK, 0);
-    voice_enter_filter_stage(selected, VOICE_STAGE_ATTACK, 0);
+    voice_start(selected, frequency_hz, velocity);
     voice_unlock();
     return ESP_OK;
 }
@@ -1113,6 +1335,28 @@ esp_err_t solar_os_synth_voice_note_off(const char *owner,
         const bool claimed = voice_state.claimed;
         voice_unlock();
         return claimed ? ESP_ERR_INVALID_STATE : ESP_OK;
+    }
+    if (voice_state.performance.mono) {
+        mono_held_note_t *released = voice_mono_held_find(frequency_hz);
+        if (released != NULL) {
+            released->active = false;
+        }
+        synth_voice_t *voice = voice_mono_active();
+        if (voice != NULL && voice->frequency_hz == frequency_hz) {
+            const mono_held_note_t *latest = voice_mono_held_latest();
+            if (latest != NULL) {
+                voice_mono_retarget(voice, latest);
+            } else if (voice->stage != VOICE_STAGE_RELEASE) {
+                voice_enter_stage(voice,
+                                  VOICE_STAGE_RELEASE,
+                                  voice->sample_rate);
+                voice_enter_filter_stage(voice,
+                                         VOICE_STAGE_RELEASE,
+                                         voice->sample_rate);
+            }
+        }
+        voice_unlock();
+        return ESP_OK;
     }
     for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_MAX; i++) {
         synth_voice_t *voice = &voice_state.voices[i];
@@ -1141,6 +1385,7 @@ esp_err_t solar_os_synth_voice_all_notes_off(const char *owner)
         voice_unlock();
         return claimed ? ESP_ERR_INVALID_STATE : ESP_OK;
     }
+    memset(voice_state.mono_held, 0, sizeof(voice_state.mono_held));
     for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_MAX; i++) {
         synth_voice_t *voice = &voice_state.voices[i];
         if (voice->active && voice->stage != VOICE_STAGE_RELEASE) {
@@ -1170,6 +1415,7 @@ esp_err_t solar_os_synth_voice_stop(const char *owner)
         return ESP_ERR_INVALID_STATE;
     }
     memset(voice_state.voices, 0, sizeof(voice_state.voices));
+    memset(voice_state.mono_held, 0, sizeof(voice_state.mono_held));
     voice_unlock();
 
     err = solar_os_synth_stop(owner);
@@ -1239,6 +1485,7 @@ void solar_os_synth_voice_get_status(solar_os_synth_voice_status_t *status)
     voice_lock();
     strlcpy(status->owner, voice_state.owner, sizeof(status->owner));
     status->config = voice_state.config;
+    status->performance = voice_state.performance;
     status->stolen_voices = voice_state.stolen_voices;
     status->pcm_waveform = voice_state.pcm_waveform;
     status->pcm_generation = voice_state.pcm_generation;

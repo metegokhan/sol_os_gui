@@ -3360,7 +3360,7 @@ static mp_obj_t solaros_synth_status(void)
     solar_os_synth_voice_status_t status;
     solar_os_synth_voice_get_status(&status);
 
-    mp_obj_t dict = mp_obj_new_dict(31);
+    mp_obj_t dict = mp_obj_new_dict(33);
     python_dict_store_bool(dict, "running", status.running);
     python_dict_store_cstr(dict, "owner", status.owner);
     python_dict_store_cstr(dict,
@@ -3404,6 +3404,8 @@ static mp_obj_t solaros_synth_status(void)
     python_dict_store_uint(dict,
                            "filter_release_ms",
                            status.config.filter.release_ms);
+    python_dict_store_bool(dict, "mono", status.performance.mono);
+    python_dict_store_uint(dict, "glide_ms", status.performance.glide_ms);
     python_dict_store_uint(dict, "active_voices", status.active_voices);
     python_dict_store_uint(dict, "max_voices", SOLAR_OS_SYNTH_VOICE_MAX);
     python_dict_store_uint(dict, "stolen_voices", status.stolen_voices);
@@ -3519,6 +3521,29 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
     1,
     4,
     solaros_synth_configure_oscillator2);
+
+static mp_obj_t solaros_synth_configure_performance(size_t n_args,
+                                                     const mp_obj_t *args)
+{
+    const uint32_t glide_ms = python_optional_u32(
+        n_args, args, 1, SOLAR_OS_SYNTH_VOICE_DEFAULT_GLIDE_MS);
+    if (glide_ms > SOLAR_OS_SYNTH_VOICE_GLIDE_MAX_MS) {
+        mp_raise_ValueError(MP_ERROR_TEXT("glide_ms must be 0..2500"));
+    }
+    const solar_os_synth_voice_performance_t performance = {
+        .mono = n_args > 0 ? mp_obj_is_true(args[0])
+                           : SOLAR_OS_SYNTH_VOICE_DEFAULT_MONO,
+        .glide_ms = (uint16_t)glide_ms,
+    };
+    python_check_esp(solar_os_synth_voice_configure_performance(
+        PYTHON_SYNTH_OWNER, &performance));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    solaros_synth_configure_performance_obj,
+    0,
+    2,
+    solaros_synth_configure_performance);
 
 static mp_obj_t solaros_synth_configure_filter(size_t n_args,
                                                 const mp_obj_t *args)
@@ -5300,6 +5325,10 @@ static void python_register_solaros_module(void)
         synth_module,
         "configure_oscillator2",
         MP_OBJ_FROM_PTR(&solaros_synth_configure_oscillator2_obj));
+    python_module_store(
+        synth_module,
+        "configure_performance",
+        MP_OBJ_FROM_PTR(&solaros_synth_configure_performance_obj));
     python_module_store(synth_module, "note_on", MP_OBJ_FROM_PTR(&solaros_synth_note_on_obj));
     python_module_store(synth_module, "note_off", MP_OBJ_FROM_PTR(&solaros_synth_note_off_obj));
     python_module_store(synth_module,

@@ -805,6 +805,7 @@ esp_err_t solar_os_audio_stream_open(const char *owner,
     }
     ret = audio_apply_playback_volume(SOLAR_OS_AUDIO_VOLUME_GLOBAL);
     if (ret != ESP_OK) {
+        solar_os_board_audio_deinit();
         audio_operation_give();
         return ret;
     }
@@ -813,6 +814,7 @@ esp_err_t solar_os_audio_stream_open(const char *owner,
     solar_os_board_audio_get_status(&status);
     if (!status.initialized || status.sample_rate == 0 || status.channels == 0 ||
         status.bits_per_sample == 0) {
+        solar_os_board_audio_deinit();
         audio_operation_give();
         return ESP_ERR_INVALID_STATE;
     }
@@ -863,6 +865,7 @@ void solar_os_audio_stream_close(solar_os_audio_stream_t *stream)
     stream->active = false;
     stream->task = NULL;
     stream->owner[0] = '\0';
+    solar_os_board_audio_deinit();
     audio_operation_give();
 #else
     (void)stream;

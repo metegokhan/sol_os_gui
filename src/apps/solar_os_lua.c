@@ -3293,6 +3293,8 @@ static int solua_synth_status(lua_State *L)
                   "filter_sustain_percent",
                   status.config.filter.sustain_percent);
     solua_set_int(L, -1, "filter_release_ms", status.config.filter.release_ms);
+    solua_set_bool(L, -1, "mono", status.performance.mono);
+    solua_set_int(L, -1, "glide_ms", status.performance.glide_ms);
     solua_set_int(L, -1, "active_voices", status.active_voices);
     solua_set_int(L, -1, "max_voices", SOLAR_OS_SYNTH_VOICE_MAX);
     solua_set_int(L, -1, "stolen_voices", status.stolen_voices);
@@ -3384,6 +3386,25 @@ static int solua_synth_configure_oscillator2(lua_State *L)
     };
     return solua_check_esp(
         L, solar_os_synth_voice_configure(SOLUA_SYNTH_OWNER, &config));
+}
+
+static int solua_synth_configure_performance(lua_State *L)
+{
+    const uint32_t glide_ms = solua_optional_u32(
+        L, 2, SOLAR_OS_SYNTH_VOICE_DEFAULT_GLIDE_MS);
+    if (glide_ms > SOLAR_OS_SYNTH_VOICE_GLIDE_MAX_MS) {
+        return luaL_error(L, "glide_ms must be 0..2500");
+    }
+    const solar_os_synth_voice_performance_t performance = {
+        .mono = lua_isnoneornil(L, 1)
+                    ? SOLAR_OS_SYNTH_VOICE_DEFAULT_MONO
+                    : lua_toboolean(L, 1) != 0,
+        .glide_ms = (uint16_t)glide_ms,
+    };
+    return solua_check_esp(
+        L,
+        solar_os_synth_voice_configure_performance(SOLUA_SYNTH_OWNER,
+                                                   &performance));
 }
 
 static int solua_synth_configure_filter(lua_State *L)
@@ -5014,6 +5035,10 @@ static void solua_open_solaros(lua_State *L)
                    mod,
                    "configure_oscillator2",
                    solua_synth_configure_oscillator2);
+    solua_set_func(L,
+                   mod,
+                   "configure_performance",
+                   solua_synth_configure_performance);
     solua_set_func(L, mod, "note_on", solua_synth_note_on);
     solua_set_func(L, mod, "note_off", solua_synth_note_off);
     solua_set_func(L, mod, "all_notes_off", solua_synth_all_notes_off);

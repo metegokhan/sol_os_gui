@@ -984,7 +984,7 @@ Controls:
 
 ## synth
 
-Open the native polyphonic synthesizer and sound designer:
+Open the native synthesizer and sound designer:
 
 ```text
 synth
@@ -1000,17 +1000,19 @@ amount, and an independent graphical ADSR filter envelope. The Oscillator 2 tab
 adds a second per-note source with waveform, octave, fine detune, and unity-safe
 mix controls. Both oscillators share the filter and envelopes. The Preset tab
 provides eight factory sounds and eight persistent user slots. User presets
-capture both oscillators, both envelopes, the filter, and the complete custom
-wavetable. The display also reports active voices, output sample rate, and audio
-errors. The volume button changes the shared SolarOS speaker volume.
+capture both oscillators, both envelopes, the filter, mono/poly mode, glide,
+and the complete custom wavetable. The Glide tab provides monophonic last-note
+playback and portamento. The display also reports active voices, output sample
+rate, and audio errors. The volume button changes the shared SolarOS speaker
+volume.
 
 Controls:
 
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
   physical, so the `Y` position is the `Z` key on a German keyboard. The piano
   remains active on all tabs.
-- `Tab` cycles through Play, Wave, Filter, Oscillator 2, and Preset. Number keys
-  `1` through `5` select those tabs directly.
+- `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
+  Number keys `1` through `6` select those tabs in that order.
 - On Play, `Left`/`Right` selects the waveform, global volume, or an ADSR knob;
   `Up`/`Down` changes it, and `+`/`-` changes note velocity.
 - On Wave, `Left`/`Right` moves the edit cursor and `Up`/`Down` changes the
