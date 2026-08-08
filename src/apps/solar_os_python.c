@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -38,9 +39,13 @@
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+#include "solar_os_controls.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 #include "solar_os_synth_voice.h"
 #endif
@@ -1887,6 +1892,65 @@ static mp_obj_t solaros_adc_read(mp_obj_t pin_obj)
     return python_adc_sample_to_dict(&sample);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_adc_read_obj, solaros_adc_read);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+static mp_obj_t python_control_info_to_dict(const solar_os_control_info_t *info)
+{
+    mp_obj_t dict = mp_obj_new_dict(9);
+    python_dict_store_cstr(dict, "name", info->config.name);
+    python_dict_store_cstr(dict, "source",
+                           info->config.source[0] != '\0' ?
+                               info->config.source : NULL);
+    python_dict_store_float(dict, "input_min", info->config.input_minimum);
+    python_dict_store_float(dict, "input_max", info->config.input_maximum);
+    python_dict_store_float(dict, "deadband", info->config.deadband);
+    python_dict_store_uint(dict, "smoothing_ms", info->config.smoothing_ms);
+    python_dict_store_bool(dict, "inverted", info->config.inverted);
+    python_dict_store_bool(dict, "has_value", info->has_value);
+    mp_obj_dict_store(dict, python_key("value"),
+                      info->has_value ?
+                          mp_obj_new_float((mp_float_t)info->normalized /
+                                           SOLAR_OS_CONTROL_NORMALIZED_MAX) :
+                          mp_const_none);
+    return dict;
+}
+
+static mp_obj_t solaros_controls_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    const size_t count = solar_os_control_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_control_info_t info;
+        if (solar_os_control_get_info(i, &info)) {
+            mp_obj_list_append(list, python_control_info_to_dict(&info));
+        }
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_controls_list_obj, solaros_controls_list);
+
+static mp_obj_t solaros_controls_get(mp_obj_t name_obj)
+{
+    uint16_t value = 0U;
+    python_check_esp(solar_os_control_get(mp_obj_str_get_str(name_obj), &value));
+    return mp_obj_new_float((mp_float_t)value /
+                            SOLAR_OS_CONTROL_NORMALIZED_MAX);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_controls_get_obj, solaros_controls_get);
+
+static mp_obj_t solaros_controls_set(mp_obj_t name_obj, mp_obj_t value_obj)
+{
+    const mp_float_t value = mp_obj_get_float(value_obj);
+    if (!isfinite((double)value) || value < 0.0f || value > 1.0f) {
+        mp_raise_ValueError(MP_ERROR_TEXT("control value must be 0.0..1.0"));
+    }
+    python_check_esp(solar_os_control_set(
+        mp_obj_str_get_str(name_obj),
+        (uint16_t)lroundf((float)value * SOLAR_OS_CONTROL_NORMALIZED_MAX)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_controls_set_obj, solaros_controls_set);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
@@ -5253,6 +5317,16 @@ static void python_register_solaros_module(void)
     mp_obj_t adc = python_new_submodule(module, "adc");
     python_module_store(adc, "pins", MP_OBJ_FROM_PTR(&solaros_adc_pins_obj));
     python_module_store(adc, "read", MP_OBJ_FROM_PTR(&solaros_adc_read_obj));
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+    mp_obj_t controls = python_new_submodule(module, "controls");
+    python_module_store(controls, "list",
+                        MP_OBJ_FROM_PTR(&solaros_controls_list_obj));
+    python_module_store(controls, "get",
+                        MP_OBJ_FROM_PTR(&solaros_controls_get_obj));
+    python_module_store(controls, "set",
+                        MP_OBJ_FROM_PTR(&solaros_controls_set_obj));
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_PWM

@@ -13,6 +13,7 @@
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
 #include "solar_os_midi.h"
+#include "solar_os_parameters.h"
 #include "solar_os_storage.h"
 #include "solar_os_synth_voice.h"
 
@@ -101,6 +102,25 @@ typedef enum {
   SYNTH_PRESET_SLOT_INVALID,
 } synth_preset_slot_state_t;
 
+typedef enum {
+  SYNTH_PARAMETER_VOLUME = 0,
+  SYNTH_PARAMETER_ATTACK,
+  SYNTH_PARAMETER_DECAY,
+  SYNTH_PARAMETER_SUSTAIN,
+  SYNTH_PARAMETER_RELEASE,
+  SYNTH_PARAMETER_FILTER_CUTOFF,
+  SYNTH_PARAMETER_FILTER_RESONANCE,
+  SYNTH_PARAMETER_FILTER_AMOUNT,
+  SYNTH_PARAMETER_FILTER_ATTACK,
+  SYNTH_PARAMETER_FILTER_DECAY,
+  SYNTH_PARAMETER_FILTER_SUSTAIN,
+  SYNTH_PARAMETER_FILTER_RELEASE,
+  SYNTH_PARAMETER_OSC2_OCTAVE,
+  SYNTH_PARAMETER_OSC2_DETUNE,
+  SYNTH_PARAMETER_OSC2_MIX,
+  SYNTH_PARAMETER_GLIDE,
+} synth_parameter_t;
+
 typedef struct {
   bool active;
   bool midi;
@@ -136,6 +156,7 @@ typedef struct {
   synth_mode_control_t mode_selected;
   synth_held_note_t held[SYNTH_APP_HELD_MAX];
   solar_os_midi_subscription_t midi_subscription;
+  solar_os_parameter_registration_t parameter_registration;
   bool midi_subscribed;
   bool midi_sustain[16];
   int octave;
@@ -160,11 +181,219 @@ typedef struct {
   uint32_t last_status_poll_ms;
   bool last_running;
   bool suspended;
+  bool parameter_dirty;
 } synth_app_state_t;
 
 static synth_app_state_t synth_app;
 
 static void synth_release_all(bool stop);
+
+static esp_err_t synth_parameter_get(void *user, float *value) {
+  if (value == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  switch ((synth_parameter_t)(uintptr_t)user) {
+  case SYNTH_PARAMETER_VOLUME:
+    *value = (float)synth_app.volume;
+    break;
+  case SYNTH_PARAMETER_ATTACK:
+    *value = (float)synth_app.config.attack_ms;
+    break;
+  case SYNTH_PARAMETER_DECAY:
+    *value = (float)synth_app.config.decay_ms;
+    break;
+  case SYNTH_PARAMETER_SUSTAIN:
+    *value = (float)synth_app.config.sustain_percent;
+    break;
+  case SYNTH_PARAMETER_RELEASE:
+    *value = (float)synth_app.config.release_ms;
+    break;
+  case SYNTH_PARAMETER_FILTER_CUTOFF:
+    *value = (float)synth_app.config.filter.cutoff_hz;
+    break;
+  case SYNTH_PARAMETER_FILTER_RESONANCE:
+    *value = (float)synth_app.config.filter.resonance_percent;
+    break;
+  case SYNTH_PARAMETER_FILTER_AMOUNT:
+    *value = (float)synth_app.config.filter.envelope_amount_percent;
+    break;
+  case SYNTH_PARAMETER_FILTER_ATTACK:
+    *value = (float)synth_app.config.filter.attack_ms;
+    break;
+  case SYNTH_PARAMETER_FILTER_DECAY:
+    *value = (float)synth_app.config.filter.decay_ms;
+    break;
+  case SYNTH_PARAMETER_FILTER_SUSTAIN:
+    *value = (float)synth_app.config.filter.sustain_percent;
+    break;
+  case SYNTH_PARAMETER_FILTER_RELEASE:
+    *value = (float)synth_app.config.filter.release_ms;
+    break;
+  case SYNTH_PARAMETER_OSC2_OCTAVE:
+    *value = (float)synth_app.config.oscillator2.octave;
+    break;
+  case SYNTH_PARAMETER_OSC2_DETUNE:
+    *value = (float)synth_app.config.oscillator2.detune_cents;
+    break;
+  case SYNTH_PARAMETER_OSC2_MIX:
+    *value = (float)synth_app.config.oscillator2.mix_percent;
+    break;
+  case SYNTH_PARAMETER_GLIDE:
+    *value = (float)synth_app.performance.glide_ms;
+    break;
+  default:
+    return ESP_ERR_NOT_FOUND;
+  }
+  return ESP_OK;
+}
+
+static esp_err_t synth_parameter_set(void *user, float value) {
+  const synth_parameter_t parameter = (synth_parameter_t)(uintptr_t)user;
+  bool performance = false;
+  switch (parameter) {
+  case SYNTH_PARAMETER_VOLUME:
+    synth_app.last_error = solar_os_audio_set_volume((uint8_t)lroundf(value));
+    if (synth_app.last_error == ESP_OK) {
+      synth_app.volume = (uint8_t)lroundf(value);
+    }
+    break;
+  case SYNTH_PARAMETER_ATTACK:
+    synth_app.config.attack_ms = (uint32_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_DECAY:
+    synth_app.config.decay_ms = (uint32_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_SUSTAIN:
+    synth_app.config.sustain_percent = (uint8_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_RELEASE:
+    synth_app.config.release_ms = (uint32_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_FILTER_CUTOFF:
+    synth_app.config.filter.cutoff_hz = (uint32_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_FILTER_RESONANCE:
+    synth_app.config.filter.resonance_percent = (uint8_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_FILTER_AMOUNT:
+    synth_app.config.filter.envelope_amount_percent = (uint8_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_FILTER_ATTACK:
+    synth_app.config.filter.attack_ms = (uint32_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_FILTER_DECAY:
+    synth_app.config.filter.decay_ms = (uint32_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_FILTER_SUSTAIN:
+    synth_app.config.filter.sustain_percent = (uint8_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_FILTER_RELEASE:
+    synth_app.config.filter.release_ms = (uint32_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_OSC2_OCTAVE:
+    synth_app.config.oscillator2.octave = (int8_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_OSC2_DETUNE:
+    synth_app.config.oscillator2.detune_cents = (int16_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_OSC2_MIX:
+    synth_app.config.oscillator2.mix_percent = (uint8_t)lroundf(value);
+    break;
+  case SYNTH_PARAMETER_GLIDE:
+    synth_app.performance.glide_ms = (uint16_t)lroundf(value);
+    performance = true;
+    break;
+  default:
+    return ESP_ERR_NOT_FOUND;
+  }
+  if (parameter != SYNTH_PARAMETER_VOLUME) {
+    synth_app.last_error = performance ?
+        solar_os_synth_voice_configure_performance(SYNTH_APP_OWNER,
+                                                   &synth_app.performance) :
+        solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
+  }
+  if (synth_app.last_error == ESP_OK) {
+    synth_app.parameter_dirty = true;
+  }
+  return synth_app.last_error;
+}
+
+#define SYNTH_PARAMETER(name_, label_, unit_, min_, max_, step_, curve_, id_) \
+  {                                                                            \
+    .name = name_, .label = label_, .unit = unit_, .minimum = min_,            \
+    .maximum = max_, .step = step_, .curve = curve_,                           \
+    .get = synth_parameter_get, .set = synth_parameter_set,                    \
+    .user = (void *)(uintptr_t)(id_),                                           \
+  }
+
+static const solar_os_parameter_definition_t synth_parameters[] = {
+    SYNTH_PARAMETER("volume", "Volume", "%", 0.0f, 100.0f, 1.0f,
+                    SOLAR_OS_PARAMETER_CURVE_LINEAR, SYNTH_PARAMETER_VOLUME),
+    SYNTH_PARAMETER("envelope.attack", "Amp attack", "ms", 0.0f, 10000.0f,
+                    1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_ATTACK),
+    SYNTH_PARAMETER("envelope.decay", "Amp decay", "ms", 0.0f, 10000.0f,
+                    1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_DECAY),
+    SYNTH_PARAMETER("envelope.sustain", "Amp sustain", "%", 0.0f, 100.0f,
+                    1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_SUSTAIN),
+    SYNTH_PARAMETER("envelope.release", "Amp release", "ms", 0.0f, 10000.0f,
+                    1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_RELEASE),
+    SYNTH_PARAMETER("filter.cutoff", "Filter cutoff", "Hz", 40.0f, 18000.0f,
+                    1.0f, SOLAR_OS_PARAMETER_CURVE_LOGARITHMIC,
+                    SYNTH_PARAMETER_FILTER_CUTOFF),
+    SYNTH_PARAMETER("filter.resonance", "Filter resonance", "%", 0.0f,
+                    100.0f, 1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_FILTER_RESONANCE),
+    SYNTH_PARAMETER("filter.envelope.amount", "Filter envelope", "%", 0.0f,
+                    100.0f, 1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_FILTER_AMOUNT),
+    SYNTH_PARAMETER("filter.envelope.attack", "Filter attack", "ms", 0.0f,
+                    10000.0f, 1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_FILTER_ATTACK),
+    SYNTH_PARAMETER("filter.envelope.decay", "Filter decay", "ms", 0.0f,
+                    10000.0f, 1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_FILTER_DECAY),
+    SYNTH_PARAMETER("filter.envelope.sustain", "Filter sustain", "%", 0.0f,
+                    100.0f, 1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_FILTER_SUSTAIN),
+    SYNTH_PARAMETER("filter.envelope.release", "Filter release", "ms", 0.0f,
+                    10000.0f, 1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_FILTER_RELEASE),
+    SYNTH_PARAMETER("osc2.octave", "Oscillator 2 octave", "oct", -2.0f, 2.0f,
+                    1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_OSC2_OCTAVE),
+    SYNTH_PARAMETER("osc2.detune", "Oscillator 2 detune", "cent", -100.0f,
+                    100.0f, 1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_OSC2_DETUNE),
+    SYNTH_PARAMETER("osc2.mix", "Oscillator 2 mix", "%", 0.0f, 100.0f,
+                    1.0f, SOLAR_OS_PARAMETER_CURVE_LINEAR,
+                    SYNTH_PARAMETER_OSC2_MIX),
+    SYNTH_PARAMETER("glide", "Glide", "ms", 0.0f, 2500.0f, 1.0f,
+                    SOLAR_OS_PARAMETER_CURVE_LINEAR, SYNTH_PARAMETER_GLIDE),
+};
+
+#undef SYNTH_PARAMETER
+
+static void synth_parameters_register(void) {
+  synth_app.parameter_registration =
+      (solar_os_parameter_registration_t)SOLAR_OS_PARAMETER_REGISTRATION_INIT;
+  const esp_err_t err = solar_os_parameters_register(
+      "synth", synth_parameters,
+      sizeof(synth_parameters) / sizeof(synth_parameters[0]),
+      &synth_app.parameter_registration);
+  if (err != ESP_OK && synth_app.last_error == ESP_OK) {
+    synth_app.last_error = err;
+  }
+}
+
+static void synth_parameters_unregister(void) {
+  if (synth_app.parameter_registration.token != 0U) {
+    (void)solar_os_parameters_unregister(&synth_app.parameter_registration);
+  }
+}
 
 static const uint16_t synth_envelope_values[] = {
     0,   5,   10,   20,   40,   80,   120,  180,  250,   350,
@@ -2927,12 +3156,14 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
     synth_app.last_error = solar_os_synth_voice_configure_performance(
         SYNTH_APP_OWNER, &synth_app.performance);
   }
+  synth_parameters_register();
   solar_os_context_set_graphics_active(ctx, true);
   synth_render(ctx);
   return ESP_OK;
 }
 
 static void synth_stop(solar_os_context_t *ctx) {
+  synth_parameters_unregister();
   synth_midi_unsubscribe();
   synth_release_all(true);
   synth_app.suspended = false;
@@ -2940,6 +3171,7 @@ static void synth_stop(solar_os_context_t *ctx) {
 }
 
 static void synth_suspend(solar_os_context_t *ctx) {
+  synth_parameters_unregister();
   synth_midi_unsubscribe();
   synth_release_all(true);
   synth_app.suspended = true;
@@ -2958,6 +3190,7 @@ static void synth_resume(solar_os_context_t *ctx) {
     synth_app.last_error = solar_os_synth_voice_configure_performance(
         SYNTH_APP_OWNER, &synth_app.performance);
   }
+  synth_parameters_register();
   solar_os_context_set_graphics_active(ctx, true);
   synth_render(ctx);
 }
@@ -3002,7 +3235,8 @@ static bool synth_event(solar_os_context_t *ctx,
   }
 
   if (event->type == SOLAR_OS_EVENT_TICK) {
-    bool changed = false;
+    bool changed = synth_app.parameter_dirty;
+    synth_app.parameter_dirty = false;
     if (synth_app.midi_subscribed) {
       solar_os_midi_message_t message;
       while (solar_os_midi_receive(&synth_app.midi_subscription, &message) ==

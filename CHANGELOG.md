@@ -2,6 +2,9 @@
 
 ## 4.x
 
+- **4.6.18** — 2026-08-08 — Added universal continuous controls for scalar
+  streams, native app parameters, MIDI CC targets, and Python/Lua scripts;
+  Synth now exposes its tunable sound controls through the shared contract.
 - **4.6.16** — 2026-08-08 — Added bidirectional MIDI expansion buses and MIDI
   keyboard control to `synth`.
 - **4.6.15** — 2026-08-08 — Added mono mode with glide to `synth` and released

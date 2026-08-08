@@ -66,3 +66,24 @@ packages/       package and flavor catalog
 doc/manual/     canonical user manual for GitHub, device, agent, and website
 doc/            developer contracts and documentation-system design
 ```
+
+## Third-party software
+
+SolarOS is licensed under the [Apache License 2.0](LICENSE.md). It also
+includes the third-party software below under each project's own license.
+Copyright, attribution, patent, and license notices supplied with these
+components remain applicable and must be preserved in redistributions.
+
+| Component | Used for | License and attribution |
+| --- | --- | --- |
+| [Lua 5.4.8](https://www.lua.org/ftp/lua-5.4.8.tar.gz) | Embedded Lua VM and selected standard libraries | MIT; copyright Lua.org, PUC-Rio. The upstream notice is retained in [`lua.h`](components/lua/lua/src/lua.h). |
+| [MicroPython `d901e98349`](https://github.com/micropython/micropython/commit/d901e98349) | Embedded Python runtime | MIT; Damien P. George and MicroPython contributors. Notices are retained in the vendored source files. |
+| [minimp3 `ca7c706`](https://github.com/lieff/minimp3/commit/ca7c706001331a5a8e3182ce3b3ce3b243589154) | MP3 decoding | CC0-1.0. The pinned header history credits lieff, Jörn Heusipp, Alibek Omarov, Chris Robinson, Darryl T. Agostinelli, David Reid, Martin Fiedler, and Matthijs van Duin. |
+| [stb_image 2.30 (`013ac3b`)](https://github.com/nothings/stb/commit/013ac3beddff3dbffafd5177e7972067cd2b5083) | PNG, JPEG, GIF, and other image decoding | MIT or public domain/Unlicense. The detailed upstream contributor and feature credits are retained in [`stb_image.h`](components/stb_image/include/stb_image.h). |
+| [U8g2 `e4a5822`](https://github.com/olikraus/u8g2/commit/e4a582214cd4489307917e5decc8d3ee9597eb4a) | Monochrome graphics, text rendering, and selected display drivers | BSD-2-Clause; olikraus and contributors. See the retained [`LICENSE`](components/u8g2/LICENSE), including its separate font notices. |
+| [libwebp `3757b8a`](https://github.com/webmproject/libwebp/commit/3757b8afeb54e305eaef18502812a9a88b7ed662) | WebP decoding | BSD-3-Clause; Google and contributors. See the retained [`AUTHORS`](components/webp_decoder/libwebp/AUTHORS), [`COPYING`](components/webp_decoder/libwebp/COPYING), and [`PATENTS`](components/webp_decoder/libwebp/PATENTS). |
+| [MeshCore `03b6ef4`](https://github.com/meshcore-dev/MeshCore/commit/03b6ef4b0de98fc70b49ef10a6d0d61f8381fb7a) | Mesh packet, identity, contact, channel, and chat protocol subset | Separate notices are retained for MeshCore, `rweather/Crypto`, and Ed25519. See the [provenance and notice index](src/vendor/meshcore/README.solaros.md). |
+| [Peanut-GB `8e65698`](https://github.com/deltabeard/Peanut-GB/commit/8e656982f08663785794b84823d3e27f856fdb7f) | Game Boy emulation and `minigb_apu` audio | MIT; Mahyar Koshkouei, Alex Baines, and contributors. See the retained [provenance and notices](src/vendor/peanut_gb/README.solaros.md). |
+
+The SolarOS ports and local adaptations of minimp3, stb_image, U8g2, and
+libwebp were integrated by nilseuropa.

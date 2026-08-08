@@ -61,3 +61,7 @@ launch or runtime error.
 The `midi` job owns one named MIDI bus and moves messages in both directions.
 Create the bus with `expansion bus create midi`, then use `midi status` to
 inspect its counters.
+
+The `controls` job samples configured scalar streams at 50 Hz and sends changed
+normalized values to native application parameters and MIDI CC targets. Create
+the mappings with `control`; see `man controls` for the complete workflow.

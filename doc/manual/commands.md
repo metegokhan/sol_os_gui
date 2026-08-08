@@ -571,6 +571,14 @@ and writes the inactive ESP-IDF OTA partition.
 | `midi` | `midi cc <channel> <controller> <value>` | Queue a MIDI control-change message. |
 | `midi` | `midi program <channel> <program>` | Queue a MIDI program-change message. |
 | `midi` | `midi send <status> [data1] [data2]` | Queue one validated raw MIDI message. |
+| `control` | `control list\|parameters\|bindings` | Inspect normalized controls, native app parameters, or target bindings. |
+| `control` | `control create <name> <stream> <min> <max> [smooth=ms] [deadband=value] [invert]` | Normalize a scalar stream as a named continuous control; use `manual` for script-supplied values. |
+| `control` | `control bind <name> parameter <path> [pickup=on\|off]` | Bind a control to a typed native-app parameter with optional soft takeover. |
+| `control` | `control bind <name> midi <channel> <cc>` | Bind a control to a MIDI Control Change target. |
+| `control` | `control get\|set <name> [value]` | Read or set a normalized `0..65535` control value. |
+| `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. |
+| `control` | `control unbind <name>` | Remove all target bindings owned by one named control. |
+| `control` | `control delete <name>` or `control clear` | Remove one control and its bindings, or remove all controls and bindings. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
 | `radio` | `radio status|list` | List packet radios registered by expansion drivers. |
 | `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |

@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -27,9 +28,13 @@
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+#include "solar_os_controls.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 #include "solar_os_synth_voice.h"
 #endif
@@ -1803,6 +1808,65 @@ static int solua_adc_read(lua_State *L)
     (void)solua_check_esp(L, solar_os_adc_read(solua_check_gpio_pin(L, 1), &sample));
     solua_push_adc_sample(L, &sample);
     return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+static int solua_controls_list(lua_State *L)
+{
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    int out = 1;
+    const size_t count = solar_os_control_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_control_info_t info;
+        if (!solar_os_control_get_info(i, &info)) {
+            continue;
+        }
+        lua_newtable(L);
+        const int item = lua_gettop(L);
+        solua_set_str(L, item, "name", info.config.name);
+        if (info.config.source[0] != '\0') {
+            solua_set_str(L, item, "source", info.config.source);
+        }
+        solua_set_num(L, item, "input_min", info.config.input_minimum);
+        solua_set_num(L, item, "input_max", info.config.input_maximum);
+        solua_set_num(L, item, "deadband", info.config.deadband);
+        solua_set_int(L, item, "smoothing_ms", info.config.smoothing_ms);
+        solua_set_bool(L, item, "inverted", info.config.inverted);
+        solua_set_bool(L, item, "has_value", info.has_value);
+        if (info.has_value) {
+            solua_set_num(L, item, "value",
+                          (lua_Number)info.normalized /
+                              SOLAR_OS_CONTROL_NORMALIZED_MAX);
+        }
+        lua_rawseti(L, list, out++);
+    }
+    return 1;
+}
+
+static int solua_controls_get(lua_State *L)
+{
+    uint16_t value = 0U;
+    (void)solua_check_esp(L,
+                         solar_os_control_get(luaL_checkstring(L, 1), &value));
+    lua_pushnumber(L, (lua_Number)value / SOLAR_OS_CONTROL_NORMALIZED_MAX);
+    return 1;
+}
+
+static int solua_controls_set(lua_State *L)
+{
+    const lua_Number value = luaL_checknumber(L, 2);
+    if (!isfinite((double)value) || value < 0.0 || value > 1.0) {
+        return luaL_error(L, "control value must be 0.0..1.0");
+    }
+    (void)solua_check_esp(
+        L,
+        solar_os_control_set(
+            luaL_checkstring(L, 1),
+            (uint16_t)lround((double)value *
+                             SOLAR_OS_CONTROL_NORMALIZED_MAX)));
+    return 0;
 }
 #endif
 
@@ -4960,6 +5024,15 @@ static void solua_open_solaros(lua_State *L)
     mod = lua_gettop(L);
     solua_set_func(L, mod, "pins", solua_adc_pins);
     solua_set_func(L, mod, "read", solua_adc_read);
+    lua_pop(L, 1);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+    solua_new_submodule(L, solaros, "controls");
+    mod = lua_gettop(L);
+    solua_set_func(L, mod, "list", solua_controls_list);
+    solua_set_func(L, mod, "get", solua_controls_get);
+    solua_set_func(L, mod, "set", solua_controls_set);
     lua_pop(L, 1);
 #endif
 

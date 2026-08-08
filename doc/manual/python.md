@@ -377,6 +377,36 @@ print(solaros.adc.pins())
 print(solaros.adc.read(1))
 ```
 
+## `solaros.controls`
+
+Continuous controls are named normalized values configured with the `control`
+shell command. Scripts can inspect them and can supply manual controls without
+knowing whether their targets are native app parameters or MIDI CC messages.
+
+- `list()`: return control dictionaries containing `name`, `source`,
+  `input_min`, `input_max`, `deadband`, `smoothing_ms`, `inverted`,
+  `has_value`, and normalized `value` or `None`.
+- `get(name)`: return the current normalized value from `0.0` through `1.0`.
+- `set(name, value)`: set a manual control to a normalized value from `0.0`
+  through `1.0`.
+
+Create the manual control and its typed binding once from the shell:
+
+```text
+control create expression manual 0 1
+control bind expression parameter synth.filter.resonance pickup=off
+job start controls
+```
+
+Then drive it from Python:
+
+```python
+import solaros
+
+solaros.controls.set("expression", 0.5)
+print(solaros.controls.get("expression"))
+```
+
 ## `solaros.pwm`
 
 PWM functions expose LEDC PWM output on runtime-safe expansion pins. Active PWM outputs share one LEDC timer, so changing the frequency changes the frequency for all active PWM outputs.

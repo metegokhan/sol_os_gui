@@ -59,6 +59,7 @@ service packages are not available on that board.
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` for the direct-pin compatibility API when OneWire support is compiled
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
 - `solaros.adc`: `pins`, `read` when ADC support is compiled
+- `solaros.controls`: `list`, `get`, `set` when continuous controls are compiled. Values use the normalized range `0.0..1.0`; create controls and typed bindings with the `control` shell command.
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
 - `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `attach`, `detach`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_ps2` is present with PS/2 support; `create_uart`, `create_midi`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
 - `solaros.expansion`: `drivers`, `devices`, `attach`, `detach` when the expansion service is compiled
@@ -82,6 +83,16 @@ service packages are not available on that board.
 - `solaros.gfx`: foreground graphics drawing functions
 
 Lua strings are binary-safe, so byte-oriented APIs such as `uart.read`, `i2c.read_reg`, `clipboard.get`, and `mqtt.read().payload` return Lua strings.
+
+A script-driven continuous control uses the same target mappings as an ADC
+potentiometer. Create it from the shell with
+`control create expression manual 0 1`, bind it, and start the `controls` job.
+Lua can then update it without constructing shell commands:
+
+```lua
+solaros.controls.set("expression", 0.5)
+print(solaros.controls.get("expression"))
+```
 
 For example, this plays a short saw-wave chord without running Lua in the
 real-time render callback:

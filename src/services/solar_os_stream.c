@@ -863,3 +863,78 @@ esp_err_t solar_os_stream_read_csv(solar_os_stream_handle_t *handle,
 
     return ESP_ERR_NOT_FOUND;
 }
+
+esp_err_t solar_os_stream_read_scalar(
+    solar_os_stream_handle_t *handle,
+    const solar_os_stream_read_options_t *options,
+    float *value)
+{
+    if (handle == NULL || handle->id[0] == '\0' || value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (handle->type != SOLAR_OS_STREAM_TYPE_SCALAR) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    if (strcmp(handle->id, "temperature") == 0 ||
+        strcmp(handle->id, "humidity") == 0) {
+        solar_os_environment_t environment;
+        const esp_err_t err = solar_os_sensors_read_environment(&environment);
+        if (err == ESP_OK) {
+            *value = strcmp(handle->id, "temperature") == 0 ?
+                environment.temperature_c : environment.humidity_percent;
+        }
+        return err;
+    }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+    if (strcmp(handle->id, "battery") == 0) {
+        solar_os_battery_status_t status;
+        const esp_err_t err = solar_os_battery_get_status(&status);
+        if (err == ESP_OK) {
+            *value = (float)status.voltage_mv / 1000.0f;
+        }
+        return err;
+    }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    if (strcmp(handle->id, "mic0") == 0 ||
+        strcmp(handle->id, "mic1") == 0) {
+        uint32_t window_ms = STREAM_MIC_DEFAULT_WINDOW_MS;
+        if (options != NULL && options->window_ms != 0U) {
+            window_ms = options->window_ms;
+        }
+        if (window_ms < STREAM_MIC_MIN_WINDOW_MS ||
+            window_ms > STREAM_MIC_MAX_WINDOW_MS) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        solar_os_audio_level_t level;
+        const esp_err_t err = solar_os_audio_measure_channel_level(
+            strcmp(handle->id, "mic1") == 0 ? 1U : 0U,
+            window_ms,
+            &level);
+        if (err == ESP_OK) {
+            *value = (float)level.average_percent;
+        }
+        return err;
+    }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ADC
+    if (strncmp(handle->id, "adc", 3U) == 0) {
+        int pin = -1;
+        if (!stream_parse_pin_id(handle->id, "adc", &pin)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        solar_os_adc_sample_t sample;
+        const esp_err_t err = solar_os_adc_read(pin, &sample);
+        if (err == ESP_OK) {
+            *value = (float)sample.voltage_mv;
+        }
+        return err;
+    }
+#endif
+
+    (void)options;
+    return ESP_ERR_NOT_FOUND;
+}

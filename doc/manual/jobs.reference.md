@@ -398,6 +398,31 @@ Notes:
 - CSV rows include a timestamp column and one value column per stream.
 - Available streams depend on board capabilities.
 
+## controls
+
+Continuous-control mapper. It samples every configured scalar-stream control
+at 50 Hz, applies smoothing, deadband, calibration, and inversion, then updates
+changed native parameter and MIDI CC bindings.
+
+```text
+control create cutoff adc1 0 3300 smooth=40 deadband=8
+control bind cutoff parameter synth.filter.cutoff pickup=on
+job start controls
+job status controls
+job stop controls
+```
+
+The job takes no arguments. Controls and bindings can be added or removed while
+it runs. A source read error and an unavailable target are retained in control
+and binding status instead of stopping the worker. Native parameter bindings
+retry when the application resumes and publishes the path again. MIDI bindings
+retry while the MIDI worker is stopped.
+
+Control definitions are runtime configuration. Put the `control create`,
+`control bind`, and `job start controls` commands in `/.shell/startup` to
+restore a hardware setup after reboot. See `man controls` for calibration,
+manual script inputs, MIDI examples, and inspection commands.
+
 ## displayd
 
 Authenticated HTTP display and remote control. It has two modes:

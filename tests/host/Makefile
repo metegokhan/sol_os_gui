@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test parameters_test controls_test
 
 .PHONY: all test clean
 
@@ -69,6 +69,14 @@ midi_codec_test: midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c $(
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c -o $@
 
+parameters_test: parameters_test.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		parameters_test.c $(ROOT)/src/services/solar_os_parameters.c -lm -o $@
+
+controls_test: controls_test.c $(ROOT)/src/services/solar_os_controls.c $(ROOT)/src/services/solar_os_controls.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		controls_test.c $(ROOT)/src/services/solar_os_controls.c -lm -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -83,6 +91,8 @@ test: $(TARGETS)
 	./hid_keyboard_report_test
 	./ps2_keyboard_test
 	./midi_codec_test
+	./parameters_test
+	./controls_test
 
 clean:
 	$(RM) $(TARGETS)
