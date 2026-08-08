@@ -18,12 +18,14 @@
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT 70U
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS 120U
 #define SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES 64U
+#define SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES 256U
 
 typedef enum {
     SOLAR_OS_SYNTH_WAVE_SQUARE = 0,
     SOLAR_OS_SYNTH_WAVE_TRIANGLE,
     SOLAR_OS_SYNTH_WAVE_SAW,
     SOLAR_OS_SYNTH_WAVE_NOISE,
+    SOLAR_OS_SYNTH_WAVE_CUSTOM,
 } solar_os_synth_waveform_t;
 
 typedef struct {
@@ -70,4 +72,11 @@ esp_err_t solar_os_synth_voice_note_off(const char *owner,
                                         uint32_t frequency_hz);
 esp_err_t solar_os_synth_voice_all_notes_off(const char *owner);
 esp_err_t solar_os_synth_voice_stop(const char *owner);
+
+/* The service copies the complete table before this call returns. */
+esp_err_t solar_os_synth_voice_set_wavetable(const char *owner,
+                                             const int16_t *samples,
+                                             size_t sample_count);
+esp_err_t solar_os_synth_voice_get_wavetable(int16_t *samples,
+                                             size_t sample_count);
 void solar_os_synth_voice_get_status(solar_os_synth_voice_status_t *status);

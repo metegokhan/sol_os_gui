@@ -29,14 +29,17 @@ service serializes complete operations with a FreeRTOS mutex.
 
 `solar_os_synth_voice.h` builds a bounded musical voice engine on the callback
 layer. It provides eight voices, automatic release-first voice stealing,
-per-note velocity, and square, triangle, saw, and noise waveforms. Configuration
-changes update active voices immediately and also set the defaults for new
-notes.
+per-note velocity, square, triangle, saw, and noise waveforms, and a custom
+wavetable. Configuration changes update active voices immediately and also set
+the defaults for new notes.
 The render path uses fixed-point oscillators and envelopes; scripting runtimes
 only submit control changes and never run inside the audio callback. The mixed
 voice signal retains the same PCM headroom as the system tone generator before
 the codec applies global speaker volume. Periodic oscillators are evaluated at
 eight evenly spaced sub-samples per output frame and averaged before mixing.
+The custom oscillator reads a service-owned 256-sample signed wavetable with
+linear interpolation; complete table updates are copied under the voice lock so
+the render callback never reads mutable client memory.
 The service latches a consecutive 64-sample trace and fingerprint of a complete
 final mono PCM block so status reports describe the samples submitted to audio
 rather than inferring them from the selected waveform.
@@ -51,14 +54,19 @@ released automatically on normal exit, error, cancellation, or foreground-app
 shutdown, so a script cannot leave an audio stream or sustained note behind.
 
 The native foreground `synth` app turns the voice engine into a playable
-instrument. Its top row pairs the waveform selector and live PCM oscilloscope
-with an envelope graph. The middle row contains global speaker volume and
-editable attack, decay, sustain, and release knobs; the physical-key piano and
-labels occupy the bottom row. It also shows current octave and velocity, active
-voices, sample rate, and audio errors. Keyboard press and release events play
-the chromatic piano, sustain held notes, and support chords. Waveform and
-envelope edits reshape held notes while keeping their oscillator phase and
-pitch continuous. After a note renders, the waveform panel shows the captured
-PCM trace with automatic vertical scaling and the low 16 bits of its block
-fingerprint. Python and Lua synth status return the same fingerprint, range,
-mean absolute level, and trace samples.
+instrument. Its Play tab pairs the waveform selector and live PCM oscilloscope
+with an envelope graph, global speaker volume, editable ADSR knobs, and the
+physical-key piano. Its Wave tab draws the custom wavetable at full width and
+supports selectable 16, 32, 64, 128, and 256-point resolution; square,
+triangle, saw, sine, and flat starting shapes; cursor and brush editing;
+smoothing; normalization; reset; and undo. `Enter` cycles the resolution and
+resamples the current shape into the new point count. The piano remains active
+while editing, and table changes reshape held notes immediately.
+
+The app also shows current octave and velocity, active voices, sample rate, and
+audio errors. Keyboard press and release events sustain held notes and support
+chords. Waveform and envelope edits keep oscillator phase and pitch continuous.
+After a note renders, the waveform panel shows the captured PCM trace with
+automatic vertical scaling and the low 16 bits of its block fingerprint.
+Python and Lua synth status return the same fingerprint, range, mean absolute
+level, and trace samples.

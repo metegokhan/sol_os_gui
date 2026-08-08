@@ -2,6 +2,10 @@
 
 ## 4.x
 
+- **4.6.10** — 2026-08-08 — Added a graphical waveform-editor tab to `synth`
+  with selectable resolution, baseline shapes, brush editing, smoothing,
+  normalization, undo, immediate custom-wavetable playback, and smooth
+  polyphonic voice transitions.
 - **4.6.9** — 2026-08-07 — Added an eight-voice native synthesizer with a
   physical-key piano, waveform and ADSR controls, envelope graph, oscilloscope,
   and global volume control. Added matching Python and Lua APIs, including

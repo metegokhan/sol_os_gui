@@ -1,5 +1,6 @@
 #include "solar_os_synth_app.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +19,25 @@
 #define SYNTH_APP_OCTAVE_MAX 6
 #define SYNTH_APP_VELOCITY_STEP 5
 #define SYNTH_APP_VOLUME_STEP 5
+#define SYNTH_APP_WAVE_STEP 1024
+#define SYNTH_APP_WAVE_STEP_LARGE 4096
+#define SYNTH_APP_BRUSH_MAX 16U
+#define SYNTH_APP_DEFAULT_WAVE_STEPS 32U
+#define SYNTH_APP_TWO_PI 6.28318530717958647692f
+
+typedef enum {
+  SYNTH_TAB_PLAY = 0,
+  SYNTH_TAB_WAVE,
+} synth_tab_t;
+
+typedef enum {
+  SYNTH_BASE_SQUARE = 0,
+  SYNTH_BASE_TRIANGLE,
+  SYNTH_BASE_SAW,
+  SYNTH_BASE_SINE,
+  SYNTH_BASE_FLAT,
+  SYNTH_BASE_COUNT,
+} synth_wave_baseline_t;
 
 typedef enum {
   SYNTH_CONTROL_WAVE = 0,
@@ -46,6 +66,16 @@ typedef struct {
   int octave;
   uint8_t velocity;
   uint8_t volume;
+  synth_tab_t tab;
+  synth_wave_baseline_t baseline;
+  synth_wave_baseline_t baseline_undo;
+  size_t wave_cursor;
+  uint8_t wave_brush;
+  size_t wave_steps;
+  size_t wave_steps_undo;
+  int16_t wavetable[SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES];
+  int16_t wavetable_undo[SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES];
+  bool wavetable_undo_valid;
   esp_err_t last_error;
   size_t last_active_voices;
   uint32_t last_deadline_misses;
@@ -81,8 +111,238 @@ static const uint16_t synth_note_usages[] = {
     0x0eU, /* K */
 };
 
+static const uint16_t synth_wavetable_step_counts[] = {16U, 32U, 64U, 128U,
+                                                       256U};
+
 static uint32_t synth_now_ms(void) {
   return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+static const char *synth_baseline_name(synth_wave_baseline_t baseline) {
+  switch (baseline) {
+  case SYNTH_BASE_SQUARE:
+    return "SQUARE";
+  case SYNTH_BASE_TRIANGLE:
+    return "TRIANGLE";
+  case SYNTH_BASE_SAW:
+    return "SAW";
+  case SYNTH_BASE_SINE:
+    return "SINE";
+  case SYNTH_BASE_FLAT:
+    return "FLAT";
+  default:
+    return "?";
+  }
+}
+
+static int16_t synth_baseline_sample(synth_wave_baseline_t baseline,
+                                     size_t index, size_t sample_count) {
+  const uint32_t phase = (uint32_t)(((uint64_t)index << 32) / sample_count);
+  switch (baseline) {
+  case SYNTH_BASE_SQUARE:
+    return index < sample_count / 2U ? -32767 : 32767;
+  case SYNTH_BASE_TRIANGLE:
+    return phase < 0x80000000U
+               ? (int16_t)(-32767 + (int32_t)(phase >> 15))
+               : (int16_t)(32767 - (int32_t)((phase - 0x80000000U) >> 15));
+  case SYNTH_BASE_SAW:
+    return (int16_t)((int32_t)(phase >> 16) - 32768);
+  case SYNTH_BASE_SINE:
+    return (
+        int16_t)(sinf(SYNTH_APP_TWO_PI * (float)index / (float)sample_count) *
+                 32767.0f);
+  case SYNTH_BASE_FLAT:
+  default:
+    return 0;
+  }
+}
+
+static int16_t synth_wavetable_interpolate(const int16_t *table,
+                                           size_t sample_count,
+                                           size_t phase_numerator,
+                                           size_t phase_denominator) {
+  const size_t scaled = phase_numerator;
+  const size_t index = (scaled / phase_denominator) % sample_count;
+  const size_t next = (index + 1U) % sample_count;
+  const int32_t fraction = (int32_t)(scaled % phase_denominator);
+  const int32_t denominator = (int32_t)phase_denominator;
+  return (int16_t)(((int32_t)table[index] * (denominator - fraction) +
+                    (int32_t)table[next] * fraction) /
+                   denominator);
+}
+
+static uint8_t synth_wavetable_brush_max(void) {
+  size_t maximum = (synth_app.wave_steps - 1U) / 2U;
+  if (maximum > SYNTH_APP_BRUSH_MAX) {
+    maximum = SYNTH_APP_BRUSH_MAX;
+  }
+  return (uint8_t)maximum;
+}
+
+static void synth_wavetable_snapshot(void) {
+  memcpy(synth_app.wavetable_undo, synth_app.wavetable,
+         sizeof(synth_app.wavetable));
+  synth_app.baseline_undo = synth_app.baseline;
+  synth_app.wave_steps_undo = synth_app.wave_steps;
+  synth_app.wavetable_undo_valid = true;
+}
+
+static esp_err_t synth_wavetable_upload(void) {
+  int16_t playback_table[SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES];
+  for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES; i++) {
+    playback_table[i] = synth_wavetable_interpolate(
+        synth_app.wavetable, synth_app.wave_steps, i * synth_app.wave_steps,
+        SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES);
+  }
+  return solar_os_synth_voice_set_wavetable(
+      SYNTH_APP_OWNER, playback_table, SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES);
+}
+
+static void synth_wavetable_commit(void) {
+  esp_err_t err = synth_wavetable_upload();
+  if (err == ESP_OK) {
+    synth_app.config.waveform = SOLAR_OS_SYNTH_WAVE_CUSTOM;
+    err = solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
+  }
+  synth_app.last_error = err;
+}
+
+static void synth_wavetable_fill(synth_wave_baseline_t baseline) {
+  synth_app.baseline = baseline;
+  memset(synth_app.wavetable, 0, sizeof(synth_app.wavetable));
+  for (size_t i = 0; i < synth_app.wave_steps; i++) {
+    synth_app.wavetable[i] =
+        synth_baseline_sample(baseline, i, synth_app.wave_steps);
+  }
+}
+
+static void synth_wavetable_seed(synth_wave_baseline_t baseline,
+                                 bool remember) {
+  if (remember) {
+    synth_wavetable_snapshot();
+  }
+  synth_wavetable_fill(baseline);
+  synth_wavetable_commit();
+}
+
+static void synth_wavetable_draw(int direction, bool large_step) {
+  synth_wavetable_snapshot();
+  const int32_t delta = direction * (large_step ? SYNTH_APP_WAVE_STEP_LARGE
+                                                : SYNTH_APP_WAVE_STEP);
+  const int radius = synth_app.wave_brush;
+  const int divisor = radius + 1;
+  for (int offset = -radius; offset <= radius; offset++) {
+    int index = (int)synth_app.wave_cursor + offset;
+    while (index < 0) {
+      index += (int)synth_app.wave_steps;
+    }
+    index %= (int)synth_app.wave_steps;
+    const int weight = divisor - (offset < 0 ? -offset : offset);
+    int32_t sample = synth_app.wavetable[index] + delta * weight / divisor;
+    if (sample > 32767) {
+      sample = 32767;
+    } else if (sample < -32767) {
+      sample = -32767;
+    }
+    synth_app.wavetable[index] = (int16_t)sample;
+  }
+  synth_wavetable_commit();
+}
+
+static void synth_wavetable_smooth(void) {
+  synth_wavetable_snapshot();
+  for (size_t i = 0; i < synth_app.wave_steps; i++) {
+    const size_t previous =
+        (i + synth_app.wave_steps - 1U) % synth_app.wave_steps;
+    const size_t next = (i + 1U) % synth_app.wave_steps;
+    synth_app.wavetable[i] =
+        (int16_t)(((int32_t)synth_app.wavetable_undo[previous] +
+                   synth_app.wavetable_undo[i] +
+                   synth_app.wavetable_undo[next]) /
+                  3);
+  }
+  synth_wavetable_commit();
+}
+
+static void synth_wavetable_normalize(void) {
+  int32_t peak = 0;
+  for (size_t i = 0; i < synth_app.wave_steps; i++) {
+    int32_t magnitude = synth_app.wavetable[i];
+    if (magnitude < 0) {
+      magnitude = -magnitude;
+    }
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
+  if (peak == 0 || peak == 32767) {
+    return;
+  }
+  synth_wavetable_snapshot();
+  for (size_t i = 0; i < synth_app.wave_steps; i++) {
+    synth_app.wavetable[i] =
+        (int16_t)(((int32_t)synth_app.wavetable[i] * 32767) / peak);
+  }
+  synth_wavetable_commit();
+}
+
+static void synth_wavetable_undo(void) {
+  if (!synth_app.wavetable_undo_valid) {
+    return;
+  }
+  for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES; i++) {
+    const int16_t sample = synth_app.wavetable[i];
+    synth_app.wavetable[i] = synth_app.wavetable_undo[i];
+    synth_app.wavetable_undo[i] = sample;
+  }
+  const synth_wave_baseline_t baseline = synth_app.baseline;
+  synth_app.baseline = synth_app.baseline_undo;
+  synth_app.baseline_undo = baseline;
+  const size_t old_steps = synth_app.wave_steps;
+  synth_app.wave_steps = synth_app.wave_steps_undo;
+  synth_app.wave_steps_undo = old_steps;
+  synth_app.wave_cursor =
+      synth_app.wave_cursor * synth_app.wave_steps / old_steps;
+  if (synth_app.wave_cursor >= synth_app.wave_steps) {
+    synth_app.wave_cursor = synth_app.wave_steps - 1U;
+  }
+  const uint8_t brush_max = synth_wavetable_brush_max();
+  if (synth_app.wave_brush > brush_max) {
+    synth_app.wave_brush = brush_max;
+  }
+  synth_wavetable_commit();
+}
+
+static void synth_wavetable_cycle_steps(void) {
+  synth_wavetable_snapshot();
+  const size_t old_steps = synth_app.wave_steps_undo;
+  const size_t step_count = sizeof(synth_wavetable_step_counts) /
+                            sizeof(synth_wavetable_step_counts[0]);
+  size_t selected = 0;
+  while (selected < step_count &&
+         synth_wavetable_step_counts[selected] != old_steps) {
+    selected++;
+  }
+  if (selected == step_count) {
+    selected = step_count - 1U;
+  }
+  const size_t new_steps =
+      synth_wavetable_step_counts[(selected + 1U) % step_count];
+  memset(synth_app.wavetable, 0, sizeof(synth_app.wavetable));
+  for (size_t i = 0; i < new_steps; i++) {
+    synth_app.wavetable[i] = synth_wavetable_interpolate(
+        synth_app.wavetable_undo, old_steps, i * old_steps, new_steps);
+  }
+  synth_app.wave_steps = new_steps;
+  synth_app.wave_cursor = synth_app.wave_cursor * new_steps / old_steps;
+  if (synth_app.wave_cursor >= new_steps) {
+    synth_app.wave_cursor = new_steps - 1U;
+  }
+  const uint8_t brush_max = synth_wavetable_brush_max();
+  if (synth_app.wave_brush > brush_max) {
+    synth_app.wave_brush = brush_max;
+  }
+  synth_wavetable_commit();
 }
 
 static uint32_t synth_note_frequency(uint8_t semitone) {
@@ -156,9 +416,9 @@ static bool synth_semitone_held(uint8_t semitone) {
   return false;
 }
 
-static void synth_draw_wave_icon(
-    solar_os_gfx_t *gfx, int x, int y, int width, int height,
-    const solar_os_synth_voice_status_t *status) {
+static void synth_draw_wave_icon(solar_os_gfx_t *gfx, int x, int y, int width,
+                                 int height,
+                                 const solar_os_synth_voice_status_t *status) {
   const int left = x;
   const int right = x + width;
   const int top = y;
@@ -177,18 +437,16 @@ static void synth_draw_wave_icon(
     }
     const int scope_amplitude = height > 3 ? (height / 2) - 1 : 1;
     for (size_t i = 1; i < status->pcm_sample_count; i++) {
-      const int x0 = left +
-                     (int)((i - 1U) * (size_t)width /
-                           (status->pcm_sample_count - 1U));
-      const int x1 = left +
-                     (int)(i * (size_t)width /
-                           (status->pcm_sample_count - 1U));
-      const int y0 = middle -
-                     ((int32_t)status->pcm_samples[i - 1U] * scope_amplitude) /
-                         scope_peak;
-      const int y1 = middle -
-                     ((int32_t)status->pcm_samples[i] * scope_amplitude) /
-                         scope_peak;
+      const int x0 = left + (int)((i - 1U) * (size_t)width /
+                                  (status->pcm_sample_count - 1U));
+      const int x1 =
+          left + (int)(i * (size_t)width / (status->pcm_sample_count - 1U));
+      const int y0 =
+          middle -
+          ((int32_t)status->pcm_samples[i - 1U] * scope_amplitude) / scope_peak;
+      const int y1 =
+          middle -
+          ((int32_t)status->pcm_samples[i] * scope_amplitude) / scope_peak;
       solar_os_gfx_line(gfx, x0, y0, x1, y1);
     }
     return;
@@ -212,6 +470,19 @@ static void synth_draw_wave_icon(
   case SOLAR_OS_SYNTH_WAVE_SAW:
     solar_os_gfx_line(gfx, left, bottom, right - 1, top);
     solar_os_gfx_line(gfx, right - 1, top, right - 1, bottom);
+    break;
+  case SOLAR_OS_SYNTH_WAVE_CUSTOM:
+    for (int column = 1; column <= width; column++) {
+      const int16_t previous = synth_wavetable_interpolate(
+          synth_app.wavetable, synth_app.wave_steps,
+          (size_t)(column - 1) * synth_app.wave_steps, (size_t)width);
+      const int16_t current = synth_wavetable_interpolate(
+          synth_app.wavetable, synth_app.wave_steps,
+          (size_t)column * synth_app.wave_steps, (size_t)width);
+      const int y0 = middle - (int32_t)previous * height / (2 * 32767);
+      const int y1 = middle - (int32_t)current * height / (2 * 32767);
+      solar_os_gfx_line(gfx, left + column - 1, y0, left + column, y1);
+    }
     break;
   case SOLAR_OS_SYNTH_WAVE_NOISE: {
     const int points[] = {middle,  top,        bottom, middle - 4, bottom,
@@ -293,12 +564,12 @@ static void synth_draw_envelope(solar_os_gfx_t *gfx, int x, int y, int width,
   const int attack_x =
       left + (int)((uint32_t)graph_width * attack_weight / total_weight);
   const int decay_x =
-      left + (int)((uint32_t)graph_width *
-                    (attack_weight + decay_weight) / total_weight);
+      left + (int)((uint32_t)graph_width * (attack_weight + decay_weight) /
+                   total_weight);
   const int sustain_x =
-      left + (int)((uint32_t)graph_width *
-                    (attack_weight + decay_weight + sustain_weight) /
-                    total_weight);
+      left +
+      (int)((uint32_t)graph_width *
+            (attack_weight + decay_weight + sustain_weight) / total_weight);
   const int sustain_y =
       bottom - graph_height * (int)synth_app.config.sustain_percent / 100;
 
@@ -386,6 +657,108 @@ static void synth_draw_piano(solar_os_gfx_t *gfx, int x, int y, int width,
   }
 }
 
+static void synth_draw_header(solar_os_gfx_t *gfx,
+                              const solar_os_synth_voice_status_t *status) {
+  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
+  solar_os_gfx_text(gfx, 6, 18, "SYNTH");
+
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+  solar_os_gfx_text(gfx, 70, 17,
+                    synth_app.tab == SYNTH_TAB_PLAY ? "[PLAY] WAVE"
+                                                    : "PLAY [WAVE]");
+
+  char header[64];
+  const esp_err_t display_error = synth_app.last_error != ESP_OK
+                                      ? synth_app.last_error
+                                      : status->last_error;
+  if (display_error != ESP_OK) {
+    snprintf(header, sizeof(header), "audio: %s",
+             esp_err_to_name(display_error));
+  } else {
+    snprintf(header, sizeof(header), "o%d v%u %uv %uHz m%u", synth_app.octave,
+             (unsigned)synth_app.velocity, (unsigned)status->active_voices,
+             (unsigned)status->sample_rate,
+             (unsigned)status->render_deadline_misses);
+  }
+  solar_os_gfx_text(gfx, 168, 17, header);
+}
+
+static void synth_draw_wave_editor(solar_os_gfx_t *gfx, int width, int height) {
+  const int graph_x = 6;
+  const int graph_y = 34;
+  const int graph_width = width - 12;
+  const int piano_y = height - 90;
+  int graph_height = piano_y - graph_y - 22;
+  if (graph_height < 80) {
+    graph_height = 80;
+  }
+  const int left = graph_x + 8;
+  const int right = graph_x + graph_width - 8;
+  const int top = graph_y + 27;
+  const int bottom = graph_y + graph_height - 10;
+  const int middle = (top + bottom) / 2;
+  const int amplitude = (bottom - top) / 2;
+
+  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+  solar_os_gfx_rect(gfx, graph_x, graph_y, graph_width, graph_height);
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_12);
+  solar_os_gfx_text(gfx, graph_x + 8, graph_y + 17, "WAVETABLE");
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+  char graph_status[48];
+  snprintf(graph_status, sizeof(graph_status), "%s b%u [ENTER %u]",
+           synth_baseline_name(synth_app.baseline),
+           (unsigned)synth_app.wave_brush, (unsigned)synth_app.wave_steps);
+  const int status_x = graph_x + graph_width - 8 -
+                       (int)solar_os_gfx_text_width(gfx, graph_status);
+  solar_os_gfx_text(gfx, status_x, graph_y + 17, graph_status);
+  solar_os_gfx_line(gfx, left, middle, right, middle);
+
+  int previous_x = left;
+  int previous_y = middle - (int32_t)synth_app.wavetable[0] * amplitude / 32767;
+  for (size_t i = 1; i < synth_app.wave_steps; i++) {
+    const int x =
+        left + (int)(i * (size_t)(right - left) / (synth_app.wave_steps - 1U));
+    const int y = middle - (int32_t)synth_app.wavetable[i] * amplitude / 32767;
+    solar_os_gfx_line(gfx, previous_x, previous_y, x, y);
+    previous_x = x;
+    previous_y = y;
+  }
+  if (synth_app.wave_steps <= 64U) {
+    for (size_t i = 0; i < synth_app.wave_steps; i++) {
+      const int x = left + (int)(i * (size_t)(right - left) /
+                                 (synth_app.wave_steps - 1U));
+      const int y =
+          middle - (int32_t)synth_app.wavetable[i] * amplitude / 32767;
+      solar_os_gfx_fill_rect(gfx, x - 1, y - 1, 3, 3);
+    }
+  }
+
+  const int cursor_x =
+      left + (int)(synth_app.wave_cursor * (size_t)(right - left) /
+                   (synth_app.wave_steps - 1U));
+  const int cursor_y =
+      middle -
+      (int32_t)synth_app.wavetable[synth_app.wave_cursor] * amplitude / 32767;
+  solar_os_gfx_line(gfx, cursor_x, top, cursor_x, bottom);
+  solar_os_gfx_fill_rect(gfx, cursor_x - 2, cursor_y - 2, 5, 5);
+
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+  char editor_status[64];
+  snprintf(editor_status, sizeof(editor_status),
+           "L/R move U/D draw  %03u/%u %+6d b%u",
+           (unsigned)synth_app.wave_cursor, (unsigned)synth_app.wave_steps,
+           (int)synth_app.wavetable[synth_app.wave_cursor],
+           (unsigned)synth_app.wave_brush);
+  solar_os_gfx_text(gfx, 6, piano_y - 8, editor_status);
+
+  synth_draw_piano(gfx, 6, piano_y, width - 12, 63);
+  solar_os_gfx_text(gfx, 6, height - 6,
+                    width >= 380
+                        ? "Tab play Enter steps B base R reset M smooth N norm"
+                        : "Enter steps B base R reset M smooth N norm");
+}
+
 static void synth_render(solar_os_context_t *ctx) {
   solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
   if (gfx == NULL || synth_app.suspended) {
@@ -401,24 +774,17 @@ static void synth_render(solar_os_context_t *ctx) {
   synth_app.volume = audio_status.volume;
 
   solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-  solar_os_gfx_text(gfx, 6, 18, "SYNTH");
+  synth_draw_header(gfx, &status);
 
-  char header[96];
-  const esp_err_t display_error =
-      synth_app.last_error != ESP_OK ? synth_app.last_error : status.last_error;
-  if (display_error != ESP_OK) {
-    snprintf(header, sizeof(header), "audio: %s",
-             esp_err_to_name(display_error));
-  } else {
-    snprintf(header, sizeof(header), "oct %d vel %u voices %u %uHz miss %u",
-             synth_app.octave, (unsigned)synth_app.velocity,
-             (unsigned)status.active_voices, (unsigned)status.sample_rate,
-             (unsigned)status.render_deadline_misses);
+  if (synth_app.tab == SYNTH_TAB_WAVE) {
+    synth_draw_wave_editor(gfx, width, height);
+    solar_os_gfx_present(gfx);
+    synth_app.last_active_voices = status.active_voices;
+    synth_app.last_deadline_misses = status.render_deadline_misses;
+    synth_app.last_running = status.running;
+    synth_app.last_status_poll_ms = synth_now_ms();
+    return;
   }
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-  solar_os_gfx_text(gfx, 78, 17, header);
 
   const int graphs_top = 35;
   const int graphs_height = 70;
@@ -433,8 +799,8 @@ static void synth_render(solar_os_context_t *ctx) {
   }
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_12);
   solar_os_gfx_text(gfx, wave_x + 8, graphs_top + 16, "WAVE");
-  synth_draw_wave_icon(gfx, wave_x + 10, graphs_top + 25,
-                       wave_panel_width - 20, 27, &status);
+  synth_draw_wave_icon(gfx, wave_x + 10, graphs_top + 25, wave_panel_width - 20,
+                       27, &status);
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
   char wave_status[24];
   const char *wave_name = "?";
@@ -450,6 +816,9 @@ static void synth_render(solar_os_context_t *ctx) {
     break;
   case SOLAR_OS_SYNTH_WAVE_NOISE:
     wave_name = "NOISE";
+    break;
+  case SOLAR_OS_SYNTH_WAVE_CUSTOM:
+    wave_name = "USER";
     break;
   default:
     break;
@@ -640,8 +1009,8 @@ static void synth_adjust_selected(int direction) {
   if (synth_app.selected == SYNTH_CONTROL_WAVE) {
     int waveform = (int)synth_app.config.waveform + direction;
     if (waveform < SOLAR_OS_SYNTH_WAVE_SQUARE) {
-      waveform = SOLAR_OS_SYNTH_WAVE_NOISE;
-    } else if (waveform > SOLAR_OS_SYNTH_WAVE_NOISE) {
+      waveform = SOLAR_OS_SYNTH_WAVE_CUSTOM;
+    } else if (waveform > SOLAR_OS_SYNTH_WAVE_CUSTOM) {
       waveform = SOLAR_OS_SYNTH_WAVE_SQUARE;
     }
     synth_app.config.waveform = (solar_os_synth_waveform_t)waveform;
@@ -683,12 +1052,144 @@ static void synth_adjust_selected(int direction) {
       solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
 }
 
-static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
+static void synth_move_wave_cursor(int direction, size_t step) {
+  const size_t count = synth_app.wave_steps;
+  if (step >= count) {
+    step = count / 2U;
+  }
+  if (direction > 0) {
+    synth_app.wave_cursor = (synth_app.wave_cursor + step) % count;
+  } else {
+    synth_app.wave_cursor =
+        (synth_app.wave_cursor + count - (step % count)) % count;
+  }
+}
+
+static bool synth_handle_wave_control(uint8_t key) {
   switch (key) {
-  case SOLAR_OS_KEY_APP_EXIT:
-  case SOLAR_OS_KEY_ESCAPE:
+  case SOLAR_OS_KEY_LEFT:
+    synth_move_wave_cursor(-1, 1U);
+    return true;
+  case SOLAR_OS_KEY_RIGHT:
+    synth_move_wave_cursor(1, 1U);
+    return true;
+  case SOLAR_OS_KEY_SHIFT_LEFT:
+  case SOLAR_OS_KEY_CTRL_LEFT:
+    synth_move_wave_cursor(-1, 8U);
+    return true;
+  case SOLAR_OS_KEY_SHIFT_RIGHT:
+  case SOLAR_OS_KEY_CTRL_RIGHT:
+    synth_move_wave_cursor(1, 8U);
+    return true;
+  case SOLAR_OS_KEY_CTRL_SHIFT_LEFT:
+    synth_move_wave_cursor(-1, 32U);
+    return true;
+  case SOLAR_OS_KEY_CTRL_SHIFT_RIGHT:
+    synth_move_wave_cursor(1, 32U);
+    return true;
+  case SOLAR_OS_KEY_UP:
+  case SOLAR_OS_KEY_CTRL_UP:
+    synth_wavetable_draw(1, false);
+    return true;
+  case SOLAR_OS_KEY_DOWN:
+  case SOLAR_OS_KEY_CTRL_DOWN:
+    synth_wavetable_draw(-1, false);
+    return true;
+  case SOLAR_OS_KEY_SHIFT_UP:
+  case SOLAR_OS_KEY_CTRL_SHIFT_UP:
+    synth_wavetable_draw(1, true);
+    return true;
+  case SOLAR_OS_KEY_SHIFT_DOWN:
+  case SOLAR_OS_KEY_CTRL_SHIFT_DOWN:
+    synth_wavetable_draw(-1, true);
+    return true;
+  case SOLAR_OS_KEY_PAGE_UP:
+  case SOLAR_OS_KEY_SHIFT_PAGE_UP:
+    if (synth_app.octave < SYNTH_APP_OCTAVE_MAX) {
+      synth_app.octave++;
+    }
+    return true;
+  case SOLAR_OS_KEY_PAGE_DOWN:
+  case SOLAR_OS_KEY_SHIFT_PAGE_DOWN:
+    if (synth_app.octave > SYNTH_APP_OCTAVE_MIN) {
+      synth_app.octave--;
+    }
+    return true;
+  case SOLAR_OS_KEY_HOME:
+  case SOLAR_OS_KEY_SHIFT_HOME:
+  case SOLAR_OS_KEY_CTRL_HOME:
+  case SOLAR_OS_KEY_CTRL_SHIFT_HOME:
+    synth_app.wave_cursor = 0;
+    return true;
+  case SOLAR_OS_KEY_END:
+  case SOLAR_OS_KEY_SHIFT_END:
+  case SOLAR_OS_KEY_CTRL_END:
+  case SOLAR_OS_KEY_CTRL_SHIFT_END:
+    synth_app.wave_cursor = synth_app.wave_steps - 1U;
+    return true;
+  case SOLAR_OS_KEY_ENTER:
+    synth_wavetable_cycle_steps();
+    return true;
+  case '+':
+  case '=':
+    if (synth_app.wave_brush < synth_wavetable_brush_max()) {
+      synth_app.wave_brush++;
+    }
+    return true;
+  case '-':
+    if (synth_app.wave_brush > 0U) {
+      synth_app.wave_brush--;
+    }
+    return true;
+  case 'b':
+  case 'B':
+    synth_wavetable_seed(
+        (synth_wave_baseline_t)((synth_app.baseline + 1) % SYNTH_BASE_COUNT),
+        true);
+    return true;
+  case 'r':
+  case 'R':
+    synth_wavetable_seed(synth_app.baseline, true);
+    return true;
+  case 'm':
+  case 'M':
+    synth_wavetable_smooth();
+    return true;
+  case 'n':
+  case 'N':
+    synth_wavetable_normalize();
+    return true;
+  case '0':
+    synth_wavetable_seed(SYNTH_BASE_FLAT, true);
+    return true;
+  case '\b':
+  case 0x7fU:
+  case SOLAR_OS_KEY_DELETE:
+    synth_wavetable_undo();
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
+  if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE) {
     solar_os_context_request_exit(ctx);
     return true;
+  }
+  if (key == '\t') {
+    synth_app.tab =
+        synth_app.tab == SYNTH_TAB_PLAY ? SYNTH_TAB_WAVE : SYNTH_TAB_PLAY;
+    if (synth_app.tab == SYNTH_TAB_WAVE) {
+      synth_wavetable_commit();
+    }
+    return true;
+  }
+  if (synth_app.tab == SYNTH_TAB_WAVE) {
+    return synth_handle_wave_control(key);
+  }
+
+  switch (key) {
   case SOLAR_OS_KEY_LEFT:
   case SOLAR_OS_KEY_CTRL_LEFT:
   case SOLAR_OS_KEY_SHIFT_LEFT:
@@ -760,11 +1261,20 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
   };
   synth_app.octave = 4;
   synth_app.velocity = SOLAR_OS_SYNTH_VOICE_DEFAULT_VELOCITY;
+  synth_app.tab = SYNTH_TAB_PLAY;
+  synth_app.baseline = SYNTH_BASE_SQUARE;
+  synth_app.wave_steps = SYNTH_APP_DEFAULT_WAVE_STEPS;
+  synth_app.wave_cursor = synth_app.wave_steps / 4U;
+  synth_app.wave_brush = 1U;
+  synth_wavetable_fill(synth_app.baseline);
   solar_os_audio_status_t audio_status;
   solar_os_audio_get_status(&audio_status);
   synth_app.volume = audio_status.volume;
-  synth_app.last_error =
-      solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
+  synth_app.last_error = synth_wavetable_upload();
+  if (synth_app.last_error == ESP_OK) {
+    synth_app.last_error =
+        solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
+  }
   solar_os_context_set_graphics_active(ctx, true);
   synth_render(ctx);
   return ESP_OK;
@@ -784,8 +1294,11 @@ static void synth_suspend(solar_os_context_t *ctx) {
 
 static void synth_resume(solar_os_context_t *ctx) {
   synth_app.suspended = false;
-  synth_app.last_error =
-      solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
+  synth_app.last_error = synth_wavetable_upload();
+  if (synth_app.last_error == ESP_OK) {
+    synth_app.last_error =
+        solar_os_synth_voice_configure(SYNTH_APP_OWNER, &synth_app.config);
+  }
   solar_os_context_set_graphics_active(ctx, true);
   synth_render(ctx);
 }
@@ -865,7 +1378,7 @@ static bool synth_event(solar_os_context_t *ctx,
 
 const solar_os_app_t solar_os_synth_app = {
     .name = "synth",
-    .summary = "polyphonic synthesizer and sound lab",
+    .summary = "polyphonic synthesizer and waveform editor",
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_KEY_EVENTS,
     .start = synth_start,
     .suspend = synth_suspend,

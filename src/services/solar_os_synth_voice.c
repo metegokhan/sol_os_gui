@@ -54,6 +54,7 @@ typedef struct {
     int16_t pcm_max;
     size_t pcm_sample_count;
     int16_t pcm_samples[SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES];
+    int16_t wavetable[SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES];
 } voice_state_t;
 
 static voice_state_t voice_state;
@@ -68,12 +69,21 @@ static const solar_os_synth_voice_config_t default_config = {
     .release_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS,
 };
 
+static void voice_init_wavetable(void)
+{
+    for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES; i++) {
+        voice_state.wavetable[i] =
+            i < SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES / 2U ? -32767 : 32767;
+    }
+}
+
 static esp_err_t voice_ensure_mutex(void)
 {
     portENTER_CRITICAL(&voice_init_lock);
     if (voice_state.mutex == NULL) {
         voice_state.mutex = xSemaphoreCreateMutexStatic(&voice_mutex_storage);
         voice_state.config = default_config;
+        voice_init_wavetable();
     }
     SemaphoreHandle_t mutex = voice_state.mutex;
     portEXIT_CRITICAL(&voice_init_lock);
@@ -100,7 +110,7 @@ static bool voice_config_valid(const solar_os_synth_voice_config_t *config)
 {
     return config != NULL &&
            config->waveform >= SOLAR_OS_SYNTH_WAVE_SQUARE &&
-           config->waveform <= SOLAR_OS_SYNTH_WAVE_NOISE &&
+           config->waveform <= SOLAR_OS_SYNTH_WAVE_CUSTOM &&
            config->attack_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
            config->decay_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
            config->sustain_percent <= 100U &&
@@ -212,6 +222,16 @@ static int32_t voice_periodic_sample(solar_os_synth_waveform_t waveform,
                                      uint32_t phase)
 {
     switch (waveform) {
+    case SOLAR_OS_SYNTH_WAVE_CUSTOM: {
+        const size_t index = phase >> 24;
+        const size_t next =
+            (index + 1U) & (SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES - 1U);
+        const uint32_t fraction = (phase >> 8) & 0xffffU;
+        const int32_t first = voice_state.wavetable[index];
+        const int32_t difference = voice_state.wavetable[next] - first;
+        return first +
+               (int32_t)(((int64_t)difference * fraction) >> 16);
+    }
     case SOLAR_OS_SYNTH_WAVE_TRIANGLE:
         return phase < 0x80000000U
                    ? -32767 + (int32_t)(phase >> 15)
@@ -273,7 +293,8 @@ static void voice_render(int16_t *samples,
 
     for (size_t frame = 0; frame < frames; frame++) {
         int32_t mixed = 0;
-        uint32_t mixed_voices = 0;
+        uint32_t active_voices = 0;
+        uint32_t envelope_total = 0;
         for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_MAX; i++) {
             synth_voice_t *voice = &voice_state.voices[i];
             if (!voice->active) {
@@ -288,11 +309,17 @@ static void voice_render(int16_t *samples,
                 (wave * (int32_t)voice->velocity) /
                 (int32_t)SOLAR_OS_SYNTH_VOICE_VELOCITY_MAX;
             mixed += (int32_t)(((int64_t)velocity_sample * voice->envelope) >> 16);
-            mixed_voices++;
+            active_voices++;
+            envelope_total += voice->envelope;
             voice_advance_envelope(voice, sample_rate);
         }
-        if (mixed_voices > 1U) {
-            mixed /= (int32_t)mixed_voices;
+        /* Counting active slots causes a hard gain step when a silent attack
+         * slot appears or a faded release slot disappears. Normalize only the
+         * envelope energy above one full voice so polyphonic headroom follows
+         * attack and release continuously. */
+        if (envelope_total > ENVELOPE_MAX) {
+            mixed = (int32_t)(((int64_t)mixed * ENVELOPE_MAX) /
+                              envelope_total);
         }
         /* Match the proven tone-generator headroom before codec volume. */
         mixed = (int32_t)(((int64_t)mixed * VOICE_OUTPUT_PEAK) / INT16_MAX);
@@ -305,7 +332,7 @@ static void voice_render(int16_t *samples,
         samples[frame * 2U] = pcm;
         samples[(frame * 2U) + 1U] = pcm;
 
-        if (mixed_voices > 0U) {
+        if (active_voices > 0U) {
             pcm_active = true;
             pcm_active_frames++;
             if (pcm < pcm_min) {
@@ -403,6 +430,8 @@ const char *solar_os_synth_waveform_name(solar_os_synth_waveform_t waveform)
         return "saw";
     case SOLAR_OS_SYNTH_WAVE_NOISE:
         return "noise";
+    case SOLAR_OS_SYNTH_WAVE_CUSTOM:
+        return "custom";
     default:
         return "unknown";
     }
@@ -590,6 +619,47 @@ esp_err_t solar_os_synth_voice_stop(const char *owner)
         voice_unlock();
     }
     return err;
+}
+
+esp_err_t solar_os_synth_voice_set_wavetable(const char *owner,
+                                             const int16_t *samples,
+                                             size_t sample_count)
+{
+    if (owner == NULL || owner[0] == '\0' || samples == NULL ||
+        sample_count != SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = voice_ensure_mutex();
+    if (err != ESP_OK) {
+        return err;
+    }
+    voice_lock();
+    if (voice_state.claimed && !voice_owner_matches(owner)) {
+        voice_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    memcpy(voice_state.wavetable,
+           samples,
+           sizeof(voice_state.wavetable));
+    voice_unlock();
+    return ESP_OK;
+}
+
+esp_err_t solar_os_synth_voice_get_wavetable(int16_t *samples,
+                                             size_t sample_count)
+{
+    if (samples == NULL ||
+        sample_count != SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = voice_ensure_mutex();
+    if (err != ESP_OK) {
+        return err;
+    }
+    voice_lock();
+    memcpy(samples, voice_state.wavetable, sizeof(voice_state.wavetable));
+    voice_unlock();
+    return ESP_OK;
 }
 
 void solar_os_synth_voice_get_status(solar_os_synth_voice_status_t *status)
