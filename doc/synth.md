@@ -79,8 +79,15 @@ the piano remains active.
 The Oscillator 2 tab shows both sources and provides waveform, octave from -2
 through +2, fine detune from -100 through +100 cents, and mix from 0 through
 100 percent. Both oscillators use the same custom wavetable when selected.
-All four tabs use the same compact piano, `Tab` cycles between them, and number
-keys `1` through `4` select them directly.
+The Preset tab contains eight read-only factory sounds and eight user slots.
+`Enter` loads the selected patch and `V` saves the complete current sound to a
+user slot. A patch contains both oscillators, amplifier and filter envelopes,
+filter controls, and the custom wavetable; performance octave, velocity, and
+global speaker volume remain unchanged. User slots are stored as versioned,
+checksummed files below `.solar/synth/presets` on the preferred persistent
+volume, with internal flash used when no SD card is mounted.
+All five tabs use the same compact piano, `Tab` cycles between them, and number
+keys `1` through `5` select them directly.
 
 The app also shows current octave and velocity, active voices, sample rate, and
 audio errors. Keyboard press and release events sustain held notes and support

@@ -1,14 +1,18 @@
 #include "solar_os_synth_app.h"
 
+#include <errno.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "esp_timer.h"
 #include "solar_os_audio.h"
 #include "solar_os_gfx.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
+#include "solar_os_storage.h"
 #include "solar_os_synth_voice.h"
 
 #define SYNTH_APP_OWNER "app:synth"
@@ -26,12 +30,19 @@
 #define SYNTH_APP_TWO_PI 6.28318530717958647692f
 #define SYNTH_APP_PIANO_HEIGHT 63
 #define SYNTH_APP_PIANO_BOTTOM_OFFSET 90
+#define SYNTH_APP_FACTORY_PRESET_COUNT 8U
+#define SYNTH_APP_USER_PRESET_COUNT 8U
+#define SYNTH_APP_PRESET_WAVE_STEPS_MAX 64U
+#define SYNTH_APP_PRESET_MAGIC 0x53595052UL
+#define SYNTH_APP_PRESET_VERSION 1U
+#define SYNTH_APP_PRESET_DIRECTORY ".solar/synth/presets"
 
 typedef enum {
   SYNTH_TAB_PLAY = 0,
   SYNTH_TAB_WAVE,
   SYNTH_TAB_FILTER,
   SYNTH_TAB_OSCILLATOR2,
+  SYNTH_TAB_PRESET,
   SYNTH_TAB_COUNT,
 } synth_tab_t;
 
@@ -74,6 +85,12 @@ typedef enum {
   SYNTH_OSCILLATOR2_CONTROL_COUNT,
 } synth_oscillator2_control_t;
 
+typedef enum {
+  SYNTH_PRESET_SLOT_EMPTY = 0,
+  SYNTH_PRESET_SLOT_SAVED,
+  SYNTH_PRESET_SLOT_INVALID,
+} synth_preset_slot_state_t;
+
 typedef struct {
   bool active;
   solar_os_input_source_t source;
@@ -83,6 +100,18 @@ typedef struct {
   uint32_t release_at_ms;
   uint8_t semitone;
 } synth_held_note_t;
+
+typedef struct {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t size;
+  solar_os_synth_voice_config_t config;
+  uint8_t baseline;
+  uint8_t wave_steps;
+  uint16_t reserved;
+  int16_t wavetable[SYNTH_APP_PRESET_WAVE_STEPS_MAX];
+  uint32_t crc32;
+} synth_preset_file_t;
 
 typedef struct {
   solar_os_synth_voice_config_t config;
@@ -103,6 +132,9 @@ typedef struct {
   int16_t wavetable[SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES];
   int16_t wavetable_undo[SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES];
   bool wavetable_undo_valid;
+  size_t preset_selected;
+  synth_preset_slot_state_t preset_slots[SYNTH_APP_USER_PRESET_COUNT];
+  char preset_message[40];
   esp_err_t last_error;
   size_t last_active_voices;
   uint32_t last_deadline_misses;
@@ -144,6 +176,335 @@ static const uint16_t synth_note_usages[] = {
 };
 
 static const uint16_t synth_wavetable_step_counts[] = {16U, 32U, 64U};
+
+static const char *const synth_factory_preset_names[] = {
+    "ANALOG BASS", "POLY BRASS",  "SYNTH STRINGS", "DIGI E.PIANO",
+    "DIGITAL BELL", "MONO LEAD", "SEQ PLUCK",     "DREAM PAD",
+};
+
+static solar_os_synth_voice_config_t synth_default_config(void) {
+  return (solar_os_synth_voice_config_t){
+      .waveform = SOLAR_OS_SYNTH_WAVE_SQUARE,
+      .attack_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_ATTACK_MS,
+      .decay_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_DECAY_MS,
+      .sustain_percent = SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT,
+      .release_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS,
+      .oscillator2 =
+          {
+              .waveform = SOLAR_OS_SYNTH_WAVE_SQUARE,
+              .octave = SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_OCTAVE,
+              .detune_cents =
+                  SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_DETUNE_CENTS,
+              .mix_percent =
+                  SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_MIX_PERCENT,
+          },
+      .filter =
+          {
+              .cutoff_hz = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_CUTOFF_HZ,
+              .resonance_percent =
+                  SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RESONANCE_PERCENT,
+              .envelope_amount_percent =
+                  SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ENVELOPE_AMOUNT_PERCENT,
+              .attack_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ATTACK_MS,
+              .decay_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_DECAY_MS,
+              .sustain_percent =
+                  SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_SUSTAIN_PERCENT,
+              .release_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RELEASE_MS,
+          },
+  };
+}
+
+static solar_os_synth_voice_config_t
+synth_factory_preset_config(size_t index, synth_wave_baseline_t *baseline,
+                            size_t *wave_steps) {
+  solar_os_synth_voice_config_t config = synth_default_config();
+  *baseline = SYNTH_BASE_SQUARE;
+  *wave_steps = SYNTH_APP_DEFAULT_WAVE_STEPS;
+  switch (index) {
+  case 0:
+    config.waveform = SOLAR_OS_SYNTH_WAVE_SAW;
+    config.attack_ms = 5U;
+    config.decay_ms = 120U;
+    config.sustain_percent = 65U;
+    config.release_ms = 180U;
+    config.oscillator2.waveform = SOLAR_OS_SYNTH_WAVE_SQUARE;
+    config.oscillator2.octave = -1;
+    config.oscillator2.mix_percent = 40U;
+    config.filter.cutoff_hz = 500U;
+    config.filter.resonance_percent = 20U;
+    config.filter.envelope_amount_percent = 70U;
+    config.filter.attack_ms = 5U;
+    config.filter.decay_ms = 250U;
+    config.filter.sustain_percent = 15U;
+    config.filter.release_ms = 180U;
+    *baseline = SYNTH_BASE_SAW;
+    break;
+  case 1:
+    config.waveform = SOLAR_OS_SYNTH_WAVE_SAW;
+    config.attack_ms = 20U;
+    config.decay_ms = 350U;
+    config.sustain_percent = 75U;
+    config.release_ms = 350U;
+    config.oscillator2.waveform = SOLAR_OS_SYNTH_WAVE_SQUARE;
+    config.oscillator2.detune_cents = 7;
+    config.oscillator2.mix_percent = 30U;
+    config.filter.cutoff_hz = 1200U;
+    config.filter.resonance_percent = 15U;
+    config.filter.envelope_amount_percent = 70U;
+    config.filter.attack_ms = 20U;
+    config.filter.decay_ms = 500U;
+    config.filter.sustain_percent = 50U;
+    config.filter.release_ms = 350U;
+    *baseline = SYNTH_BASE_SAW;
+    break;
+  case 2:
+    config.waveform = SOLAR_OS_SYNTH_WAVE_SAW;
+    config.attack_ms = 250U;
+    config.decay_ms = 750U;
+    config.sustain_percent = 85U;
+    config.release_ms = 1500U;
+    config.oscillator2.waveform = SOLAR_OS_SYNTH_WAVE_SAW;
+    config.oscillator2.detune_cents = 12;
+    config.oscillator2.mix_percent = 45U;
+    config.filter.cutoff_hz = 3200U;
+    config.filter.resonance_percent = 10U;
+    config.filter.envelope_amount_percent = 20U;
+    config.filter.attack_ms = 500U;
+    config.filter.decay_ms = 1000U;
+    config.filter.sustain_percent = 70U;
+    config.filter.release_ms = 1500U;
+    *baseline = SYNTH_BASE_SAW;
+    break;
+  case 3:
+    config.waveform = SOLAR_OS_SYNTH_WAVE_TRIANGLE;
+    config.attack_ms = 5U;
+    config.decay_ms = 750U;
+    config.sustain_percent = 25U;
+    config.release_ms = 500U;
+    config.oscillator2.waveform = SOLAR_OS_SYNTH_WAVE_SINE;
+    config.oscillator2.octave = 1;
+    config.oscillator2.detune_cents = 5;
+    config.oscillator2.mix_percent = 30U;
+    config.filter.cutoff_hz = 4800U;
+    config.filter.resonance_percent = 10U;
+    config.filter.envelope_amount_percent = 25U;
+    config.filter.attack_ms = 5U;
+    config.filter.decay_ms = 500U;
+    config.filter.sustain_percent = 10U;
+    config.filter.release_ms = 500U;
+    *baseline = SYNTH_BASE_TRIANGLE;
+    break;
+  case 4:
+    config.waveform = SOLAR_OS_SYNTH_WAVE_SINE;
+    config.attack_ms = 0U;
+    config.decay_ms = 1500U;
+    config.sustain_percent = 0U;
+    config.release_ms = 2000U;
+    config.oscillator2.waveform = SOLAR_OS_SYNTH_WAVE_TRIANGLE;
+    config.oscillator2.octave = 2;
+    config.oscillator2.detune_cents = 7;
+    config.oscillator2.mix_percent = 45U;
+    config.filter.cutoff_hz = 10000U;
+    config.filter.resonance_percent = 25U;
+    config.filter.envelope_amount_percent = 10U;
+    config.filter.attack_ms = 0U;
+    config.filter.decay_ms = 1000U;
+    config.filter.sustain_percent = 0U;
+    config.filter.release_ms = 2000U;
+    *baseline = SYNTH_BASE_SINE;
+    break;
+  case 5:
+    config.waveform = SOLAR_OS_SYNTH_WAVE_SAW;
+    config.attack_ms = 5U;
+    config.decay_ms = 120U;
+    config.sustain_percent = 70U;
+    config.release_ms = 180U;
+    config.oscillator2.waveform = SOLAR_OS_SYNTH_WAVE_SQUARE;
+    config.oscillator2.detune_cents = -12;
+    config.oscillator2.mix_percent = 35U;
+    config.filter.cutoff_hz = 2200U;
+    config.filter.resonance_percent = 35U;
+    config.filter.envelope_amount_percent = 40U;
+    config.filter.attack_ms = 5U;
+    config.filter.decay_ms = 250U;
+    config.filter.sustain_percent = 30U;
+    config.filter.release_ms = 180U;
+    *baseline = SYNTH_BASE_SAW;
+    break;
+  case 6:
+    config.waveform = SOLAR_OS_SYNTH_WAVE_SAW;
+    config.attack_ms = 0U;
+    config.decay_ms = 120U;
+    config.sustain_percent = 0U;
+    config.release_ms = 80U;
+    config.oscillator2.waveform = SOLAR_OS_SYNTH_WAVE_SQUARE;
+    config.oscillator2.octave = 1;
+    config.oscillator2.mix_percent = 20U;
+    config.filter.cutoff_hz = 1500U;
+    config.filter.resonance_percent = 25U;
+    config.filter.envelope_amount_percent = 85U;
+    config.filter.attack_ms = 0U;
+    config.filter.decay_ms = 180U;
+    config.filter.sustain_percent = 0U;
+    config.filter.release_ms = 80U;
+    *baseline = SYNTH_BASE_SAW;
+    break;
+  case 7:
+    config.waveform = SOLAR_OS_SYNTH_WAVE_SINE;
+    config.attack_ms = 1000U;
+    config.decay_ms = 1500U;
+    config.sustain_percent = 80U;
+    config.release_ms = 3000U;
+    config.oscillator2.waveform = SOLAR_OS_SYNTH_WAVE_TRIANGLE;
+    config.oscillator2.detune_cents = 7;
+    config.oscillator2.mix_percent = 45U;
+    config.filter.cutoff_hz = 2200U;
+    config.filter.resonance_percent = 15U;
+    config.filter.envelope_amount_percent = 30U;
+    config.filter.attack_ms = 1000U;
+    config.filter.decay_ms = 2000U;
+    config.filter.sustain_percent = 65U;
+    config.filter.release_ms = 3000U;
+    *baseline = SYNTH_BASE_SINE;
+    break;
+  default:
+    break;
+  }
+  return config;
+}
+
+static uint32_t synth_preset_crc32(const void *data, size_t length) {
+  const uint8_t *bytes = data;
+  uint32_t crc = 0xffffffffUL;
+  for (size_t i = 0; i < length; i++) {
+    crc ^= bytes[i];
+    for (unsigned bit = 0; bit < 8U; bit++) {
+      crc = (crc & 1U) != 0U ? (crc >> 1) ^ 0xedb88320UL : crc >> 1;
+    }
+  }
+  return ~crc;
+}
+
+static bool synth_wave_steps_valid(size_t wave_steps) {
+  for (size_t i = 0; i < sizeof(synth_wavetable_step_counts) /
+                             sizeof(synth_wavetable_step_counts[0]);
+       i++) {
+    if (wave_steps == synth_wavetable_step_counts[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool
+synth_preset_config_valid(const solar_os_synth_voice_config_t *config) {
+  return config != NULL && config->waveform >= SOLAR_OS_SYNTH_WAVE_SQUARE &&
+         config->waveform <= SOLAR_OS_SYNTH_WAVE_CUSTOM &&
+         config->attack_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
+         config->decay_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
+         config->sustain_percent <= 100U &&
+         config->release_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
+         config->oscillator2.waveform >= SOLAR_OS_SYNTH_WAVE_SQUARE &&
+         config->oscillator2.waveform <= SOLAR_OS_SYNTH_WAVE_CUSTOM &&
+         config->oscillator2.octave >=
+             SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MIN &&
+         config->oscillator2.octave <=
+             SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MAX &&
+         config->oscillator2.detune_cents >=
+             SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MIN_CENTS &&
+         config->oscillator2.detune_cents <=
+             SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MAX_CENTS &&
+         config->oscillator2.mix_percent <= 100U &&
+         config->filter.cutoff_hz >=
+             SOLAR_OS_SYNTH_VOICE_FILTER_CUTOFF_MIN_HZ &&
+         config->filter.cutoff_hz <=
+             SOLAR_OS_SYNTH_VOICE_FILTER_CUTOFF_MAX_HZ &&
+         config->filter.resonance_percent <= 100U &&
+         config->filter.envelope_amount_percent <= 100U &&
+         config->filter.attack_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
+         config->filter.decay_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
+         config->filter.sustain_percent <= 100U &&
+         config->filter.release_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS;
+}
+
+static bool synth_preset_record_valid(const synth_preset_file_t *preset) {
+  return preset != NULL && preset->magic == SYNTH_APP_PRESET_MAGIC &&
+         preset->version == SYNTH_APP_PRESET_VERSION &&
+         preset->size == sizeof(*preset) &&
+         preset->baseline < SYNTH_BASE_COUNT &&
+         synth_wave_steps_valid(preset->wave_steps) &&
+         synth_preset_config_valid(&preset->config) &&
+         preset->crc32 ==
+             synth_preset_crc32(preset, offsetof(synth_preset_file_t, crc32));
+}
+
+static esp_err_t synth_preset_slot_path(size_t slot, const char *suffix,
+                                        char *path, size_t path_len) {
+  if (slot >= SYNTH_APP_USER_PRESET_COUNT || suffix == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  char relative[SOLAR_OS_STORAGE_PATH_MAX];
+  const int written =
+      snprintf(relative, sizeof(relative), "%s/slot%02u.syp%s",
+               SYNTH_APP_PRESET_DIRECTORY, (unsigned)(slot + 1U), suffix);
+  if (written < 0 || (size_t)written >= sizeof(relative)) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  return solar_os_storage_default_path(relative, path, path_len);
+}
+
+static esp_err_t synth_preset_read_slot(size_t slot,
+                                        synth_preset_file_t *preset) {
+  if (preset == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  char path[SOLAR_OS_STORAGE_PATH_MAX];
+  esp_err_t err = synth_preset_slot_path(slot, "", path, sizeof(path));
+  if (err != ESP_OK) {
+    return err;
+  }
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+  }
+  const bool valid_size = fread(preset, sizeof(*preset), 1, file) == 1 &&
+                          fgetc(file) == EOF && !ferror(file);
+  if (fclose(file) != 0 || !valid_size) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  return synth_preset_record_valid(preset) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+}
+
+static void synth_preset_scan_slots(void) {
+  for (size_t slot = 0; slot < SYNTH_APP_USER_PRESET_COUNT; slot++) {
+    synth_preset_file_t preset;
+    const esp_err_t err = synth_preset_read_slot(slot, &preset);
+    synth_app.preset_slots[slot] = err == ESP_OK ? SYNTH_PRESET_SLOT_SAVED
+                                   : err == ESP_ERR_NOT_FOUND
+                                       ? SYNTH_PRESET_SLOT_EMPTY
+                                       : SYNTH_PRESET_SLOT_INVALID;
+  }
+}
+
+static esp_err_t synth_preset_ensure_directory(void) {
+  static const char *const directories[] = {
+      ".solar",
+      ".solar/synth",
+      SYNTH_APP_PRESET_DIRECTORY,
+  };
+  char path[SOLAR_OS_STORAGE_PATH_MAX];
+  for (size_t i = 0; i < sizeof(directories) / sizeof(directories[0]); i++) {
+    esp_err_t err =
+        solar_os_storage_default_path(directories[i], path, sizeof(path));
+    if (err != ESP_OK) {
+      return err;
+    }
+    if (solar_os_storage_mkdir(path) != ESP_OK && errno != EEXIST) {
+      return ESP_FAIL;
+    }
+  }
+  return ESP_OK;
+}
 
 static uint32_t synth_now_ms(void) {
   return (uint32_t)(esp_timer_get_time() / 1000ULL);
@@ -254,15 +615,21 @@ static void synth_wavetable_snapshot(void) {
   synth_app.wavetable_undo_valid = true;
 }
 
-static esp_err_t synth_wavetable_upload(void) {
+static esp_err_t synth_wavetable_upload_values(const int16_t *wavetable,
+                                               size_t wave_steps) {
   int16_t playback_table[SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES];
   for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES; i++) {
-    playback_table[i] = synth_wavetable_interpolate(
-        synth_app.wavetable, synth_app.wave_steps, i * synth_app.wave_steps,
-        SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES);
+    playback_table[i] =
+        synth_wavetable_interpolate(wavetable, wave_steps, i * wave_steps,
+                                    SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES);
   }
   return solar_os_synth_voice_set_wavetable(
       SYNTH_APP_OWNER, playback_table, SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES);
+}
+
+static esp_err_t synth_wavetable_upload(void) {
+  return synth_wavetable_upload_values(synth_app.wavetable,
+                                       synth_app.wave_steps);
 }
 
 static void synth_wavetable_commit(void) {
@@ -274,14 +641,13 @@ static void synth_wavetable_commit(void) {
   synth_app.last_error = err;
 }
 
-static void synth_wavetable_fill(synth_wave_baseline_t baseline) {
-  synth_app.baseline = baseline;
-  memset(synth_app.wavetable, 0, sizeof(synth_app.wavetable));
+static void synth_wavetable_fill_values(int16_t *wavetable, size_t wave_steps,
+                                        synth_wave_baseline_t baseline) {
+  memset(wavetable, 0, sizeof(*wavetable) * SYNTH_APP_PRESET_WAVE_STEPS_MAX);
   int32_t peak = 0;
-  for (size_t i = 0; i < synth_app.wave_steps; i++) {
-    synth_app.wavetable[i] =
-        synth_baseline_sample(baseline, i, synth_app.wave_steps);
-    int32_t magnitude = synth_app.wavetable[i];
+  for (size_t i = 0; i < wave_steps; i++) {
+    wavetable[i] = synth_baseline_sample(baseline, i, wave_steps);
+    int32_t magnitude = wavetable[i];
     if (magnitude < 0) {
       magnitude = -magnitude;
     }
@@ -290,11 +656,16 @@ static void synth_wavetable_fill(synth_wave_baseline_t baseline) {
     }
   }
   if (baseline == SYNTH_BASE_SUPERSAW && peak > 0 && peak < 32767) {
-    for (size_t i = 0; i < synth_app.wave_steps; i++) {
-      synth_app.wavetable[i] =
-          (int16_t)(((int32_t)synth_app.wavetable[i] * 32767) / peak);
+    for (size_t i = 0; i < wave_steps; i++) {
+      wavetable[i] = (int16_t)(((int32_t)wavetable[i] * 32767) / peak);
     }
   }
+}
+
+static void synth_wavetable_fill(synth_wave_baseline_t baseline) {
+  synth_app.baseline = baseline;
+  synth_wavetable_fill_values(synth_app.wavetable, synth_app.wave_steps,
+                              baseline);
 }
 
 static void synth_wavetable_seed(synth_wave_baseline_t baseline,
@@ -304,6 +675,176 @@ static void synth_wavetable_seed(synth_wave_baseline_t baseline,
   }
   synth_wavetable_fill(baseline);
   synth_wavetable_commit();
+}
+
+static esp_err_t synth_preset_apply(const solar_os_synth_voice_config_t *config,
+                                    synth_wave_baseline_t baseline,
+                                    size_t wave_steps,
+                                    const int16_t *wavetable) {
+  if (!synth_preset_config_valid(config) || baseline >= SYNTH_BASE_COUNT ||
+      !synth_wave_steps_valid(wave_steps) || wavetable == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  esp_err_t err = synth_wavetable_upload_values(wavetable, wave_steps);
+  if (err == ESP_OK) {
+    err = solar_os_synth_voice_configure(SYNTH_APP_OWNER, config);
+  }
+  if (err != ESP_OK) {
+    return err;
+  }
+  synth_app.config = *config;
+  synth_app.baseline = baseline;
+  synth_app.wave_steps = wave_steps;
+  memset(synth_app.wavetable, 0, sizeof(synth_app.wavetable));
+  memcpy(synth_app.wavetable, wavetable,
+         wave_steps * sizeof(synth_app.wavetable[0]));
+  synth_app.wave_cursor = wave_steps / 4U;
+  if (synth_app.wave_brush > synth_wavetable_brush_max()) {
+    synth_app.wave_brush = synth_wavetable_brush_max();
+  }
+  synth_app.wavetable_undo_valid = false;
+  synth_app.last_error = ESP_OK;
+  return ESP_OK;
+}
+
+static esp_err_t synth_preset_load_factory(size_t index) {
+  if (index >= SYNTH_APP_FACTORY_PRESET_COUNT) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  synth_wave_baseline_t baseline;
+  size_t wave_steps;
+  const solar_os_synth_voice_config_t config =
+      synth_factory_preset_config(index, &baseline, &wave_steps);
+  int16_t wavetable[SYNTH_APP_PRESET_WAVE_STEPS_MAX];
+  synth_wavetable_fill_values(wavetable, wave_steps, baseline);
+  const esp_err_t err =
+      synth_preset_apply(&config, baseline, wave_steps, wavetable);
+  snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
+           err == ESP_OK ? "loaded %s" : "load failed: %s",
+           err == ESP_OK ? synth_factory_preset_names[index]
+                         : esp_err_to_name(err));
+  return err;
+}
+
+static esp_err_t synth_preset_load_user(size_t slot) {
+  synth_preset_file_t preset;
+  esp_err_t err = synth_preset_read_slot(slot, &preset);
+  if (err == ESP_OK) {
+    err = synth_preset_apply(&preset.config,
+                             (synth_wave_baseline_t)preset.baseline,
+                             preset.wave_steps, preset.wavetable);
+  }
+  if (err == ESP_ERR_NOT_FOUND) {
+    snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
+             "user %u is empty", (unsigned)(slot + 1U));
+  } else if (err == ESP_OK) {
+    snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
+             "loaded user %u", (unsigned)(slot + 1U));
+  } else {
+    snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
+             "load failed: %s", esp_err_to_name(err));
+  }
+  synth_app.preset_slots[slot] = err == ESP_OK ? SYNTH_PRESET_SLOT_SAVED
+                                 : err == ESP_ERR_NOT_FOUND
+                                     ? SYNTH_PRESET_SLOT_EMPTY
+                                     : SYNTH_PRESET_SLOT_INVALID;
+  return err;
+}
+
+static esp_err_t synth_preset_write_user(size_t slot) {
+  if (slot >= SYNTH_APP_USER_PRESET_COUNT) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  esp_err_t err = synth_preset_ensure_directory();
+  if (err != ESP_OK) {
+    return err;
+  }
+  synth_preset_file_t preset;
+  memset(&preset, 0, sizeof(preset));
+  preset.magic = SYNTH_APP_PRESET_MAGIC;
+  preset.version = SYNTH_APP_PRESET_VERSION;
+  preset.size = sizeof(preset);
+  preset.config = synth_app.config;
+  preset.baseline = (uint8_t)synth_app.baseline;
+  preset.wave_steps = (uint8_t)synth_app.wave_steps;
+  memcpy(preset.wavetable, synth_app.wavetable,
+         synth_app.wave_steps * sizeof(preset.wavetable[0]));
+  preset.crc32 =
+      synth_preset_crc32(&preset, offsetof(synth_preset_file_t, crc32));
+
+  char path[SOLAR_OS_STORAGE_PATH_MAX];
+  char temporary[SOLAR_OS_STORAGE_PATH_MAX];
+  char backup[SOLAR_OS_STORAGE_PATH_MAX];
+  if (synth_preset_slot_path(slot, "", path, sizeof(path)) != ESP_OK ||
+      synth_preset_slot_path(slot, ".tmp", temporary, sizeof(temporary)) !=
+          ESP_OK ||
+      synth_preset_slot_path(slot, ".bak", backup, sizeof(backup)) != ESP_OK) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  (void)solar_os_storage_remove(temporary);
+  FILE *file = fopen(temporary, "wb");
+  if (file == NULL) {
+    return ESP_FAIL;
+  }
+  const bool write_failed = fwrite(&preset, sizeof(preset), 1, file) != 1 ||
+                            fflush(file) != 0 || fsync(fileno(file)) != 0;
+  if (fclose(file) != 0 || write_failed) {
+    (void)solar_os_storage_remove(temporary);
+    return ESP_FAIL;
+  }
+
+  (void)solar_os_storage_remove(backup);
+  bool had_previous = false;
+  if (solar_os_storage_rename(path, backup) == ESP_OK) {
+    had_previous = true;
+  } else if (errno != ENOENT) {
+    (void)solar_os_storage_remove(temporary);
+    return ESP_FAIL;
+  }
+  err = solar_os_storage_rename(temporary, path);
+  if (err != ESP_OK) {
+    if (had_previous) {
+      (void)solar_os_storage_rename(backup, path);
+    }
+    (void)solar_os_storage_remove(temporary);
+    return err;
+  }
+  (void)solar_os_storage_remove(backup);
+  return ESP_OK;
+}
+
+static void synth_preset_load_selected(void) {
+  if (synth_app.preset_selected < SYNTH_APP_FACTORY_PRESET_COUNT) {
+    (void)synth_preset_load_factory(synth_app.preset_selected);
+  } else {
+    (void)synth_preset_load_user(synth_app.preset_selected -
+                                 SYNTH_APP_FACTORY_PRESET_COUNT);
+  }
+}
+
+static void synth_preset_save_selected(void) {
+  if (synth_app.preset_selected < SYNTH_APP_FACTORY_PRESET_COUNT) {
+    snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
+             "factory presets are read-only");
+    return;
+  }
+  const size_t slot =
+      synth_app.preset_selected - SYNTH_APP_FACTORY_PRESET_COUNT;
+  const esp_err_t err = synth_preset_write_user(slot);
+  if (err == ESP_OK) {
+    synth_app.preset_slots[slot] = SYNTH_PRESET_SLOT_SAVED;
+    snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
+             "saved user %u", (unsigned)(slot + 1U));
+  } else {
+    synth_preset_file_t existing;
+    const esp_err_t read_error = synth_preset_read_slot(slot, &existing);
+    synth_app.preset_slots[slot] =
+        read_error == ESP_OK              ? SYNTH_PRESET_SLOT_SAVED
+        : read_error == ESP_ERR_NOT_FOUND ? SYNTH_PRESET_SLOT_EMPTY
+                                          : SYNTH_PRESET_SLOT_INVALID;
+    snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
+             "save failed: %s", esp_err_to_name(err));
+  }
 }
 
 static void synth_wavetable_draw(int direction, bool large_step) {
@@ -784,27 +1325,19 @@ static void synth_draw_header(solar_os_gfx_t *gfx,
 
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
   const bool compact = width < 380;
-  const char *tabs = compact ? "P W F O2" : "PLAY WAVE FILT OSC2";
-  if (compact) {
-    if (synth_app.tab == SYNTH_TAB_PLAY) {
-      tabs = "[P] W F O2";
-    } else if (synth_app.tab == SYNTH_TAB_WAVE) {
-      tabs = "P [W] F O2";
-    } else if (synth_app.tab == SYNTH_TAB_FILTER) {
-      tabs = "P W [F] O2";
-    } else if (synth_app.tab == SYNTH_TAB_OSCILLATOR2) {
-      tabs = "P W F [O2]";
-    }
-  } else if (synth_app.tab == SYNTH_TAB_PLAY) {
-    tabs = "[PLAY] WAVE FILT OSC2";
+  const char *tabs = "1P 2W 3F 4O 5R";
+  if (synth_app.tab == SYNTH_TAB_PLAY) {
+    tabs = "[1P] 2W 3F 4O 5R";
   } else if (synth_app.tab == SYNTH_TAB_WAVE) {
-    tabs = "PLAY [WAVE] FILT OSC2";
+    tabs = "1P [2W] 3F 4O 5R";
   } else if (synth_app.tab == SYNTH_TAB_FILTER) {
-    tabs = "PLAY WAVE [FILT] OSC2";
+    tabs = "1P 2W [3F] 4O 5R";
   } else if (synth_app.tab == SYNTH_TAB_OSCILLATOR2) {
-    tabs = "PLAY WAVE FILT [OSC2]";
+    tabs = "1P 2W 3F [4O] 5R";
+  } else if (synth_app.tab == SYNTH_TAB_PRESET) {
+    tabs = "1P 2W 3F 4O [5R]";
   }
-  solar_os_gfx_text(gfx, compact ? 64 : 62, 17, tabs);
+  solar_os_gfx_text(gfx, 62, 17, tabs);
 
   char header[64];
   const esp_err_t display_error = synth_app.last_error != ESP_OK
@@ -822,7 +1355,7 @@ static void synth_draw_header(solar_os_gfx_t *gfx,
              (unsigned)status->sample_rate,
              (unsigned)status->render_deadline_misses);
   }
-  solar_os_gfx_text(gfx, compact ? 150 : 218, 17, header);
+  solar_os_gfx_text(gfx, compact ? 194 : 202, 17, header);
 }
 
 static void synth_draw_wave_editor(solar_os_gfx_t *gfx, int width, int height) {
@@ -898,7 +1431,7 @@ static void synth_draw_wave_editor(solar_os_gfx_t *gfx, int width, int height) {
   synth_draw_piano(gfx, 6, piano_y, width - 12, SYNTH_APP_PIANO_HEIGHT);
   solar_os_gfx_text(gfx, 6, height - 6,
                     width >= 380
-                        ? "1-4 tabs Enter steps B base R reset M smooth N norm"
+                        ? "1-5 tabs Enter steps B base R reset M smooth N norm"
                         : "Enter steps B base R reset M smooth N norm");
 }
 
@@ -1116,6 +1649,56 @@ static void synth_draw_oscillator2_editor(solar_os_gfx_t *gfx, int width,
                     "Arrows select/tune  PgUp/Dn octave  +/- velocity");
 }
 
+static void synth_draw_preset_editor(solar_os_gfx_t *gfx, int width,
+                                     int height) {
+  const bool compact = height < 280;
+  const int piano_y = height - SYNTH_APP_PIANO_BOTTOM_OFFSET;
+  const int gap = 6;
+  const int cell_width = (width - 18) / 2;
+  const int factory_x = 6;
+  const int user_x = factory_x + cell_width + gap;
+  const int rows_top = compact ? 50 : 54;
+  const int row_height = compact ? 12 : 17;
+
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_12);
+  solar_os_gfx_text(gfx, factory_x + 4, rows_top - 5, "FACTORY");
+  solar_os_gfx_text(gfx, user_x + 4, rows_top - 5, "USER");
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+  for (size_t row = 0; row < SYNTH_APP_FACTORY_PRESET_COUNT; row++) {
+    const int y = rows_top + (int)row * row_height;
+    char factory_label[24];
+    snprintf(factory_label, sizeof(factory_label), "F%u  %s",
+             (unsigned)(row + 1U), synth_factory_preset_names[row]);
+    if (synth_app.preset_selected == row) {
+      solar_os_gfx_rect(gfx, factory_x, y, cell_width, row_height - 1);
+    }
+    solar_os_gfx_text(gfx, factory_x + 4, y + row_height - 3, factory_label);
+
+    const size_t user_index = SYNTH_APP_FACTORY_PRESET_COUNT + row;
+    const char *state =
+        synth_app.preset_slots[row] == SYNTH_PRESET_SLOT_SAVED     ? "SAVED"
+        : synth_app.preset_slots[row] == SYNTH_PRESET_SLOT_INVALID ? "INVALID"
+                                                                   : "EMPTY";
+    char user_label[24];
+    snprintf(user_label, sizeof(user_label), "U%u  %s", (unsigned)(row + 1U),
+             state);
+    if (synth_app.preset_selected == user_index) {
+      solar_os_gfx_rect(gfx, user_x, y, cell_width, row_height - 1);
+    }
+    solar_os_gfx_text(gfx, user_x + 4, y + row_height - 3, user_label);
+  }
+
+  if (!compact) {
+    solar_os_gfx_text(gfx, 6, piano_y - 8, synth_app.preset_message);
+  }
+  synth_draw_piano(gfx, 6, piano_y, width - 12, SYNTH_APP_PIANO_HEIGHT);
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+  solar_os_gfx_text(gfx, 6, height - 6,
+                    compact && synth_app.preset_message[0] != '\0'
+                        ? synth_app.preset_message
+                        : "Arrows select  Enter load  V save");
+}
+
 static void synth_render(solar_os_context_t *ctx) {
   solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
   if (gfx == NULL || synth_app.suspended) {
@@ -1155,6 +1738,16 @@ static void synth_render(solar_os_context_t *ctx) {
 
   if (synth_app.tab == SYNTH_TAB_OSCILLATOR2) {
     synth_draw_oscillator2_editor(gfx, width, height);
+    solar_os_gfx_present(gfx);
+    synth_app.last_active_voices = status.active_voices;
+    synth_app.last_deadline_misses = status.render_deadline_misses;
+    synth_app.last_running = status.running;
+    synth_app.last_status_poll_ms = synth_now_ms();
+    return;
+  }
+
+  if (synth_app.tab == SYNTH_TAB_PRESET) {
+    synth_draw_preset_editor(gfx, width, height);
     solar_os_gfx_present(gfx);
     synth_app.last_active_voices = status.active_voices;
     synth_app.last_deadline_misses = status.render_deadline_misses;
@@ -1770,6 +2363,77 @@ static bool synth_handle_oscillator2_control(uint8_t key) {
   }
 }
 
+static bool synth_handle_preset_control(uint8_t key) {
+  const size_t row = synth_app.preset_selected % SYNTH_APP_FACTORY_PRESET_COUNT;
+  const bool user = synth_app.preset_selected >= SYNTH_APP_FACTORY_PRESET_COUNT;
+  switch (key) {
+  case SOLAR_OS_KEY_LEFT:
+  case SOLAR_OS_KEY_CTRL_LEFT:
+  case SOLAR_OS_KEY_SHIFT_LEFT:
+    synth_app.preset_selected = row;
+    return true;
+  case SOLAR_OS_KEY_RIGHT:
+  case SOLAR_OS_KEY_CTRL_RIGHT:
+  case SOLAR_OS_KEY_SHIFT_RIGHT:
+    synth_app.preset_selected = SYNTH_APP_FACTORY_PRESET_COUNT + row;
+    return true;
+  case SOLAR_OS_KEY_UP:
+  case SOLAR_OS_KEY_CTRL_UP:
+  case SOLAR_OS_KEY_SHIFT_UP: {
+    const size_t previous = (row + SYNTH_APP_FACTORY_PRESET_COUNT - 1U) %
+                            SYNTH_APP_FACTORY_PRESET_COUNT;
+    synth_app.preset_selected =
+        (user ? SYNTH_APP_FACTORY_PRESET_COUNT : 0U) + previous;
+    return true;
+  }
+  case SOLAR_OS_KEY_DOWN:
+  case SOLAR_OS_KEY_CTRL_DOWN:
+  case SOLAR_OS_KEY_SHIFT_DOWN: {
+    const size_t next = (row + 1U) % SYNTH_APP_FACTORY_PRESET_COUNT;
+    synth_app.preset_selected =
+        (user ? SYNTH_APP_FACTORY_PRESET_COUNT : 0U) + next;
+    return true;
+  }
+  case SOLAR_OS_KEY_ENTER:
+    synth_preset_load_selected();
+    return true;
+  case 'v':
+  case 'V':
+    synth_preset_save_selected();
+    return true;
+  case SOLAR_OS_KEY_PAGE_UP:
+  case SOLAR_OS_KEY_SHIFT_PAGE_UP:
+    if (synth_app.octave < SYNTH_APP_OCTAVE_MAX) {
+      synth_app.octave++;
+    }
+    return true;
+  case SOLAR_OS_KEY_PAGE_DOWN:
+  case SOLAR_OS_KEY_SHIFT_PAGE_DOWN:
+    if (synth_app.octave > SYNTH_APP_OCTAVE_MIN) {
+      synth_app.octave--;
+    }
+    return true;
+  case '+':
+  case '=':
+    if (synth_app.velocity <=
+        SOLAR_OS_SYNTH_VOICE_VELOCITY_MAX - SYNTH_APP_VELOCITY_STEP) {
+      synth_app.velocity += SYNTH_APP_VELOCITY_STEP;
+    } else {
+      synth_app.velocity = SOLAR_OS_SYNTH_VOICE_VELOCITY_MAX;
+    }
+    return true;
+  case '-':
+    if (synth_app.velocity > SYNTH_APP_VELOCITY_STEP) {
+      synth_app.velocity -= SYNTH_APP_VELOCITY_STEP;
+    } else {
+      synth_app.velocity = 1;
+    }
+    return true;
+  default:
+    return false;
+  }
+}
+
 static void synth_select_tab(synth_tab_t tab) {
   synth_app.tab = tab;
   if (synth_app.tab == SYNTH_TAB_WAVE) {
@@ -1787,7 +2451,7 @@ static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
         (synth_tab_t)((synth_app.tab + 1) % SYNTH_TAB_COUNT));
     return true;
   }
-  if (key >= '1' && key <= '4') {
+  if (key >= '1' && key <= '5') {
     synth_select_tab((synth_tab_t)(key - '1'));
     return true;
   }
@@ -1799,6 +2463,9 @@ static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
   }
   if (synth_app.tab == SYNTH_TAB_OSCILLATOR2) {
     return synth_handle_oscillator2_control(key);
+  }
+  if (synth_app.tab == SYNTH_TAB_PRESET) {
+    return synth_handle_preset_control(key);
   }
 
   switch (key) {
@@ -1864,33 +2531,7 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
   }
 
   memset(&synth_app, 0, sizeof(synth_app));
-  synth_app.config = (solar_os_synth_voice_config_t){
-      .waveform = SOLAR_OS_SYNTH_WAVE_SQUARE,
-      .attack_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_ATTACK_MS,
-      .decay_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_DECAY_MS,
-      .sustain_percent = SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT,
-      .release_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS,
-      .oscillator2 = {
-          .waveform = SOLAR_OS_SYNTH_WAVE_SQUARE,
-          .octave = SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_OCTAVE,
-          .detune_cents =
-              SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_DETUNE_CENTS,
-          .mix_percent =
-              SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_MIX_PERCENT,
-      },
-      .filter = {
-          .cutoff_hz = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_CUTOFF_HZ,
-          .resonance_percent =
-              SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RESONANCE_PERCENT,
-          .envelope_amount_percent =
-              SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ENVELOPE_AMOUNT_PERCENT,
-          .attack_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_ATTACK_MS,
-          .decay_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_DECAY_MS,
-          .sustain_percent =
-              SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_SUSTAIN_PERCENT,
-          .release_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_RELEASE_MS,
-      },
-  };
+  synth_app.config = synth_default_config();
   synth_app.octave = 4;
   synth_app.velocity = SOLAR_OS_SYNTH_VOICE_DEFAULT_VELOCITY;
   synth_app.tab = SYNTH_TAB_PLAY;
@@ -1898,6 +2539,9 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
   synth_app.wave_steps = SYNTH_APP_DEFAULT_WAVE_STEPS;
   synth_app.wave_cursor = synth_app.wave_steps / 4U;
   synth_app.wave_brush = 1U;
+  snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
+           "Arrows select  Enter load  V save");
+  synth_preset_scan_slots();
   synth_wavetable_fill(synth_app.baseline);
   solar_os_audio_status_t audio_status;
   solar_os_audio_get_status(&audio_status);

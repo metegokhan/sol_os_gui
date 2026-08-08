@@ -998,17 +998,19 @@ edits reshape held notes immediately while the piano remains playable. The
 Filter tab adds a resonant low-pass response graph, cutoff, resonance, envelope
 amount, and an independent graphical ADSR filter envelope. The Oscillator 2 tab
 adds a second per-note source with waveform, octave, fine detune, and unity-safe
-mix controls. Both oscillators share the filter and envelopes. The display also
-reports active voices, output sample rate, and audio errors. The volume button
-changes the shared SolarOS speaker volume.
+mix controls. Both oscillators share the filter and envelopes. The Preset tab
+provides eight factory sounds and eight persistent user slots. User presets
+capture both oscillators, both envelopes, the filter, and the complete custom
+wavetable. The display also reports active voices, output sample rate, and audio
+errors. The volume button changes the shared SolarOS speaker volume.
 
 Controls:
 
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
   physical, so the `Y` position is the `Z` key on a German keyboard. The piano
   remains active on all tabs.
-- `Tab` cycles through Play, Wave, Filter, and Oscillator 2. `1`, `2`, `3`, and
-  `4` select those tabs directly.
+- `Tab` cycles through Play, Wave, Filter, Oscillator 2, and Preset. Number keys
+  `1` through `5` select those tabs directly.
 - On Play, `Left`/`Right` selects the waveform, global volume, or an ADSR knob;
   `Up`/`Down` changes it, and `+`/`-` changes note velocity.
 - On Wave, `Left`/`Right` moves the edit cursor and `Up`/`Down` changes the
@@ -1026,6 +1028,9 @@ Controls:
   `Up`/`Down` changes it, and `+`/`-` changes note velocity. Octave ranges from
   -2 through +2, detune from -100 through +100 cents, and mix from 0 through
   100 percent.
+- On Preset, arrows select a factory or user slot and `Enter` loads it. `V`
+  saves the current sound to the selected user slot. Factory presets are
+  read-only.
 - `Page Up`/`Page Down` changes octave from 2 through 6 on any tab.
 - `Esc` or the app-exit key exits and immediately releases audio ownership.
 
