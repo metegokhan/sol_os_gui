@@ -41,6 +41,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+#include "solar_os_synth_voice.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
 #endif
@@ -131,6 +134,7 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PYTHON_TASK_STACK);
 #define PYTHON_REPL_SOURCE_MAX (2U * 1024U)
 #define PYTHON_STOP_WAIT_MS 1500
 #define PYTHON_DRAIN_EVENTS_PER_TICK 8U
+#define PYTHON_SLEEP_MAX_MS (60U * 60U * 1000U)
 
 typedef enum {
     PYTHON_EVENT_OUTPUT,
@@ -1228,6 +1232,38 @@ static mp_obj_t solaros_time_uptime_ms(void)
     return mp_obj_new_int_from_ull(solar_os_time_uptime_ms());
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_time_uptime_ms_obj, solaros_time_uptime_ms);
+
+static mp_obj_t solaros_time_sleep_ms(mp_obj_t duration_obj)
+{
+    const uint32_t duration_ms = python_u32_from_obj(duration_obj);
+    if (duration_ms > PYTHON_SLEEP_MAX_MS) {
+        mp_raise_ValueError(MP_ERROR_TEXT("sleep limited to 3600000 ms"));
+    }
+    if (duration_ms == 0) {
+        taskYIELD();
+        return mp_const_none;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    TickType_t duration_ticks = pdMS_TO_TICKS(duration_ms);
+    if (duration_ticks == 0) {
+        duration_ticks = 1;
+    }
+    while (!solar_os_micropython_stop_requested() &&
+           (xTaskGetTickCount() - started) < duration_ticks) {
+        const TickType_t elapsed = xTaskGetTickCount() - started;
+        const TickType_t remaining = duration_ticks - elapsed;
+        const TickType_t slice = remaining < pdMS_TO_TICKS(20)
+                                     ? remaining
+                                     : pdMS_TO_TICKS(20);
+        vTaskDelay(slice > 0 ? slice : 1);
+    }
+    if (solar_os_micropython_stop_requested()) {
+        mp_raise_type(&mp_type_KeyboardInterrupt);
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_time_sleep_ms_obj, solaros_time_sleep_ms);
 
 static mp_obj_t solaros_time_uptime(void)
 {
@@ -3316,6 +3352,126 @@ static mp_obj_t solaros_audio_play_wav(size_t n_args, const mp_obj_t *args)
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_audio_play_wav_obj, 1, 2, solaros_audio_play_wav);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+#define PYTHON_SYNTH_OWNER "python"
+
+static mp_obj_t solaros_synth_status(void)
+{
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+
+    mp_obj_t dict = mp_obj_new_dict(20);
+    python_dict_store_bool(dict, "running", status.running);
+    python_dict_store_cstr(dict, "owner", status.owner);
+    python_dict_store_cstr(dict,
+                           "waveform",
+                           solar_os_synth_waveform_name(status.config.waveform));
+    python_dict_store_uint(dict, "attack_ms", status.config.attack_ms);
+    python_dict_store_uint(dict, "decay_ms", status.config.decay_ms);
+    python_dict_store_uint(dict, "sustain_percent", status.config.sustain_percent);
+    python_dict_store_uint(dict, "release_ms", status.config.release_ms);
+    python_dict_store_uint(dict, "active_voices", status.active_voices);
+    python_dict_store_uint(dict, "max_voices", SOLAR_OS_SYNTH_VOICE_MAX);
+    python_dict_store_uint(dict, "stolen_voices", status.stolen_voices);
+    python_dict_store_uint(dict, "sample_rate", status.sample_rate);
+    python_dict_store_uint(dict,
+                           "render_deadline_misses",
+                           status.render_deadline_misses);
+    python_dict_store_cstr(dict,
+                           "pcm_waveform",
+                           solar_os_synth_waveform_name(status.pcm_waveform));
+    python_dict_store_uint(dict, "pcm_generation", status.pcm_generation);
+    python_dict_store_uint(dict, "pcm_hash", status.pcm_hash);
+    python_dict_store_uint(dict, "pcm_mean_abs", status.pcm_mean_abs);
+    python_dict_store_int(dict, "pcm_min", status.pcm_min);
+    python_dict_store_int(dict, "pcm_max", status.pcm_max);
+    mp_obj_t pcm_samples = mp_obj_new_list(0, NULL);
+    for (size_t i = 0; i < status.pcm_sample_count; i++) {
+        mp_obj_list_append(pcm_samples, mp_obj_new_int(status.pcm_samples[i]));
+    }
+    mp_obj_dict_store(dict, python_key("pcm_samples"), pcm_samples);
+    python_dict_store_int(dict, "last_error", status.last_error);
+    python_dict_store_cstr(dict,
+                           "last_error_name",
+                           esp_err_to_name(status.last_error));
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_synth_status_obj, solaros_synth_status);
+
+static mp_obj_t solaros_synth_configure(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_synth_waveform_t waveform;
+    if (!solar_os_synth_parse_waveform(mp_obj_str_get_str(args[0]), &waveform)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected square, triangle, saw, or noise"));
+    }
+    const solar_os_synth_voice_config_t config = {
+        .waveform = waveform,
+        .attack_ms = python_optional_u32(n_args,
+                                         args,
+                                         1,
+                                         SOLAR_OS_SYNTH_VOICE_DEFAULT_ATTACK_MS),
+        .decay_ms = python_optional_u32(n_args,
+                                        args,
+                                        2,
+                                        SOLAR_OS_SYNTH_VOICE_DEFAULT_DECAY_MS),
+        .sustain_percent = python_optional_u8(
+            n_args,
+            args,
+            3,
+            SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT),
+        .release_ms = python_optional_u32(n_args,
+                                          args,
+                                          4,
+                                          SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS),
+    };
+    python_check_esp(solar_os_synth_voice_configure(PYTHON_SYNTH_OWNER, &config));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_synth_configure_obj,
+                                    1,
+                                    5,
+                                    solaros_synth_configure);
+
+static mp_obj_t solaros_synth_note_on(size_t n_args, const mp_obj_t *args)
+{
+    python_check_esp(solar_os_synth_voice_note_on(
+        PYTHON_SYNTH_OWNER,
+        python_optional_u32(n_args, args, 0, 0),
+        python_optional_u8(n_args,
+                           args,
+                           1,
+                           SOLAR_OS_SYNTH_VOICE_DEFAULT_VELOCITY)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_synth_note_on_obj,
+                                    1,
+                                    2,
+                                    solaros_synth_note_on);
+
+static mp_obj_t solaros_synth_note_off(mp_obj_t frequency_obj)
+{
+    python_check_esp(solar_os_synth_voice_note_off(PYTHON_SYNTH_OWNER,
+                                                    python_u32_from_obj(frequency_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_synth_note_off_obj, solaros_synth_note_off);
+
+static mp_obj_t solaros_synth_all_notes_off(void)
+{
+    python_check_esp(solar_os_synth_voice_all_notes_off(PYTHON_SYNTH_OWNER));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_synth_all_notes_off_obj,
+                          solaros_synth_all_notes_off);
+
+static mp_obj_t solaros_synth_stop(void)
+{
+    python_check_esp(solar_os_synth_voice_stop(PYTHON_SYNTH_OWNER));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_synth_stop_obj, solaros_synth_stop);
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 static mp_obj_t solaros_ble_status(void)
 {
@@ -4808,6 +4964,7 @@ static void python_register_solaros_module(void)
 
     mp_obj_t time = python_new_submodule(module, "time");
     python_module_store(time, "uptime_ms", MP_OBJ_FROM_PTR(&solaros_time_uptime_ms_obj));
+    python_module_store(time, "sleep_ms", MP_OBJ_FROM_PTR(&solaros_time_sleep_ms_obj));
     python_module_store(time, "uptime", MP_OBJ_FROM_PTR(&solaros_time_uptime_obj));
     python_module_store(time, "datetime", MP_OBJ_FROM_PTR(&solaros_time_datetime_obj));
     python_module_store(time, "utc_datetime", MP_OBJ_FROM_PTR(&solaros_time_utc_datetime_obj));
@@ -4990,6 +5147,18 @@ static void python_register_solaros_module(void)
     python_module_store(audio, "wav_info", MP_OBJ_FROM_PTR(&solaros_audio_wav_info_obj));
     python_module_store(audio, "record_wav", MP_OBJ_FROM_PTR(&solaros_audio_record_wav_obj));
     python_module_store(audio, "play_wav", MP_OBJ_FROM_PTR(&solaros_audio_play_wav_obj));
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+    mp_obj_t synth_module = python_new_submodule(module, "synth");
+    python_module_store(synth_module, "status", MP_OBJ_FROM_PTR(&solaros_synth_status_obj));
+    python_module_store(synth_module, "configure", MP_OBJ_FROM_PTR(&solaros_synth_configure_obj));
+    python_module_store(synth_module, "note_on", MP_OBJ_FROM_PTR(&solaros_synth_note_on_obj));
+    python_module_store(synth_module, "note_off", MP_OBJ_FROM_PTR(&solaros_synth_note_off_obj));
+    python_module_store(synth_module,
+                        "all_notes_off",
+                        MP_OBJ_FROM_PTR(&solaros_synth_all_notes_off_obj));
+    python_module_store(synth_module, "stop", MP_OBJ_FROM_PTR(&solaros_synth_stop_obj));
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -5409,6 +5578,9 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
         result->status = ESP_OK;
     }
 
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+    (void)solar_os_synth_voice_stop(PYTHON_SYNTH_OWNER);
+#endif
     mp_embed_deinit();
     python_app.vm_active = false;
     python_runner_control = NULL;
@@ -5571,6 +5743,9 @@ static void python_task(void *arg)
     if (python_app.vm_active) {
 #if SOLAR_OS_PACKAGE_SERVICE_HID
         solar_os_hid_release_all();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+        (void)solar_os_synth_voice_stop(PYTHON_SYNTH_OWNER);
 #endif
         mp_embed_deinit();
         python_app.vm_active = false;
@@ -5987,6 +6162,9 @@ static void python_stop(solar_os_context_t *ctx)
         python_app.key_input = NULL;
     }
     python_gfx_release_target();
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+    (void)solar_os_synth_voice_stop(PYTHON_SYNTH_OWNER);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
     solar_os_hid_release_all();
 #endif

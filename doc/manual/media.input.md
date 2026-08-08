@@ -62,6 +62,13 @@ queue is bounded and shares exclusive output ownership with WAV playback and
 native synth clients. A queued tone waits for that output; a full queue reports
 an error to the caller.
 
+`solaros.synth` gives Python and Lua scripts an eight-voice native synthesizer
+with square, triangle, saw, and noise waveforms, velocity, and ADSR envelopes.
+The interpreters send note and configuration commands; fixed-point rendering
+stays in the native audio task. The first note claims exclusive audio output,
+and script shutdown releases it automatically. Synth voices use global speaker
+volume rather than overriding it.
+
 ## BLE keyboard
 
 The BLE service manages one remembered keyboard and publishes its HID report
@@ -81,6 +88,7 @@ content after use.
 
 solaros.audio provides status, deinit or off, set_volume, set_mic_gain, tone,
 tone_async, cancel, queue_status, level, loopback, wav_info, record_wav, and
-play_wav. solaros.ble provides
+play_wav. solaros.synth provides status, configure, note_on, note_off,
+all_notes_off, and stop. solaros.ble provides
 status, connected, pair, forget, layout, read. solaros.clipboard provides set,
-get, size, clear. Audio and BLE are package-gated.
+get, size, clear. Audio, synth, and BLE are package-gated.

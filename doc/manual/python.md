@@ -54,8 +54,8 @@ Optional API groups follow these package gates:
 - `service.messaging`: `solaros.contacts` and `solaros.messages`
 - `service.adc`, `service.pwm`, `service.i2c`, `service.spi`, and
   `service.uart`: their matching submodules
-- `service.audio`, `service.battery`, and `service.sensors`: their matching
-  helpers and submodules
+- `service.audio`, `service.synth`, `service.battery`, and `service.sensors`:
+  their matching helpers and submodules
 
 ```python
 print(solaros.storage.resolve("/.shell/history"))
@@ -164,6 +164,7 @@ for block in solaros.storage.blocks():
 Time functions use the SolarOS RTC/time service.
 
 - `uptime_ms()`: return uptime in milliseconds.
+- `sleep_ms(ms)`: delay for up to one hour while remaining responsive to script cancellation.
 - `uptime()`: return formatted uptime text.
 - `datetime()`: return the local wall-clock datetime.
 - `utc_datetime()`: return UTC datetime.
@@ -686,6 +687,34 @@ solaros.audio.tone(880, 200, 40)
 sound = solaros.audio.tone_async(1175, 70)
 print(solaros.audio.queue_status())
 print(solaros.audio.level(500))
+```
+
+## `solaros.synth`
+
+Available when the firmware includes the synth service. The native engine has
+eight voices and renders continuously without running Python in the real-time
+audio callback. It uses the system's global speaker volume.
+
+- `status()`: return ownership, waveform, envelope, voice, sample-rate, and render-deadline telemetry.
+- `configure(waveform[, attack_ms[, decay_ms[, sustain_percent[, release_ms]]]])`: configure active voices immediately and set the defaults for future notes. Waveforms are `square`, `triangle`, `saw`, and `noise`; envelope times are 0 through 10000 ms and sustain is 0 through 100 percent.
+- `note_on(frequency_hz[, velocity])`: start or retrigger a note from 20 through 8000 Hz. Velocity defaults to 100 and ranges from 1 through 127.
+- `note_off(frequency_hz)`: release the matching note.
+- `all_notes_off()`: release all active notes through their configured release envelopes.
+- `stop()`: stop immediately and release audio ownership.
+
+The first `note_on()` claims the exclusive audio output lazily. A script also
+releases that ownership automatically when it exits or is interrupted.
+
+```python
+import solaros
+
+solaros.synth.configure("saw", 5, 80, 65, 140)
+solaros.synth.note_on(440, 110)
+solaros.synth.note_on(554, 90)
+solaros.time.sleep_ms(250)
+solaros.synth.all_notes_off()
+solaros.time.sleep_ms(150)
+solaros.synth.stop()
 ```
 
 ## `solaros.ble`

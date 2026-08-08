@@ -1,0 +1,73 @@
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "esp_err.h"
+#include "solar_os_synth.h"
+
+#define SOLAR_OS_SYNTH_VOICE_MAX 8U
+#define SOLAR_OS_SYNTH_VOICE_FREQUENCY_MIN_HZ 20U
+#define SOLAR_OS_SYNTH_VOICE_FREQUENCY_MAX_HZ 8000U
+#define SOLAR_OS_SYNTH_VOICE_VELOCITY_MAX 127U
+#define SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS 10000U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_VELOCITY 100U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_ATTACK_MS 5U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_DECAY_MS 80U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT 70U
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS 120U
+#define SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES 64U
+
+typedef enum {
+    SOLAR_OS_SYNTH_WAVE_SQUARE = 0,
+    SOLAR_OS_SYNTH_WAVE_TRIANGLE,
+    SOLAR_OS_SYNTH_WAVE_SAW,
+    SOLAR_OS_SYNTH_WAVE_NOISE,
+} solar_os_synth_waveform_t;
+
+typedef struct {
+    solar_os_synth_waveform_t waveform;
+    uint32_t attack_ms;
+    uint32_t decay_ms;
+    uint8_t sustain_percent;
+    uint32_t release_ms;
+} solar_os_synth_voice_config_t;
+
+typedef struct {
+    bool running;
+    char owner[SOLAR_OS_SYNTH_OWNER_MAX];
+    solar_os_synth_voice_config_t config;
+    size_t active_voices;
+    uint32_t stolen_voices;
+    uint32_t sample_rate;
+    uint32_t render_deadline_misses;
+    solar_os_synth_waveform_t pcm_waveform;
+    uint32_t pcm_generation;
+    uint32_t pcm_hash;
+    uint32_t pcm_mean_abs;
+    int16_t pcm_min;
+    int16_t pcm_max;
+    size_t pcm_sample_count;
+    int16_t pcm_samples[SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES];
+    esp_err_t last_error;
+} solar_os_synth_voice_status_t;
+
+const char *solar_os_synth_waveform_name(solar_os_synth_waveform_t waveform);
+bool solar_os_synth_parse_waveform(const char *name,
+                                   solar_os_synth_waveform_t *waveform);
+
+/* Configuration applies immediately to active voices and to future notes. */
+esp_err_t solar_os_synth_voice_configure(
+    const char *owner,
+    const solar_os_synth_voice_config_t *config);
+
+/* note_on starts and claims the native synth lazily for owner. */
+esp_err_t solar_os_synth_voice_note_on(const char *owner,
+                                       uint32_t frequency_hz,
+                                       uint8_t velocity);
+esp_err_t solar_os_synth_voice_note_off(const char *owner,
+                                        uint32_t frequency_hz);
+esp_err_t solar_os_synth_voice_all_notes_off(const char *owner);
+esp_err_t solar_os_synth_voice_stop(const char *owner);
+void solar_os_synth_voice_get_status(solar_os_synth_voice_status_t *status);

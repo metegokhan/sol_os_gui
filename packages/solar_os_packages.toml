@@ -82,8 +82,8 @@ members = [
 ]
 
 [groups.audio]
-members = ["service_audio", "service_synth", "app_aplay", "app_arecord"]
-triggers = ["app_aplay", "app_arecord"]
+members = ["service_audio", "service_synth", "app_aplay", "app_arecord", "app_synth"]
+triggers = ["app_aplay", "app_arecord", "app_synth"]
 
 [groups.net]
 capabilities = ["wifi"]
@@ -467,7 +467,10 @@ capabilities = ["audio"]
 [packages.service_synth]
 label = "service.synth"
 depends = ["service_audio"]
-sources = ["services/solar_os_synth.c"]
+sources = [
+  "services/solar_os_synth.c",
+  "services/solar_os_synth_voice.c",
+]
 requires = ["esp_timer"]
 capabilities = ["audio"]
 
@@ -725,6 +728,12 @@ label = "app.arecord"
 depends = ["service_audio"]
 sources = ["apps/solar_os_audio_apps.c"]
 capabilities = ["audio"]
+
+[packages.app_synth]
+label = "app.synth"
+depends = ["service_synth"]
+sources = ["apps/solar_os_synth_app.c"]
+capabilities = ["audio", "gfx"]
 
 [packages.app_ssh]
 label = "app.ssh"

@@ -49,7 +49,7 @@ example, an ODROID-GO full build includes Lua with `solaros.spi` and
 service packages are not available on that board.
 
 - `solaros.storage`: `status`, `is_mounted`, `mount`, `unmount`, `mount_point`, `usage`, `resolve`, `read_file`, `rescan`, `blocks`, `block_count`, `block`, `usage_for_block`, `mkdir`, `rmdir`, `remove`, `rename`, `copy`, `mount_volume`, `unmount_volume`
-- `solaros.time`: `uptime_ms`, `uptime`, `datetime`, `utc_datetime`, `set_datetime`, `set_utc_datetime`, `utc_to_local`, `local_to_utc`, `is_valid`, `timezone`, `set_timezone`, `ntp_sync`
+- `solaros.time`: `uptime_ms`, `sleep_ms`, `uptime`, `datetime`, `utc_datetime`, `set_datetime`, `set_utc_datetime`, `utc_to_local`, `local_to_utc`, `is_valid`, `timezone`, `set_timezone`, `ntp_sync`. `sleep_ms` is cancellation-aware and accepts delays up to one hour.
 - `solaros.battery`: `status` when battery support is compiled
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
 - `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat` when Wi-Fi support is compiled
@@ -67,6 +67,7 @@ service packages are not available on that board.
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
 - `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
 - `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `tone_async`, `cancel`, `queue_status`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled
+- `solaros.synth`: `status`, `configure`, `note_on`, `note_off`, `all_notes_off`, `stop` when synth support is compiled. It provides eight native square, triangle, saw, or noise voices with per-note velocity and ADSR envelopes; scripts retain the system's global speaker volume.
 - `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read` when BLE support is compiled
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
 - `solaros.identity`: `user`, `hostname`, `set_user`, `set_hostname`, `format`
@@ -81,6 +82,25 @@ service packages are not available on that board.
 - `solaros.gfx`: foreground graphics drawing functions
 
 Lua strings are binary-safe, so byte-oriented APIs such as `uart.read`, `i2c.read_reg`, `clipboard.get`, and `mqtt.read().payload` return Lua strings.
+
+For example, this plays a short saw-wave chord without running Lua in the
+real-time render callback:
+
+```lua
+solaros.synth.configure("saw", 5, 80, 65, 140)
+solaros.synth.note_on(440, 110)
+solaros.synth.note_on(554, 90)
+solaros.time.sleep_ms(250)
+solaros.synth.all_notes_off()
+solaros.time.sleep_ms(150)
+solaros.synth.stop()
+```
+
+`note_on()` accepts 20 through 8000 Hz and velocity 1 through 127. Envelope
+times accept 0 through 10000 ms and sustain accepts 0 through 100 percent. The
+`configure()` updates active voices immediately and also sets the defaults for
+future notes. The first note claims exclusive audio output lazily, and the
+runtime releases it automatically when the script exits or is interrupted.
 
 `solaros.messages.send(conversation_id, body[, allow_untrusted])` queues a
 message and returns its stable hexadecimal ID. `list()` also represents message

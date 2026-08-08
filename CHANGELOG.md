@@ -2,6 +2,10 @@
 
 ## 4.x
 
+- **4.6.9** — 2026-08-07 — Added an eight-voice native synthesizer with a
+  physical-key piano, waveform and ADSR controls, envelope graph, oscilloscope,
+  and global volume control. Added matching Python and Lua APIs, including
+  cooperative sequencer timing, and fixed oscillator clipping.
 - **4.6.8** — Added transparent packed 1-bit bitmap and sprite drawing to the
   Python and Lua `solaros.gfx` APIs. Both runtimes expose `gfx.bitmap(...)` and
   its `gfx.sprite(...)` alias for reflective-display-friendly pixel art. Added

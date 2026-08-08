@@ -982,6 +982,34 @@ Controls:
 - App-exit key closes the SSH app.
 - `Alt+Tab` leaves the session running in the background on display builds.
 
+## synth
+
+Open the native polyphonic synthesizer and sound lab:
+
+```text
+synth
+```
+
+The app uses the same eight-voice fixed-point engine exposed to Python and Lua,
+but keyboard events reach it directly. This makes it useful for comparing
+waveforms and tuning envelopes without interpreter timing in the signal path.
+The display reports active voices, output sample rate, and audio errors.
+Waveform and ADSR changes apply immediately to held voices, so the selector and
+knobs can be compared while one key remains down. A live envelope graph above
+the ADSR knobs visualizes their combined shape, and the waveform panel remains
+a live auto-scaled PCM oscilloscope after audio starts. The volume button
+changes the shared SolarOS speaker volume.
+
+Controls:
+
+- `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
+  physical, so the `Y` position is the `Z` key on a German keyboard.
+- `Left`/`Right` selects the waveform, global volume, or an ADSR knob.
+- `Up`/`Down` changes the selected waveform, volume, or envelope value.
+- `Page Up`/`Page Down` changes octave from 2 through 6.
+- `+`/`-` changes note velocity.
+- `Esc` or the app-exit key exits and immediately releases audio ownership.
+
 ## telnet
 
 Telnet client for classic TCP terminal sessions. It supports basic Telnet
