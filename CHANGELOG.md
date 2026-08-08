@@ -2,6 +2,8 @@
 
 ## 4.x
 
+- **4.6.12** — 2026-08-08 — Added native sine-wave playback and a Supersaw
+  starting shape to the `synth` wavetable editor.
 - **4.6.11** — 2026-08-08 — Added a resonant low-pass filter with a dedicated
   graphical filter-envelope tab to `synth`.
 - **4.6.10** — 2026-08-08 — Added a graphical waveform-editor tab to `synth`

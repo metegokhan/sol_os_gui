@@ -102,6 +102,16 @@ static const solar_os_synth_voice_config_t default_config = {
     },
 };
 
+static const int16_t sine_quarter_wave[65] = {
+    0,     804,   1608,  2410,  3212,  4011,  4808,  5602,  6393,  7179,
+    7962,  8739,  9512,  10278, 11039, 11793, 12539, 13279, 14010, 14732,
+    15446, 16151, 16846, 17530, 18204, 18868, 19519, 20159, 20787, 21403,
+    22005, 22594, 23170, 23731, 24279, 24811, 25329, 25832, 26319, 26790,
+    27245, 27683, 28105, 28510, 28898, 29268, 29621, 29956, 30273, 30571,
+    30852, 31113, 31356, 31580, 31785, 31971, 32137, 32285, 32412, 32521,
+    32609, 32678, 32728, 32757, 32767,
+};
+
 static void voice_init_wavetable(void)
 {
     for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES; i++) {
@@ -430,6 +440,25 @@ static int32_t voice_periodic_sample(solar_os_synth_waveform_t waveform,
                    : 32767 - (int32_t)((phase - 0x80000000U) >> 15);
     case SOLAR_OS_SYNTH_WAVE_SAW:
         return (int32_t)(phase >> 16) - 32768;
+    case SOLAR_OS_SYNTH_WAVE_SINE: {
+        const uint32_t quadrant = phase >> 30;
+        const size_t offset = (phase >> 24) & 0x3fU;
+        const uint32_t fraction = (phase >> 8) & 0xffffU;
+        size_t first_index = offset;
+        size_t second_index = offset + 1U;
+        if ((quadrant & 1U) != 0U) {
+            first_index = 64U - offset;
+            second_index = first_index - 1U;
+        }
+        const int32_t first = sine_quarter_wave[first_index];
+        const int32_t difference = sine_quarter_wave[second_index] - first;
+        int32_t sample =
+            first + (int32_t)(((int64_t)difference * fraction) >> 16);
+        if (quadrant >= 2U) {
+            sample = -sample;
+        }
+        return sample;
+    }
     case SOLAR_OS_SYNTH_WAVE_SQUARE:
     default:
         return (phase & 0x80000000U) != 0 ? 32767 : -32767;
@@ -753,6 +782,8 @@ const char *solar_os_synth_waveform_name(solar_os_synth_waveform_t waveform)
         return "triangle";
     case SOLAR_OS_SYNTH_WAVE_SAW:
         return "saw";
+    case SOLAR_OS_SYNTH_WAVE_SINE:
+        return "sine";
     case SOLAR_OS_SYNTH_WAVE_NOISE:
         return "noise";
     case SOLAR_OS_SYNTH_WAVE_CUSTOM:

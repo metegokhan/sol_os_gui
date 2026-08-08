@@ -67,7 +67,7 @@ service packages are not available on that board.
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
 - `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
 - `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `tone_async`, `cancel`, `queue_status`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled
-- `solaros.synth`: `status`, `configure`, `configure_filter`, `note_on`, `note_off`, `all_notes_off`, `stop` when synth support is compiled. It provides eight native square, triangle, saw, or noise voices with per-note velocity, ADSR envelopes, and resonant low-pass filters; scripts retain the system's global speaker volume.
+- `solaros.synth`: `status`, `configure`, `configure_filter`, `note_on`, `note_off`, `all_notes_off`, `stop` when synth support is compiled. It provides eight native square, triangle, saw, sine, or noise voices with per-note velocity, ADSR envelopes, and resonant low-pass filters; scripts retain the system's global speaker volume.
 - `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read` when BLE support is compiled
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
 - `solaros.identity`: `user`, `hostname`, `set_user`, `set_hostname`, `format`

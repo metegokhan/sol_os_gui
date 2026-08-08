@@ -63,11 +63,11 @@ native synth clients. A queued tone waits for that output; a full queue reports
 an error to the caller.
 
 `solaros.synth` gives Python and Lua scripts an eight-voice native synthesizer
-with square, triangle, saw, and noise waveforms, velocity, and ADSR envelopes.
-The interpreters send note and configuration commands; fixed-point rendering
-stays in the native audio task. The first note claims exclusive audio output,
-and script shutdown releases it automatically. Synth voices use global speaker
-volume rather than overriding it.
+with square, triangle, saw, sine, and noise waveforms, velocity, amplifier and
+filter ADSR envelopes, and resonant low-pass filters. The interpreters send note
+and configuration commands; rendering stays in the native audio task. The first
+note claims exclusive audio output, and script shutdown releases it
+automatically. Synth voices use global speaker volume rather than overriding it.
 
 ## BLE keyboard
 

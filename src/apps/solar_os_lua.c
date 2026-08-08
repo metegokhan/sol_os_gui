@@ -3312,7 +3312,8 @@ static int solua_synth_configure(lua_State *L)
 {
     solar_os_synth_waveform_t waveform;
     if (!solar_os_synth_parse_waveform(luaL_checkstring(L, 1), &waveform)) {
-        return luaL_error(L, "expected square, triangle, saw, or noise");
+        return luaL_error(L,
+                          "expected square, triangle, saw, sine, or noise");
     }
     solar_os_synth_voice_status_t status;
     solar_os_synth_voice_get_status(&status);

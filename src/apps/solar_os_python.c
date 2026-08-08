@@ -3423,7 +3423,8 @@ static mp_obj_t solaros_synth_configure(size_t n_args, const mp_obj_t *args)
 {
     solar_os_synth_waveform_t waveform;
     if (!solar_os_synth_parse_waveform(mp_obj_str_get_str(args[0]), &waveform)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("expected square, triangle, saw, or noise"));
+        mp_raise_ValueError(
+            MP_ERROR_TEXT("expected square, triangle, saw, sine, or noise"));
     }
     solar_os_synth_voice_status_t status;
     solar_os_synth_voice_get_status(&status);

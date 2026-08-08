@@ -29,8 +29,8 @@ service serializes complete operations with a FreeRTOS mutex.
 
 `solar_os_synth_voice.h` builds a bounded musical voice engine on the callback
 layer. It provides eight voices, automatic release-first voice stealing,
-per-note velocity, square, triangle, saw, and noise waveforms, and a custom
-wavetable. Each voice also has a resonant low-pass filter with cutoff,
+per-note velocity, square, triangle, saw, sine, and noise waveforms, and a
+custom wavetable. Each voice also has a resonant low-pass filter with cutoff,
 resonance, envelope amount, and an independent ADSR envelope. Configuration
 changes update active voices immediately and also set the defaults for new
 notes.
@@ -63,8 +63,8 @@ instrument. Its Play tab pairs the waveform selector and live PCM oscilloscope
 with an envelope graph, global speaker volume, editable ADSR knobs, and the
 physical-key piano. Its Wave tab draws the custom wavetable at full width and
 supports selectable 16, 32, 64, 128, and 256-point resolution; square,
-triangle, saw, sine, and flat starting shapes; cursor and brush editing;
-smoothing; normalization; reset; and undo. `Enter` cycles the resolution and
+triangle, saw, Supersaw, sine, and flat starting shapes; cursor and brush
+editing; smoothing; normalization; reset; and undo. `Enter` cycles the resolution and
 resamples the current shape into the new point count. The piano remains active
 while editing, and table changes reshape held notes immediately.
 The Filter tab pairs a live low-pass response graph with the independent filter

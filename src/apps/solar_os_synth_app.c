@@ -36,6 +36,7 @@ typedef enum {
   SYNTH_BASE_SQUARE = 0,
   SYNTH_BASE_TRIANGLE,
   SYNTH_BASE_SAW,
+  SYNTH_BASE_SUPERSAW,
   SYNTH_BASE_SINE,
   SYNTH_BASE_FLAT,
   SYNTH_BASE_COUNT,
@@ -145,6 +146,8 @@ static const char *synth_baseline_name(synth_wave_baseline_t baseline) {
     return "TRIANGLE";
   case SYNTH_BASE_SAW:
     return "SAW";
+  case SYNTH_BASE_SUPERSAW:
+    return "SUPERSAW";
   case SYNTH_BASE_SINE:
     return "SINE";
   case SYNTH_BASE_FLAT:
@@ -166,6 +169,21 @@ static int16_t synth_baseline_sample(synth_wave_baseline_t baseline,
                : (int16_t)(32767 - (int32_t)((phase - 0x80000000U) >> 15));
   case SYNTH_BASE_SAW:
     return (int16_t)((int32_t)(phase >> 16) - 32768);
+  case SYNTH_BASE_SUPERSAW: {
+    static const int32_t phase_offsets[] = {
+        -0x0c000000, -0x08000000, -0x04000000, 0,
+        0x04000000,  0x08000000,  0x0c000000,
+    };
+    int32_t accumulated = 0;
+    for (size_t i = 0;
+         i < sizeof(phase_offsets) / sizeof(phase_offsets[0]); i++) {
+      const uint32_t shifted = phase + (uint32_t)phase_offsets[i];
+      accumulated += (int32_t)(shifted >> 16) - 32768;
+    }
+    return (int16_t)(accumulated /
+                     (int32_t)(sizeof(phase_offsets) /
+                               sizeof(phase_offsets[0])));
+  }
   case SYNTH_BASE_SINE:
     return (
         int16_t)(sinf(SYNTH_APP_TWO_PI * (float)index / (float)sample_count) *
@@ -229,9 +247,23 @@ static void synth_wavetable_commit(void) {
 static void synth_wavetable_fill(synth_wave_baseline_t baseline) {
   synth_app.baseline = baseline;
   memset(synth_app.wavetable, 0, sizeof(synth_app.wavetable));
+  int32_t peak = 0;
   for (size_t i = 0; i < synth_app.wave_steps; i++) {
     synth_app.wavetable[i] =
         synth_baseline_sample(baseline, i, synth_app.wave_steps);
+    int32_t magnitude = synth_app.wavetable[i];
+    if (magnitude < 0) {
+      magnitude = -magnitude;
+    }
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
+  if (baseline == SYNTH_BASE_SUPERSAW && peak > 0 && peak < 32767) {
+    for (size_t i = 0; i < synth_app.wave_steps; i++) {
+      synth_app.wavetable[i] =
+          (int16_t)(((int32_t)synth_app.wavetable[i] * 32767) / peak);
+    }
   }
 }
 
@@ -490,6 +522,21 @@ static void synth_draw_wave_icon(solar_os_gfx_t *gfx, int x, int y, int width,
     solar_os_gfx_line(gfx, left, bottom, right - 1, top);
     solar_os_gfx_line(gfx, right - 1, top, right - 1, bottom);
     break;
+  case SOLAR_OS_SYNTH_WAVE_SINE: {
+    int previous_x = left;
+    int previous_y = middle;
+    for (int column = 1; column <= width; column++) {
+      const int point_x = left + column;
+      const int point_y =
+          middle -
+          (int)(sinf(SYNTH_APP_TWO_PI * (float)column / (float)width) *
+                (float)(height / 2));
+      solar_os_gfx_line(gfx, previous_x, previous_y, point_x, point_y);
+      previous_x = point_x;
+      previous_y = point_y;
+    }
+    break;
+  }
   case SOLAR_OS_SYNTH_WAVE_CUSTOM:
     for (int column = 1; column <= width; column++) {
       const int16_t previous = synth_wavetable_interpolate(
@@ -1003,6 +1050,9 @@ static void synth_render(solar_os_context_t *ctx) {
     break;
   case SOLAR_OS_SYNTH_WAVE_SAW:
     wave_name = "SAW";
+    break;
+  case SOLAR_OS_SYNTH_WAVE_SINE:
+    wave_name = "SINE";
     break;
   case SOLAR_OS_SYNTH_WAVE_NOISE:
     wave_name = "NOISE";

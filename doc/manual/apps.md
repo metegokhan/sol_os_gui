@@ -1012,9 +1012,10 @@ Controls:
   waveform. Shifted arrows move or draw faster, and `+`/`-` changes brush size.
 - On Wave, `Enter` cycles the editor through 16, 32, 64, 128, and 256 points.
   The current waveform is resampled rather than reset.
-- On Wave, `B` applies the next square, triangle, saw, sine, or flat baseline;
-  `R` restores that baseline, `M` smooths, `N` normalizes, `0` clears, and
-  `Backspace` or `Delete` exchanges the current waveform with the undo state.
+- On Wave, `B` applies the next square, triangle, saw, Supersaw, sine, or flat
+  baseline; `R` restores that baseline, `M` smooths, `N` normalizes, `0`
+  clears, and `Backspace` or `Delete` exchanges the current waveform with the
+  undo state.
 - On Filter, `Left`/`Right` selects cutoff, resonance, envelope amount, or a
   filter ADSR knob; `Up`/`Down` changes it, and `+`/`-` changes note velocity.
 - `Page Up`/`Page Down` changes octave from 2 through 6 on any tab.
