@@ -2,6 +2,8 @@
 
 ## 4.x
 
+- **4.6.13** — 2026-08-08 — Removed unintended `synth` filter saturation and
+  added a tunable second oscillator.
 - **4.6.12** — 2026-08-08 — Added native sine-wave playback and a Supersaw
   starting shape to the `synth` wavetable editor.
 - **4.6.11** — 2026-08-08 — Added a resonant low-pass filter with a dedicated

@@ -3360,7 +3360,7 @@ static mp_obj_t solaros_synth_status(void)
     solar_os_synth_voice_status_t status;
     solar_os_synth_voice_get_status(&status);
 
-    mp_obj_t dict = mp_obj_new_dict(27);
+    mp_obj_t dict = mp_obj_new_dict(31);
     python_dict_store_bool(dict, "running", status.running);
     python_dict_store_cstr(dict, "owner", status.owner);
     python_dict_store_cstr(dict,
@@ -3370,6 +3370,19 @@ static mp_obj_t solaros_synth_status(void)
     python_dict_store_uint(dict, "decay_ms", status.config.decay_ms);
     python_dict_store_uint(dict, "sustain_percent", status.config.sustain_percent);
     python_dict_store_uint(dict, "release_ms", status.config.release_ms);
+    python_dict_store_cstr(
+        dict,
+        "oscillator2_waveform",
+        solar_os_synth_waveform_name(status.config.oscillator2.waveform));
+    python_dict_store_int(dict,
+                          "oscillator2_octave",
+                          status.config.oscillator2.octave);
+    python_dict_store_int(dict,
+                          "oscillator2_detune_cents",
+                          status.config.oscillator2.detune_cents);
+    python_dict_store_uint(dict,
+                           "oscillator2_mix_percent",
+                           status.config.oscillator2.mix_percent);
     python_dict_store_uint(dict,
                            "filter_cutoff_hz",
                            status.config.filter.cutoff_hz);
@@ -3447,6 +3460,7 @@ static mp_obj_t solaros_synth_configure(size_t n_args, const mp_obj_t *args)
                                           args,
                                           4,
                                           SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS),
+        .oscillator2 = status.config.oscillator2,
         .filter = status.config.filter,
     };
     python_check_esp(solar_os_synth_voice_configure(PYTHON_SYNTH_OWNER, &config));
@@ -3456,6 +3470,55 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_synth_configure_obj,
                                     1,
                                     5,
                                     solaros_synth_configure);
+
+static mp_obj_t solaros_synth_configure_oscillator2(size_t n_args,
+                                                     const mp_obj_t *args)
+{
+    solar_os_synth_waveform_t waveform;
+    if (!solar_os_synth_parse_waveform(mp_obj_str_get_str(args[0]), &waveform)) {
+        mp_raise_ValueError(
+            MP_ERROR_TEXT("expected square, triangle, saw, sine, or noise"));
+    }
+    const mp_int_t octave =
+        n_args > 1 && args[1] != mp_const_none
+            ? mp_obj_get_int(args[1])
+            : SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_OCTAVE;
+    const mp_int_t detune =
+        n_args > 2 && args[2] != mp_const_none
+            ? mp_obj_get_int(args[2])
+            : SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_DETUNE_CENTS;
+    if (octave < SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MIN ||
+        octave > SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("oscillator2 octave must be -2..2"));
+    }
+    if (detune < SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MIN_CENTS ||
+        detune > SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MAX_CENTS) {
+        mp_raise_ValueError(
+            MP_ERROR_TEXT("oscillator2 detune must be -100..100 cents"));
+    }
+
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+    solar_os_synth_voice_config_t config = status.config;
+    config.oscillator2 = (solar_os_synth_oscillator_config_t){
+        .waveform = waveform,
+        .octave = (int8_t)octave,
+        .detune_cents = (int16_t)detune,
+        .mix_percent = python_optional_u8(
+            n_args,
+            args,
+            3,
+            SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_MIX_PERCENT),
+    };
+    python_check_esp(
+        solar_os_synth_voice_configure(PYTHON_SYNTH_OWNER, &config));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    solaros_synth_configure_oscillator2_obj,
+    1,
+    4,
+    solaros_synth_configure_oscillator2);
 
 static mp_obj_t solaros_synth_configure_filter(size_t n_args,
                                                 const mp_obj_t *args)
@@ -5233,6 +5296,10 @@ static void python_register_solaros_module(void)
     python_module_store(synth_module,
                         "configure_filter",
                         MP_OBJ_FROM_PTR(&solaros_synth_configure_filter_obj));
+    python_module_store(
+        synth_module,
+        "configure_oscillator2",
+        MP_OBJ_FROM_PTR(&solaros_synth_configure_oscillator2_obj));
     python_module_store(synth_module, "note_on", MP_OBJ_FROM_PTR(&solaros_synth_note_on_obj));
     python_module_store(synth_module, "note_off", MP_OBJ_FROM_PTR(&solaros_synth_note_off_obj));
     python_module_store(synth_module,

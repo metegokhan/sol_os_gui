@@ -67,7 +67,7 @@ service packages are not available on that board.
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
 - `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
 - `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `tone_async`, `cancel`, `queue_status`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled
-- `solaros.synth`: `status`, `configure`, `configure_filter`, `note_on`, `note_off`, `all_notes_off`, `stop` when synth support is compiled. It provides eight native square, triangle, saw, sine, or noise voices with per-note velocity, ADSR envelopes, and resonant low-pass filters; scripts retain the system's global speaker volume.
+- `solaros.synth`: `status`, `configure`, `configure_oscillator2`, `configure_filter`, `note_on`, `note_off`, `all_notes_off`, `stop` when synth support is compiled. It provides eight native two-oscillator voices with per-note velocity, ADSR envelopes, and resonant low-pass filters; scripts retain the system's global speaker volume.
 - `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read` when BLE support is compiled
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
 - `solaros.identity`: `user`, `hostname`, `set_user`, `set_hostname`, `format`
@@ -88,6 +88,7 @@ real-time render callback:
 
 ```lua
 solaros.synth.configure("saw", 5, 80, 65, 140)
+solaros.synth.configure_oscillator2("square", 0, 7, 35)
 solaros.synth.configure_filter(1200, 35, 80, 5, 250, 20, 180)
 solaros.synth.note_on(440, 110)
 solaros.synth.note_on(554, 90)
@@ -105,6 +106,10 @@ resonance and envelope amount from 0 through 100 percent, followed by its own
 attack, decay, sustain, and release values. The first note claims exclusive
 audio output lazily, and the runtime releases it automatically when the script
 exits or is interrupted.
+`configure_oscillator2()` accepts waveform, octave from -2 through +2, fine
+detune from -100 through +100 cents, and mix from 0 through 100 percent. Mix
+zero bypasses oscillator 2 exactly. Both oscillators share the filter and
+envelopes.
 
 `solaros.messages.send(conversation_id, body[, allow_untrusted])` queues a
 message and returns its stable hexadecimal ID. `list()` also represents message

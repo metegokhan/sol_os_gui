@@ -17,6 +17,13 @@
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_DECAY_MS 80U
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT 70U
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS 120U
+#define SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MIN (-2)
+#define SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MAX 2
+#define SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MIN_CENTS (-100)
+#define SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MAX_CENTS 100
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_OCTAVE 0
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_DETUNE_CENTS 0
+#define SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_MIX_PERCENT 0U
 #define SOLAR_OS_SYNTH_VOICE_FILTER_CUTOFF_MIN_HZ 40U
 #define SOLAR_OS_SYNTH_VOICE_FILTER_CUTOFF_MAX_HZ 18000U
 #define SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_CUTOFF_HZ \
@@ -51,10 +58,18 @@ typedef struct {
 
 typedef struct {
     solar_os_synth_waveform_t waveform;
+    int8_t octave;
+    int16_t detune_cents;
+    uint8_t mix_percent;
+} solar_os_synth_oscillator_config_t;
+
+typedef struct {
+    solar_os_synth_waveform_t waveform;
     uint32_t attack_ms;
     uint32_t decay_ms;
     uint8_t sustain_percent;
     uint32_t release_ms;
+    solar_os_synth_oscillator_config_t oscillator2;
     solar_os_synth_filter_config_t filter;
 } solar_os_synth_voice_config_t;
 

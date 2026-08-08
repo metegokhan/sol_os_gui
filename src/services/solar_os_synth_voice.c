@@ -21,6 +21,13 @@
 #define FILTER_MIX_STEP 2048U
 #define FILTER_PI 3.14159265358979323846f
 #define FILTER_STATE_LIMIT 8.0f
+#define FILTER_RESONANCE_HEADROOM 2.25f
+#define FILTER_OUTPUT_LIMIT 2.5f
+#define OSCILLATOR_MIX_MAX 65535U
+#define OSCILLATOR_MIX_STEP 1024U
+#define OSCILLATOR_WAVE_CROSSFADE_STEP 1024U
+#define OSCILLATOR_PITCH_RAMP_FRAMES 64U
+#define VOICE_RENDER_LOCK_WAIT_MS 1U
 
 typedef enum {
     VOICE_STAGE_OFF = 0,
@@ -43,14 +50,23 @@ typedef struct {
     uint32_t filter_envelope_step;
     uint32_t phase;
     uint32_t phase_step;
+    uint32_t oscillator2_phase;
+    uint32_t oscillator2_phase_step;
+    uint32_t oscillator2_phase_step_target;
+    uint16_t oscillator2_mix;
+    uint16_t oscillator2_wave_crossfade;
+    uint8_t oscillator2_pitch_ramp_remaining;
+    solar_os_synth_waveform_t oscillator2_previous_waveform;
     uint32_t sample_rate;
     uint32_t noise;
+    uint32_t oscillator2_noise;
     uint32_t age;
     float filter_ic1eq;
     float filter_ic2eq;
     float filter_a1;
     float filter_a2;
     float filter_a3;
+    float filter_output_gain;
     uint16_t filter_coefficient_index;
     uint8_t filter_coefficient_resonance;
     uint8_t filter_control_countdown;
@@ -74,6 +90,7 @@ typedef struct {
     size_t pcm_sample_count;
     int16_t pcm_samples[SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES];
     int16_t wavetable[SOLAR_OS_SYNTH_VOICE_WAVETABLE_SAMPLES];
+    float oscillator2_pitch_ratio;
     uint32_t filter_table_sample_rate;
     float filter_g[FILTER_TABLE_SIZE];
 } voice_state_t;
@@ -88,6 +105,14 @@ static const solar_os_synth_voice_config_t default_config = {
     .decay_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_DECAY_MS,
     .sustain_percent = SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT,
     .release_ms = SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS,
+    .oscillator2 = {
+        .waveform = SOLAR_OS_SYNTH_WAVE_SQUARE,
+        .octave = SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_OCTAVE,
+        .detune_cents =
+            SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_DETUNE_CENTS,
+        .mix_percent =
+            SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_MIX_PERCENT,
+    },
     .filter = {
         .cutoff_hz = SOLAR_OS_SYNTH_VOICE_DEFAULT_FILTER_CUTOFF_HZ,
         .resonance_percent =
@@ -126,6 +151,7 @@ static esp_err_t voice_ensure_mutex(void)
     if (voice_state.mutex == NULL) {
         voice_state.mutex = xSemaphoreCreateMutexStatic(&voice_mutex_storage);
         voice_state.config = default_config;
+        voice_state.oscillator2_pitch_ratio = 1.0f;
         voice_init_wavetable();
     }
     SemaphoreHandle_t mutex = voice_state.mutex;
@@ -158,6 +184,17 @@ static bool voice_config_valid(const solar_os_synth_voice_config_t *config)
            config->decay_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
            config->sustain_percent <= 100U &&
            config->release_ms <= SOLAR_OS_SYNTH_VOICE_ENVELOPE_MAX_MS &&
+           config->oscillator2.waveform >= SOLAR_OS_SYNTH_WAVE_SQUARE &&
+           config->oscillator2.waveform <= SOLAR_OS_SYNTH_WAVE_CUSTOM &&
+           config->oscillator2.octave >=
+               SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MIN &&
+           config->oscillator2.octave <=
+               SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MAX &&
+           config->oscillator2.detune_cents >=
+               SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MIN_CENTS &&
+           config->oscillator2.detune_cents <=
+               SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MAX_CENTS &&
+           config->oscillator2.mix_percent <= 100U &&
            config->filter.cutoff_hz >=
                SOLAR_OS_SYNTH_VOICE_FILTER_CUTOFF_MIN_HZ &&
            config->filter.cutoff_hz <=
@@ -342,6 +379,23 @@ static void voice_prepare_rate(synth_voice_t *voice, uint32_t sample_rate)
                             ? (uint32_t)(((uint64_t)voice->frequency_hz << 32) /
                                          sample_rate)
                             : 0;
+    if (sample_rate > 0) {
+        float oscillator2_frequency =
+            (float)voice->frequency_hz * voice_state.oscillator2_pitch_ratio;
+        const float maximum_frequency = (float)sample_rate / 2.0f - 1.0f;
+        if (oscillator2_frequency > maximum_frequency) {
+            oscillator2_frequency = maximum_frequency;
+        }
+        voice->oscillator2_phase_step_target =
+            (uint32_t)((double)oscillator2_frequency * 4294967296.0 /
+                       (double)sample_rate);
+        voice->oscillator2_phase_step = voice->oscillator2_phase_step_target;
+        voice->oscillator2_pitch_ramp_remaining = 0U;
+    } else {
+        voice->oscillator2_phase_step_target = 0U;
+        voice->oscillator2_phase_step = 0U;
+        voice->oscillator2_pitch_ramp_remaining = 0U;
+    }
     voice_enter_stage(voice, voice->stage, sample_rate);
     voice_enter_filter_stage(voice, voice->filter_stage, sample_rate);
     voice->filter_coefficient_index = UINT16_MAX;
@@ -465,31 +519,150 @@ static int32_t voice_periodic_sample(solar_os_synth_waveform_t waveform,
     }
 }
 
-static int32_t voice_wave_sample(synth_voice_t *voice)
+static uint32_t voice_noise_advance(uint32_t noise)
 {
-    const uint32_t previous = voice->phase;
-    voice->phase += voice->phase_step;
+    noise = noise != 0U ? noise : NOISE_SEED;
+    noise ^= noise << 13;
+    noise ^= noise >> 17;
+    noise ^= noise << 5;
+    return noise;
+}
 
-    if (voice->config.waveform == SOLAR_OS_SYNTH_WAVE_NOISE) {
-        if (voice->phase < previous) {
-            uint32_t noise = voice->noise != 0 ? voice->noise : NOISE_SEED;
-            noise ^= noise << 13;
-            noise ^= noise >> 17;
-            noise ^= noise << 5;
-            voice->noise = noise;
-        }
-        return (voice->noise & 1U) != 0 ? 32767 : -32767;
+static int32_t voice_wave_at(solar_os_synth_waveform_t waveform,
+                             uint32_t previous,
+                             uint32_t phase_step,
+                             uint32_t noise)
+{
+    if (waveform == SOLAR_OS_SYNTH_WAVE_NOISE) {
+        return (noise & 1U) != 0U ? 32767 : -32767;
     }
 
     int64_t accumulated = 0;
     for (uint32_t i = 0; i < VOICE_OVERSAMPLE; i++) {
         const uint64_t numerator =
-            (uint64_t)voice->phase_step * ((i * 2U) + 1U);
+            (uint64_t)phase_step * ((i * 2U) + 1U);
         const uint32_t phase = previous +
             (uint32_t)(numerator / (VOICE_OVERSAMPLE * 2U));
-        accumulated += voice_periodic_sample(voice->config.waveform, phase);
+        accumulated += voice_periodic_sample(waveform, phase);
     }
     return (int32_t)(accumulated / (int32_t)VOICE_OVERSAMPLE);
+}
+
+static int32_t voice_wave_sample(synth_voice_t *voice)
+{
+    const uint32_t previous = voice->phase;
+    voice->phase += voice->phase_step;
+
+    if (voice->config.waveform == SOLAR_OS_SYNTH_WAVE_NOISE &&
+        voice->phase < previous) {
+        voice->noise = voice_noise_advance(voice->noise);
+    }
+    return voice_wave_at(voice->config.waveform,
+                         previous,
+                         voice->phase_step,
+                         voice->noise);
+}
+
+static void voice_update_oscillator2_pitch_target(synth_voice_t *voice)
+{
+    if (voice->sample_rate == 0U) {
+        return;
+    }
+    float frequency =
+        (float)voice->frequency_hz * voice_state.oscillator2_pitch_ratio;
+    const float maximum_frequency = (float)voice->sample_rate / 2.0f - 1.0f;
+    if (frequency > maximum_frequency) {
+        frequency = maximum_frequency;
+    }
+    const uint32_t target =
+        (uint32_t)((double)frequency * 4294967296.0 /
+                   (double)voice->sample_rate);
+    if (target != voice->oscillator2_phase_step_target) {
+        voice->oscillator2_phase_step_target = target;
+        voice->oscillator2_pitch_ramp_remaining =
+            OSCILLATOR_PITCH_RAMP_FRAMES;
+    }
+}
+
+static int32_t voice_oscillator2_sample(synth_voice_t *voice)
+{
+    if (voice->oscillator2_pitch_ramp_remaining > 0U) {
+        const int64_t difference =
+            (int64_t)voice->oscillator2_phase_step_target -
+            voice->oscillator2_phase_step;
+        voice->oscillator2_phase_step = (uint32_t)(
+            (int64_t)voice->oscillator2_phase_step +
+            difference / voice->oscillator2_pitch_ramp_remaining);
+        voice->oscillator2_pitch_ramp_remaining--;
+        if (voice->oscillator2_pitch_ramp_remaining == 0U) {
+            voice->oscillator2_phase_step =
+                voice->oscillator2_phase_step_target;
+        }
+    }
+
+    const uint32_t previous = voice->oscillator2_phase;
+    voice->oscillator2_phase += voice->oscillator2_phase_step;
+    const solar_os_synth_waveform_t waveform =
+        voice->config.oscillator2.waveform;
+    const bool previous_noise = voice->oscillator2_wave_crossfade > 0U &&
+        voice->oscillator2_previous_waveform == SOLAR_OS_SYNTH_WAVE_NOISE;
+    if ((waveform == SOLAR_OS_SYNTH_WAVE_NOISE || previous_noise) &&
+        voice->oscillator2_phase < previous) {
+        voice->oscillator2_noise =
+            voice_noise_advance(voice->oscillator2_noise);
+    }
+
+    const int32_t current = voice_wave_at(waveform,
+                                          previous,
+                                          voice->oscillator2_phase_step,
+                                          voice->oscillator2_noise);
+    if (voice->oscillator2_wave_crossfade == 0U) {
+        return current;
+    }
+    const int32_t previous_sample = voice_wave_at(
+        voice->oscillator2_previous_waveform,
+        previous,
+        voice->oscillator2_phase_step,
+        voice->oscillator2_noise);
+    const uint16_t previous_mix = voice->oscillator2_wave_crossfade;
+    const int32_t sample = (int32_t)(
+        ((int64_t)previous_sample * previous_mix +
+         (int64_t)current * (OSCILLATOR_MIX_MAX - previous_mix)) /
+        OSCILLATOR_MIX_MAX);
+    voice->oscillator2_wave_crossfade =
+        previous_mix > OSCILLATOR_WAVE_CROSSFADE_STEP
+            ? (uint16_t)(previous_mix - OSCILLATOR_WAVE_CROSSFADE_STEP)
+            : 0U;
+    return sample;
+}
+
+static int32_t voice_oscillator_mix_sample(synth_voice_t *voice)
+{
+    const int32_t oscillator1 = voice_wave_sample(voice);
+    const uint16_t target = (uint16_t)(
+        (uint32_t)voice->config.oscillator2.mix_percent *
+        OSCILLATOR_MIX_MAX / 100U);
+    if (voice->oscillator2_mix < target) {
+        const uint32_t next = voice->oscillator2_mix + OSCILLATOR_MIX_STEP;
+        voice->oscillator2_mix =
+            next > target ? target : (uint16_t)next;
+    } else if (voice->oscillator2_mix > target) {
+        const uint32_t distance = voice->oscillator2_mix - target;
+        voice->oscillator2_mix = distance > OSCILLATOR_MIX_STEP
+                                     ? (uint16_t)(voice->oscillator2_mix -
+                                                  OSCILLATOR_MIX_STEP)
+                                     : target;
+    }
+    if (voice->oscillator2_mix == 0U) {
+        voice->oscillator2_wave_crossfade = 0U;
+        return oscillator1;
+    }
+    const int32_t oscillator2 = voice_oscillator2_sample(voice);
+    return (int32_t)(
+        ((int64_t)oscillator1 * (OSCILLATOR_MIX_MAX -
+                                 voice->oscillator2_mix) +
+         (int64_t)oscillator2 * voice->oscillator2_mix) /
+        OSCILLATOR_MIX_MAX);
 }
 
 static uint32_t voice_filter_cutoff(const synth_voice_t *voice)
@@ -511,20 +684,6 @@ static bool voice_filter_enabled(const synth_voice_t *voice)
            voice->config.filter.resonance_percent > 0U;
 }
 
-static float voice_filter_soft_clip(float sample)
-{
-    const float magnitude = sample < 0.0f ? -sample : sample;
-    if (magnitude <= 0.8f) {
-        return sample;
-    }
-    if (magnitude >= 2.0f) {
-        return sample < 0.0f ? -1.0f : 1.0f;
-    }
-    const float position = (magnitude - 0.8f) / 1.2f;
-    const float clipped = 0.8f + 0.2f * (2.0f * position - position * position);
-    return sample < 0.0f ? -clipped : clipped;
-}
-
 static void voice_update_filter_coefficients(synth_voice_t *voice,
                                              uint32_t sample_rate)
 {
@@ -543,6 +702,9 @@ static void voice_update_filter_coefficients(synth_voice_t *voice,
     voice->filter_a1 = 1.0f / (1.0f + g * (g + damping));
     voice->filter_a2 = g * voice->filter_a1;
     voice->filter_a3 = g * voice->filter_a2;
+    voice->filter_output_gain = quality > FILTER_RESONANCE_HEADROOM
+                                    ? FILTER_RESONANCE_HEADROOM / quality
+                                    : 1.0f;
     voice->filter_coefficient_index = index;
     voice->filter_coefficient_resonance = resonance;
 }
@@ -592,11 +754,13 @@ static int32_t voice_filter_sample(synth_voice_t *voice,
         }
     }
 
-    float filtered = v2;
+    float filtered = v2 * voice->filter_output_gain;
     if (!isfinite(filtered)) {
         filtered = 0.0f;
-    } else {
-        filtered = voice_filter_soft_clip(filtered);
+    } else if (filtered > FILTER_OUTPUT_LIMIT) {
+        filtered = FILTER_OUTPUT_LIMIT;
+    } else if (filtered < -FILTER_OUTPUT_LIMIT) {
+        filtered = -FILTER_OUTPUT_LIMIT;
     }
     const int32_t wet = (int32_t)(filtered * 32767.0f);
 
@@ -623,8 +787,14 @@ static void voice_render(int16_t *samples,
                          void *user)
 {
     (void)user;
-    if (samples == NULL || sample_rate == 0 || voice_state.mutex == NULL ||
-        xSemaphoreTake(voice_state.mutex, 0) != pdTRUE) {
+    if (samples == NULL || sample_rate == 0 || voice_state.mutex == NULL) {
+        return;
+    }
+    TickType_t lock_wait = pdMS_TO_TICKS(VOICE_RENDER_LOCK_WAIT_MS);
+    if (lock_wait == 0U) {
+        lock_wait = 1U;
+    }
+    if (xSemaphoreTake(voice_state.mutex, lock_wait) != pdTRUE) {
         return;
     }
 
@@ -648,7 +818,7 @@ static void voice_render(int16_t *samples,
             }
             voice_prepare_rate(voice, sample_rate);
             const int32_t wave = voice_filter_sample(
-                voice, voice_wave_sample(voice), sample_rate);
+                voice, voice_oscillator_mix_sample(voice), sample_rate);
             /* Keep this division signed. The public maximum is an unsigned
              * constant, which would otherwise convert negative PCM to a large
              * positive value before division and clip it to +INT16_MAX. */
@@ -819,6 +989,12 @@ esp_err_t solar_os_synth_voice_configure(
     if (owner == NULL || owner[0] == '\0' || !voice_config_valid(config)) {
         return ESP_ERR_INVALID_ARG;
     }
+    /* The renderer waits for this mutex only briefly. Keep libm work outside
+     * the critical section so control updates stay inside that bounded wait. */
+    float oscillator2_pitch_ratio =
+        powf(2.0f, (float)config->oscillator2.detune_cents / 1200.0f);
+    oscillator2_pitch_ratio =
+        ldexpf(oscillator2_pitch_ratio, config->oscillator2.octave);
     esp_err_t err = voice_ensure_mutex();
     if (err != ESP_OK) {
         return err;
@@ -829,12 +1005,24 @@ esp_err_t solar_os_synth_voice_configure(
         return ESP_ERR_INVALID_STATE;
     }
     voice_state.config = *config;
+    voice_state.oscillator2_pitch_ratio = oscillator2_pitch_ratio;
     for (size_t i = 0; i < SOLAR_OS_SYNTH_VOICE_MAX; i++) {
         synth_voice_t *voice = &voice_state.voices[i];
         if (!voice->active) {
             continue;
         }
+        const solar_os_synth_waveform_t previous_oscillator2_waveform =
+            voice->config.oscillator2.waveform;
+        const bool crossfade_oscillator2 =
+            previous_oscillator2_waveform != config->oscillator2.waveform &&
+            voice->oscillator2_mix > 0U;
         voice->config = *config;
+        if (crossfade_oscillator2) {
+            voice->oscillator2_previous_waveform =
+                previous_oscillator2_waveform;
+            voice->oscillator2_wave_crossfade = OSCILLATOR_MIX_MAX;
+        }
+        voice_update_oscillator2_pitch_target(voice);
         if (voice->stage == VOICE_STAGE_SUSTAIN) {
             voice->envelope = sustain_level(voice);
         } else {
@@ -899,6 +1087,8 @@ esp_err_t solar_os_synth_voice_note_on(const char *owner,
     selected->velocity = velocity;
     selected->config = voice_state.config;
     selected->noise = NOISE_SEED ^ frequency_hz;
+    selected->oscillator2_noise =
+        NOISE_SEED ^ frequency_hz ^ 0xa5a5a5a5U;
     selected->age = ++voice_state.next_age;
     selected->filter_coefficient_index = UINT16_MAX;
     voice_enter_stage(selected, VOICE_STAGE_ATTACK, 0);

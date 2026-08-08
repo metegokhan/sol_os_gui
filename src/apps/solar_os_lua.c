@@ -3263,6 +3263,20 @@ static int solua_synth_status(lua_State *L)
     solua_set_int(L, -1, "decay_ms", status.config.decay_ms);
     solua_set_int(L, -1, "sustain_percent", status.config.sustain_percent);
     solua_set_int(L, -1, "release_ms", status.config.release_ms);
+    solua_set_str(
+        L,
+        -1,
+        "oscillator2_waveform",
+        solar_os_synth_waveform_name(status.config.oscillator2.waveform));
+    solua_set_int(L, -1, "oscillator2_octave", status.config.oscillator2.octave);
+    solua_set_int(L,
+                  -1,
+                  "oscillator2_detune_cents",
+                  status.config.oscillator2.detune_cents);
+    solua_set_int(L,
+                  -1,
+                  "oscillator2_mix_percent",
+                  status.config.oscillator2.mix_percent);
     solua_set_int(L, -1, "filter_cutoff_hz", status.config.filter.cutoff_hz);
     solua_set_int(L,
                   -1,
@@ -3327,7 +3341,46 @@ static int solua_synth_configure(lua_State *L)
             L, 4, SOLAR_OS_SYNTH_VOICE_DEFAULT_SUSTAIN_PERCENT),
         .release_ms = solua_optional_u32(
             L, 5, SOLAR_OS_SYNTH_VOICE_DEFAULT_RELEASE_MS),
+        .oscillator2 = status.config.oscillator2,
         .filter = status.config.filter,
+    };
+    return solua_check_esp(
+        L, solar_os_synth_voice_configure(SOLUA_SYNTH_OWNER, &config));
+}
+
+static int solua_synth_configure_oscillator2(lua_State *L)
+{
+    solar_os_synth_waveform_t waveform;
+    if (!solar_os_synth_parse_waveform(luaL_checkstring(L, 1), &waveform)) {
+        return luaL_error(L,
+                          "expected square, triangle, saw, sine, or noise");
+    }
+    const lua_Integer octave = lua_isnoneornil(L, 2)
+                                   ? SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_OCTAVE
+                                   : luaL_checkinteger(L, 2);
+    const lua_Integer detune =
+        lua_isnoneornil(L, 3)
+            ? SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_DETUNE_CENTS
+            : luaL_checkinteger(L, 3);
+    if (octave < SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MIN ||
+        octave > SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_OCTAVE_MAX) {
+        return luaL_error(L, "oscillator2 octave must be -2..2");
+    }
+    if (detune < SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MIN_CENTS ||
+        detune > SOLAR_OS_SYNTH_VOICE_OSCILLATOR2_DETUNE_MAX_CENTS) {
+        return luaL_error(L,
+                          "oscillator2 detune must be -100..100 cents");
+    }
+
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+    solar_os_synth_voice_config_t config = status.config;
+    config.oscillator2 = (solar_os_synth_oscillator_config_t){
+        .waveform = waveform,
+        .octave = (int8_t)octave,
+        .detune_cents = (int16_t)detune,
+        .mix_percent = solua_optional_u8(
+            L, 4, SOLAR_OS_SYNTH_VOICE_DEFAULT_OSCILLATOR2_MIX_PERCENT),
     };
     return solua_check_esp(
         L, solar_os_synth_voice_configure(SOLUA_SYNTH_OWNER, &config));
@@ -4957,6 +5010,10 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "status", solua_synth_status);
     solua_set_func(L, mod, "configure", solua_synth_configure);
     solua_set_func(L, mod, "configure_filter", solua_synth_configure_filter);
+    solua_set_func(L,
+                   mod,
+                   "configure_oscillator2",
+                   solua_synth_configure_oscillator2);
     solua_set_func(L, mod, "note_on", solua_synth_note_on);
     solua_set_func(L, mod, "note_off", solua_synth_note_off);
     solua_set_func(L, mod, "all_notes_off", solua_synth_all_notes_off);
