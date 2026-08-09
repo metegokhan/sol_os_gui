@@ -2,6 +2,18 @@
 
 ## 4.x
 
+- **4.6.28** — 2026-08-09 — Added `player`, an interactive WAV and MP3 player
+  with a persistent playlist, file browser, GUI, and simple TUI. It supports
+  pause, volume, automatic advance, background playback, and cassette,
+  oscilloscope, and spectrum visualizers. WAV and MP3 files now open in Player.
+- **4.6.27** — 2026-08-09 — `aplay` and `arecord` now work as normal
+  command-line applications and return to the existing prompt when finished.
+  `aplay` plays one file and can be stopped with `Esc`; `arecord` records until
+  stopped when no duration is specified.
+- **4.6.26** — 2026-08-09 — Added WebRadio with direct MP3 streaming, a
+  persistent editable station catalog, GUI and TUI interfaces, volume and
+  channel controls, background playback, and oscilloscope and spectrum
+  visualizers. The initial catalog includes eight Nightride.fm stations.
 - **4.6.25** — 2026-08-09 — Separated generic audio-device discovery from
   built-in board audio and reusable compressed-audio codecs. Audio apps now
   select dynamically registered input and output endpoints, allowing them to
