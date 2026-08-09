@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_audio_player.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
 #include "solar_os_board.h"
 #include "solar_os_board_audio.h"
@@ -480,12 +481,14 @@ static void audio_mp3_fill_output_info(
     info->data_bytes = data_bytes;
 }
 
-static esp_err_t audio_mp3_playback_flush(solar_os_stream_handle_t *stream,
+static esp_err_t audio_mp3_playback_flush(solar_os_audio_player_t *player,
+                                          const solar_os_stream_audio_format_t *format,
                                           int16_t *playback,
                                           size_t *playback_samples,
                                           bool pad_tail)
 {
-    if (stream == NULL || playback == NULL || playback_samples == NULL) {
+    if (player == NULL || format == NULL || playback == NULL ||
+        playback_samples == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     if (*playback_samples == 0) {
@@ -493,9 +496,9 @@ static esp_err_t audio_mp3_playback_flush(solar_os_stream_handle_t *stream,
     }
 
     if (pad_tail) {
-        const size_t frames_per_block = stream->audio.frames_per_block != 0U ?
-            stream->audio.frames_per_block : AUDIO_FRAME_CHUNK;
-        const size_t quantum = frames_per_block * stream->audio.channels;
+        const size_t frames_per_block = format->frames_per_block != 0U ?
+            format->frames_per_block : AUDIO_FRAME_CHUNK;
+        const size_t quantum = frames_per_block * format->channels;
         size_t padded = ((*playback_samples + quantum - 1U) / quantum) * quantum;
         if (padded > AUDIO_MP3_OUTPUT_SAMPLES_MAX) {
             padded = AUDIO_MP3_OUTPUT_SAMPLES_MAX;
@@ -506,30 +509,30 @@ static esp_err_t audio_mp3_playback_flush(solar_os_stream_handle_t *stream,
     }
 
     const size_t bytes = *playback_samples * sizeof(playback[0]);
-    size_t written = 0U;
-    const esp_err_t ret = solar_os_stream_write(stream, playback, bytes, 0U, &written);
-    if (ret == ESP_OK && written == bytes) {
+    const esp_err_t ret = solar_os_audio_player_write(
+        player, playback, bytes, NULL);
+    if (ret == ESP_OK) {
         *playback_samples = 0;
-        return ESP_OK;
     }
-    return ret == ESP_OK ? ESP_ERR_INVALID_SIZE : ret;
+    return ret;
 }
 
-static esp_err_t audio_mp3_playback_append(solar_os_stream_handle_t *stream,
+static esp_err_t audio_mp3_playback_append(solar_os_audio_player_t *player,
+                                           const solar_os_stream_audio_format_t *format,
                                            int16_t *playback,
                                            size_t *playback_samples,
                                            const int16_t *samples,
                                            size_t sample_count)
 {
-    if (stream == NULL || playback == NULL || playback_samples == NULL ||
-        samples == NULL) {
+    if (player == NULL || format == NULL || playback == NULL ||
+        playback_samples == NULL || samples == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     while (sample_count > 0) {
         if (*playback_samples >= AUDIO_MP3_OUTPUT_SAMPLES_MAX) {
             const esp_err_t ret = audio_mp3_playback_flush(
-                stream, playback, playback_samples, false);
+                player, format, playback, playback_samples, false);
             if (ret != ESP_OK) {
                 return ret;
             }
@@ -544,7 +547,7 @@ static esp_err_t audio_mp3_playback_append(solar_os_stream_handle_t *stream,
 
         if (*playback_samples >= AUDIO_MP3_OUTPUT_SAMPLES_MAX) {
             const esp_err_t ret = audio_mp3_playback_flush(
-                stream, playback, playback_samples, false);
+                player, format, playback, playback_samples, false);
             if (ret != ESP_OK) {
                 return ret;
             }
@@ -2104,7 +2107,7 @@ static esp_err_t audio_record_wav_stream(const char *path,
                                          const solar_os_audio_wav_options_t *options,
                                          solar_os_audio_wav_info_t *info)
 {
-    if (path == NULL || path[0] == '\0' || duration_ms == 0 ||
+    if (path == NULL || path[0] == '\0' ||
         duration_ms > SOLAR_OS_AUDIO_WAV_MAX_MS) {
         errno = EINVAL;
         return ESP_ERR_INVALID_ARG;
@@ -2143,14 +2146,20 @@ static esp_err_t audio_record_wav_stream(const char *path,
     current.block_align = (uint16_t)(
         (current.channels * current.bits_per_sample) / 8U);
     const uint32_t frame_bytes = current.block_align;
-    const uint32_t target_frames =
-        (uint32_t)(((uint64_t)current.sample_rate * duration_ms) / 1000U);
-    const uint64_t target_bytes64 = (uint64_t)target_frames * frame_bytes;
-    if (target_bytes64 > UINT32_MAX - AUDIO_WAV_HEADER_BYTES) {
-        solar_os_stream_close(&stream);
-        return ESP_ERR_INVALID_SIZE;
+    uint32_t target_bytes;
+    if (duration_ms == 0U) {
+        target_bytes = (UINT32_MAX - AUDIO_WAV_HEADER_BYTES) / frame_bytes *
+            frame_bytes;
+    } else {
+        const uint32_t target_frames =
+            (uint32_t)(((uint64_t)current.sample_rate * duration_ms) / 1000U);
+        const uint64_t target_bytes64 = (uint64_t)target_frames * frame_bytes;
+        if (target_bytes64 > UINT32_MAX - AUDIO_WAV_HEADER_BYTES) {
+            solar_os_stream_close(&stream);
+            return ESP_ERR_INVALID_SIZE;
+        }
+        target_bytes = (uint32_t)target_bytes64;
     }
-    const uint32_t target_bytes = (uint32_t)target_bytes64;
 
     FILE *file = fopen(path, "wb");
     if (file == NULL) {
@@ -2259,6 +2268,14 @@ esp_err_t solar_os_audio_record_wav(const char *path,
     return audio_record_wav_stream(path, duration_ms, options, info);
 }
 
+static bool audio_playback_use_buffered_player(void)
+{
+    /* Without external stacks, buffering would require two internal workers. */
+    solar_os_task_admission_status_t status;
+    solar_os_task_get_admission_status(&status);
+    return status.external_stacks_supported;
+}
+
 static esp_err_t audio_play_wav_stream(const char *path,
                                        uint8_t volume,
                                        const solar_os_audio_wav_options_t *options,
@@ -2293,33 +2310,28 @@ static esp_err_t audio_play_wav_stream(const char *path,
         return ESP_FAIL;
     }
 
-    solar_os_stream_handle_t stream = SOLAR_OS_STREAM_HANDLE_INIT;
-    const solar_os_stream_open_options_t open_options = {
-        .direction = SOLAR_OS_STREAM_DIRECTION_SINK,
-        .timeout_ms = UINT32_MAX,
+    solar_os_audio_player_t *player = NULL;
+    const solar_os_audio_player_options_t player_options = {
+        .owner = "aplay",
         .requested_audio = {
             .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
             .sample_rate = source.sample_rate,
             .channels = source.channels,
             .bits_per_sample = source.bits_per_sample,
         },
+        .volume = volume,
+        .buffered = audio_playback_use_buffered_player(),
+        .external_buffer_bytes = SOLAR_OS_AUDIO_PLAYER_DEFAULT_BUFFER_BYTES,
+        .internal_buffer_bytes = SOLAR_OS_AUDIO_PLAYER_DEFAULT_BUFFER_BYTES,
+        .target_ms = SOLAR_OS_AUDIO_PLAYER_DEFAULT_TARGET_MS,
+        .should_cancel = options != NULL ? options->should_cancel : NULL,
+        .cancel_user = options != NULL ? options->user : NULL,
     };
-    solar_os_audio_device_info_t device;
-    ret = solar_os_audio_open_default(
-        SOLAR_OS_STREAM_DIRECTION_SINK, "aplay", &open_options,
-        &stream, &device);
+    ret = solar_os_audio_player_create(
+        &player_options, &player, NULL, NULL);
     if (ret != ESP_OK) {
         fclose(file);
         return ret;
-    }
-
-    if (volume != SOLAR_OS_AUDIO_VOLUME_GLOBAL) {
-        ret = solar_os_audio_set_device_volume(device.id, volume);
-        if (ret != ESP_OK) {
-            fclose(file);
-            solar_os_stream_close(&stream);
-            return ret;
-        }
     }
 
     uint8_t *buffer = solar_os_memory_alloc(AUDIO_WAV_BUFFER_BYTES,
@@ -2327,7 +2339,7 @@ static esp_err_t audio_play_wav_stream(const char *path,
                                              "audio.wav");
     if (buffer == NULL) {
         fclose(file);
-        solar_os_stream_close(&stream);
+        solar_os_audio_player_destroy(player);
         return ESP_ERR_NO_MEM;
     }
 
@@ -2358,12 +2370,8 @@ static esp_err_t audio_play_wav_stream(const char *path,
         if (ret != ESP_OK) {
             break;
         }
-        size_t written = 0U;
-        ret = solar_os_stream_write(&stream, buffer, chunk, 0U, &written);
-        if (ret != ESP_OK || written != chunk) {
-            if (ret == ESP_OK) {
-                ret = ESP_ERR_INVALID_SIZE;
-            }
+        ret = solar_os_audio_player_write(player, buffer, chunk, NULL);
+        if (ret != ESP_OK) {
             break;
         }
 
@@ -2379,13 +2387,10 @@ static esp_err_t audio_play_wav_stream(const char *path,
         }
     }
 
-    if (ret == ESP_OK || cancelled) {
-        memset(buffer, 0, AUDIO_WAV_BUFFER_BYTES);
-        size_t written = 0U;
-        (void)solar_os_stream_write(
-            &stream, buffer, AUDIO_WAV_BUFFER_BYTES, 0U, &written);
+    if (ret == ESP_OK) {
+        ret = solar_os_audio_player_finish(player, NULL);
     }
-    solar_os_stream_close(&stream);
+    solar_os_audio_player_destroy(player);
 
     const int close_errno = errno;
     fclose(file);
@@ -2439,37 +2444,27 @@ static esp_err_t audio_play_mp3_stream(const char *path,
         return ret;
     }
 
-    solar_os_stream_handle_t stream = SOLAR_OS_STREAM_HANDLE_INIT;
-    const solar_os_stream_open_options_t open_options = {
-        .direction = SOLAR_OS_STREAM_DIRECTION_SINK,
-        .timeout_ms = UINT32_MAX,
+    solar_os_audio_player_t *player = NULL;
+    solar_os_stream_audio_format_t output_format;
+    const solar_os_audio_player_options_t player_options = {
+        .owner = "aplay",
         .requested_audio = {
             .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
             .bits_per_sample = 16U,
         },
+        .volume = volume,
+        .buffered = audio_playback_use_buffered_player(),
+        .external_buffer_bytes = SOLAR_OS_AUDIO_PLAYER_DEFAULT_BUFFER_BYTES,
+        .internal_buffer_bytes = SOLAR_OS_AUDIO_PLAYER_DEFAULT_BUFFER_BYTES,
+        .target_ms = SOLAR_OS_AUDIO_PLAYER_DEFAULT_TARGET_MS,
+        .should_cancel = options != NULL ? options->should_cancel : NULL,
+        .cancel_user = options != NULL ? options->user : NULL,
     };
-    solar_os_audio_device_info_t device;
-    ret = solar_os_audio_open_default(
-        SOLAR_OS_STREAM_DIRECTION_SINK, "aplay", &open_options,
-        &stream, &device);
+    ret = solar_os_audio_player_create(
+        &player_options, &player, &output_format, NULL);
     if (ret != ESP_OK) {
         fclose(file);
         return ret;
-    }
-    if (stream.audio.sample_format != SOLAR_OS_STREAM_AUDIO_S16_LE ||
-        stream.audio.bits_per_sample != 16U || stream.audio.sample_rate == 0U ||
-        stream.audio.channels == 0U || stream.audio.channels > 2U) {
-        fclose(file);
-        solar_os_stream_close(&stream);
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    if (volume != SOLAR_OS_AUDIO_VOLUME_GLOBAL) {
-        ret = solar_os_audio_set_device_volume(device.id, volume);
-        if (ret != ESP_OK) {
-            fclose(file);
-            solar_os_stream_close(&stream);
-            return ret;
-        }
     }
 
     solar_os_audio_mp3_decoder_t *decoder = NULL;
@@ -2500,13 +2495,13 @@ static esp_err_t audio_play_mp3_stream(const char *path,
         solar_os_memory_free(decoded);
         solar_os_memory_free(output);
         solar_os_memory_free(playback);
-        solar_os_stream_close(&stream);
+        solar_os_audio_player_destroy(player);
         return ESP_ERR_NO_MEM;
     }
 
     bool cancelled = false;
     solar_os_audio_wav_info_t progress;
-    audio_mp3_fill_output_info(&progress, &stream.audio, 0U);
+    audio_mp3_fill_output_info(&progress, &output_format, 0U);
     size_t input_len = 0;
     bool eof = false;
     bool decoded_any = false;
@@ -2555,13 +2550,13 @@ static esp_err_t audio_play_mp3_stream(const char *path,
                     decoded,
                     frame.frames,
                     &frame.format,
-                    &stream.audio,
+                    &output_format,
                     output,
                     AUDIO_MP3_OUTPUT_SAMPLES_MAX,
                     &out_samples,
                     &source_done);
                 if (ret != ESP_OK || out_samples == 0U ||
-                    (out_samples % stream.audio.channels) != 0U) {
+                    (out_samples % output_format.channels) != 0U) {
                     if (ret == ESP_OK) {
                         ret = ESP_ERR_INVALID_RESPONSE;
                     }
@@ -2569,7 +2564,8 @@ static esp_err_t audio_play_mp3_stream(const char *path,
                 }
 
                 const size_t out_bytes = out_samples * sizeof(output[0]);
-                ret = audio_mp3_playback_append(&stream,
+                ret = audio_mp3_playback_append(player,
+                                                &output_format,
                                                 playback,
                                                 &playback_samples,
                                                 output,
@@ -2606,16 +2602,12 @@ static esp_err_t audio_play_mp3_stream(const char *path,
 
     if (ret == ESP_OK) {
         ret = audio_mp3_playback_flush(
-            &stream, playback, &playback_samples, true);
+            player, &output_format, playback, &playback_samples, true);
     }
-
-    if (ret == ESP_OK || cancelled) {
-        memset(output, 0, AUDIO_WAV_BUFFER_BYTES);
-        size_t written = 0U;
-        (void)solar_os_stream_write(
-            &stream, output, AUDIO_WAV_BUFFER_BYTES, 0U, &written);
+    if (ret == ESP_OK) {
+        ret = solar_os_audio_player_finish(player, NULL);
     }
-    solar_os_stream_close(&stream);
+    solar_os_audio_player_destroy(player);
 
     {
         const int close_errno = errno;

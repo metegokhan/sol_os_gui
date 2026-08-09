@@ -480,6 +480,7 @@ label = "service.audio"
 depends = ["service_streams"]
 sources = [
   "services/solar_os_audio.c",
+  "services/solar_os_audio_player.c",
   "services/solar_os_audio_pcm.c",
 ]
 

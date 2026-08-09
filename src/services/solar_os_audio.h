@@ -185,6 +185,7 @@ esp_err_t solar_os_audio_get_wav_info(const char *path, solar_os_audio_wav_info_
 #if SOLAR_OS_PACKAGE_APP_APLAY
 esp_err_t solar_os_audio_get_mp3_info(const char *path, solar_os_audio_wav_info_t *info);
 #endif
+/* A zero duration records until cancellation or the output cannot grow. */
 esp_err_t solar_os_audio_record_wav(const char *path,
                                     uint32_t duration_ms,
                                     const solar_os_audio_wav_options_t *options,

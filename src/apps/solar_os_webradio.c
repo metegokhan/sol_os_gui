@@ -11,16 +11,13 @@
 
 #include "esp_attr.h"
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/idf_additions.h"
 #include "freertos/portmacro.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "sdkconfig.h"
 #include "solar_os_audio.h"
 #include "solar_os_audio_codec.h"
 #include "solar_os_audio_pcm.h"
+#include "solar_os_audio_player.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_display.h"
 #include "solar_os_gfx.h"
@@ -36,9 +33,6 @@
 
 #define WEBRADIO_TASK_STACK 20480U
 #define WEBRADIO_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
-#define WEBRADIO_PLAYBACK_TASK_STACK 8192U
-#define WEBRADIO_PLAYBACK_TASK_PRIORITY (WEBRADIO_TASK_PRIORITY + 1U)
-SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WEBRADIO_PLAYBACK_TASK_STACK);
 #if !CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WEBRADIO_TASK_STACK);
 #endif
@@ -97,14 +91,8 @@ typedef enum {
 } webradio_dialog_t;
 
 typedef struct {
-    solar_os_stream_handle_t stream;
-    uint8_t *jitter;
-    SemaphoreHandle_t jitter_mutex;
-    size_t jitter_capacity;
-    size_t jitter_read;
-    size_t jitter_write;
-    size_t jitter_used;
-    bool jitter_mutex_external;
+    solar_os_audio_player_t *player;
+    solar_os_stream_audio_format_t output_format;
     solar_os_audio_mp3_decoder_t *decoder;
     solar_os_audio_s16_converter_t converter;
     uint8_t *input;
@@ -112,17 +100,12 @@ typedef struct {
     int16_t *decoded;
     int16_t *output;
     int16_t *playback;
-    int16_t *sink;
     size_t playback_samples;
     uint64_t network_bytes;
     uint64_t output_bytes;
     bool decoded_any;
-    volatile bool playback_ready;
-    volatile bool playback_done;
-    volatile bool playback_stop;
     volatile bool playback_started;
     volatile esp_err_t playback_error;
-    TaskHandle_t playback_task;
     char content_type[64];
 } webradio_worker_t;
 
@@ -171,9 +154,6 @@ static EXT_RAM_BSS_ATTR webradio_app_state_t webradio;
 static portMUX_TYPE webradio_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static const char *webradio_dialog_label(void);
-static size_t webradio_jitter_write(webradio_worker_t *worker,
-                                    const uint8_t *data,
-                                    size_t length);
 
 static void webradio_enable_high_refresh(solar_os_context_t *ctx)
 {
@@ -888,9 +868,11 @@ static esp_err_t webradio_playback_flush(webradio_worker_t *worker, bool pad_tai
         return ESP_OK;
     }
     if (pad_tail) {
-        const size_t frames_per_block = worker->stream.audio.frames_per_block != 0U ?
-            worker->stream.audio.frames_per_block : 256U;
-        const size_t quantum = frames_per_block * worker->stream.audio.channels;
+        const size_t frames_per_block =
+            worker->output_format.frames_per_block != 0U ?
+                worker->output_format.frames_per_block : 256U;
+        const size_t quantum =
+            frames_per_block * worker->output_format.channels;
         size_t padded =
             ((worker->playback_samples + quantum - 1U) / quantum) * quantum;
         if (padded > WEBRADIO_OUTPUT_SAMPLES) {
@@ -901,19 +883,16 @@ static esp_err_t webradio_playback_flush(webradio_worker_t *worker, bool pad_tai
         }
     }
     const size_t bytes = worker->playback_samples * sizeof(worker->playback[0]);
-    size_t sent = 0U;
-    while (sent < bytes && !webradio.stop_requested &&
-           !worker->playback_stop && worker->playback_error == ESP_OK) {
-        const size_t count = webradio_jitter_write(
-            worker, (const uint8_t *)worker->playback + sent, bytes - sent);
-        sent += count;
-        if (count == 0U) {
-            vTaskDelay(pdMS_TO_TICKS(WEBRADIO_WORKER_POLL_MS));
-        }
-    }
-    if (sent != bytes) {
-        return worker->playback_error != ESP_OK ?
-            worker->playback_error : ESP_ERR_INVALID_STATE;
+    const esp_err_t err = solar_os_audio_player_write(
+        worker->player,
+        worker->playback,
+        bytes,
+        &webradio.stop_requested);
+    if (err != ESP_OK) {
+        worker->playback_error = err;
+        webradio_set_playback_state(WEBRADIO_PLAYBACK_ERROR,
+                                    "audio output failed");
+        return err;
     }
     worker->playback_samples = 0U;
     return ESP_OK;
@@ -976,7 +955,7 @@ static esp_err_t webradio_decode_available(webradio_worker_t *worker)
                     worker->decoded,
                     frame.frames,
                     &frame.format,
-                    &worker->stream.audio,
+                    &worker->output_format,
                     worker->output,
                     WEBRADIO_OUTPUT_SAMPLES,
                     &output_samples,
@@ -1070,255 +1049,39 @@ static esp_err_t webradio_http_event(const solar_os_http_event_t *event,
     return webradio_feed_mp3(worker, event->data, event->data_len);
 }
 
-static size_t webradio_jitter_available(webradio_worker_t *worker)
+static void webradio_player_state(bool playing, void *user)
 {
-    if (worker == NULL || worker->jitter_mutex == NULL) {
-        return 0U;
+    webradio_worker_t *worker = user;
+    worker->playback_started = playing;
+    if (playing) {
+        webradio_set_playback_state(WEBRADIO_PLAYBACK_PLAYING, NULL);
+    } else if (!webradio.stop_requested) {
+        worker->playback_error = solar_os_audio_player_error(worker->player);
+        webradio_set_playback_state(
+            worker->playback_error == ESP_OK ? WEBRADIO_PLAYBACK_BUFFERING :
+                                               WEBRADIO_PLAYBACK_ERROR,
+            worker->playback_error == ESP_OK ? NULL : "audio output failed");
     }
-    xSemaphoreTake(worker->jitter_mutex, portMAX_DELAY);
-    const size_t available = worker->jitter_used;
-    xSemaphoreGive(worker->jitter_mutex);
-    return available;
 }
 
-static size_t webradio_jitter_write(webradio_worker_t *worker,
-                                    const uint8_t *data,
-                                    size_t length)
+static void webradio_player_samples(const int16_t *samples,
+                                    size_t sample_count,
+                                    uint8_t channels,
+                                    void *user)
 {
-    if (worker == NULL || data == NULL || length == 0U ||
-        worker->jitter == NULL || worker->jitter_mutex == NULL) {
-        return 0U;
-    }
-    xSemaphoreTake(worker->jitter_mutex, portMAX_DELAY);
-    const size_t space = worker->jitter_capacity - worker->jitter_used;
-    const size_t count = length < space ? length : space;
-    const size_t first = count < worker->jitter_capacity - worker->jitter_write ?
-        count : worker->jitter_capacity - worker->jitter_write;
-    memcpy(worker->jitter + worker->jitter_write, data, first);
-    memcpy(worker->jitter, data + first, count - first);
-    worker->jitter_write = (worker->jitter_write + count) % worker->jitter_capacity;
-    worker->jitter_used += count;
-    xSemaphoreGive(worker->jitter_mutex);
-    return count;
-}
-
-static size_t webradio_jitter_read(webradio_worker_t *worker,
-                                   uint8_t *data,
-                                   size_t length)
-{
-    if (worker == NULL || data == NULL || length == 0U ||
-        worker->jitter == NULL || worker->jitter_mutex == NULL) {
-        return 0U;
-    }
-    xSemaphoreTake(worker->jitter_mutex, portMAX_DELAY);
-    const size_t count = length < worker->jitter_used ? length : worker->jitter_used;
-    const size_t first = count < worker->jitter_capacity - worker->jitter_read ?
-        count : worker->jitter_capacity - worker->jitter_read;
-    memcpy(data, worker->jitter + worker->jitter_read, first);
-    memcpy(data + first, worker->jitter, count - first);
-    worker->jitter_read = (worker->jitter_read + count) % worker->jitter_capacity;
-    worker->jitter_used -= count;
-    xSemaphoreGive(worker->jitter_mutex);
-    return count;
-}
-
-static bool webradio_jitter_create(webradio_worker_t *worker)
-{
-    if (worker == NULL) {
-        return false;
-    }
-#if defined(CONFIG_SPIRAM) && CONFIG_SPIRAM
-    worker->jitter = solar_os_memory_alloc(
-        WEBRADIO_JITTER_EXTERNAL_BYTES,
-        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
-        "webradio.jitter");
-    if (worker->jitter != NULL) {
-        worker->jitter_capacity = WEBRADIO_JITTER_EXTERNAL_BYTES;
-        worker->jitter_mutex = xSemaphoreCreateMutexWithCaps(
-            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        worker->jitter_mutex_external = worker->jitter_mutex != NULL;
-    }
-#endif
-    if (worker->jitter == NULL) {
-        worker->jitter = solar_os_memory_alloc(
-            WEBRADIO_JITTER_INTERNAL_BYTES,
-            SOLAR_OS_MEMORY_INTERNAL_PREFERRED,
-            "webradio.jitter");
-        if (worker->jitter != NULL) {
-            worker->jitter_capacity = WEBRADIO_JITTER_INTERNAL_BYTES;
-        }
-    }
-    if (worker->jitter_mutex == NULL) {
-        worker->jitter_mutex = xSemaphoreCreateMutex();
-        worker->jitter_mutex_external = false;
-    }
-    return worker->jitter != NULL && worker->jitter_mutex != NULL;
-}
-
-static void webradio_jitter_delete(webradio_worker_t *worker)
-{
-    if (worker == NULL) {
-        return;
-    }
-    if (worker->jitter_mutex != NULL) {
-        if (worker->jitter_mutex_external) {
-            vSemaphoreDeleteWithCaps(worker->jitter_mutex);
-        } else {
-            vSemaphoreDelete(worker->jitter_mutex);
-        }
-    }
-    solar_os_memory_free(worker->jitter);
-    worker->jitter = NULL;
-    worker->jitter_mutex = NULL;
-    worker->jitter_capacity = 0U;
-    worker->jitter_read = 0U;
-    worker->jitter_write = 0U;
-    worker->jitter_used = 0U;
-    worker->jitter_mutex_external = false;
-}
-
-static size_t webradio_jitter_target(const webradio_worker_t *worker)
-{
-    const uint64_t bytes_per_second =
-        (uint64_t)worker->stream.audio.sample_rate *
-        worker->stream.audio.channels * sizeof(int16_t);
-    size_t target = (size_t)((bytes_per_second * WEBRADIO_JITTER_TARGET_MS) /
-                             1000U);
-    const size_t maximum = (worker->jitter_capacity * 3U) / 4U;
-    if (target > maximum) {
-        target = maximum;
-    }
-    if (target < WEBRADIO_PCM_BUFFER_BYTES) {
-        target = WEBRADIO_PCM_BUFFER_BYTES;
-    }
-    return target;
-}
-
-static void webradio_playback_task(void *arg)
-{
-    webradio_worker_t *worker = arg;
-    solar_os_audio_device_info_t device = {0};
-    worker->stream = (solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
-    const solar_os_stream_open_options_t options = {
-        .direction = SOLAR_OS_STREAM_DIRECTION_SINK,
-        .timeout_ms = UINT32_MAX,
-        .requested_audio = {
-            .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
-            .bits_per_sample = 16U,
-        },
-    };
-    esp_err_t err = solar_os_audio_open_default(
-        SOLAR_OS_STREAM_DIRECTION_SINK,
-        "webradio",
-        &options,
-        &worker->stream,
-        &device);
-    const bool stream_opened = err == ESP_OK;
-    if (stream_opened) {
-        webradio_publish_device(&device);
-    }
-    if (err == ESP_OK &&
-        (worker->stream.audio.sample_format != SOLAR_OS_STREAM_AUDIO_S16_LE ||
-         worker->stream.audio.bits_per_sample != 16U ||
-         worker->stream.audio.sample_rate == 0U ||
-         worker->stream.audio.channels == 0U ||
-         worker->stream.audio.channels > 2U)) {
-        err = ESP_ERR_NOT_SUPPORTED;
-    }
-    const bool stream_supported = err == ESP_OK;
-    worker->playback_error = err;
-    worker->playback_ready = true;
-
-    if (stream_supported) {
-        const size_t target = webradio_jitter_target(worker);
-        size_t filled = 0U;
-        bool primed = false;
-        while (!webradio.stop_requested && !worker->playback_stop) {
-            if (!primed) {
-                const size_t available = webradio_jitter_available(worker);
-                if (filled + available < target) {
-                    vTaskDelay(pdMS_TO_TICKS(WEBRADIO_WORKER_POLL_MS));
-                    continue;
-                }
-                primed = true;
-                worker->playback_started = true;
-                webradio_set_playback_state(WEBRADIO_PLAYBACK_PLAYING, NULL);
-            }
-
-            const size_t received = webradio_jitter_read(
-                worker,
-                (uint8_t *)worker->sink + filled,
-                WEBRADIO_PCM_BUFFER_BYTES - filled);
-            if (received == 0U) {
-                vTaskDelay(pdMS_TO_TICKS(WEBRADIO_WORKER_POLL_MS));
-                primed = false;
-                worker->playback_started = false;
-                webradio_set_playback_state(WEBRADIO_PLAYBACK_BUFFERING, NULL);
-                continue;
-            }
-            filled += received;
-            if (filled < WEBRADIO_PCM_BUFFER_BYTES) {
-                continue;
-            }
-
-            size_t written = 0U;
-            err = solar_os_stream_write(&worker->stream,
-                                        worker->sink,
-                                        WEBRADIO_PCM_BUFFER_BYTES,
-                                        0U,
-                                        &written);
-            if (err != ESP_OK || written != WEBRADIO_PCM_BUFFER_BYTES) {
-                worker->playback_error = err != ESP_OK ?
-                    err : ESP_ERR_INVALID_SIZE;
-                webradio_set_playback_state(WEBRADIO_PLAYBACK_ERROR,
-                                            "audio output failed");
-                break;
-            }
-            webradio_publish_visualizer(
-                worker->sink,
-                written / sizeof(worker->sink[0]),
-                worker->stream.audio.channels);
-            filled = 0U;
-        }
-
-        memset(worker->sink, 0, WEBRADIO_PCM_BUFFER_BYTES);
-        size_t written = 0U;
-        (void)solar_os_stream_write(&worker->stream,
-                                    worker->sink,
-                                    WEBRADIO_PCM_BUFFER_BYTES,
-                                    0U,
-                                    &written);
-    }
-    if (stream_opened) {
-        solar_os_stream_close(&worker->stream);
-    }
-    webradio_publish_device(NULL);
-
-    worker->playback_started = false;
-    worker->playback_done = true;
-    solar_os_task_delete_internal(NULL);
+    (void)user;
+    webradio_publish_visualizer(samples, sample_count, channels);
 }
 
 static void webradio_worker_free(webradio_worker_t *worker)
 {
-    worker->playback_stop = true;
-    if (worker->playback_task != NULL &&
-        !solar_os_task_wait_done(worker->playback_task,
-                                 &worker->playback_done,
-                                 SOLAR_OS_TASK_STOP_WAIT_MS)) {
-        SOLAR_OS_LOGW(TAG, "playback worker is slow to stop");
-        while (!worker->playback_done) {
-            vTaskDelay(pdMS_TO_TICKS(WEBRADIO_WORKER_POLL_MS));
-        }
-    }
-    worker->playback_task = NULL;
+    solar_os_audio_player_destroy(worker->player);
+    webradio_publish_device(NULL);
     solar_os_audio_mp3_decoder_destroy(worker->decoder);
     solar_os_memory_free(worker->input);
     solar_os_memory_free(worker->decoded);
     solar_os_memory_free(worker->output);
     solar_os_memory_free(worker->playback);
-    solar_os_memory_free(worker->sink);
-    webradio_jitter_delete(worker);
     memset(worker, 0, sizeof(*worker));
 }
 
@@ -1339,43 +1102,38 @@ static esp_err_t webradio_worker_init(webradio_worker_t *worker)
     worker->playback = solar_os_memory_alloc(WEBRADIO_PCM_BUFFER_BYTES,
                                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
                                               "webradio.playback");
-    worker->sink = solar_os_memory_alloc(WEBRADIO_PCM_BUFFER_BYTES,
-                                          SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                          "webradio.sink");
-    const bool jitter_ready = webradio_jitter_create(worker);
     if (worker->input == NULL || worker->decoded == NULL ||
-        worker->output == NULL || worker->playback == NULL ||
-        worker->sink == NULL || !jitter_ready) {
+        worker->output == NULL || worker->playback == NULL) {
         webradio_worker_free(worker);
         return ESP_ERR_NO_MEM;
     }
 
-    const BaseType_t created = solar_os_task_create_pinned_internal(
-        webradio_playback_task,
-        "webradio_audio",
-        WEBRADIO_PLAYBACK_TASK_STACK,
-        worker,
-        WEBRADIO_PLAYBACK_TASK_PRIORITY,
-        &worker->playback_task,
-        tskNO_AFFINITY,
-        SOLAR_OS_TASK_ROLE_FOREGROUND);
-    if (created != pdPASS) {
-        webradio_worker_free(worker);
-        return ESP_ERR_NO_MEM;
-    }
-    while (!worker->playback_ready && !worker->playback_done &&
-           !webradio.stop_requested) {
-        vTaskDelay(pdMS_TO_TICKS(WEBRADIO_WORKER_POLL_MS));
-    }
-    if (worker->playback_error != ESP_OK) {
-        const esp_err_t err = worker->playback_error;
+    const solar_os_audio_player_options_t options = {
+        .owner = "webradio",
+        .requested_audio = {
+            .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
+            .bits_per_sample = 16U,
+        },
+        .volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL,
+        .buffered = true,
+        .external_buffer_bytes = WEBRADIO_JITTER_EXTERNAL_BYTES,
+        .internal_buffer_bytes = WEBRADIO_JITTER_INTERNAL_BYTES,
+        .target_ms = WEBRADIO_JITTER_TARGET_MS,
+        .state = webradio_player_state,
+        .samples = webradio_player_samples,
+        .user = worker,
+    };
+    solar_os_audio_device_info_t device;
+    const esp_err_t err = solar_os_audio_player_create(
+        &options,
+        &worker->player,
+        &worker->output_format,
+        &device);
+    if (err != ESP_OK) {
         webradio_worker_free(worker);
         return err;
     }
-    if (webradio.stop_requested) {
-        webradio_worker_free(worker);
-        return ESP_ERR_INVALID_STATE;
-    }
+    webradio_publish_device(&device);
     return ESP_OK;
 }
 
@@ -1444,6 +1202,7 @@ static void webradio_network_task(void *arg)
         if (webradio.stop_requested) {
             break;
         }
+        worker.playback_error = solar_os_audio_player_error(worker.player);
         if (worker.playback_error != ESP_OK) {
             break;
         }

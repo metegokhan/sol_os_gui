@@ -98,7 +98,9 @@ Controls:
 
 Play audio files through the default registered playback endpoint. WAV and MP3
 are supported when an output device is present. MP3 decoding is provided by the
-shared, device-independent audio codec service.
+shared, device-independent audio codec service. `aplay` prints the source
+details, plays the file once through the shared background audio player, and
+then returns to the prompt without clearing existing terminal output.
 
 Usage:
 
@@ -108,12 +110,14 @@ aplay [-v volume] file.wav|file.mp3
 
 Controls:
 
-- App-exit key stops playback.
+- `Esc` or app-exit stops playback early and returns to the prompt.
 
 ## arecord
 
 Record the default registered capture endpoint to a WAV file. This requires a
-registered input device; it does not require built-in board audio.
+registered input device; it does not require built-in board audio. With `-d`,
+recording stops after the specified number of seconds. Without `-d`, recording
+continues until app-exit, the storage fills, or the WAV size limit is reached.
 
 Usage:
 
@@ -123,7 +127,7 @@ arecord [-d seconds] file.wav
 
 Controls:
 
-- App-exit key stops recording.
+- App-exit stops recording, finalizes the WAV header, and returns to the prompt.
 
 ## calc
 
