@@ -14,6 +14,12 @@ MQTT, or diagnostic networking exists in the current firmware.
 
 ## Wi-Fi
 
+Wi-Fi is enabled by default. `wifi disable` prevents the Wi-Fi driver and its
+station/AP network interfaces from initializing on the next boot. `wifi enable`
+enables them again for the next boot. Both commands leave the current boot and
+saved network profiles unchanged. `wifi on` and `wifi off` remain live radio
+controls for the current boot.
+
 From the shell, `wifi` opens the display TUI and `wifi status` works on every
 shell. A script can scan before connecting:
 

@@ -473,6 +473,8 @@ static const char * const ble_addr_type_values[] = {
 
 static const char * const wifi_subcommands[] = {
     "status",
+    "enable",
+    "disable",
     "on",
     "off",
     "ap",

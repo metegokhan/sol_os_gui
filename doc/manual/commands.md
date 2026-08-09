@@ -451,7 +451,9 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | Command | Usage | Description |
 | --- | --- | --- |
 | `wifi` | `wifi` | Open the Wi-Fi display TUI when launched from the display shell. |
-| `wifi` | `wifi status` | Show station/AP/NAT state. |
+| `wifi` | `wifi status` | Show station/AP/NAT state and the current/next boot setting. |
+| `wifi` | `wifi enable` | Save Wi-Fi enabled for the next boot. The current boot is unchanged. |
+| `wifi` | `wifi disable` | Save Wi-Fi disabled for the next boot. The current boot is unchanged. |
 | `wifi` | `wifi on` | Start Wi-Fi station mode and connect to remembered networks. |
 | `wifi` | `wifi off` | Stop Wi-Fi station mode. |
 | `wifi` | `wifi scan` | Scan access points. |
@@ -474,6 +476,11 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
 | `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
 | `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
+
+Wi-Fi is enabled by default when no saved setting exists, including after `nvs
+clear`. `wifi on` and `wifi off` control the radio in the current boot. The
+`wifi enable` and `wifi disable` settings take effect only after a reboot.
+Disabling Wi-Fi does not erase saved station, access-point, or NAT settings.
 
 BLE is enabled by default when no saved setting exists, including after `nvs
 clear`. The `ble enable` and `ble disable` settings take effect only after a

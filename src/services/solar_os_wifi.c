@@ -28,6 +28,8 @@ static const char *TAG = "solar_os_wifi";
 #define WIFI_AP_NVS_AUTH_KEY "auth"
 #define WIFI_NAT_NVS_NAMESPACE "wifi_nat"
 #define WIFI_NAT_NVS_ENABLED_KEY "enabled"
+#define WIFI_POLICY_NVS_NAMESPACE "wifi"
+#define WIFI_POLICY_NVS_ENABLED_KEY "enabled"
 #define WIFI_STA_NVS_NAMESPACE "wifi_sta"
 #define WIFI_STA_NVS_COUNT_KEY "count"
 #define WIFI_STA_NVS_SSID_PREFIX "ssid"
@@ -42,6 +44,10 @@ static SemaphoreHandle_t wifi_mutex;
 static esp_netif_t *wifi_sta_netif;
 static esp_netif_t *wifi_ap_netif;
 static bool wifi_initialized;
+/* Freeze the current-boot policy before shell changes update the next boot. */
+static bool wifi_boot_policy_loaded;
+static bool wifi_enabled_for_current_boot = true;
+static bool wifi_enabled_for_next_boot = true;
 static bool wifi_started;
 static bool wifi_sta_enabled;
 static bool wifi_connected;
@@ -81,6 +87,82 @@ static esp_err_t wifi_nat_last_error;
 
 static void wifi_set_started_state(bool started);
 static esp_err_t wifi_update_ap_dns_from_sta(void);
+
+static esp_err_t wifi_load_boot_policy(void)
+{
+    if (wifi_boot_policy_loaded) {
+        return ESP_OK;
+    }
+
+    wifi_enabled_for_current_boot = true;
+    wifi_enabled_for_next_boot = true;
+
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(WIFI_POLICY_NVS_NAMESPACE, NVS_READONLY, &nvs);
+    if (ret == ESP_ERR_NVS_NOT_FOUND) {
+        wifi_boot_policy_loaded = true;
+        return ESP_OK;
+    }
+    if (ret != ESP_OK) {
+        wifi_boot_policy_loaded = true;
+        return ret;
+    }
+
+    uint8_t stored = 1U;
+    ret = nvs_get_u8(nvs, WIFI_POLICY_NVS_ENABLED_KEY, &stored);
+    nvs_close(nvs);
+    if (ret == ESP_ERR_NVS_NOT_FOUND) {
+        wifi_boot_policy_loaded = true;
+        return ESP_OK;
+    }
+    if (ret != ESP_OK) {
+        wifi_boot_policy_loaded = true;
+        return ret;
+    }
+
+    wifi_enabled_for_current_boot = stored != 0U;
+    wifi_enabled_for_next_boot = wifi_enabled_for_current_boot;
+    wifi_boot_policy_loaded = true;
+    return ESP_OK;
+}
+
+bool solar_os_wifi_enabled_for_current_boot(void)
+{
+    const esp_err_t ret = wifi_load_boot_policy();
+    if (ret != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "load Wi-Fi boot policy failed; defaulting to enabled: %s",
+                      esp_err_to_name(ret));
+    }
+    return wifi_enabled_for_current_boot;
+}
+
+bool solar_os_wifi_enabled_for_next_boot(void)
+{
+    (void)solar_os_wifi_enabled_for_current_boot();
+    return wifi_enabled_for_next_boot;
+}
+
+esp_err_t solar_os_wifi_set_enabled_for_next_boot(bool enabled)
+{
+    (void)solar_os_wifi_enabled_for_current_boot();
+
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(WIFI_POLICY_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = nvs_set_u8(nvs, WIFI_POLICY_NVS_ENABLED_KEY, enabled ? 1U : 0U);
+    if (ret == ESP_OK) {
+        ret = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    if (ret == ESP_OK) {
+        wifi_enabled_for_next_boot = enabled;
+    }
+    return ret;
+}
 
 static void wifi_lock(void)
 {
@@ -1157,6 +1239,10 @@ esp_err_t solar_os_wifi_init(void)
 {
     if (wifi_initialized) {
         return ESP_OK;
+    }
+
+    if (!solar_os_wifi_enabled_for_current_boot()) {
+        return ESP_ERR_NOT_ALLOWED;
     }
 
     if (wifi_mutex == NULL) {
