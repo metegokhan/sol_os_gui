@@ -95,9 +95,10 @@ members = [
   "service_synth",
   "app_aplay",
   "app_arecord",
+  "app_player",
   "app_synth",
 ]
-triggers = ["app_aplay", "app_arecord", "app_synth"]
+triggers = ["app_aplay", "app_arecord", "app_player", "app_synth"]
 
 [groups.net]
 capabilities = ["wifi"]
@@ -558,6 +559,18 @@ label = "service.signal-widgets"
 depends = ["service_dsp"]
 sources = ["services/solar_os_signal_widgets.c"]
 
+[packages.service_media_widgets]
+label = "service.media-widgets"
+sources = ["services/solar_os_media_widgets.c"]
+
+[packages.service_storage_browser]
+label = "service.storage-browser"
+sources = ["services/solar_os_storage_browser.c"]
+
+[packages.service_player_playlist]
+label = "service.player-playlist"
+sources = ["services/solar_os_player_playlist.c"]
+
 [packages.service_gpio]
 label = "service.gpio"
 depends = ["service_resources", "service_streams"]
@@ -794,6 +807,18 @@ sources = ["apps/solar_os_audio_apps.c"]
 label = "app.arecord"
 depends = ["service_audio"]
 sources = ["apps/solar_os_audio_apps.c"]
+
+[packages.app_player]
+label = "app.player"
+depends = [
+  "service_audio",
+  "service_audio_codecs",
+  "service_media_widgets",
+  "service_player_playlist",
+  "service_signal_widgets",
+  "service_storage_browser",
+]
+sources = ["apps/solar_os_player.c"]
 
 [packages.app_synth]
 label = "app.synth"

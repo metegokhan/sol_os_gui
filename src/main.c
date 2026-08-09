@@ -988,7 +988,15 @@ static void dispatch_app_tick(void)
     }
 
     last_app_tick_ms = now_ms;
-    solar_os_sessions_dispatch_tick(now_ms);
+    /*
+     * A session overlay owns the display until it expires.  Animated apps can
+     * otherwise present a new frame between overlay presents, which makes the
+     * two views flash over each other.  Background jobs continue to tick; the
+     * foreground app receives a resume event when the overlay closes.
+     */
+    if (session_overlay_until_ms == 0U) {
+        solar_os_sessions_dispatch_tick(now_ms);
+    }
 
     solar_os_jobs_tick(&os_ctx, now_ms);
     process_app_requests();

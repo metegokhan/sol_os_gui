@@ -43,12 +43,35 @@ struct solar_os_audio_player {
 
 static const char *TAG = "solar_os_audio_player";
 
+static void audio_player_set_playing(solar_os_audio_player_t *player,
+                                     bool playing);
+
 static bool audio_player_cancelled(const solar_os_audio_player_t *player,
                                    const volatile bool *cancelled)
 {
     return (cancelled != NULL && *cancelled) ||
         (player->options.should_cancel != NULL &&
          player->options.should_cancel(player->options.cancel_user));
+}
+
+static bool audio_player_paused(const solar_os_audio_player_t *player)
+{
+    return player->options.should_pause != NULL &&
+        player->options.should_pause(player->options.pause_user);
+}
+
+static bool audio_player_wait_unpaused(solar_os_audio_player_t *player,
+                                       const volatile bool *cancelled)
+{
+    while (audio_player_paused(player)) {
+        audio_player_set_playing(player, false);
+        if (player->stop_requested || player->done ||
+            audio_player_cancelled(player, cancelled)) {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(AUDIO_PLAYER_POLL_MS));
+    }
+    return true;
 }
 
 static size_t audio_player_available(solar_os_audio_player_t *player)
@@ -187,6 +210,9 @@ static void audio_player_task(void *arg)
         size_t filled = 0U;
         bool primed = false;
         while (!player->stop_requested) {
+            if (!audio_player_wait_unpaused(player, NULL)) {
+                break;
+            }
             const size_t available = audio_player_available(player);
             if (!primed) {
                 if (available == 0U && player->producer_done) {
@@ -395,7 +421,8 @@ esp_err_t solar_os_audio_player_write(solar_os_audio_player_t *player,
         return ESP_ERR_INVALID_SIZE;
     }
     if (!player->options.buffered) {
-        if (audio_player_cancelled(player, cancelled)) {
+        if (!audio_player_wait_unpaused(player, cancelled) ||
+            audio_player_cancelled(player, cancelled)) {
             return ESP_ERR_TIMEOUT;
         }
         audio_player_set_playing(player, true);
@@ -418,6 +445,9 @@ esp_err_t solar_os_audio_player_write(solar_os_audio_player_t *player,
     const uint8_t *bytes = data;
     size_t sent = 0U;
     while (sent < len && !player->stop_requested && !player->done) {
+        if (!audio_player_wait_unpaused(player, cancelled)) {
+            return ESP_ERR_TIMEOUT;
+        }
         if (audio_player_cancelled(player, cancelled)) {
             return ESP_ERR_TIMEOUT;
         }

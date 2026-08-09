@@ -102,6 +102,14 @@ expansion. The foreground app owns separate network/decode and steady playback
 workers joined by a PSRAM-preferred PCM jitter buffer. Suspending its UI leaves
 those workers running; closing the app stops them and releases their resources.
 
+`app.player` combines the shared audio and codec services with a persistent
+internal-flash playlist, the reusable storage browser, signal widgets, and the
+reusable cassette widget. Its file browser selects existing WAV/MP3 files; the
+same browser model also exposes current-directory selection for a future
+Recorder app without coupling recording policy to Player. Player has no
+built-in-audio capability requirement, so a runtime-attached output device can
+satisfy playback.
+
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider
 configuration, bounded tool-loop policy, a declarative typed-tool registry,

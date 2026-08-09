@@ -23,7 +23,7 @@
 #include "solar_os_task.h"
 #include "esp_timer.h"
 #include "solar_os_config.h"
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 #include "solar_os_audio_codec.h"
 #include "solar_os_audio_pcm.h"
 #endif
@@ -39,7 +39,7 @@
 #define AUDIO_TONE_WORKER_STACK 4096U
 #define AUDIO_TONE_WORKER_PRIORITY (tskIDLE_PRIORITY + 1U)
 #define AUDIO_TONE_CANCEL_POLL_MS 10U
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 #define AUDIO_MP3_INPUT_BUFFER_BYTES 16384U
 #define AUDIO_MP3_PROBE_SCAN_BYTES 65536U
 #define AUDIO_MP3_OUTPUT_SAMPLES_MAX (AUDIO_WAV_BUFFER_BYTES / sizeof(int16_t))
@@ -373,7 +373,7 @@ static esp_err_t audio_wav_read_info_from_file(FILE *file,
     return ESP_ERR_INVALID_RESPONSE;
 }
 
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 static void *audio_heap_alloc(size_t size)
 {
     return solar_os_memory_alloc(size,
@@ -2081,7 +2081,7 @@ esp_err_t solar_os_audio_get_wav_info(const char *path, solar_os_audio_wav_info_
     return ret;
 }
 
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 esp_err_t solar_os_audio_get_mp3_info(const char *path, solar_os_audio_wav_info_t *info)
 {
     if (path == NULL || path[0] == '\0' || info == NULL) {
@@ -2312,7 +2312,8 @@ static esp_err_t audio_play_wav_stream(const char *path,
 
     solar_os_audio_player_t *player = NULL;
     const solar_os_audio_player_options_t player_options = {
-        .owner = "aplay",
+        .owner = options != NULL && options->owner != NULL ?
+            options->owner : "aplay",
         .requested_audio = {
             .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
             .sample_rate = source.sample_rate,
@@ -2326,12 +2327,20 @@ static esp_err_t audio_play_wav_stream(const char *path,
         .target_ms = SOLAR_OS_AUDIO_PLAYER_DEFAULT_TARGET_MS,
         .should_cancel = options != NULL ? options->should_cancel : NULL,
         .cancel_user = options != NULL ? options->user : NULL,
+        .should_pause = options != NULL ? options->should_pause : NULL,
+        .pause_user = options != NULL ? options->user : NULL,
+        .samples = options != NULL ? options->samples : NULL,
+        .user = options != NULL ? options->user : NULL,
     };
+    solar_os_audio_device_info_t device;
     ret = solar_os_audio_player_create(
-        &player_options, &player, NULL, NULL);
+        &player_options, &player, NULL, &device);
     if (ret != ESP_OK) {
         fclose(file);
         return ret;
+    }
+    if (options != NULL && options->device != NULL) {
+        options->device(&device, options->user);
     }
 
     uint8_t *buffer = solar_os_memory_alloc(AUDIO_WAV_BUFFER_BYTES,
@@ -2419,7 +2428,7 @@ esp_err_t solar_os_audio_play_wav(const char *path,
     return audio_play_wav_stream(path, volume, options, info);
 }
 
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 static esp_err_t audio_play_mp3_stream(const char *path,
                                        uint8_t volume,
                                        const solar_os_audio_wav_options_t *options,
@@ -2447,7 +2456,8 @@ static esp_err_t audio_play_mp3_stream(const char *path,
     solar_os_audio_player_t *player = NULL;
     solar_os_stream_audio_format_t output_format;
     const solar_os_audio_player_options_t player_options = {
-        .owner = "aplay",
+        .owner = options != NULL && options->owner != NULL ?
+            options->owner : "aplay",
         .requested_audio = {
             .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
             .bits_per_sample = 16U,
@@ -2459,12 +2469,20 @@ static esp_err_t audio_play_mp3_stream(const char *path,
         .target_ms = SOLAR_OS_AUDIO_PLAYER_DEFAULT_TARGET_MS,
         .should_cancel = options != NULL ? options->should_cancel : NULL,
         .cancel_user = options != NULL ? options->user : NULL,
+        .should_pause = options != NULL ? options->should_pause : NULL,
+        .pause_user = options != NULL ? options->user : NULL,
+        .samples = options != NULL ? options->samples : NULL,
+        .user = options != NULL ? options->user : NULL,
     };
+    solar_os_audio_device_info_t device;
     ret = solar_os_audio_player_create(
-        &player_options, &player, &output_format, NULL);
+        &player_options, &player, &output_format, &device);
     if (ret != ESP_OK) {
         fclose(file);
         return ret;
+    }
+    if (options != NULL && options->device != NULL) {
+        options->device(&device, options->user);
     }
 
     solar_os_audio_mp3_decoder_t *decoder = NULL;

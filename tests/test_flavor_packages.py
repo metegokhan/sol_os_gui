@@ -96,6 +96,18 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(self.catalog.package_defs["app_aplay"].capabilities, ())
         self.assertEqual(self.catalog.package_defs["app_arecord"].capabilities, ())
         self.assertEqual(
+            self.catalog.package_defs["app_player"].depends,
+            (
+                "service_audio",
+                "service_audio_codecs",
+                "service_media_widgets",
+                "service_player_playlist",
+                "service_signal_widgets",
+                "service_storage_browser",
+            ),
+        )
+        self.assertEqual(self.catalog.package_defs["app_player"].capabilities, ())
+        self.assertEqual(
             self.catalog.package_defs["app_gameboy"].depends,
             (),
         )
@@ -137,6 +149,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_audio_codecs",
             "app_aplay",
             "app_arecord",
+            "app_player",
         ):
             self.assertTrue(pruned[package], package)
         for package in ("service_audio_board", "service_synth", "app_synth"):

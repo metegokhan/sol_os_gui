@@ -18,6 +18,7 @@ typedef void (*solar_os_audio_player_samples_cb_t)(const int16_t *samples,
                                                    uint8_t channels,
                                                    void *user);
 typedef bool (*solar_os_audio_player_cancel_cb_t)(void *user);
+typedef bool (*solar_os_audio_player_pause_cb_t)(void *user);
 
 typedef struct {
     const char *owner;
@@ -33,6 +34,8 @@ typedef struct {
     void *user;
     solar_os_audio_player_cancel_cb_t should_cancel;
     void *cancel_user;
+    solar_os_audio_player_pause_cb_t should_pause;
+    void *pause_user;
 } solar_os_audio_player_options_t;
 
 /*

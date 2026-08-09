@@ -115,12 +115,25 @@ typedef struct {
 } solar_os_audio_wav_progress_t;
 
 typedef bool (*solar_os_audio_wav_cancel_cb_t)(void *user);
+typedef bool (*solar_os_audio_wav_pause_cb_t)(void *user);
+typedef void (*solar_os_audio_wav_samples_cb_t)(const int16_t *samples,
+                                                size_t sample_count,
+                                                uint8_t channels,
+                                                void *user);
+typedef void (*solar_os_audio_wav_device_cb_t)(
+    const solar_os_audio_device_info_t *device,
+    void *user);
 typedef void (*solar_os_audio_wav_progress_cb_t)(const solar_os_audio_wav_progress_t *progress,
                                                  void *user);
 
 typedef struct {
+    /* Playback stream owner; NULL keeps the aplay compatibility name. */
+    const char *owner;
     solar_os_audio_wav_cancel_cb_t should_cancel;
     solar_os_audio_wav_progress_cb_t progress;
+    solar_os_audio_wav_pause_cb_t should_pause;
+    solar_os_audio_wav_samples_cb_t samples;
+    solar_os_audio_wav_device_cb_t device;
     void *user;
     uint32_t progress_interval_ms;
 } solar_os_audio_wav_options_t;
@@ -182,7 +195,7 @@ esp_err_t solar_os_audio_measure_channel_level(uint8_t channel,
                                                solar_os_audio_level_t *level);
 esp_err_t solar_os_audio_loopback(uint32_t duration_ms, uint8_t volume);
 esp_err_t solar_os_audio_get_wav_info(const char *path, solar_os_audio_wav_info_t *info);
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 esp_err_t solar_os_audio_get_mp3_info(const char *path, solar_os_audio_wav_info_t *info);
 #endif
 /* A zero duration records until cancellation or the output cannot grow. */
@@ -194,7 +207,7 @@ esp_err_t solar_os_audio_play_wav(const char *path,
                                   uint8_t volume,
                                   const solar_os_audio_wav_options_t *options,
                                   solar_os_audio_wav_info_t *info);
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 esp_err_t solar_os_audio_play_mp3(const char *path,
                                   uint8_t volume,
                                   const solar_os_audio_wav_options_t *options,

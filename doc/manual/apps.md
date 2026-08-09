@@ -129,6 +129,35 @@ Controls:
 
 - App-exit stops recording, finalizes the WAV header, and returns to the prompt.
 
+## player
+
+Interactive WAV/MP3 player and the user-facing counterpart to `aplay`. `player`
+keeps a persistent playlist on internal storage. Opening an audio file from
+Files adds it to that playlist, selects it, and starts playback. Missing files
+remain listed so removable media can be reattached.
+
+Usage:
+
+```text
+player [file.wav|file.mp3]
+```
+
+On a graphical session, `Tab` switches between Play and Playlist. The Play tab
+uses the top two-thirds for a cassette visualizer by default; `V` cycles through
+Cassette, Oscilloscope, and Spectrum. The cassette reels turn only while audio
+plays and show track progress when duration is known. `Left`/`Right` plays the
+previous or next track in the playlist ring, `Enter` plays or stops, Space
+pauses or resumes, and `Up`/`Down` adjusts volume. On the Playlist tab,
+`Up`/`Down` selects, `Enter` starts the track and returns to Play, `A` opens the
+WAV/MP3 file browser, and `Delete` removes the selected playlist entry.
+
+The text interface is one playlist screen: `Up`/`Down` selects, `Enter` plays
+or stops, Space pauses or resumes, `A` opens the filtered file browser,
+`Delete` removes an entry, and `Esc` exits. Its bottom status line shows the
+playing, paused, or stopped state with elapsed and total time. Playback follows
+the resumable app while another foreground session is selected and stops when
+Player closes. End of file advances to the next playlist entry.
+
 ## calc
 
 Scientific calculator and function plotter. On a graphical display, `calc`
@@ -496,7 +525,7 @@ files --launcher /apps
 
 File associations come from the installed app registry. Only apps compiled in
 the active firmware can be selected. Associations include images to `view`,
-WAV/MP3 to `aplay`, CSV to `sheet`, Python and Lua scripts to their runtimes,
+WAV/MP3 to `player`, CSV to `sheet`, Python and Lua scripts to their runtimes,
 documents to `reader` (or `writer` when Reader is unavailable), and `.gb` ROMs
 to `gameboy`. Unknown files fall back to `less` or `edit`. A `.sh` file runs
 through the built-in SolarOS shell. In launcher mode, documents associated with

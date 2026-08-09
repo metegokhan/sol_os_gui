@@ -38,6 +38,9 @@
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
 #include "solar_os_webradio.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_PLAYER
+#include "solar_os_player.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
 #include "solar_os_clock.h"
 #endif
@@ -118,7 +121,7 @@
 
 static const solar_os_app_registry_entry_t registered_apps[] = {
 #if SOLAR_OS_PACKAGE_APP_APLAY
-    APP_FILE_ENTRY("aplay", "play WAV/MP3 audio", &solar_os_aplay_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "aplay [-v volume] <file.wav|file.mp3>", 2, 4, ".wav .mp3"),
+    APP_ENTRY("aplay", "play WAV/MP3 audio", &solar_os_aplay_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "aplay [-v volume] <file.wav|file.mp3>", 2, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_ARECORD
     APP_ENTRY("arecord", "record WAV audio", &solar_os_arecord_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "arecord [-d seconds] <file.wav>", 2, 4),
@@ -149,6 +152,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
     APP_ENTRY("webradio", "streaming internet radio", &solar_os_webradio_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "webradio [URL | list | add NAME URL | remove NAME | reset]", 1, 4),
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLAYER
+    APP_FILE_ENTRY("player", "playlist audio player", &solar_os_player_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "player [file.wav|file.mp3]", 1, 2, ".wav .mp3"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
     APP_ENTRY("clock", "clock, countdown alarm, stopwatch", &solar_os_clock_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "clock [-s | -a MM:SS]", 1, 3),

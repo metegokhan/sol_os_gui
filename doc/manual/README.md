@@ -108,6 +108,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [aplay application](apps.md#aplay) — Play audio files through the board audio output. WAV and MP3 are supported when the audio package is compiled and the board has audio hardware.
 - [Application reference](apps.md) — Usage, controls, and examples for every foreground application
 - [arecord application](apps.md#arecord) — Record microphone input to a WAV file. This requires the audio package and board microphone hardware.
+- [player application](apps.md#player) — Persistent WAV/MP3 playlist player with graphical cassette, oscilloscope, and spectrum views plus a simple text playlist.
 - [calc application](apps.md#calc) — Scientific calculator and function plotter. On a graphical display, calc opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet, or any other text-only shell, the same command opens a scientific REPL without the plot pane. calc --text forces that REPL even when graphics are available.
 - [chat application](apps.md#chat) — Two-pane provider-neutral conversation client. The left pane lists gateway and radio conversations, the right pane shows bounded shared history, and the bottom line is the message/command input. It opens and remains useful offline; network or radio transport jobs connect independently.
 - [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch.
