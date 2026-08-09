@@ -407,8 +407,8 @@ unzip -l /books/archive.zip
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `stream` | `stream` or `stream list` | List timestamped data streams. |
-| `stream` | `stream status <id>` | Show one stream. |
+| `stream` | `stream` or `stream list` | List dynamic typed stream endpoints. |
+| `stream` | `stream status <id>` | Show type, direction, provider, format, owner, and counters for one stream. |
 | `daq` | `daq help` | Print DAQ usage. |
 | `daq` | `daq status` | Show DAQ job status. |
 | `daq` | `daq streams` | List stream IDs. |
@@ -429,7 +429,7 @@ DAQ usage:
 daq start <file.csv> <stream...> [--rate seconds|--rate-ms ms]
 daq start <stream...> <file.csv> [--rate seconds|--rate-ms ms]
 daq start <file.csv> <stream> --changes [--append|--replace]
-daq start <file.bin> <byte-stream> --raw [--rate-ms ms]
+daq start <file.bin> <byte-or-audio-stream> --raw [--rate-ms ms]
 daq stop
 ```
 
@@ -439,11 +439,21 @@ DAQ examples:
 daq start /logs/env.csv temperature humidity battery --rate 60
 daq start /logs/key.csv gpio17 --changes
 daq start /logs/uart0.bin uart0 --raw --rate-ms 25
+daq start /logs/microphones.pcm audio0.capture --raw
 ```
 
 `daq` CSV rows include `uptime_ms`, and include UTC `time_ms` when wall-clock time is
-trusted. Raw mode is byte-stream only, single-stream only, and writes bytes
-directly without CSV framing.
+trusted. Raw mode accepts one byte or audio source and writes its data directly
+without CSV framing. Audio uses the native PCM format reported by `stream
+status`; `arecord` writes the same input as a WAV file.
+
+Streams are runtime-registered endpoints, similar to services and displays.
+Providers can add or remove scalar sensor, event, byte, and PCM audio streams.
+Direction is `source`, `sink`, or `duplex`; sharing and current ownership are
+reported by `stream status`. Board audio devices currently publish
+`audio0.capture` and/or `audio0.playback`. Microphone level compatibility
+streams remain available as `mic0` and `mic1` where the board has two input
+channels.
 
 Transfer usage:
 
@@ -563,6 +573,8 @@ and writes the inactive ESP-IDF OTA partition.
 | `battery` | `battery min_voltage [V|mV]` | Show or set low-voltage threshold. |
 | `battery` | `battery max_voltage [V|mV]` | Show or set full/external-power shortcut threshold. |
 | `audio` | `audio status` | Show audio state, global speaker level, tone queue, and active synth telemetry. |
+| `audio` | `audio devices` | List registered audio devices and their capture/playback streams. |
+| `audio` | `audio device <id>` | Show one audio device and its native PCM format. |
 | `audio` | `audio tone [hz] [ms] [volume]` | Play a diagnostic tone. |
 | `audio` | `audio tone-async [hz] [ms] [volume]` | Queue a tone and return its request ID immediately. |
 | `audio` | `audio queue` | Show asynchronous tone queue state and counters. |

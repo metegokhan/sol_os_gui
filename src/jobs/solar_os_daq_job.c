@@ -256,21 +256,33 @@ static esp_err_t daq_parse_args(int argc, char **argv, daq_start_config_t *confi
         if (err != ESP_OK) {
             return err;
         }
+        if (config->infos[config->stream_count].direction ==
+            SOLAR_OS_STREAM_DIRECTION_SINK) {
+            return ESP_ERR_NOT_SUPPORTED;
+        }
         config->stream_count++;
     }
 
     if (!interval_set) {
-        config->interval_ms =
-            config->stream_count == 1 &&
-            config->infos[0].type == SOLAR_OS_STREAM_TYPE_BYTES ?
-            DAQ_DEFAULT_BYTE_INTERVAL_MS :
-            DAQ_DEFAULT_SCALAR_INTERVAL_MS;
+        if (config->stream_count == 1 &&
+            config->infos[0].type == SOLAR_OS_STREAM_TYPE_AUDIO) {
+            config->interval_ms = 0U;
+        } else if (config->stream_count == 1 &&
+                   config->infos[0].type == SOLAR_OS_STREAM_TYPE_BYTES) {
+            config->interval_ms = DAQ_DEFAULT_BYTE_INTERVAL_MS;
+        } else {
+            config->interval_ms = DAQ_DEFAULT_SCALAR_INTERVAL_MS;
+        }
     }
 
     if (config->raw &&
         (config->stream_count != 1 ||
-         config->infos[0].type != SOLAR_OS_STREAM_TYPE_BYTES ||
+         (config->infos[0].type != SOLAR_OS_STREAM_TYPE_BYTES &&
+          config->infos[0].type != SOLAR_OS_STREAM_TYPE_AUDIO) ||
          config->change_only)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (!config->raw && config->infos[0].type == SOLAR_OS_STREAM_TYPE_AUDIO) {
         return ESP_ERR_NOT_SUPPORTED;
     }
     if (!config->raw && config->stream_count > 1) {
@@ -278,7 +290,8 @@ static esp_err_t daq_parse_args(int argc, char **argv, daq_start_config_t *confi
             return ESP_ERR_NOT_SUPPORTED;
         }
         for (size_t i = 0; i < config->stream_count; i++) {
-            if (config->infos[i].type == SOLAR_OS_STREAM_TYPE_BYTES) {
+            if (config->infos[i].type == SOLAR_OS_STREAM_TYPE_BYTES ||
+                config->infos[i].type == SOLAR_OS_STREAM_TYPE_AUDIO) {
                 return ESP_ERR_NOT_SUPPORTED;
             }
         }
@@ -481,7 +494,10 @@ static esp_err_t daq_start(solar_os_context_t *ctx, int argc, char **argv)
     (void)solar_os_jobs_note_resource(solar_os_daq_job.name,
                                       SOLAR_OS_JOB_RESOURCE_STREAM,
                                       daq.stream_list,
-                                      daq.raw ? "bytes" : "scalar");
+                                      daq.raw ?
+                                      (daq.infos[0].type == SOLAR_OS_STREAM_TYPE_AUDIO ?
+                                       "audio" : "bytes") :
+                                      "scalar");
 
     /* Flash-backed VFS calls require an internal stack while cache is disabled. */
     if (solar_os_task_create_pinned_internal(daq_worker_task,
@@ -552,7 +568,7 @@ static bool daq_should_sample(uint32_t now_ms)
 
 static bool daq_event_raw(void)
 {
-    if (!solar_os_port_handle_valid(&daq.streams[0].port)) {
+    if (!solar_os_stream_handle_valid(&daq.streams[0])) {
         daq.failed_records++;
         daq.last_error = ESP_ERR_INVALID_STATE;
         return true;
@@ -560,11 +576,11 @@ static bool daq_event_raw(void)
 
     uint8_t data[DAQ_RAW_READ_MAX];
     size_t read_len = 0;
-    const esp_err_t err = solar_os_port_read(&daq.streams[0].port,
-                                             data,
-                                             sizeof(data),
-                                             0,
-                                             &read_len);
+    const esp_err_t err = solar_os_stream_read(&daq.streams[0],
+                                               data,
+                                               sizeof(data),
+                                               0,
+                                               &read_len);
     if (err == ESP_ERR_TIMEOUT) {
         daq.skipped_records++;
         daq.last_error = ESP_OK;

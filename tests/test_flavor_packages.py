@@ -48,12 +48,65 @@ class FlavorPackagesTest(unittest.TestCase):
             {"app_gameboy"},
         )
         self.assertIn("service_synth", self.catalog.group_defs["system"].members)
+        self.assertIn("service_streams", self.catalog.group_defs["system"].members)
         self.assertIn("job_controls", self.catalog.group_defs["system"].members)
         self.assertIn("service_synth", self.catalog.group_defs["audio"].members)
         self.assertEqual(
             self.catalog.package_defs["service_synth"].depends,
-            ("service_audio",),
+            ("service_audio_board", "service_dsp", "service_streams"),
         )
+        self.assertEqual(
+            self.catalog.package_defs["core_runtime"].depends,
+            ("service_streams",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["service_audio"].depends,
+            ("service_streams",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["service_audio"].capabilities,
+            (),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["service_audio_codecs"].requires,
+            ("minimp3",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["app_aplay"].depends,
+            ("service_audio", "service_audio_codecs"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["service_webradio"].requires,
+            ("nvs_flash",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["app_webradio"].depends,
+            (
+                "service_audio",
+                "service_audio_codecs",
+                "service_http_client",
+                "service_signal_widgets",
+                "service_webradio",
+            ),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["app_webradio"].capabilities,
+            ("wifi",),
+        )
+        self.assertEqual(self.catalog.package_defs["app_aplay"].capabilities, ())
+        self.assertEqual(self.catalog.package_defs["app_arecord"].capabilities, ())
+        self.assertEqual(
+            self.catalog.package_defs["app_player"].depends,
+            (
+                "service_audio",
+                "service_audio_codecs",
+                "service_media_widgets",
+                "service_player_playlist",
+                "service_signal_widgets",
+                "service_storage_browser",
+            ),
+        )
+        self.assertEqual(self.catalog.package_defs["app_player"].capabilities, ())
         self.assertEqual(
             self.catalog.package_defs["app_gameboy"].depends,
             (),
@@ -81,6 +134,47 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_sheet",
         ):
             self.assertFalse(packages[package], package)
+
+    def test_audio_apps_and_codecs_survive_without_board_audio(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            set(),
+        )
+
+        for package in (
+            "service_audio",
+            "service_audio_codecs",
+            "app_aplay",
+            "app_arecord",
+            "app_player",
+        ):
+            self.assertTrue(pruned[package], package)
+        for package in ("service_audio_board", "service_synth", "app_synth"):
+            self.assertFalse(pruned[package], package)
+
+    def test_webradio_survives_on_wifi_board_without_builtin_audio(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"wifi"},
+        )
+
+        for package in (
+            "service_audio",
+            "service_audio_codecs",
+            "service_http_client",
+            "service_signal_widgets",
+            "service_webradio",
+            "app_webradio",
+        ):
+            self.assertTrue(pruned[package], package)
+        for package in ("service_audio_board", "service_synth", "app_synth"):
+            self.assertFalse(pruned[package], package)
 
     def test_rover_flavors_share_an_expansion_capable_baseline(self):
         rover_name, _, rover_groups, rover_packages = self.resolve("rover")
@@ -239,7 +333,7 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertTrue(packages[package], package)
         for package in (
-            "service_audio",
+            "service_audio_board",
             "service_synth",
             "service_ota",
             "service_net",
@@ -249,6 +343,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_http_server",
             "app_invaders",
             "app_curl",
+            "app_webradio",
             "app_telnet",
             "app_web",
             "app_email",
@@ -262,6 +357,8 @@ class FlavorPackagesTest(unittest.TestCase):
             "job_ntp_sync",
         ):
             self.assertFalse(packages[package], package)
+
+        self.assertTrue(packages["service_audio"])
 
 
 if __name__ == "__main__":

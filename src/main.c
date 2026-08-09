@@ -75,6 +75,7 @@
 #include "solar_os_spi.h"
 #include "solar_os_storage.h"
 #include "solar_os_status_led.h"
+#include "solar_os_stream.h"
 #include "solar_os_terminal_internal.h"
 #include "solar_os_time.h"
 #include "solar_os_uart.h"
@@ -987,7 +988,15 @@ static void dispatch_app_tick(void)
     }
 
     last_app_tick_ms = now_ms;
-    solar_os_sessions_dispatch_tick(now_ms);
+    /*
+     * A session overlay owns the display until it expires.  Animated apps can
+     * otherwise present a new frame between overlay presents, which makes the
+     * two views flash over each other.  Background jobs continue to tick; the
+     * foreground app receives a resume event when the overlay closes.
+     */
+    if (session_overlay_until_ms == 0U) {
+        solar_os_sessions_dispatch_tick(now_ms);
+    }
 
     solar_os_jobs_tick(&os_ctx, now_ms);
     process_app_requests();
@@ -1072,6 +1081,12 @@ static void update_status(void)
 
 static void init_peripherals(void)
 {
+    const esp_err_t stream_err = solar_os_stream_init();
+    if (stream_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Stream service unavailable: %s",
+                      esp_err_to_name(stream_err));
+    }
+
     const esp_err_t port_err = solar_os_port_init();
     if (port_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Port service unavailable: %s", esp_err_to_name(port_err));
@@ -1089,6 +1104,16 @@ static void init_peripherals(void)
         }
 #endif
     }
+
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    if (board_has(SOLAR_OS_BOARD_CAP_AUDIO)) {
+        const esp_err_t audio_err = solar_os_audio_register_streams();
+        if (audio_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "Audio streams unavailable: %s",
+                          esp_err_to_name(audio_err));
+        }
+    }
+#endif
 
     const esp_err_t power_err = solar_os_power_init();
     if (power_err != ESP_OK) {

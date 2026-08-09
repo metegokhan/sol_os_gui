@@ -9,6 +9,8 @@ members = [
   "service_ble",
   "service_sd",
   "service_audio",
+  "service_audio_board",
+  "service_streams",
   "service_synth",
   "service_controls",
   "job_controls",
@@ -86,8 +88,17 @@ members = [
 ]
 
 [groups.audio]
-members = ["service_audio", "service_synth", "app_aplay", "app_arecord", "app_synth"]
-triggers = ["app_aplay", "app_arecord", "app_synth"]
+members = [
+  "service_audio",
+  "service_audio_board",
+  "service_audio_codecs",
+  "service_synth",
+  "app_aplay",
+  "app_arecord",
+  "app_player",
+  "app_synth",
+]
+triggers = ["app_aplay", "app_arecord", "app_player", "app_synth"]
 
 [groups.net]
 capabilities = ["wifi"]
@@ -103,6 +114,7 @@ members = [
   "app_ssh",
   "app_scp",
   "app_curl",
+  "app_webradio",
   "app_telnet",
   "app_web",
   "app_email",
@@ -119,6 +131,7 @@ triggers = [
   "app_ssh",
   "app_scp",
   "app_curl",
+  "app_webradio",
   "app_telnet",
   "app_web",
   "app_email",
@@ -192,6 +205,7 @@ triggers = [
 
 [packages.core_runtime]
 label = "bootstrap.runtime"
+depends = ["service_streams"]
 sources = [
   "main.c",
   "solar_os.c",
@@ -223,7 +237,6 @@ sources = [
   "services/solar_os_sessions.c",
   "services/solar_os_splash.c",
   "services/solar_os_storage.c",
-  "services/solar_os_stream.c",
   "services/solar_os_terminal.c",
   "services/solar_os_time.c",
   "services/solar_os_tui.c",
@@ -465,13 +478,32 @@ capabilities = ["sd"]
 
 [packages.service_audio]
 label = "service.audio"
-sources = ["services/solar_os_audio.c"]
-requires = ["esp_codec_dev", "esp_driver_i2s", "minimp3"]
+depends = ["service_streams"]
+sources = [
+  "services/solar_os_audio.c",
+  "services/solar_os_audio_player.c",
+  "services/solar_os_audio_pcm.c",
+]
+
+[packages.service_audio_board]
+label = "service.audio-board"
+depends = ["service_audio"]
+requires = ["esp_codec_dev", "esp_driver_i2s"]
 capabilities = ["audio"]
+
+[packages.service_audio_codecs]
+label = "service.audio-codecs"
+sources = ["services/solar_os_audio_codec.c"]
+requires = ["minimp3"]
+
+[packages.service_webradio]
+label = "service.webradio"
+sources = ["services/solar_os_webradio_catalog.c"]
+requires = ["nvs_flash"]
 
 [packages.service_synth]
 label = "service.synth"
-depends = ["service_audio"]
+depends = ["service_audio_board", "service_dsp", "service_streams"]
 sources = [
   "services/solar_os_synth.c",
   "services/solar_os_synth_voice.c",
@@ -492,6 +524,10 @@ sources = [
   "services/solar_os_controls.c",
   "shell/solar_os_shell_controls.c",
 ]
+
+[packages.service_streams]
+label = "service.streams"
+sources = ["services/solar_os_stream.c"]
 
 [packages.service_resources]
 label = "service.resources"
@@ -518,9 +554,26 @@ depends = ["service_engines"]
 sources = ["services/solar_os_dsp.c"]
 requires = ["espressif__esp-dsp"]
 
+[packages.service_signal_widgets]
+label = "service.signal-widgets"
+depends = ["service_dsp"]
+sources = ["services/solar_os_signal_widgets.c"]
+
+[packages.service_media_widgets]
+label = "service.media-widgets"
+sources = ["services/solar_os_media_widgets.c"]
+
+[packages.service_storage_browser]
+label = "service.storage-browser"
+sources = ["services/solar_os_storage_browser.c"]
+
+[packages.service_player_playlist]
+label = "service.player-playlist"
+sources = ["services/solar_os_player_playlist.c"]
+
 [packages.service_gpio]
 label = "service.gpio"
-depends = ["service_resources"]
+depends = ["service_resources", "service_streams"]
 sources = ["services/solar_os_gpio.c", "services/solar_os_status_led.c"]
 requires = ["esp_driver_gpio"]
 capabilities = ["gpio"]
@@ -700,6 +753,7 @@ capabilities = ["uart"]
 
 [packages.service_battery]
 label = "service.battery"
+depends = ["service_streams"]
 sources = ["services/solar_os_battery.c"]
 capabilities = ["battery"]
 
@@ -709,11 +763,13 @@ capabilities = ["rtc"]
 
 [packages.service_sensors]
 label = "service.sensors"
+depends = ["service_streams"]
 sources = ["services/solar_os_sensors.c"]
 any_capabilities = ["temperature", "humidity"]
 
 [packages.service_adc]
 label = "service.adc"
+depends = ["service_streams"]
 sources = ["services/solar_os_adc.c"]
 requires = ["esp_adc", "esp_driver_gpio"]
 capabilities = ["adc", "gpio"]
@@ -744,15 +800,25 @@ capabilities = ["adc_dpad"]
 
 [packages.app_aplay]
 label = "app.aplay"
-depends = ["service_audio"]
+depends = ["service_audio", "service_audio_codecs"]
 sources = ["apps/solar_os_audio_apps.c"]
-capabilities = ["audio"]
 
 [packages.app_arecord]
 label = "app.arecord"
 depends = ["service_audio"]
 sources = ["apps/solar_os_audio_apps.c"]
-capabilities = ["audio"]
+
+[packages.app_player]
+label = "app.player"
+depends = [
+  "service_audio",
+  "service_audio_codecs",
+  "service_media_widgets",
+  "service_player_playlist",
+  "service_signal_widgets",
+  "service_storage_browser",
+]
+sources = ["apps/solar_os_player.c"]
 
 [packages.app_synth]
 label = "app.synth"
@@ -776,6 +842,18 @@ capabilities = ["wifi"]
 label = "app.curl"
 depends = ["service_http_client"]
 sources = ["apps/solar_os_curl.c"]
+capabilities = ["wifi"]
+
+[packages.app_webradio]
+label = "app.webradio"
+depends = [
+  "service_audio",
+  "service_audio_codecs",
+  "service_http_client",
+  "service_signal_widgets",
+  "service_webradio",
+]
+sources = ["apps/solar_os_webradio.c"]
 capabilities = ["wifi"]
 
 [packages.app_telnet]
@@ -1028,6 +1106,7 @@ capabilities = ["battery"]
 
 [packages.job_daq]
 label = "job.daq"
+depends = ["service_streams"]
 sources = [
   "jobs/solar_os_daq_job.c",
   "shell/solar_os_shell_daq.c",

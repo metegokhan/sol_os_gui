@@ -32,6 +32,13 @@ struct solar_os_http_request {
     uint64_t bytes_received;
 };
 
+static bool solar_os_http_cancelled(const solar_os_http_request_t *request)
+{
+    return request->cancel_requested ||
+        (request->options.cancel_flag != NULL &&
+         *request->options.cancel_flag);
+}
+
 static bool solar_os_http_method_valid(solar_os_http_method_t method)
 {
     return method >= SOLAR_OS_HTTP_METHOD_GET && method <= SOLAR_OS_HTTP_METHOD_HEAD;
@@ -72,11 +79,16 @@ static int solar_os_http_remaining_ms(solar_os_http_request_t *request)
     return remaining_ms > INT_MAX ? INT_MAX : (int)remaining_ms;
 }
 
-static esp_err_t solar_os_http_apply_timeout(solar_os_http_request_t *request,
-                                             esp_http_client_handle_t client)
+static esp_err_t solar_os_http_apply_timeout_value(
+    solar_os_http_request_t *request,
+    esp_http_client_handle_t client,
+    uint32_t requested_timeout_ms)
 {
-    int timeout_ms = request->options.timeout_ms != 0 ?
-        (int)request->options.timeout_ms : (int)SOLAR_OS_HTTP_DEFAULT_TIMEOUT_MS;
+    int timeout_ms = requested_timeout_ms != 0 ?
+        (int)requested_timeout_ms :
+        request->options.timeout_ms != 0 ?
+            (int)request->options.timeout_ms :
+            (int)SOLAR_OS_HTTP_DEFAULT_TIMEOUT_MS;
     const int remaining_ms = solar_os_http_remaining_ms(request);
     if (remaining_ms == 0) {
         return ESP_ERR_TIMEOUT;
@@ -87,6 +99,12 @@ static esp_err_t solar_os_http_apply_timeout(solar_os_http_request_t *request,
     return esp_http_client_set_timeout_ms(client, timeout_ms);
 }
 
+static esp_err_t solar_os_http_apply_timeout(solar_os_http_request_t *request,
+                                             esp_http_client_handle_t client)
+{
+    return solar_os_http_apply_timeout_value(request, client, 0U);
+}
+
 static esp_err_t solar_os_http_event_bridge(esp_http_client_event_t *esp_event)
 {
     if (esp_event == NULL || esp_event->user_data == NULL) {
@@ -94,7 +112,7 @@ static esp_err_t solar_os_http_event_bridge(esp_http_client_event_t *esp_event)
     }
 
     solar_os_http_request_t *request = esp_event->user_data;
-    if (request->cancel_requested) {
+    if (solar_os_http_cancelled(request)) {
         request->event_error = ESP_ERR_INVALID_STATE;
         return ESP_FAIL;
     }
@@ -132,7 +150,7 @@ static esp_err_t solar_os_http_event_bridge(esp_http_client_event_t *esp_event)
 
 static esp_err_t solar_os_http_abort_error(solar_os_http_request_t *request)
 {
-    if (request->cancel_requested) {
+    if (solar_os_http_cancelled(request)) {
         return ESP_ERR_INVALID_STATE;
     }
     if (solar_os_http_remaining_ms(request) == 0) {
@@ -272,7 +290,8 @@ static esp_err_t solar_os_http_perform_stream(solar_os_http_request_t *request,
             if (err != ESP_OK) {
                 return err;
             }
-            err = solar_os_http_apply_timeout(request, client);
+            err = solar_os_http_apply_timeout_value(
+                request, client, request->options.read_poll_ms);
             if (err != ESP_OK) {
                 return err;
             }
@@ -283,6 +302,10 @@ static esp_err_t solar_os_http_perform_stream(solar_os_http_request_t *request,
             err = solar_os_http_abort_error(request);
             if (err != ESP_OK) {
                 return err;
+            }
+            if (read_len == -ESP_ERR_HTTP_EAGAIN &&
+                request->options.read_poll_ms != 0U) {
+                continue;
             }
             if (read_len < 0) {
                 return solar_os_http_read_error(read_len);
@@ -323,6 +346,7 @@ esp_err_t solar_os_http_request_create(const solar_os_http_request_options_t *op
         (options->header_count > 0 && options->headers == NULL) ||
         (options->body_len > 0 && options->body == NULL) ||
         options->body_len > INT_MAX || options->timeout_ms > INT_MAX ||
+        options->read_poll_ms > INT_MAX ||
         options->receive_buffer_size > INT_MAX || options->transmit_buffer_size > INT_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -361,10 +385,11 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *request,
     }
 
     xSemaphoreTake(request->lock, portMAX_DELAY);
-    if (request->active || request->performed || request->cancel_requested) {
+    if (request->active || request->performed ||
+        solar_os_http_cancelled(request)) {
         xSemaphoreGive(request->lock);
         if (response != NULL) {
-            response->cancelled = request->cancel_requested;
+            response->cancelled = solar_os_http_cancelled(request);
         }
         return ESP_ERR_INVALID_STATE;
     }
@@ -408,7 +433,7 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *request,
 
     xSemaphoreTake(request->lock, portMAX_DELAY);
     request->client = client;
-    const bool cancelled = request->cancel_requested;
+    const bool cancelled = solar_os_http_cancelled(request);
     xSemaphoreGive(request->lock);
     if (cancelled) {
         solar_os_http_finish_request(request, client);
@@ -441,7 +466,7 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *request,
     const int64_t finished_us = esp_timer_get_time();
     (void)solar_os_http_remaining_ms(request);
 
-    if (request->cancel_requested) {
+    if (solar_os_http_cancelled(request)) {
         err = ESP_ERR_INVALID_STATE;
     } else if (request->deadline_exceeded) {
         err = ESP_ERR_TIMEOUT;
@@ -455,7 +480,7 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *request,
         response->bytes_received = request->bytes_received;
         response->duration_ms = finished_us > request->started_us ?
             (uint32_t)((finished_us - request->started_us + 999) / 1000) : 0;
-        response->cancelled = request->cancel_requested;
+        response->cancelled = solar_os_http_cancelled(request);
         response->deadline_exceeded = request->deadline_exceeded;
     }
 

@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph"
+keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -96,8 +96,11 @@ Controls:
 
 ## aplay
 
-Play audio files through the board audio output. WAV and MP3 are supported when
-the audio package is compiled and the board has audio hardware.
+Play audio files through the default registered playback endpoint. WAV and MP3
+are supported when an output device is present. MP3 decoding is provided by the
+shared, device-independent audio codec service. `aplay` prints the source
+details, plays the file once through the shared background audio player, and
+then returns to the prompt without clearing existing terminal output.
 
 Usage:
 
@@ -107,12 +110,14 @@ aplay [-v volume] file.wav|file.mp3
 
 Controls:
 
-- App-exit key stops playback.
+- `Esc` or app-exit stops playback early and returns to the prompt.
 
 ## arecord
 
-Record microphone input to a WAV file. This requires the audio package and
-board microphone hardware.
+Record the default registered capture endpoint to a WAV file. This requires a
+registered input device; it does not require built-in board audio. With `-d`,
+recording stops after the specified number of seconds. Without `-d`, recording
+continues until app-exit, the storage fills, or the WAV size limit is reached.
 
 Usage:
 
@@ -122,7 +127,36 @@ arecord [-d seconds] file.wav
 
 Controls:
 
-- App-exit key stops recording.
+- App-exit stops recording, finalizes the WAV header, and returns to the prompt.
+
+## player
+
+Interactive WAV/MP3 player and the user-facing counterpart to `aplay`. `player`
+keeps a persistent playlist on internal storage. Opening an audio file from
+Files adds it to that playlist, selects it, and starts playback. Missing files
+remain listed so removable media can be reattached.
+
+Usage:
+
+```text
+player [file.wav|file.mp3]
+```
+
+On a graphical session, `Tab` switches between Play and Playlist. The Play tab
+uses the top two-thirds for a cassette visualizer by default; `V` cycles through
+Cassette, Oscilloscope, and Spectrum. The cassette reels turn only while audio
+plays and show track progress when duration is known. `Left`/`Right` plays the
+previous or next track in the playlist ring, `Enter` plays or stops, Space
+pauses or resumes, and `Up`/`Down` adjusts volume. On the Playlist tab,
+`Up`/`Down` selects, `Enter` starts the track and returns to Play, `A` opens the
+WAV/MP3 file browser, and `Delete` removes the selected playlist entry.
+
+The text interface is one playlist screen: `Up`/`Down` selects, `Enter` plays
+or stops, Space pauses or resumes, `A` opens the filtered file browser,
+`Delete` removes an entry, and `Esc` exits. Its bottom status line shows the
+playing, paused, or stopped state with elapsed and total time. Playback follows
+the resumable app while another foreground session is selected and stops when
+Player closes. End of file advances to the next playlist entry.
 
 ## calc
 
@@ -321,6 +355,77 @@ Controls:
 
 - App-exit key cancels an active transfer.
 
+## webradio
+
+Stream a direct MP3 URL through the default registered audio output. On a
+graphical display shell, WebRadio opens a two-tab media-player GUI. On UART,
+USB CDC, Telnet, SSH, and other text shells, it opens a station-list TUI.
+
+The catalog is stored in NVS and starts with the Nightride, Chillsynth,
+Datawave, Spacesynth, Darksynth, Horrorsynth, EBSM, and Rekt streams. Catalog
+changes survive reboot. `reset` restores this initial list.
+
+Usage:
+
+```text
+webradio
+webradio https://stream.nightride.fm/nightride.mp3
+webradio list
+webradio add MyStation https://example.net/live.mp3
+webradio remove MyStation
+webradio reset
+```
+
+URLs are literal HTTP or HTTPS MP3 stream URLs. WebRadio does not translate
+station names or website addresses and does not discover streams from HTML
+pages. The initial implementation does not support playlists, HLS, or AAC.
+
+Controls:
+
+- `Tab` switches between the Player and Channels tabs in the GUI.
+- The Player tab gives the top two-thirds of the screen to a live PCM
+  oscilloscope or spectrum analyzer. `V` switches visualizers. The spectrum
+  analyzer uses the shared DSP service, including PIE SIMD window and FFT paths
+  on eligible ESP32-S3 boards.
+- On the Player tab, `Left` and `Right` play the previous or next catalog
+  channel. The catalog wraps as a ring. Space or `Enter` stops or resumes
+  playback, and `Up`/`Down` changes global volume in five-percent steps.
+- The bottom third of the Player tab shows the channel, playback state, volume
+  bar, and previous, stop/play, and next controls.
+- On the Channels tab, `Up`/`Down` selects a channel, `A` adds one, `E` edits
+  one, and `Delete` removes one. `Enter` starts the selected channel and returns
+  to the Player tab. Add and edit dialogs accept a name followed by a literal
+  stream URL.
+- The TUI is a single catalog screen. `Up`/`Down` or `J`/`K` selects a channel,
+  `+`/`-` changes output volume, `A` adds a channel, `E` edits it, and `Delete`
+  removes it. `Enter` plays the selected channel, Space stops playback, and
+  `R` reconnects it. Add and edit use inline name and URL fields on the catalog
+  screen; `Enter` advances or saves and `Esc` cancels.
+- `Q`, `Esc`, or the app-exit key exits when no catalog dialog is open.
+
+The app is available on Wi-Fi builds even when the board has no built-in audio
+hardware. Playback starts when a default output device has been registered,
+including an output supplied by a runtime-attached expansion.
+
+Network reception and MP3 decoding feed an app-owned PCM jitter buffer. A
+separate playback worker consumes that buffer at the audio device's steady
+rate. Both workers continue while the resumable WebRadio session is suspended
+or another foreground app is selected. Closing WebRadio cancels the network
+operation through its bounded read timeout, stops both workers, and releases
+the audio device. The network worker exclusively owns the HTTP request during
+that shutdown.
+
+The playback worker, not the decoder, publishes visualizer samples after each
+audio write. The widgets retain only the latest played block and may drop
+intermediate display frames, so buffering does not put the visualization ahead
+of the audio. WebRadio uses 256 scope samples and a 256-point SIMD-eligible FFT,
+grouped into 32 displayed frequency bands.
+
+`service.signal-widgets` provides the reusable thread-safe signed-16-bit
+oscilloscope and spectrum components used by the graphical player. The widgets
+accept mono or interleaved multichannel PCM and own their snapshot storage;
+applications retain ownership of their audio streams.
+
 ## help
 
 Foreground browser for the package-aware SolarOS manual. The foldable tree
@@ -420,7 +525,7 @@ files --launcher /apps
 
 File associations come from the installed app registry. Only apps compiled in
 the active firmware can be selected. Associations include images to `view`,
-WAV/MP3 to `aplay`, CSV to `sheet`, Python and Lua scripts to their runtimes,
+WAV/MP3 to `player`, CSV to `sheet`, Python and Lua scripts to their runtimes,
 documents to `reader` (or `writer` when Reader is unavailable), and `.gb` ROMs
 to `gameboy`. Unknown files fall back to `less` or `edit`. A `.sh` file runs
 through the built-in SolarOS shell. In launcher mode, documents associated with

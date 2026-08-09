@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/portmacro.h"
+#include "solar_os_dsp.h"
 
 #define VOICE_BLOCK_FRAMES SOLAR_OS_SYNTH_BLOCK_FRAMES_DEFAULT
 #define VOICE_OUTPUT_PEAK 12000
@@ -98,6 +99,8 @@ typedef struct {
     uint32_t pcm_generation;
     uint32_t pcm_hash;
     uint32_t pcm_mean_abs;
+    uint32_t pcm_peak;
+    uint32_t pcm_rms;
     int16_t pcm_min;
     int16_t pcm_max;
     size_t pcm_sample_count;
@@ -948,11 +951,18 @@ static void voice_render(int16_t *samples,
 
     if (pcm_active &&
         pcm_sample_count == SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES) {
+        solar_os_dsp_level_t pcm_level = {0};
+        const esp_err_t level_err = solar_os_dsp_level_s16(
+            pcm_samples, pcm_sample_count, &pcm_level);
         voice_state.pcm_waveform = voice_state.config.waveform;
         voice_state.pcm_generation++;
         voice_state.pcm_hash = pcm_hash;
         voice_state.pcm_mean_abs =
             (uint32_t)(pcm_abs_total / pcm_active_frames);
+        if (level_err == ESP_OK) {
+            voice_state.pcm_peak = pcm_level.peak;
+            voice_state.pcm_rms = pcm_level.rms;
+        }
         voice_state.pcm_min = pcm_min;
         voice_state.pcm_max = pcm_max;
         voice_state.pcm_sample_count = pcm_sample_count;
@@ -1491,6 +1501,8 @@ void solar_os_synth_voice_get_status(solar_os_synth_voice_status_t *status)
     status->pcm_generation = voice_state.pcm_generation;
     status->pcm_hash = voice_state.pcm_hash;
     status->pcm_mean_abs = voice_state.pcm_mean_abs;
+    status->pcm_peak = voice_state.pcm_peak;
+    status->pcm_rms = voice_state.pcm_rms;
     status->pcm_min = voice_state.pcm_min;
     status->pcm_max = voice_state.pcm_max;
     status->pcm_sample_count = voice_state.pcm_sample_count;

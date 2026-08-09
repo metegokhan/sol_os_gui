@@ -1,10 +1,13 @@
 #include "solar_os_adc.h"
 
 #include <stdio.h>
+#include <stdint.h>
+#include <string.h>
 
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
 #include "solar_os_resources.h"
+#include "solar_os_stream.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -16,12 +19,76 @@
 
 #include "solar_os_gpio.h"
 
+static esp_err_t adc_stream_read_scalar(
+    void *user,
+    const solar_os_stream_read_options_t *options,
+    float *value)
+{
+    (void)options;
+    if (value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_adc_sample_t sample;
+    const esp_err_t err = solar_os_adc_read((int)(intptr_t)user, &sample);
+    if (err == ESP_OK) {
+        *value = (float)sample.voltage_mv;
+    }
+    return err;
+}
+
+static esp_err_t adc_register_stream(int pin)
+{
+    solar_os_stream_driver_t driver = {
+        .info = {
+            .type = SOLAR_OS_STREAM_TYPE_SCALAR,
+            .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
+            .sharing = SOLAR_OS_STREAM_SHARING_SHARED,
+        },
+        .read_scalar = adc_stream_read_scalar,
+        .user = (void *)(intptr_t)pin,
+    };
+    snprintf(driver.info.id, sizeof(driver.info.id), "adc%d", pin);
+    strlcpy(driver.info.provider, "adc", sizeof(driver.info.provider));
+    strlcpy(driver.info.device, driver.info.id, sizeof(driver.info.device));
+    strlcpy(driver.info.unit, "mV", sizeof(driver.info.unit));
+    strlcpy(driver.info.format, "f32", sizeof(driver.info.format));
+    strlcpy(driver.info.summary, "expansion ADC sample", sizeof(driver.info.summary));
+    return solar_os_stream_register(&driver);
+}
+
 esp_err_t solar_os_adc_init(void)
 {
 #if !SOLAR_OS_BOARD_HAS_ADC
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    return adc_port_init();
+    esp_err_t err = adc_port_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    size_t registered = 0U;
+    for (size_t i = 0; i < solar_os_adc_pin_count(); i++) {
+        solar_os_adc_pin_info_t info;
+        if (!solar_os_adc_get_pin_info(i, &info) || !info.runtime_allowed ||
+            !info.adc_capable) {
+            continue;
+        }
+        err = adc_register_stream(info.pin);
+        if (err != ESP_OK) {
+            for (size_t j = 0; j < i && registered > 0U; j++) {
+                solar_os_adc_pin_info_t prior;
+                if (solar_os_adc_get_pin_info(j, &prior) && prior.runtime_allowed &&
+                    prior.adc_capable) {
+                    char id[SOLAR_OS_STREAM_ID_MAX];
+                    snprintf(id, sizeof(id), "adc%d", prior.pin);
+                    (void)solar_os_stream_unregister(id);
+                    registered--;
+                }
+            }
+            return err;
+        }
+        registered++;
+    }
+    return ESP_OK;
 #endif
 }
 

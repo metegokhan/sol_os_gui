@@ -1125,6 +1125,8 @@ static const char * const battery_max_voltage_values[] = {"4.1", "4.2", "4100", 
 
 static const char * const audio_subcommands[] = {
     "status",
+    "devices",
+    "device",
     "tone",
     "tone-async",
     "queue",
@@ -1199,6 +1201,14 @@ static const char * const clock_alarm_values[] = {"00:30", "01:00", "05:00", "10
 #if SOLAR_OS_PACKAGE_APP_CURL
 static const char * const curl_options[] = {"-L", "-o"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_WEBRADIO
+static const char * const webradio_subcommands[] = {
+    "add",
+    "list",
+    "remove",
+    "reset",
+};
+#endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const logic_rate_values[] = {"10000", "100000", "500000", "1000000", "2000000"};
 static const char * const logic_sample_values[] = {"1024", "4096", "16384", "32768"};
@@ -1269,6 +1279,9 @@ static const char * const path_com_arg2[] = {
 #if SOLAR_OS_PACKAGE_APP_CURL
 static const char * const path_curl[] = {"curl"};
 static const char * const path_curl_output[] = {"curl", "-o"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_WEBRADIO
+static const char * const path_webradio[] = {"webradio"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const path_logic[] = {"logic"};
@@ -2301,6 +2314,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_CURL
     SHELL_COMPLETION_OPTIONS(path_curl, curl_options),
     SHELL_COMPLETION_PATH(path_curl_output, false),
+#endif
+#if SOLAR_OS_PACKAGE_APP_WEBRADIO
+    SHELL_COMPLETION_STATIC(path_webradio, webradio_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
     SHELL_COMPLETION_GPIO_PINS(path_logic),
@@ -5672,9 +5688,11 @@ static bool shell_daq_stream_type_allowed(solar_os_stream_type_t type,
 {
     switch (kind) {
     case SHELL_DAQ_COMPLETION_STREAMS_BYTES:
-        return type == SOLAR_OS_STREAM_TYPE_BYTES;
+        return type == SOLAR_OS_STREAM_TYPE_BYTES ||
+            type == SOLAR_OS_STREAM_TYPE_AUDIO;
     case SHELL_DAQ_COMPLETION_STREAMS_CSV:
-        return type != SOLAR_OS_STREAM_TYPE_BYTES;
+        return type != SOLAR_OS_STREAM_TYPE_BYTES &&
+            type != SOLAR_OS_STREAM_TYPE_AUDIO;
     case SHELL_DAQ_COMPLETION_STREAMS_ALL:
         return true;
     default:
@@ -5889,7 +5907,8 @@ static bool shell_complete_daq_start(solar_os_context_t *ctx,
                                        show_matches);
     }
 
-    if (completed.raw || completed.first_pos_type == SOLAR_OS_STREAM_TYPE_BYTES) {
+    if (completed.raw || completed.first_pos_type == SOLAR_OS_STREAM_TYPE_BYTES ||
+        completed.first_pos_type == SOLAR_OS_STREAM_TYPE_AUDIO) {
         if (completed.positional_count == 1) {
             shell_complete_path(ctx, token_start, false, show_matches);
             return true;

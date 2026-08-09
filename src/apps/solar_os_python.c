@@ -3519,6 +3519,8 @@ static mp_obj_t solaros_synth_status(void)
     python_dict_store_uint(dict, "pcm_generation", status.pcm_generation);
     python_dict_store_uint(dict, "pcm_hash", status.pcm_hash);
     python_dict_store_uint(dict, "pcm_mean_abs", status.pcm_mean_abs);
+    python_dict_store_uint(dict, "pcm_peak", status.pcm_peak);
+    python_dict_store_uint(dict, "pcm_rms", status.pcm_rms);
     python_dict_store_int(dict, "pcm_min", status.pcm_min);
     python_dict_store_int(dict, "pcm_max", status.pcm_max);
     mp_obj_t pcm_samples = mp_obj_new_list(0, NULL);

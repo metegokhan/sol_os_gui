@@ -7,8 +7,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "solar_os_audio.h"
 #include "solar_os_log.h"
+#include "solar_os_stream.h"
 #include "solar_os_task.h"
 
 #define SYNTH_TASK_STACK 5120U
@@ -84,8 +84,8 @@ static void synth_finish(esp_err_t result)
 static void synth_worker(void *arg)
 {
     (void)arg;
-    solar_os_audio_stream_t *stream = NULL;
-    solar_os_audio_stream_format_t format;
+    solar_os_stream_handle_t stream =
+        (solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
 
     synth_lock();
     char owner[SOLAR_OS_SYNTH_OWNER_MAX];
@@ -95,11 +95,21 @@ static void synth_worker(void *arg)
     void *user = synth.user;
     synth_unlock();
 
-    esp_err_t result = solar_os_audio_stream_open(owner, 0, &stream, &format);
+    const solar_os_stream_open_options_t open_options = {
+        .direction = SOLAR_OS_STREAM_DIRECTION_SINK,
+        .timeout_ms = 0U,
+        .requested_audio = {
+            .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
+            .channels = 2U,
+            .bits_per_sample = 16U,
+        },
+    };
+    esp_err_t result = solar_os_stream_open_ex(
+        "audio0.playback", owner, &open_options, &stream);
+    const solar_os_stream_audio_format_t format = stream.audio;
     if (result == ESP_OK &&
         (format.channels != 2U || format.bits_per_sample != 16U)) {
-        solar_os_audio_stream_close(stream);
-        stream = NULL;
+        solar_os_stream_close(&stream);
         result = ESP_ERR_NOT_SUPPORTED;
     }
 
@@ -144,10 +154,15 @@ static void synth_worker(void *arg)
         }
         synth_unlock();
 
-        result = solar_os_audio_stream_write(
-            stream, synth.samples,
-            block_frames * format.channels * sizeof(synth.samples[0]));
-        if (result != ESP_OK) {
+        const size_t bytes =
+            block_frames * format.channels * sizeof(synth.samples[0]);
+        size_t written = 0U;
+        result = solar_os_stream_write(
+            &stream, synth.samples, bytes, UINT32_MAX, &written);
+        if (result != ESP_OK || written != bytes) {
+            if (result == ESP_OK) {
+                result = ESP_ERR_INVALID_SIZE;
+            }
             synth_lock();
             synth.write_errors++;
             synth_unlock();
@@ -155,13 +170,15 @@ static void synth_worker(void *arg)
         }
     }
 
-    if (stream != NULL) {
+    if (solar_os_stream_handle_valid(&stream)) {
         memset(synth.samples, 0,
                block_frames * format.channels * sizeof(synth.samples[0]));
-        (void)solar_os_audio_stream_write(
-            stream, synth.samples,
-            block_frames * format.channels * sizeof(synth.samples[0]));
-        solar_os_audio_stream_close(stream);
+        size_t written = 0U;
+        (void)solar_os_stream_write(
+            &stream, synth.samples,
+            block_frames * format.channels * sizeof(synth.samples[0]),
+            UINT32_MAX, &written);
+        solar_os_stream_close(&stream);
     }
 
     solar_os_synth_status_t status;

@@ -3412,6 +3412,8 @@ static int solua_synth_status(lua_State *L)
     solua_set_int(L, -1, "pcm_generation", status.pcm_generation);
     solua_set_int(L, -1, "pcm_hash", status.pcm_hash);
     solua_set_int(L, -1, "pcm_mean_abs", status.pcm_mean_abs);
+    solua_set_int(L, -1, "pcm_peak", status.pcm_peak);
+    solua_set_int(L, -1, "pcm_rms", status.pcm_rms);
     solua_set_int(L, -1, "pcm_min", status.pcm_min);
     solua_set_int(L, -1, "pcm_max", status.pcm_max);
     lua_newtable(L);

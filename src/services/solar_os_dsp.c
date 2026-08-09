@@ -12,6 +12,7 @@
 #include "solar_os_engines.h"
 #include "solar_os_memory.h"
 #if defined(CONFIG_IDF_TARGET_ESP32S3) && SOLAR_OS_BOARD_HAS_SIMD
+#include "dsps_fft2r.h"
 #include "dsps_mul.h"
 #define SOLAR_OS_DSP_HAS_ESP32S3_PIE 1
 #endif
@@ -53,8 +54,17 @@ struct solar_os_dsp_fft {
     size_t size;
     uint8_t stages;
     solar_os_dsp_complex_s16_t *twiddles;
+    void *work_allocation;
     solar_os_dsp_complex_s16_t *work;
 };
+
+#if SOLAR_OS_DSP_HAS_ESP32S3_PIE
+static portMUX_TYPE dsp_fft_init_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool dsp_fft_initializing;
+static bool dsp_fft_init_attempted;
+static bool dsp_fft_accelerator_ready;
+static int16_t *dsp_fft_owned_table;
+#endif
 
 typedef struct {
 #if !defined(SOLAR_OS_DSP_HOST_TEST) && SOLAR_OS_PACKAGE_SERVICE_ENGINES
@@ -196,7 +206,8 @@ uint32_t solar_os_dsp_capabilities(void)
 uint32_t solar_os_dsp_accelerated_capabilities(void)
 {
 #if SOLAR_OS_DSP_HAS_ESP32S3_PIE
-    return SOLAR_OS_DSP_CAP_GAIN_Q15 | SOLAR_OS_DSP_CAP_WINDOW_Q15;
+    return SOLAR_OS_DSP_CAP_GAIN_Q15 | SOLAR_OS_DSP_CAP_WINDOW_Q15 |
+           SOLAR_OS_DSP_CAP_FFT_S16;
 #else
     return 0U;
 #endif
@@ -567,6 +578,55 @@ static size_t dsp_reverse_bits(size_t value, uint8_t bits)
     return result;
 }
 
+#if SOLAR_OS_DSP_HAS_ESP32S3_PIE
+static bool dsp_fft_accelerator_init(void)
+{
+    for (;;) {
+        portENTER_CRITICAL(&dsp_fft_init_lock);
+        if (dsp_fft_accelerator_ready || dsp_fft_init_attempted) {
+            const bool ready = dsp_fft_accelerator_ready;
+            portEXIT_CRITICAL(&dsp_fft_init_lock);
+            return ready;
+        }
+        if (!dsp_fft_initializing) {
+            dsp_fft_initializing = true;
+            portEXIT_CRITICAL(&dsp_fft_init_lock);
+            break;
+        }
+        portEXIT_CRITICAL(&dsp_fft_init_lock);
+        vTaskDelay(1);
+    }
+
+    int16_t *table = solar_os_memory_calloc(
+        CONFIG_DSP_MAX_FFT_SIZE,
+        sizeof(*table),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "dsp.fft.simd.table");
+    esp_err_t err = table != NULL && dsp_aligned_16(table) ?
+        dsps_fft2r_init_sc16(table, CONFIG_DSP_MAX_FFT_SIZE) : ESP_ERR_NO_MEM;
+    if (err == ESP_OK && dsps_fft_w_table_sc16 != table) {
+        solar_os_memory_free(table);
+        table = NULL;
+    }
+
+    const bool ready = err == ESP_OK && dsps_fft_w_table_sc16 != NULL &&
+                       dsps_fft_w_table_sc16_size >= CONFIG_DSP_MAX_FFT_SIZE &&
+                       dsp_aligned_16(dsps_fft_w_table_sc16);
+    if (!ready && table != NULL) {
+        solar_os_memory_free(table);
+        table = NULL;
+    }
+
+    portENTER_CRITICAL(&dsp_fft_init_lock);
+    dsp_fft_owned_table = table;
+    dsp_fft_accelerator_ready = ready;
+    dsp_fft_init_attempted = true;
+    dsp_fft_initializing = false;
+    portEXIT_CRITICAL(&dsp_fft_init_lock);
+    return ready;
+}
+#endif
+
 esp_err_t solar_os_dsp_fft_create(size_t size, solar_os_dsp_fft_t **out_fft)
 {
     if (out_fft == NULL || size < SOLAR_OS_DSP_FFT_MIN_SIZE ||
@@ -579,8 +639,13 @@ esp_err_t solar_os_dsp_fft_create(size_t size, solar_os_dsp_fft_t **out_fft)
         return ESP_ERR_NO_MEM;
     }
     fft->twiddles = dsp_calloc(size / 2U, sizeof(*fft->twiddles), "dsp.fft.twiddle");
-    fft->work = dsp_calloc(size, sizeof(*fft->work), "dsp.fft.work");
-    if (fft->twiddles == NULL || fft->work == NULL) {
+    const size_t work_bytes = size * sizeof(*fft->work);
+    fft->work_allocation = dsp_calloc(1U, work_bytes + 15U, "dsp.fft.work");
+    if (fft->work_allocation != NULL) {
+        fft->work = (solar_os_dsp_complex_s16_t *)
+            (((uintptr_t)fft->work_allocation + 15U) & ~(uintptr_t)0x0fU);
+    }
+    if (fft->twiddles == NULL || fft->work_allocation == NULL) {
         solar_os_dsp_fft_destroy(fft);
         return ESP_ERR_NO_MEM;
     }
@@ -593,6 +658,9 @@ esp_err_t solar_os_dsp_fft_create(size_t size, solar_os_dsp_fft_t **out_fft)
         fft->twiddles[i].real = (int16_t)lrint(cos(angle) * SOLAR_OS_DSP_Q15_ONE);
         fft->twiddles[i].imag = (int16_t)lrint(sin(angle) * SOLAR_OS_DSP_Q15_ONE);
     }
+#if SOLAR_OS_DSP_HAS_ESP32S3_PIE
+    (void)dsp_fft_accelerator_init();
+#endif
     *out_fft = fft;
     return ESP_OK;
 }
@@ -600,7 +668,7 @@ esp_err_t solar_os_dsp_fft_create(size_t size, solar_os_dsp_fft_t **out_fft)
 void solar_os_dsp_fft_destroy(solar_os_dsp_fft_t *fft)
 {
     if (fft != NULL) {
-        dsp_free(fft->work);
+        dsp_free(fft->work_allocation);
         dsp_free(fft->twiddles);
         dsp_free(fft);
     }
@@ -621,7 +689,36 @@ esp_err_t solar_os_dsp_fft_execute(solar_os_dsp_fft_t *fft,
                            input, fft->size * sizeof(*input))) {
         return ESP_ERR_INVALID_ARG;
     }
-    dsp_engine_token_t token = dsp_engine_begin(false, "fft.s16");
+    bool accelerated = false;
+#if SOLAR_OS_DSP_HAS_ESP32S3_PIE
+    accelerated = fft->size >= DSP_PIE_MIN_SAMPLES &&
+                  dsp_fft_accelerator_ready && dsp_aligned_16(fft->work);
+#endif
+    dsp_engine_token_t token = dsp_engine_begin(accelerated, "fft.s16");
+#if SOLAR_OS_DSP_HAS_ESP32S3_PIE
+    if (accelerated) {
+        for (size_t i = 0; i < fft->size; i++) {
+            fft->work[i].real = input[i];
+            fft->work[i].imag = 0;
+        }
+        esp_err_t err = dsps_fft2r_sc16_aes3_(
+            (int16_t *)fft->work,
+            (int)fft->size,
+            dsps_fft_w_table_sc16);
+        if (err == ESP_OK) {
+            err = dsps_bit_rev_sc16_ansi((int16_t *)fft->work,
+                                         (int)fft->size);
+        }
+        if (err != ESP_OK) {
+            dsp_engine_end(&token, fft->size);
+            return err;
+        }
+        memcpy(output, fft->work, fft->size * sizeof(*output));
+        *scale_exponent = fft->stages;
+        dsp_engine_end(&token, fft->size);
+        return ESP_OK;
+    }
+#endif
     for (size_t i = 0; i < fft->size; i++) {
         const size_t reversed = dsp_reverse_bits(i, fft->stages);
         fft->work[reversed].real = input[i];

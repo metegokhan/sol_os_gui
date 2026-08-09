@@ -13,6 +13,16 @@ SolarOS package selection is declared in `packages/solar_os_packages.toml`.
 Flavor files select groups or individual packages; the generator resolves
 package dependencies and then removes packages unsupported by the target board.
 
+`service.streams` owns the dynamic typed endpoint registry. Sensor, port, and
+audio providers register their endpoints there at runtime. `service.audio`
+also owns audio-device discovery; devices refer to their capture and playback
+stream IDs instead of exposing a board-specific global data path. It has no
+board-audio capability requirement. `service.audio-board` publishes built-in
+board endpoints and retains the hardware capability gate. The independent
+`service.audio-codecs` package owns incremental compressed-audio decoding, so
+file players and network sources can share the same decoder without owning an
+audio device.
+
 ## Ownership Rules
 
 - `bootstrap` is immutable and contains only the runtime and shell needed to
@@ -74,11 +84,31 @@ Network ownership is intentionally split. `network.base`, `network.mqtt`,
 decoding are separate `media.image` and `media.document` packages, so selecting
 `app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
 
-`network.http-client` owns the shared TLS-enabled HTTP transport used by `curl`
-and `web`. It exposes request headers and bodies, redirects, streaming response
-events, cross-task cancellation, per-I/O timeouts, and an end-to-end deadline.
+`network.http-client` owns the shared TLS-enabled HTTP transport used by `curl`,
+`webradio`, and `web`. It exposes request headers and bodies, redirects,
+streaming response events, cross-task cancellation, per-I/O timeouts, and an
+end-to-end deadline.
 Callers continue to own their worker task and response consumer; see
 [HTTP Client Service](../http_client.md) for the native API and lifecycle.
+
+`service.webradio` owns the NVS-backed user station catalog. `app.webradio`
+combines that catalog with the shared HTTP client, MP3 codec, generic audio
+output service, and `service.signal-widgets`. The signal-widget package owns
+reusable signed-16-bit oscilloscope and DSP spectrum components; it depends on
+`service.dsp`, whose eligible ESP32-S3 FFT path uses PIE SIMD. WebRadio requires
+Wi-Fi but does not require the board-audio capability: a headless board can
+include the app and later gain a default audio output from a runtime-attached
+expansion. The foreground app owns separate network/decode and steady playback
+workers joined by a PSRAM-preferred PCM jitter buffer. Suspending its UI leaves
+those workers running; closing the app stops them and releases their resources.
+
+`app.player` combines the shared audio and codec services with a persistent
+internal-flash playlist, the reusable storage browser, signal widgets, and the
+reusable cassette widget. Its file browser selects existing WAV/MP3 files; the
+same browser model also exposes current-directory selection for a future
+Recorder app without coupling recording policy to Player. Player has no
+built-in-audio capability requirement, so a runtime-attached output device can
+satisfy playback.
 
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider
@@ -118,12 +148,12 @@ persisted opt-in notification-sound policy. Audio-capable builds enqueue the
 sound through `service.audio`; Inbox remains available without audio hardware.
 `app.inbox` adds the foreground browser and its shell command.
 
-`service.synth` depends on `service.audio` and provides exclusive real-time PCM
-rendering for reusable synthesizers and emulated sound hardware. The audio
-service retains codec, global-volume, and output-serialization ownership; the
-synth service owns a bounded render block, dedicated worker, client ownership,
-and deadline/error counters. Native apps can supply an independent signed
-16-bit stereo render callback.
+`service.synth` depends on `service.audio-board` and provides exclusive
+real-time PCM rendering for reusable synthesizers and emulated sound hardware.
+The audio board provider retains hardware-codec, global-volume, and
+output-serialization ownership; the synth service owns a bounded render block,
+dedicated worker, client ownership, and deadline/error counters. Native apps
+can supply an independent signed 16-bit stereo render callback.
 
 ## Custom Flavor Example
 

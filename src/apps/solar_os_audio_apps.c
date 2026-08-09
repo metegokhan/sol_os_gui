@@ -16,6 +16,7 @@
 #include "solar_os_audio.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_queue.h"
+#include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
 #include "solar_os_terminal.h"
@@ -24,8 +25,6 @@
 #define AUDIO_APP_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(AUDIO_APP_TASK_STACK);
 #define AUDIO_APP_EVENT_QUEUE_LEN 8
-#define AUDIO_APP_MESSAGE_MAX 96
-#define AUDIO_APP_DEFAULT_RECORD_MS 10000U
 
 typedef enum {
     AUDIO_APP_MODE_RECORD,
@@ -38,9 +37,7 @@ typedef enum {
 } audio_app_format_t;
 
 typedef enum {
-    AUDIO_APP_EVENT_STATUS,
     AUDIO_APP_EVENT_PROGRESS,
-    AUDIO_APP_EVENT_ERROR,
     AUDIO_APP_EVENT_DONE,
 } audio_app_event_type_t;
 
@@ -49,7 +46,6 @@ typedef struct {
     esp_err_t err;
     bool cancelled;
     solar_os_audio_wav_info_t info;
-    char message[AUDIO_APP_MESSAGE_MAX];
 } audio_app_event_t;
 
 typedef struct {
@@ -68,10 +64,29 @@ typedef struct {
 
 static const char *TAG = "solar_os_audio_app";
 static audio_app_state_t audio_app;
+static solar_os_shell_io_t audio_app_fallback_io;
 
-static solar_os_terminal_t *audio_app_terminal(solar_os_context_t *ctx)
+static bool audio_app_uses_external_worker(void)
 {
-    return solar_os_context_terminal(ctx);
+    return audio_app.mode == AUDIO_APP_MODE_PLAY;
+}
+
+static solar_os_shell_io_t *audio_app_io(solar_os_context_t *ctx)
+{
+    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
+    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
+        solar_os_shell_io_init_terminal(&audio_app_fallback_io,
+                                        solar_os_context_terminal(ctx));
+        solar_os_context_set_shell_io(ctx, &audio_app_fallback_io);
+        io = &audio_app_fallback_io;
+    }
+    return io;
+}
+
+static void audio_app_request_close(solar_os_context_t *ctx)
+{
+    solar_os_context_request_terminal_preserve(ctx);
+    solar_os_context_request_exit(ctx);
 }
 
 static const char *audio_app_name(audio_app_mode_t mode)
@@ -110,22 +125,20 @@ static bool audio_app_parse_u8(const char *text, uint8_t *value)
 
 static void audio_app_render_usage(solar_os_context_t *ctx, audio_app_mode_t mode)
 {
-    solar_os_terminal_t *term = audio_app_terminal(ctx);
+    solar_os_shell_io_t *io = audio_app_io(ctx);
 
-    solar_os_terminal_clear(term);
-    solar_os_terminal_writeln_bold(term, audio_app_name(mode));
     if (mode == AUDIO_APP_MODE_RECORD) {
-        solar_os_terminal_writeln(term, "usage: arecord [-d seconds] file.wav");
+        solar_os_shell_io_writeln(io, "usage: arecord [-d seconds] file.wav");
     } else {
-        solar_os_terminal_writeln(term, "usage: aplay [-v volume] file.wav|file.mp3");
+        solar_os_shell_io_writeln(io, "usage: aplay [-v volume] file.wav|file.mp3");
     }
-    solar_os_terminal_writeln(term, "format: 16000 Hz stereo 16-bit PCM WAV, MP3");
-    solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+    solar_os_shell_io_writeln(io, "formats: 16-bit PCM WAV, MP3");
+    solar_os_shell_io_flush(io);
 }
 
 static bool audio_app_parse_record_args(solar_os_context_t *ctx)
 {
-    audio_app.duration_ms = AUDIO_APP_DEFAULT_RECORD_MS;
+    audio_app.duration_ms = 0U;
 
     const int argc = solar_os_context_argc(ctx);
     for (int i = 1; i < argc; i++) {
@@ -194,21 +207,14 @@ static bool audio_app_send_event(const audio_app_event_t *event)
     return false;
 }
 
-static void audio_app_send_message(audio_app_event_type_t type, const char *message)
-{
-    audio_app_event_t event = {
-        .type = type,
-    };
-    if (message != NULL) {
-        strlcpy(event.message, message, sizeof(event.message));
-    }
-    (void)audio_app_send_event(&event);
-}
-
 static void audio_app_cleanup_resources(void)
 {
     if (audio_app.events != NULL) {
-        solar_os_queue_delete_internal(audio_app.events);
+        if (audio_app_uses_external_worker()) {
+            solar_os_queue_delete(audio_app.events);
+        } else {
+            solar_os_queue_delete_internal(audio_app.events);
+        }
         audio_app.events = NULL;
     }
 }
@@ -248,8 +254,10 @@ static void audio_app_send_done(esp_err_t err,
         event.info = *info;
     }
 
-    if (audio_app.events != NULL) {
-        (void)xQueueSend(audio_app.events, &event, pdMS_TO_TICKS(500));
+    while (audio_app.events != NULL && !audio_app.stop_requested) {
+        if (xQueueSend(audio_app.events, &event, pdMS_TO_TICKS(100)) == pdPASS) {
+            break;
+        }
     }
 }
 
@@ -260,13 +268,11 @@ static void audio_app_task(void *arg)
     solar_os_audio_wav_info_t info = {0};
     solar_os_audio_wav_options_t options = {
         .should_cancel = audio_app_should_cancel,
-        .progress = audio_app_progress,
+        .progress = audio_app.mode == AUDIO_APP_MODE_RECORD ?
+            audio_app_progress : NULL,
         .user = NULL,
         .progress_interval_ms = SOLAR_OS_AUDIO_WAV_DEFAULT_PROGRESS_MS,
     };
-
-    audio_app_send_message(AUDIO_APP_EVENT_STATUS,
-                           audio_app.mode == AUDIO_APP_MODE_RECORD ? "recording" : "playing");
 
     esp_err_t err;
     if (audio_app.mode == AUDIO_APP_MODE_RECORD) {
@@ -290,22 +296,26 @@ static void audio_app_task(void *arg)
              info.duration_ms,
              esp_err_to_name(err));
     audio_app.task_done = true;
-    solar_os_task_delete_internal(NULL);
+    if (audio_app_uses_external_worker()) {
+        solar_os_task_delete_external(NULL);
+    } else {
+        solar_os_task_delete_internal(NULL);
+    }
 }
 
-static void audio_app_print_info(solar_os_terminal_t *term,
+static void audio_app_print_info(solar_os_shell_io_t *io,
                                  audio_app_format_t format,
                                  const solar_os_audio_wav_info_t *info)
 {
     if (format == AUDIO_APP_FORMAT_MP3 && info->duration_ms == 0) {
-        solar_os_terminal_printf(term,
-                                 "MP3, %" PRIu32 " Hz, %u ch, %u bit\n",
+        solar_os_shell_io_printf(io,
+                                 "MP3, %" PRIu32 " Hz, %u ch, %u bit",
                                  info->sample_rate,
                                  (unsigned)info->channels,
                                  (unsigned)info->bits_per_sample);
     } else {
-        solar_os_terminal_printf(term,
-                                 "%s, %" PRIu32 " Hz, %u ch, %u bit, %" PRIu32 " ms\n",
+        solar_os_shell_io_printf(io,
+                                 "%s, %" PRIu32 " Hz, %u ch, %u bit, %" PRIu32 " ms",
                                  format == AUDIO_APP_FORMAT_MP3 ? "MP3" : "WAV",
                                  info->sample_rate,
                                  (unsigned)info->channels,
@@ -316,12 +326,12 @@ static void audio_app_print_info(solar_os_terminal_t *term,
 
 static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_t mode)
 {
-    solar_os_terminal_t *term = audio_app_terminal(ctx);
+    solar_os_shell_io_t *io = audio_app_io(ctx);
 
     if (audio_app.task != NULL && !audio_app.task_done) {
-        solar_os_terminal_clear(term);
-        solar_os_terminal_writeln(term, "audio: previous task is still stopping");
-        solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+        solar_os_shell_io_writeln(io, "audio: previous task is still stopping");
+        solar_os_shell_io_flush(io);
+        audio_app_request_close(ctx);
         return ESP_OK;
     }
 
@@ -334,21 +344,28 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
         audio_app_parse_play_args(ctx);
     if (!parsed) {
         audio_app_render_usage(ctx, mode);
+        audio_app_request_close(ctx);
         return ESP_OK;
     }
 
-    solar_os_terminal_clear(term);
-    solar_os_terminal_writeln_bold(term, audio_app_name(mode));
-    solar_os_terminal_printf(term, "file: %s\n", audio_app.path);
-
     if (!solar_os_storage_is_mounted()) {
-        solar_os_terminal_writeln(term, "storage not mounted");
-        solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+        solar_os_shell_io_writeln(io, "audio: storage not mounted");
+        solar_os_shell_io_flush(io);
+        audio_app_request_close(ctx);
         return ESP_OK;
     }
 
     if (mode == AUDIO_APP_MODE_RECORD) {
-        solar_os_terminal_printf(term, "duration: %" PRIu32 " s\n", audio_app.duration_ms / 1000U);
+        if (audio_app.duration_ms == 0U) {
+            solar_os_shell_io_printf(io,
+                                     "recording %s until stopped\n",
+                                     audio_app.path);
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "recording %s for %" PRIu32 " s\n",
+                                     audio_app.path,
+                                     audio_app.duration_ms / 1000U);
+        }
     } else {
         solar_os_audio_wav_info_t source;
         const esp_err_t wav_err = solar_os_audio_get_wav_info(audio_app.path, &source);
@@ -359,55 +376,74 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
             if (mp3_err == ESP_OK) {
                 audio_app.format = AUDIO_APP_FORMAT_MP3;
             } else if (wav_err == ESP_FAIL || mp3_err == ESP_FAIL) {
-                solar_os_terminal_printf(term,
+                solar_os_shell_io_printf(io,
                                          "aplay: open failed: %s\n",
                                          esp_err_to_name(mp3_err));
-                solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+                solar_os_shell_io_flush(io);
+                audio_app_request_close(ctx);
                 return ESP_OK;
             } else {
-                solar_os_terminal_writeln(term, "aplay: unsupported audio file");
-                solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+                solar_os_shell_io_writeln(io, "aplay: unsupported audio file");
+                solar_os_shell_io_flush(io);
+                audio_app_request_close(ctx);
                 return ESP_OK;
             }
         }
         if (source.channels == 0 || source.sample_rate == 0 || source.bits_per_sample == 0) {
-            solar_os_terminal_writeln(term, "aplay: unsupported audio file");
-            solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+            solar_os_shell_io_writeln(io, "aplay: unsupported audio file");
+            solar_os_shell_io_flush(io);
+            audio_app_request_close(ctx);
             return ESP_OK;
         }
-        solar_os_terminal_write(term, "source: ");
-        audio_app_print_info(term, audio_app.format, &source);
-        if (audio_app.volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL) {
-            solar_os_terminal_writeln(term, "volume: global");
-        } else {
-            solar_os_terminal_printf(term, "volume: %u\n", (unsigned)audio_app.volume);
+        solar_os_shell_io_printf(io, "playing %s (", audio_app.path);
+        audio_app_print_info(io, audio_app.format, &source);
+        if (audio_app.volume != SOLAR_OS_AUDIO_VOLUME_GLOBAL) {
+            solar_os_shell_io_printf(io,
+                                     ", volume %u%%",
+                                     (unsigned)audio_app.volume);
         }
+        solar_os_shell_io_writeln(io, ")");
     }
+    solar_os_shell_io_flush(io);
 
-    audio_app.events = solar_os_queue_create_internal(AUDIO_APP_EVENT_QUEUE_LEN,
-                                                       sizeof(audio_app_event_t));
+    audio_app.events = audio_app_uses_external_worker() ?
+        solar_os_queue_create(AUDIO_APP_EVENT_QUEUE_LEN,
+                              sizeof(audio_app_event_t)) :
+        solar_os_queue_create_internal(AUDIO_APP_EVENT_QUEUE_LEN,
+                                       sizeof(audio_app_event_t));
     if (audio_app.events == NULL) {
-        solar_os_terminal_writeln(term, "audio: out of memory");
-        solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+        solar_os_shell_io_writeln(io, "audio: out of memory");
+        solar_os_shell_io_flush(io);
+        audio_app_request_close(ctx);
         return ESP_OK;
     }
 
     audio_app.running = true;
-    const BaseType_t created = solar_os_task_create_pinned_internal(
-        audio_app_task,
-        audio_app_name(mode),
-        AUDIO_APP_TASK_STACK,
-        NULL,
-        AUDIO_APP_TASK_PRIORITY,
-        &audio_app.task,
-        tskNO_AFFINITY,
-        SOLAR_OS_TASK_ROLE_FOREGROUND);
+    const BaseType_t created = audio_app_uses_external_worker() ?
+        solar_os_task_create_pinned_external(
+            audio_app_task,
+            audio_app_name(mode),
+            AUDIO_APP_TASK_STACK,
+            NULL,
+            AUDIO_APP_TASK_PRIORITY,
+            &audio_app.task,
+            tskNO_AFFINITY,
+            SOLAR_OS_TASK_ROLE_FOREGROUND) :
+        solar_os_task_create_pinned_internal(
+            audio_app_task,
+            audio_app_name(mode),
+            AUDIO_APP_TASK_STACK,
+            NULL,
+            AUDIO_APP_TASK_PRIORITY,
+            &audio_app.task,
+            tskNO_AFFINITY,
+            SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
-        solar_os_queue_delete_internal(audio_app.events);
-        audio_app.events = NULL;
+        audio_app_cleanup_resources();
         audio_app.running = false;
-        solar_os_terminal_writeln(term, "audio: task create failed");
-        solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+        solar_os_shell_io_writeln(io, "audio: task create failed");
+        solar_os_shell_io_flush(io);
+        audio_app_request_close(ctx);
     }
     return ESP_OK;
 }
@@ -418,54 +454,52 @@ static void audio_app_drain_events(solar_os_context_t *ctx)
         return;
     }
 
-    solar_os_terminal_t *term = audio_app_terminal(ctx);
+    solar_os_shell_io_t *io = audio_app_io(ctx);
     audio_app_event_t event;
     while (xQueueReceive(audio_app.events, &event, 0) == pdPASS) {
         switch (event.type) {
-        case AUDIO_APP_EVENT_STATUS:
-            solar_os_terminal_printf(term, "%s: %s\n", audio_app_name(audio_app.mode), event.message);
-            break;
         case AUDIO_APP_EVENT_PROGRESS:
-            solar_os_terminal_printf(term,
-                                     "%s: %" PRIu32 " bytes, %" PRIu32 " ms\n",
-                                     audio_app_name(audio_app.mode),
-                                     event.info.data_bytes,
-                                     event.info.duration_ms);
-            break;
-        case AUDIO_APP_EVENT_ERROR:
-            solar_os_terminal_printf(term, "%s: %s\n", audio_app_name(audio_app.mode), event.message);
+            if (audio_app.mode == AUDIO_APP_MODE_RECORD) {
+                solar_os_shell_io_printf(io,
+                                         "arecord: %" PRIu32 " bytes, %" PRIu32 " ms\n",
+                                         event.info.data_bytes,
+                                         event.info.duration_ms);
+            }
             break;
         case AUDIO_APP_EVENT_DONE:
             audio_app.running = false;
             audio_app.done = true;
-            if (event.cancelled) {
-                solar_os_terminal_printf(term,
-                                         "%s: stopped, %" PRIu32 " bytes, %" PRIu32 " ms\n",
-                                         audio_app_name(audio_app.mode),
-                                         event.info.data_bytes,
-                                         event.info.duration_ms);
-            } else if (event.err == ESP_OK) {
-                solar_os_terminal_printf(term,
-                                         "%s: done, %" PRIu32 " bytes, %" PRIu32 " ms\n",
-                                         audio_app_name(audio_app.mode),
+            if (audio_app.mode == AUDIO_APP_MODE_RECORD &&
+                (event.cancelled || event.err == ESP_OK)) {
+                solar_os_shell_io_printf(io,
+                                         "arecord: %s, %" PRIu32 " bytes, %" PRIu32 " ms\n",
+                                         event.cancelled ? "stopped" : "done",
                                          event.info.data_bytes,
                                          event.info.duration_ms);
             } else if (event.err == ESP_ERR_NOT_SUPPORTED) {
-                solar_os_terminal_printf(term,
+                solar_os_shell_io_printf(io,
                                          "%s: unsupported audio format\n",
                                          audio_app_name(audio_app.mode));
-            } else {
-                solar_os_terminal_printf(term,
+            } else if (event.err == ESP_ERR_NOT_FOUND) {
+                solar_os_shell_io_printf(io,
+                                         "%s: no audio %s device\n",
+                                         audio_app_name(audio_app.mode),
+                                         audio_app.mode == AUDIO_APP_MODE_RECORD ?
+                                             "input" : "output");
+            } else if (!event.cancelled && event.err != ESP_OK) {
+                solar_os_shell_io_printf(io,
                                          "%s failed: %s\n",
                                          audio_app_name(audio_app.mode),
                                          esp_err_to_name(event.err));
             }
-            solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+            solar_os_shell_io_flush(io);
+            audio_app_request_close(ctx);
             break;
         default:
             break;
         }
     }
+    solar_os_shell_io_flush(io);
 }
 
 static esp_err_t arecord_start(solar_os_context_t *ctx)
@@ -510,21 +544,29 @@ static bool audio_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
     }
 
     const uint8_t ch = (uint8_t)event->data.ch;
-    if (ch == SOLAR_OS_KEY_APP_EXIT) {
-        if (audio_app.running) {
-            solar_os_terminal_printf(audio_app_terminal(ctx),
-                                     "\n%s: stopping\n",
-                                     audio_app_name(audio_app.mode));
+    if (ch == SOLAR_OS_KEY_APP_EXIT ||
+        (audio_app.mode == AUDIO_APP_MODE_PLAY &&
+         ch == SOLAR_OS_KEY_ESCAPE)) {
+        if (audio_app.running && audio_app.mode == AUDIO_APP_MODE_RECORD) {
+            solar_os_shell_io_t *io = audio_app_io(ctx);
+            solar_os_shell_io_writeln(io, "\narecord: stopping");
+            solar_os_shell_io_flush(io);
         }
-        solar_os_context_request_exit(ctx);
+        audio_app_request_close(ctx);
         return true;
     }
     if (ch == SOLAR_OS_KEY_PAGE_UP) {
-        solar_os_terminal_page_up(audio_app_terminal(ctx));
+        solar_os_terminal_t *term = solar_os_context_terminal(ctx);
+        if (term != NULL) {
+            solar_os_terminal_page_up(term);
+        }
         return true;
     }
     if (ch == SOLAR_OS_KEY_PAGE_DOWN) {
-        solar_os_terminal_page_down(audio_app_terminal(ctx));
+        solar_os_terminal_t *term = solar_os_context_terminal(ctx);
+        if (term != NULL) {
+            solar_os_terminal_page_down(term);
+        }
         return true;
     }
     return true;
@@ -549,5 +591,6 @@ const solar_os_app_t solar_os_aplay_app = {
     .stop = audio_app_stop,
     .event = audio_app_event,
     .worker_stack_bytes = AUDIO_APP_TASK_STACK,
+    .worker_stack_external = true,
 };
 #endif

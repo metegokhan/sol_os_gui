@@ -2,6 +2,41 @@
 
 ## 4.x
 
+- **4.6.28** — 2026-08-09 — Added `player`, an interactive WAV and MP3 player
+  with a persistent playlist, file browser, GUI, and simple TUI. It supports
+  pause, volume, automatic advance, background playback, and cassette,
+  oscilloscope, and spectrum visualizers. WAV and MP3 files now open in Player.
+- **4.6.27** — 2026-08-09 — `aplay` and `arecord` now work as normal
+  command-line applications and return to the existing prompt when finished.
+  `aplay` plays one file and can be stopped with `Esc`; `arecord` records until
+  stopped when no duration is specified.
+- **4.6.26** — 2026-08-09 — Added WebRadio with direct MP3 streaming, a
+  persistent editable station catalog, GUI and TUI interfaces, volume and
+  channel controls, background playback, and oscilloscope and spectrum
+  visualizers. The initial catalog includes eight Nightride.fm stations.
+- **4.6.25** — 2026-08-09 — Separated generic audio-device discovery from
+  built-in board audio and reusable compressed-audio codecs. Audio apps now
+  select dynamically registered input and output endpoints, allowing them to
+  remain available on headless boards for hot-attached audio expansions while
+  board codec and I2S dependencies remain hardware-gated. Moved minimp3 behind
+  an incremental decoder API that file players and future network audio sources
+  can share. Added endpoint volume operations, headless package coverage, codec
+  tests, and updated audio, Synth, messaging, package, and app documentation.
+- **4.6.24** — 2026-08-09 — Replaced the fixed scalar-stream catalog with the
+  dynamic typed `service.streams` registry for scalar, event, byte, and PCM
+  audio endpoints, including direction, sharing, provider/device metadata,
+  ownership, format discovery, and transfer telemetry. GPIO, ADC, battery,
+  environment sensors, runtime ports, microphone levels, and board audio now
+  register their available endpoints at runtime. Added generic audio-device
+  discovery with `audio0.capture` and `audio0.playback`; Synth, WAV/MP3
+  playback, WAV recording, and raw DAQ audio capture now use those streams.
+  The registry state lives in PSRAM while synchronization and audio/DMA state
+  remain internal, recovering 10,752 bytes of internal SRAM. Updated shell
+  diagnostics, completion, packages, manuals, and host coverage.
+- **4.6.23** — 2026-08-09 — Synth now uses shared DSP block-level PCM analysis
+  for oscilloscope scaling and publishes DSP-derived peak and RMS telemetry.
+- **4.6.22** — 2026-08-09 — Added the shared fixed-point DSP service with
+  native, Python, and Lua APIs.
 - **4.6.21** — 2026-08-09 — Added persistent `setterm startup flash|sd`
   selection for the boot `.shell/startup` source. Internal flash is the default,
   including after `nvs clear`; SD-capable boards can explicitly select the SD
