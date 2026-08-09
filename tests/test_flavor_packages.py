@@ -53,7 +53,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertIn("service_synth", self.catalog.group_defs["audio"].members)
         self.assertEqual(
             self.catalog.package_defs["service_synth"].depends,
-            ("service_audio", "service_dsp", "service_streams"),
+            ("service_audio_board", "service_dsp", "service_streams"),
         )
         self.assertEqual(
             self.catalog.package_defs["core_runtime"].depends,
@@ -63,6 +63,20 @@ class FlavorPackagesTest(unittest.TestCase):
             self.catalog.package_defs["service_audio"].depends,
             ("service_streams",),
         )
+        self.assertEqual(
+            self.catalog.package_defs["service_audio"].capabilities,
+            (),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["service_audio_codecs"].requires,
+            ("minimp3",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["app_aplay"].depends,
+            ("service_audio", "service_audio_codecs"),
+        )
+        self.assertEqual(self.catalog.package_defs["app_aplay"].capabilities, ())
+        self.assertEqual(self.catalog.package_defs["app_arecord"].capabilities, ())
         self.assertEqual(
             self.catalog.package_defs["app_gameboy"].depends,
             (),
@@ -90,6 +104,25 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_sheet",
         ):
             self.assertFalse(packages[package], package)
+
+    def test_audio_apps_and_codecs_survive_without_board_audio(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            set(),
+        )
+
+        for package in (
+            "service_audio",
+            "service_audio_codecs",
+            "app_aplay",
+            "app_arecord",
+        ):
+            self.assertTrue(pruned[package], package)
+        for package in ("service_audio_board", "service_synth", "app_synth"):
+            self.assertFalse(pruned[package], package)
 
     def test_rover_flavors_share_an_expansion_capable_baseline(self):
         rover_name, _, rover_groups, rover_packages = self.resolve("rover")
@@ -248,7 +281,7 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertTrue(packages[package], package)
         for package in (
-            "service_audio",
+            "service_audio_board",
             "service_synth",
             "service_ota",
             "service_net",
@@ -271,6 +304,8 @@ class FlavorPackagesTest(unittest.TestCase):
             "job_ntp_sync",
         ):
             self.assertFalse(packages[package], package)
+
+        self.assertTrue(packages["service_audio"])
 
 
 if __name__ == "__main__":

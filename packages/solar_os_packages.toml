@@ -9,6 +9,7 @@ members = [
   "service_ble",
   "service_sd",
   "service_audio",
+  "service_audio_board",
   "service_streams",
   "service_synth",
   "service_controls",
@@ -87,7 +88,15 @@ members = [
 ]
 
 [groups.audio]
-members = ["service_audio", "service_synth", "app_aplay", "app_arecord", "app_synth"]
+members = [
+  "service_audio",
+  "service_audio_board",
+  "service_audio_codecs",
+  "service_synth",
+  "app_aplay",
+  "app_arecord",
+  "app_synth",
+]
 triggers = ["app_aplay", "app_arecord", "app_synth"]
 
 [groups.net]
@@ -468,12 +477,21 @@ capabilities = ["sd"]
 label = "service.audio"
 depends = ["service_streams"]
 sources = ["services/solar_os_audio.c"]
-requires = ["esp_codec_dev", "esp_driver_i2s", "minimp3"]
+
+[packages.service_audio_board]
+label = "service.audio-board"
+depends = ["service_audio"]
+requires = ["esp_codec_dev", "esp_driver_i2s"]
 capabilities = ["audio"]
+
+[packages.service_audio_codecs]
+label = "service.audio-codecs"
+sources = ["services/solar_os_audio_codec.c"]
+requires = ["minimp3"]
 
 [packages.service_synth]
 label = "service.synth"
-depends = ["service_audio", "service_dsp", "service_streams"]
+depends = ["service_audio_board", "service_dsp", "service_streams"]
 sources = [
   "services/solar_os_synth.c",
   "services/solar_os_synth_voice.c",
@@ -753,15 +771,13 @@ capabilities = ["adc_dpad"]
 
 [packages.app_aplay]
 label = "app.aplay"
-depends = ["service_audio"]
+depends = ["service_audio", "service_audio_codecs"]
 sources = ["apps/solar_os_audio_apps.c"]
-capabilities = ["audio"]
 
 [packages.app_arecord]
 label = "app.arecord"
 depends = ["service_audio"]
 sources = ["apps/solar_os_audio_apps.c"]
-capabilities = ["audio"]
 
 [packages.app_synth]
 label = "app.synth"

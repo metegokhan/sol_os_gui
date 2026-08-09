@@ -1,9 +1,9 @@
 # Synth Service
 
 `service.synth` is SolarOS's reusable real-time sample-generation layer. It
-depends on `service.audio`: the audio service continues to own the board codec,
-global volume, and exclusive PCM output, while the synth service owns the
-render worker, block timing, and telemetry.
+depends on `service.audio-board`: the built-in provider continues to own the
+board codec, global volume, and exclusive PCM output, while the synth service
+owns the render worker, block timing, and telemetry.
 
 ## Client contract
 

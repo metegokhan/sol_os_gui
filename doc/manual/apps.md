@@ -96,9 +96,9 @@ Controls:
 
 ## aplay
 
-Play audio files through the default `audio0.playback` stream. WAV and MP3 are
-supported when the audio package is compiled and an output device is
-registered.
+Play audio files through the default registered playback endpoint. WAV and MP3
+are supported when an output device is present. MP3 decoding is provided by the
+shared, device-independent audio codec service.
 
 Usage:
 
@@ -112,8 +112,8 @@ Controls:
 
 ## arecord
 
-Record the default `audio0.capture` stream to a WAV file. This requires the
-audio package and a registered input device.
+Record the default registered capture endpoint to a WAV file. This requires a
+registered input device; it does not require built-in board audio.
 
 Usage:
 

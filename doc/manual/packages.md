@@ -16,7 +16,12 @@ package dependencies and then removes packages unsupported by the target board.
 `service.streams` owns the dynamic typed endpoint registry. Sensor, port, and
 audio providers register their endpoints there at runtime. `service.audio`
 also owns audio-device discovery; devices refer to their capture and playback
-stream IDs instead of exposing a board-specific global data path.
+stream IDs instead of exposing a board-specific global data path. It has no
+board-audio capability requirement. `service.audio-board` publishes built-in
+board endpoints and retains the hardware capability gate. The independent
+`service.audio-codecs` package owns incremental compressed-audio decoding, so
+file players and network sources can share the same decoder without owning an
+audio device.
 
 ## Ownership Rules
 
@@ -123,12 +128,12 @@ persisted opt-in notification-sound policy. Audio-capable builds enqueue the
 sound through `service.audio`; Inbox remains available without audio hardware.
 `app.inbox` adds the foreground browser and its shell command.
 
-`service.synth` depends on `service.audio` and provides exclusive real-time PCM
-rendering for reusable synthesizers and emulated sound hardware. The audio
-service retains codec, global-volume, and output-serialization ownership; the
-synth service owns a bounded render block, dedicated worker, client ownership,
-and deadline/error counters. Native apps can supply an independent signed
-16-bit stereo render callback.
+`service.synth` depends on `service.audio-board` and provides exclusive
+real-time PCM rendering for reusable synthesizers and emulated sound hardware.
+The audio board provider retains hardware-codec, global-volume, and
+output-serialization ownership; the synth service owns a bounded render block,
+dedicated worker, client ownership, and deadline/error counters. Native apps
+can supply an independent signed 16-bit stereo render callback.
 
 ## Custom Flavor Example
 

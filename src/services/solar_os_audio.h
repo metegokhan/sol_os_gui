@@ -45,6 +45,11 @@ typedef struct {
 } solar_os_audio_device_info_t;
 
 typedef struct {
+    /* Callbacks remain valid until the device is unregistered. */
+    esp_err_t (*set_volume)(void *user, uint8_t volume);
+} solar_os_audio_device_ops_t;
+
+typedef struct {
     bool initialized;
     uint32_t sample_rate;
     uint8_t channels;
@@ -123,11 +128,23 @@ typedef struct {
 esp_err_t solar_os_audio_init(void);
 void solar_os_audio_deinit(void);
 esp_err_t solar_os_audio_register_device(const solar_os_audio_device_info_t *device);
+esp_err_t solar_os_audio_register_device_ex(
+    const solar_os_audio_device_info_t *device,
+    const solar_os_audio_device_ops_t *ops,
+    void *user);
 esp_err_t solar_os_audio_unregister_device(const char *id);
 size_t solar_os_audio_device_count(void);
 bool solar_os_audio_device_get(size_t index, solar_os_audio_device_info_t *device);
 esp_err_t solar_os_audio_device_get_info(const char *id,
                                          solar_os_audio_device_info_t *device);
+/* Open the first registered endpoint that accepts the requested format. */
+esp_err_t solar_os_audio_open_default(
+    solar_os_stream_direction_t direction,
+    const char *owner,
+    const solar_os_stream_open_options_t *options,
+    solar_os_stream_handle_t *stream,
+    solar_os_audio_device_info_t *device);
+esp_err_t solar_os_audio_set_device_volume(const char *id, uint8_t volume);
 /* Register the board device and its scalar/audio endpoints without powering it. */
 esp_err_t solar_os_audio_register_streams(void);
 esp_err_t solar_os_audio_set_volume(uint8_t volume);

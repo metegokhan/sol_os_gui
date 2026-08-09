@@ -2,6 +2,14 @@
 
 ## 4.x
 
+- **4.6.25** — 2026-08-09 — Separated generic audio-device discovery from
+  built-in board audio and reusable compressed-audio codecs. Audio apps now
+  select dynamically registered input and output endpoints, allowing them to
+  remain available on headless boards for hot-attached audio expansions while
+  board codec and I2S dependencies remain hardware-gated. Moved minimp3 behind
+  an incremental decoder API that file players and future network audio sources
+  can share. Added endpoint volume operations, headless package coverage, codec
+  tests, and updated audio, Synth, messaging, package, and app documentation.
 - **4.6.24** — 2026-08-09 — Replaced the fixed scalar-stream catalog with the
   dynamic typed `service.streams` registry for scalar, event, byte, and PCM
   audio endpoints, including direction, sharing, provider/device metadata,

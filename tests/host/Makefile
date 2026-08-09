@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test parameters_test controls_test dsp_test stream_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test parameters_test controls_test dsp_test stream_test audio_codec_test
 
 .PHONY: all test clean
 
@@ -85,6 +85,11 @@ stream_test: stream_test.c $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/se
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		stream_test.c $(ROOT)/src/services/solar_os_stream.c -o $@
 
+audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c $(ROOT)/src/services/solar_os_audio_codec.h esp_err.h
+	$(CC) $(CFLAGS) -DSOLAR_OS_AUDIO_CODEC_HOST_TEST -I. -I$(ROOT)/src/services -I$(ROOT)/components/minimp3/include \
+		audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c \
+		$(ROOT)/components/minimp3/minimp3_impl.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -103,6 +108,7 @@ test: $(TARGETS)
 	./controls_test
 	./dsp_test
 	./stream_test
+	./audio_codec_test
 
 clean:
 	$(RM) $(TARGETS)

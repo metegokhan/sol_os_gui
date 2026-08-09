@@ -119,7 +119,7 @@ static void audio_app_render_usage(solar_os_context_t *ctx, audio_app_mode_t mod
     } else {
         solar_os_terminal_writeln(term, "usage: aplay [-v volume] file.wav|file.mp3");
     }
-    solar_os_terminal_writeln(term, "format: 16000 Hz stereo 16-bit PCM WAV, MP3");
+    solar_os_terminal_writeln(term, "formats: 16-bit PCM WAV, MP3");
     solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
 }
 
@@ -454,6 +454,12 @@ static void audio_app_drain_events(solar_os_context_t *ctx)
                 solar_os_terminal_printf(term,
                                          "%s: unsupported audio format\n",
                                          audio_app_name(audio_app.mode));
+            } else if (event.err == ESP_ERR_NOT_FOUND) {
+                solar_os_terminal_printf(term,
+                                         "%s: no audio %s device\n",
+                                         audio_app_name(audio_app.mode),
+                                         audio_app.mode == AUDIO_APP_MODE_RECORD ?
+                                             "input" : "output");
             } else {
                 solar_os_terminal_printf(term,
                                          "%s failed: %s\n",

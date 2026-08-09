@@ -23,7 +23,7 @@ utils = false
 # scanout owns I2S0, but include the focused Wi-Fi and SSH/SCP client stack.
 # Avoid the rest of the network group so Game Boy retains CPU and SRAM margin.
 service_wifi = true
-service_audio = false
+service_audio_board = false
 service_synth = false
 core_fs_commands = true
 app_docs = true
