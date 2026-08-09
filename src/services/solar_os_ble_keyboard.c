@@ -14,10 +14,13 @@
 #include "esp_gap_ble_api.h"
 #include "esp_gatt_defs.h"
 #include "esp_gattc_api.h"
+#include "esp_heap_caps.h"
 #include "esp_hid_common.h"
 #include "esp_hidh.h"
 #include "esp_hidh_gattc.h"
+#include "esp_log.h"
 #include "esp_private/esp_hidh_private.h"
+#include "soc/soc_caps.h"
 #include "solar_os_hid_keyboard_report.h"
 #include "solar_os_log.h"
 #include "solar_os_input.h"
@@ -47,6 +50,7 @@
 #define BLE_KEYBOARD_NVS_PEERS_KEY "peers"
 #define BLE_KEYBOARD_NVS_LEGACY_PEER_KEY "peer"
 #define BLE_KEYBOARD_NVS_LAYOUT_KEY "layout"
+#define BLE_KEYBOARD_NVS_ENABLED_KEY "enabled"
 #define BLE_GATT_APP_ID 1U
 #define BLE_GATT_CONNECT_TIMEOUT_MS 12000U
 #define BLE_GATT_OPERATION_TIMEOUT_MS 5000U
@@ -135,6 +139,12 @@ static portMUX_TYPE key_state_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool initialized;
 static bool hidh_initialized;
 static bool classic_bt_memory_released;
+/* Freeze the current-boot policy before shell changes update the next boot. */
+static bool boot_policy_loaded;
+static bool enabled_for_current_boot = true;
+static bool enabled_for_next_boot = true;
+static bool disabled_boot_memory_release_attempted;
+static esp_err_t disabled_boot_memory_release_result = ESP_OK;
 static bool connected;
 static bool reconnect_suppressed_for_sleep;
 static bool reconnect_suppressed_for_pairing;
@@ -168,6 +178,128 @@ static esp_ble_addr_type_t pending_addr_type;
 static char pending_name[BLE_KEYBOARD_NAME_MAX];
 static char connected_name[BLE_KEYBOARD_NAME_MAX];
 static char status_text[80] = "idle";
+
+static esp_err_t init_nvs(void);
+static void set_status(ble_keyboard_state_t next_state, const char *fmt, ...);
+
+static esp_err_t load_boot_policy(void)
+{
+    if (boot_policy_loaded) {
+        return ESP_OK;
+    }
+
+    enabled_for_current_boot = true;
+    enabled_for_next_boot = true;
+
+    esp_err_t ret = init_nvs();
+    if (ret != ESP_OK) {
+        boot_policy_loaded = true;
+        return ret;
+    }
+
+    nvs_handle_t nvs;
+    ret = nvs_open(BLE_KEYBOARD_NVS_NAMESPACE, NVS_READONLY, &nvs);
+    if (ret == ESP_ERR_NVS_NOT_FOUND) {
+        boot_policy_loaded = true;
+        return ESP_OK;
+    }
+    if (ret != ESP_OK) {
+        boot_policy_loaded = true;
+        return ret;
+    }
+
+    uint8_t stored = 1U;
+    ret = nvs_get_u8(nvs, BLE_KEYBOARD_NVS_ENABLED_KEY, &stored);
+    nvs_close(nvs);
+    if (ret == ESP_ERR_NVS_NOT_FOUND) {
+        boot_policy_loaded = true;
+        return ESP_OK;
+    }
+    if (ret != ESP_OK) {
+        boot_policy_loaded = true;
+        return ret;
+    }
+
+    enabled_for_current_boot = stored != 0U;
+    enabled_for_next_boot = enabled_for_current_boot;
+    boot_policy_loaded = true;
+    return ESP_OK;
+}
+
+bool solar_os_ble_keyboard_enabled_for_current_boot(void)
+{
+    const esp_err_t ret = load_boot_policy();
+    if (ret != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "load BLE boot policy failed; defaulting to enabled: %s",
+                      esp_err_to_name(ret));
+    }
+    return enabled_for_current_boot;
+}
+
+bool solar_os_ble_keyboard_enabled_for_next_boot(void)
+{
+    (void)solar_os_ble_keyboard_enabled_for_current_boot();
+    return enabled_for_next_boot;
+}
+
+esp_err_t solar_os_ble_keyboard_set_enabled_for_next_boot(bool enabled)
+{
+    ESP_RETURN_ON_ERROR(init_nvs(), TAG, "nvs init failed");
+    (void)solar_os_ble_keyboard_enabled_for_current_boot();
+
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(BLE_KEYBOARD_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = nvs_set_u8(nvs, BLE_KEYBOARD_NVS_ENABLED_KEY, enabled ? 1U : 0U);
+    if (ret == ESP_OK) {
+        ret = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    if (ret == ESP_OK) {
+        enabled_for_next_boot = enabled;
+    }
+    return ret;
+}
+
+esp_err_t solar_os_ble_keyboard_apply_boot_policy(void)
+{
+    if (solar_os_ble_keyboard_enabled_for_current_boot()) {
+        return ESP_OK;
+    }
+
+    set_status(BLE_KEYBOARD_IDLE, "disabled for this boot");
+    if (disabled_boot_memory_release_attempted) {
+        return disabled_boot_memory_release_result;
+    }
+    disabled_boot_memory_release_attempted = true;
+
+#if defined(SOC_BT_CLASSIC_SUPPORTED) && SOC_BT_CLASSIC_SUPPORTED
+    const esp_bt_mode_t release_mode = ESP_BT_MODE_BTDM;
+    const char *release_mode_name = "BTDM";
+#else
+    const esp_bt_mode_t release_mode = ESP_BT_MODE_BLE;
+    const char *release_mode_name = "BLE";
+#endif
+
+    const size_t before =
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    disabled_boot_memory_release_result = esp_bt_mem_release(release_mode);
+    if (disabled_boot_memory_release_result == ESP_OK) {
+        const size_t after =
+            heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const size_t released = after >= before ? after - before : 0U;
+        ESP_LOGI(TAG,
+                 "BLE disabled for this boot; released %u bytes of %s memory",
+                 (unsigned)released,
+                 release_mode_name);
+    }
+
+    return disabled_boot_memory_release_result;
+}
 
 static void keyboard_report_state_reset(bool is_connected)
 {
@@ -2384,6 +2516,14 @@ esp_err_t solar_os_ble_keyboard_init(void)
         return ESP_OK;
     }
 
+    if (!solar_os_ble_keyboard_enabled_for_current_boot()) {
+        const esp_err_t release_ret = solar_os_ble_keyboard_apply_boot_policy();
+        if (release_ret != ESP_OK) {
+            return release_ret;
+        }
+        return ESP_ERR_NOT_ALLOWED;
+    }
+
     ESP_RETURN_ON_ERROR(ensure_runtime_objects(), TAG, "runtime object setup failed");
     if (input_source == SOLAR_OS_INPUT_SOURCE_INVALID) {
         ESP_RETURN_ON_ERROR(solar_os_input_source_open("ble-keyboard", &input_source),
@@ -3264,6 +3404,10 @@ esp_err_t solar_os_ble_keyboard_prepare_sleep(uint32_t timeout_ms)
 
 void solar_os_ble_keyboard_resume(void)
 {
+    if (!solar_os_ble_keyboard_enabled_for_current_boot()) {
+        return;
+    }
+
     reconnect_suppressed_for_sleep = false;
     reconnect_suppressed_for_pairing = false;
     pairing_retry_pending = false;

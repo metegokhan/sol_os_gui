@@ -463,7 +463,9 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `wifi ap` | `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` | Start and save SoftAP settings. |
 | `wifi ap` | `wifi ap off` | Stop SoftAP. |
 | `wifi nat` | `wifi nat [status|on|off]` | Configure IPv4 NAT for APSTA. |
-| `ble` | `ble [status]` | Show BLE keyboard state. |
+| `ble` | `ble [status]` | Show BLE keyboard state and the current/next boot setting. |
+| `ble` | `ble enable` | Save BLE enabled for the next boot. The current boot is unchanged. |
+| `ble` | `ble disable` | Save BLE disabled for the next boot. The current boot is unchanged. |
 | `ble` | `ble scan` | Scan nearby BLE devices. |
 | `ble` | `ble pair` | Start keyboard pairing. |
 | `ble` | `ble forget` | Erase the remembered keyboard from NVS and remove its BLE bond. |
@@ -472,6 +474,12 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
 | `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
 | `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
+
+BLE is enabled by default when no saved setting exists, including after `nvs
+clear`. The `ble enable` and `ble disable` settings take effect only after a
+reboot. Disabling BLE does not forget the remembered keyboard or erase its BLE
+bond. On a BLE-disabled boot, SolarOS returns the unused Bluetooth controller
+and host memory to the internal heap before normal service initialization.
 
 BLE GATT usage:
 

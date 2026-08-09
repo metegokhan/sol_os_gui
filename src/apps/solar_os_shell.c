@@ -444,6 +444,8 @@ static const char * const identity_subcommands[] = {"status", "user", "hostname"
 
 static const char * const ble_subcommands[] = {
     "status",
+    "enable",
+    "disable",
     "scan",
     "pair",
     "forget",

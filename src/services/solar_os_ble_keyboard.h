@@ -69,6 +69,10 @@ typedef struct {
 } solar_os_ble_gatt_characteristic_t;
 
 esp_err_t solar_os_ble_keyboard_init(void);
+esp_err_t solar_os_ble_keyboard_apply_boot_policy(void);
+bool solar_os_ble_keyboard_enabled_for_current_boot(void);
+bool solar_os_ble_keyboard_enabled_for_next_boot(void);
+esp_err_t solar_os_ble_keyboard_set_enabled_for_next_boot(bool enabled);
 esp_err_t solar_os_ble_keyboard_start_pairing(void);
 esp_err_t solar_os_ble_keyboard_scan(solar_os_ble_keyboard_scan_result_t *results,
                                      size_t max_results,

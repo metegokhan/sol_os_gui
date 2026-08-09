@@ -657,8 +657,10 @@ static void enter_light_sleep(const char *reason)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
-        solar_os_ble_keyboard_resume();
-        radio_resumed = true;
+        if (solar_os_ble_keyboard_enabled_for_current_boot()) {
+            solar_os_ble_keyboard_resume();
+            radio_resumed = true;
+        }
     }
 #endif
     if (radio_resumed) {
@@ -757,7 +759,8 @@ static void poll_key_button(void)
 
     key_long_press_fired = true;
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-    if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
+    if (board_has(SOLAR_OS_BOARD_CAP_BLE) &&
+        solar_os_ble_keyboard_enabled_for_current_boot()) {
         const esp_err_t forget_err = solar_os_ble_keyboard_forget();
         const esp_err_t pairing_err = solar_os_ble_keyboard_start_pairing();
         last_status_update_ms = 0;
@@ -1305,7 +1308,9 @@ static void init_peripherals(void)
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
         const esp_err_t ble_err = solar_os_ble_keyboard_init();
-        if (ble_err != ESP_OK) {
+        if (ble_err == ESP_ERR_NOT_ALLOWED) {
+            SOLAR_OS_LOGI(TAG, "BLE disabled by saved boot setting");
+        } else if (ble_err != ESP_OK) {
             SOLAR_OS_LOGE(TAG, "BLE keyboard init failed: %s", esp_err_to_name(ble_err));
         }
     }
@@ -1384,6 +1389,16 @@ static void start_headless_shell_if_needed(void)
 void app_main(void)
 {
     ESP_ERROR_CHECK(init_nvs());
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+    if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
+        const esp_err_t ble_policy_err = solar_os_ble_keyboard_apply_boot_policy();
+        if (ble_policy_err != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "BLE disabled-boot memory release failed: %s",
+                     esp_err_to_name(ble_policy_err));
+        }
+    }
+#endif
     const esp_err_t input_err = solar_os_input_init();
     if (input_err != ESP_OK) {
         ESP_LOGW(TAG, "Input preferences unavailable: %s", esp_err_to_name(input_err));
