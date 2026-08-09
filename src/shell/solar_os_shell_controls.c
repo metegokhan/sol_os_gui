@@ -194,6 +194,14 @@ static void control_create(solar_os_shell_io_t *io, int argc, char **argv)
     const esp_err_t err = solar_os_control_create(&config);
     if (err == ESP_OK) {
         solar_os_shell_io_printf(io, "Control %s created\n", config.name);
+    } else if (err == ESP_ERR_NOT_FOUND && config.source[0] != '\0') {
+        solar_os_shell_io_printf(io,
+                                 "control: create failed: %s stream does not exist\n",
+                                 config.source);
+    } else if (err == ESP_ERR_NOT_SUPPORTED && config.source[0] != '\0') {
+        solar_os_shell_io_printf(io,
+                                 "control: create failed: %s is not a scalar stream\n",
+                                 config.source);
     } else {
         control_print_error(io, "create", err);
     }

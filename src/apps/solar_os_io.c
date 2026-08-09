@@ -15,6 +15,9 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_buses.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+#include "solar_os_controls.h"
+#endif
 #include "solar_os_gpio.h"
 #include "solar_os_keys.h"
 #include "solar_os_pins.h"
@@ -313,6 +316,44 @@ static bool io_pin_adc_capable(int pin)
 }
 #endif
 
+/* Controls retain source associations while ADC resource claims are per-read. */
+static bool io_control_uses_pin(int pin,
+                                char *assignment,
+                                size_t assignment_size,
+                                char *owner,
+                                size_t owner_size)
+{
+#if !SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+    (void)pin;
+    (void)assignment;
+    (void)assignment_size;
+    (void)owner;
+    (void)owner_size;
+    return false;
+#else
+    char source[SOLAR_OS_STREAM_ID_MAX];
+    if (snprintf(source, sizeof(source), "adc%d", pin) >= (int)sizeof(source)) {
+        return false;
+    }
+    const size_t count = solar_os_control_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_control_info_t control;
+        if (!solar_os_control_get_info(i, &control) ||
+            strcmp(control.config.source, source) != 0) {
+            continue;
+        }
+        if (assignment != NULL && assignment_size > 0U) {
+            strlcpy(assignment, "ADC control", assignment_size);
+        }
+        if (owner != NULL && owner_size > 0U) {
+            snprintf(owner, owner_size, "control:%s", control.config.name);
+        }
+        return true;
+    }
+    return false;
+#endif
+}
+
 static void io_pin_summary(const solar_os_pin_info_t *pin,
                            char *assignment,
                            size_t assignment_size,
@@ -369,6 +410,14 @@ static void io_pin_summary(const solar_os_pin_info_t *pin,
                     assignment_size);
         }
         strlcpy(owner, claim.owner, owner_size);
+        return;
+    }
+
+    if (io_control_uses_pin(pin->pin,
+                            assignment,
+                            assignment_size,
+                            owner,
+                            owner_size)) {
         return;
     }
 
@@ -475,6 +524,9 @@ static char io_layout_marker(const solar_os_connector_pin_info_t *pin)
                                      pin->pin,
                                      -1,
                                      &claim)) {
+        return '@';
+    }
+    if (io_control_uses_pin(pin->pin, NULL, 0U, NULL, 0U)) {
         return '@';
     }
     solar_os_pin_info_t info;
@@ -1232,6 +1284,9 @@ static void io_build_actions(void)
         }
         return;
     }
+    if (io_control_uses_pin(pin.pin, NULL, 0U, NULL, 0U)) {
+        return;
+    }
     if (routed) {
         io_build_bus_actions(&bus);
     }
@@ -1303,6 +1358,7 @@ static bool io_pin_unclaimed(int pin)
 {
     solar_os_resource_claim_t claim;
     return solar_os_pin_is_routable(pin) &&
+        !io_control_uses_pin(pin, NULL, 0U, NULL, 0U) &&
         !solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &claim);
 }
 

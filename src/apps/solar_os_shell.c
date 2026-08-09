@@ -746,6 +746,7 @@ static const char * const control_subcommands[] = {
     "list", "parameters", "bindings", "create", "delete", "clear",
     "get", "set", "bind", "unbind", "parameter",
 };
+static const char * const control_source_values[] = {"manual"};
 static const char * const control_bind_targets[] = {"midi", "parameter"};
 static const char * const control_parameter_subcommands[] = {"get", "set"};
 #endif
@@ -1898,6 +1899,9 @@ static const char * const path_midi[] = {"midi"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 static const char * const path_control[] = {"control"};
+static const char * const path_control_create_source[] = {
+    "control", "create", SHELL_COMPLETION_ANY
+};
 static const char * const path_control_bind[] = {"control", "bind"};
 static const char * const path_control_bind_target[] = {
     "control", "bind", SHELL_COMPLETION_ANY
@@ -2699,6 +2703,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
     SHELL_COMPLETION_STATIC(path_control, control_subcommands),
+    SHELL_COMPLETION_STATIC(path_control_create_source, control_source_values),
+    SHELL_COMPLETION_SCALAR_STREAMS(path_control_create_source),
     SHELL_COMPLETION_CONTROLS(path_control_bind),
     SHELL_COMPLETION_STATIC(path_control_bind_target, control_bind_targets),
     SHELL_COMPLETION_PARAMETERS(path_control_bind_parameter),

@@ -84,8 +84,12 @@ esp_err_t solar_os_control_create(const solar_os_control_config_t *config)
     }
     if (config->source[0] != '\0') {
         solar_os_stream_info_t stream;
-        if (solar_os_stream_get_info(config->source, &stream) != ESP_OK ||
-            stream.type != SOLAR_OS_STREAM_TYPE_SCALAR) {
+        const esp_err_t stream_err = solar_os_stream_get_info(config->source,
+                                                               &stream);
+        if (stream_err != ESP_OK) {
+            return stream_err;
+        }
+        if (stream.type != SOLAR_OS_STREAM_TYPE_SCALAR) {
             return ESP_ERR_NOT_SUPPORTED;
         }
     }
