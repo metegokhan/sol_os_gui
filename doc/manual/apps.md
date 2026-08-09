@@ -132,9 +132,9 @@ Controls:
 ## player
 
 Interactive WAV/MP3 player and the user-facing counterpart to `aplay`. `player`
-keeps a persistent playlist on internal storage. Opening an audio file from
-Files adds it to that playlist, selects it, and starts playback. Missing files
-remain listed so removable media can be reattached.
+keeps a persistent playlist under `.player` on the current storage root. Opening
+an audio file from Files adds it to that playlist, selects it, and starts
+playback. Missing files remain listed so removable media can be reattached.
 
 Usage:
 

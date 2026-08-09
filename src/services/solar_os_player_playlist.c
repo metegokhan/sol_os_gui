@@ -49,13 +49,12 @@ static uint32_t player_playlist_next_generation(uint32_t generation)
 
 static esp_err_t player_playlist_prepare_path(void)
 {
-    if (!solar_os_storage_flash_is_mounted()) {
+    if (!solar_os_storage_is_mounted()) {
         return ESP_ERR_INVALID_STATE;
     }
     char directory[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t err = solar_os_storage_join_path(
-        solar_os_storage_flash_mount_point(), PLAYER_PLAYLIST_DIR,
-        directory, sizeof(directory));
+    esp_err_t err = solar_os_storage_default_path(
+        PLAYER_PLAYLIST_DIR, directory, sizeof(directory));
     if (err != ESP_OK) {
         return err;
     }
