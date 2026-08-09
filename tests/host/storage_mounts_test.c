@@ -115,6 +115,10 @@ int main(void)
     solar_os_storage_mount_info_t mount;
     assert(!solar_os_storage_get_mount(3, &mount));
 
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    assert(solar_os_storage_default_path(".player", path, sizeof(path)) == ESP_OK);
+    assert(strcmp(path, "/sdcard/.player") == 0);
+
     puts("storage mount tests: ok");
     return 0;
 }
