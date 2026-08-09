@@ -63,6 +63,9 @@ typedef struct {
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx);
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx);
+bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx,
+                                      char *name,
+                                      size_t name_len);
 solar_os_gfx_color_t solar_os_gfx_gray(uint8_t level);
 bool solar_os_gfx_color_is_valid(solar_os_gfx_color_t color);
 void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t color);

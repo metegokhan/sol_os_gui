@@ -21,6 +21,9 @@ size_t solar_os_webradio_catalog_snapshot(
     size_t capacity,
     uint32_t *generation);
 esp_err_t solar_os_webradio_catalog_add(const char *name, const char *url);
+esp_err_t solar_os_webradio_catalog_update(const char *old_name,
+                                           const char *name,
+                                           const char *url);
 esp_err_t solar_os_webradio_catalog_remove(const char *name);
 esp_err_t solar_os_webradio_catalog_reset(void);
 bool solar_os_webradio_url_valid(const char *url);

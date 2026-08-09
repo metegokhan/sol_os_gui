@@ -325,9 +325,8 @@ Controls:
 ## webradio
 
 Stream a direct MP3 URL through the default registered audio output. On a
-graphical display shell, WebRadio opens a station-list GUI. On UART, USB CDC,
-Telnet, SSH, and other text shells, it opens a TUI with the same catalog and
-playback controls.
+graphical display shell, WebRadio opens a two-tab media-player GUI. On UART,
+USB CDC, Telnet, SSH, and other text shells, it opens a station-list TUI.
 
 The catalog is stored in NVS and starts with the Nightride, Chillsynth,
 Datawave, Spacesynth, Darksynth, Horrorsynth, EBSM, and Rekt streams. Catalog
@@ -350,12 +349,26 @@ pages. The initial implementation does not support playlists, HLS, or AAC.
 
 Controls:
 
-- `Up`/`Down` selects a catalog entry.
-- `Enter` starts the selected stream.
-- Space stops playback.
-- `Delete` removes the selected catalog entry.
-- `R` reconnects the current stream.
-- `Q`, `Esc`, or the app-exit key exits.
+- `Tab` switches between the Player and Channels tabs in the GUI.
+- The Player tab gives the top two-thirds of the screen to a live PCM
+  oscilloscope or spectrum analyzer. `V` switches visualizers. The spectrum
+  analyzer uses the shared DSP service, including PIE SIMD window and FFT paths
+  on eligible ESP32-S3 boards.
+- On the Player tab, `Left` and `Right` play the previous or next catalog
+  channel. The catalog wraps as a ring. Space or `Enter` stops or resumes
+  playback, and `Up`/`Down` changes global volume in five-percent steps.
+- The bottom third of the Player tab shows the channel, playback state, volume
+  bar, and previous, stop/play, and next controls.
+- On the Channels tab, `Up`/`Down` selects a channel, `A` adds one, `E` edits
+  one, and `Delete` removes one. `Enter` starts the selected channel and returns
+  to the Player tab. Add and edit dialogs accept a name followed by a literal
+  stream URL.
+- The TUI is a single catalog screen. `Up`/`Down` or `J`/`K` selects a channel,
+  `+`/`-` changes output volume, `A` adds a channel, `E` edits it, and `Delete`
+  removes it. `Enter` plays the selected channel, Space stops playback, and
+  `R` reconnects it. Add and edit use inline name and URL fields on the catalog
+  screen; `Enter` advances or saves and `Esc` cancels.
+- `Q`, `Esc`, or the app-exit key exits when no catalog dialog is open.
 
 The app is available on Wi-Fi builds even when the board has no built-in audio
 hardware. Playback starts when a default output device has been registered,
@@ -365,7 +378,20 @@ Network reception and MP3 decoding feed an app-owned PCM jitter buffer. A
 separate playback worker consumes that buffer at the audio device's steady
 rate. Both workers continue while the resumable WebRadio session is suspended
 or another foreground app is selected. Closing WebRadio cancels the network
-request, stops both workers, and releases the audio device.
+operation through its bounded read timeout, stops both workers, and releases
+the audio device. The network worker exclusively owns the HTTP request during
+that shutdown.
+
+The playback worker, not the decoder, publishes visualizer samples after each
+audio write. The widgets retain only the latest played block and may drop
+intermediate display frames, so buffering does not put the visualization ahead
+of the audio. WebRadio uses 256 scope samples and a 256-point SIMD-eligible FFT,
+grouped into 32 displayed frequency bands.
+
+`service.signal-widgets` provides the reusable thread-safe signed-16-bit
+oscilloscope and spectrum components used by the graphical player. The widgets
+accept mono or interleaved multichannel PCM and own their snapshot storage;
+applications retain ownership of their audio streams.
 
 ## help
 

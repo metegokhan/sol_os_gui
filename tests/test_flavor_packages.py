@@ -85,6 +85,7 @@ class FlavorPackagesTest(unittest.TestCase):
                 "service_audio",
                 "service_audio_codecs",
                 "service_http_client",
+                "service_signal_widgets",
                 "service_webradio",
             ),
         )
@@ -154,6 +155,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_audio",
             "service_audio_codecs",
             "service_http_client",
+            "service_signal_widgets",
             "service_webradio",
             "app_webradio",
         ):

@@ -229,6 +229,47 @@ esp_err_t solar_os_webradio_catalog_add(const char *name, const char *url)
     return webradio_catalog_persist();
 }
 
+esp_err_t solar_os_webradio_catalog_update(const char *old_name,
+                                           const char *name,
+                                           const char *url)
+{
+    if (!webradio_station_name_valid(old_name) ||
+        !webradio_station_name_valid(name) ||
+        !solar_os_webradio_url_valid(url)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(solar_os_webradio_catalog_init(), TAG,
+                        "catalog init failed");
+
+    portENTER_CRITICAL(&catalog_lock);
+    size_t index = catalog.count;
+    for (size_t i = 0U; i < catalog.count; i++) {
+        if (strcasecmp(catalog.stations[i].name, old_name) == 0) {
+            index = i;
+            break;
+        }
+    }
+    if (index == catalog.count) {
+        portEXIT_CRITICAL(&catalog_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    for (size_t i = 0U; i < catalog.count; i++) {
+        if (i != index && strcasecmp(catalog.stations[i].name, name) == 0) {
+            portEXIT_CRITICAL(&catalog_lock);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+    strlcpy(catalog.stations[index].name,
+            name,
+            sizeof(catalog.stations[index].name));
+    strlcpy(catalog.stations[index].url,
+            url,
+            sizeof(catalog.stations[index].url));
+    catalog.generation++;
+    portEXIT_CRITICAL(&catalog_lock);
+    return webradio_catalog_persist();
+}
+
 esp_err_t solar_os_webradio_catalog_remove(const char *name)
 {
     if (!webradio_station_name_valid(name)) {

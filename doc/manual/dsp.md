@@ -15,9 +15,10 @@ run a worker task and does not retain global stream state.
 
 The public operation selects its backend. Applications must not select SIMD
 directly. ESP32-S3 builds report `esp32s3-pie` and can use ESP-DSP PIE routines
-for eligible gain and window blocks. Other operations, small blocks, unaligned
-blocks, and other targets use the portable implementation. `service.engines`
-records the operation under the `dsp` owner and reports `cpu` or `simd` use.
+for eligible gain, window, and signed 16-bit FFT blocks. Other operations,
+small blocks, unaligned blocks, unavailable runtime work memory, and other
+targets use the portable implementation. `service.engines` records the
+operation under the `dsp` owner and reports `cpu` or `simd` use.
 
 ## Numeric contract
 
@@ -86,7 +87,7 @@ Use `solar_os_dsp_backend()`, `solar_os_dsp_capabilities()`, and
 | 5 | Q15 window |
 | 6 | Q15 FIR |
 | 7 | Q15 decimator |
-| 8 | signed 16-bit FFT |
+| 8 | signed 16-bit FFT, PIE accelerated on eligible ESP32-S3 blocks |
 
 ## Python
 
@@ -162,3 +163,9 @@ Callers own streaming contexts and must destroy or close them. Python uses
 signed 16-bit buffer objects; Lua uses binary strings. The native Synth service
 uses `level` for its captured PCM scope blocks and publishes the resulting peak
 and RMS values through Synth status.
+
+`service.signal-widgets` builds reusable oscilloscope and spectrum views on top
+of `solar_os_gfx` and this DSP API. Its submit calls copy recent mono or
+interleaved signed-16-bit PCM into thread-safe snapshots. Rendering the spectrum
+applies a Hann window and a 512-point FFT; the DSP service selects PIE SIMD on
+ESP32-S3 without widget-side board checks.

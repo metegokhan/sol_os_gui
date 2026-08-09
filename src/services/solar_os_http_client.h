@@ -52,8 +52,12 @@ typedef struct {
     uint8_t max_redirects;
     /* Per-operation transport timeout; zero uses the service default. */
     uint32_t timeout_ms;
+    /* Optional body-read poll interval; timeouts retry after checking cancel. */
+    uint32_t read_poll_ms;
     /* End-to-end request deadline; zero disables the deadline. */
     uint32_t deadline_ms;
+    /* Optional caller-owned cancellation flag, valid until perform returns. */
+    const volatile bool *cancel_flag;
     size_t receive_buffer_size;
     size_t transmit_buffer_size;
     solar_os_http_event_fn event_handler;
@@ -72,9 +76,10 @@ typedef struct {
 
 /*
  * Requests are one-shot objects. The options and all memory referenced by them
- * must remain valid until perform returns. perform is blocking and is intended
- * to run in a caller-owned worker task; event_handler receives response data as
- * it arrives and must not retain event pointers.
+ * must remain valid until perform returns. This includes cancel_flag when set.
+ * perform is blocking and is intended to run in a caller-owned worker task;
+ * event_handler receives response data as it arrives and must not retain event
+ * pointers.
  */
 esp_err_t solar_os_http_request_create(const solar_os_http_request_options_t *options,
                                        solar_os_http_request_t **out_request);

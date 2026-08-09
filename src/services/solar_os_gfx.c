@@ -138,6 +138,14 @@ static bool gfx_valid_rect(int width, int height)
     return width > 0 && height > 0;
 }
 
+bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx,
+                                      char *name,
+                                      size_t name_len)
+{
+    return gfx_ready(gfx) &&
+        solar_os_display_target_name_for_u8g2(gfx->u8g2, name, name_len);
+}
+
 static void gfx_sort_ints(int *values, size_t count)
 {
     for (size_t i = 1; i < count; i++) {

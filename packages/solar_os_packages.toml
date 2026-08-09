@@ -552,6 +552,11 @@ depends = ["service_engines"]
 sources = ["services/solar_os_dsp.c"]
 requires = ["espressif__esp-dsp"]
 
+[packages.service_signal_widgets]
+label = "service.signal-widgets"
+depends = ["service_dsp"]
+sources = ["services/solar_os_signal_widgets.c"]
+
 [packages.service_gpio]
 label = "service.gpio"
 depends = ["service_resources", "service_streams"]
@@ -819,6 +824,7 @@ depends = [
   "service_audio",
   "service_audio_codecs",
   "service_http_client",
+  "service_signal_widgets",
   "service_webradio",
 ]
 sources = ["apps/solar_os_webradio.c"]
