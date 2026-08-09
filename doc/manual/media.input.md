@@ -76,6 +76,12 @@ rather than overriding it.
 The BLE service manages one remembered keyboard and publishes its HID report
 transitions through the generic input service. Pairing and scanning are system
 operations; a script can inspect state and read translated key events.
+BLE is enabled by default. `ble disable` prevents the BLE stack from starting
+on the next boot, and `ble enable` enables it again for the next boot. Both
+commands leave the current boot unchanged, and neither command forgets the
+remembered keyboard or its bond. On a BLE-disabled boot, the unused Bluetooth
+controller and host memory is returned to the internal heap before normal
+service initialization.
 `ble forget` erases the remembered keyboard from SolarOS NVS and removes its BLE
 bond. On boards with a system KEY, a long press performs that forget operation
 and then starts a new pairing scan. Pairing has no user cancellation path. The

@@ -37,7 +37,8 @@
 #define NETSCAN_TIMEOUT_MS 350U
 
 static const char * const wifi_subcommands[] = {
-    "status", "on", "off", "scan", "connect", "disconnect", "known", "forget", "nat", "ap",
+    "status", "enable", "disable", "on", "off", "scan", "connect", "disconnect", "known",
+    "forget", "nat", "ap",
 };
 static const char * const wifi_ap_subcommands[] = {"status", "on", "off"};
 static const char * const wifi_nat_subcommands[] = {"status", "on", "off"};
@@ -56,6 +57,8 @@ static void wifi_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  wifi [status]");
+    solar_os_shell_io_writeln(term, "  wifi enable");
+    solar_os_shell_io_writeln(term, "  wifi disable");
     solar_os_shell_io_writeln(term, "  wifi on");
     solar_os_shell_io_writeln(term, "  wifi off");
     solar_os_shell_io_writeln(term, "  wifi scan");
@@ -392,8 +395,16 @@ static void wifi_cmd_on(solar_os_shell_io_t *term)
 void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
+    const bool current_boot_enabled = solar_os_wifi_enabled_for_current_boot();
+    const bool next_boot_enabled = solar_os_wifi_enabled_for_next_boot();
 
     if (argc == 1) {
+        if (!current_boot_enabled) {
+            solar_os_shell_io_writeln(
+                term,
+                "Wi-Fi is disabled for this boot; run 'wifi enable' and reboot first");
+            return;
+        }
         const esp_err_t err = solar_os_shell_launch_wifi_tui(ctx);
         if (err != ESP_OK) {
             solar_os_shell_io_printf(term, "wifi: launch failed: %s\n", solar_os_shell_error_text(err));
@@ -408,7 +419,46 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_diag_unexpected(term, "wifi status", argv[2], "wifi status");
             return;
         }
-        wifi_print_status(term);
+        if (current_boot_enabled) {
+            wifi_print_status(term);
+        } else {
+            solar_os_shell_io_writeln(term, "WiFi: disabled for this boot");
+        }
+        solar_os_shell_io_printf(term,
+                                 "Wi-Fi boot setting: current %s, next %s%s\n",
+                                 current_boot_enabled ? "enabled" : "disabled",
+                                 next_boot_enabled ? "enabled" : "disabled",
+                                 current_boot_enabled == next_boot_enabled ? "" :
+                                     " (reboot to apply)");
+        return;
+    }
+
+    if (strcmp(argv[1], "enable") == 0 || strcmp(argv[1], "disable") == 0) {
+        const bool enable = strcmp(argv[1], "enable") == 0;
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term,
+                                           enable ? "wifi enable" : "wifi disable",
+                                           argv[2],
+                                           enable ? "wifi enable" : "wifi disable");
+            return;
+        }
+        const esp_err_t err = solar_os_wifi_set_enabled_for_next_boot(enable);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "Wi-Fi boot setting saved: %s. Current boot is unchanged; reboot to apply.\n",
+                                     enable ? "enabled" : "disabled");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "Wi-Fi boot setting save failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        }
+        return;
+    }
+
+    if (!current_boot_enabled) {
+        solar_os_shell_io_writeln(
+            term,
+            "Wi-Fi is disabled for this boot; run 'wifi enable' and reboot first");
         return;
     }
 
@@ -512,7 +562,7 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     solar_os_shell_diag_subcommand(term, "wifi", argc, argv,
-                                   "wifi [status|on|off|scan|connect|disconnect|known|forget|nat|ap] ...",
+                                   "wifi [status|enable|disable|on|off|scan|connect|disconnect|known|forget|nat|ap] ...",
                                    wifi_subcommands,
                                    sizeof(wifi_subcommands) / sizeof(wifi_subcommands[0]));
 }

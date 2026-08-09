@@ -50,7 +50,9 @@ static const char * const disk_subcommands[] = {
     "status", "lsblk", "mount", "umount", "format",
 };
 static const char * const battery_subcommands[] = {"status", "config", "capacity", "min_voltage", "max_voltage"};
-static const char * const ble_subcommands[] = {"status", "scan", "pair", "forget", "gatt"};
+static const char * const ble_subcommands[] = {
+    "status", "enable", "disable", "scan", "pair", "forget", "gatt",
+};
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "disconnect", "services", "chars", "read", "write", "write-nr"};
 static const char * const audio_subcommands[] = {
     "status", "tone", "tone-async", "queue", "cancel", "level", "mic", "loopback", "off",
@@ -1336,18 +1338,59 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
 {
     char ble_status[64];
     solar_os_shell_io_t *term = terminal(ctx);
+    const bool current_boot_enabled = solar_os_ble_keyboard_enabled_for_current_boot();
+    const bool next_boot_enabled = solar_os_ble_keyboard_enabled_for_next_boot();
 
     if (argc <= 1 || strcmp(argv[1], "status") == 0) {
         if (argc > 2) {
             solar_os_shell_diag_unexpected(term, "ble status", argv[2], "ble [status]");
             return;
         }
-        solar_os_ble_keyboard_get_status(ble_status, sizeof(ble_status));
+        if (current_boot_enabled) {
+            solar_os_ble_keyboard_get_status(ble_status, sizeof(ble_status));
+            solar_os_shell_io_printf(term,
+                                     "BLE: %s, remembered %u/%u\n",
+                                     ble_status,
+                                     (unsigned)solar_os_ble_keyboard_remembered_count(),
+                                     (unsigned)SOLAR_OS_BLE_KEYBOARD_MAX_REMEMBERED);
+        } else {
+            solar_os_shell_io_writeln(term, "BLE: disabled for this boot");
+        }
         solar_os_shell_io_printf(term,
-                                 "BLE: %s, remembered %u/%u\n",
-                                 ble_status,
-                                 (unsigned)solar_os_ble_keyboard_remembered_count(),
-                                 (unsigned)SOLAR_OS_BLE_KEYBOARD_MAX_REMEMBERED);
+                                 "BLE boot setting: current %s, next %s%s\n",
+                                 current_boot_enabled ? "enabled" : "disabled",
+                                 next_boot_enabled ? "enabled" : "disabled",
+                                 current_boot_enabled == next_boot_enabled ? "" :
+                                     " (reboot to apply)");
+        return;
+    }
+
+    if (strcmp(argv[1], "enable") == 0 || strcmp(argv[1], "disable") == 0) {
+        const bool enable = strcmp(argv[1], "enable") == 0;
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term,
+                                           enable ? "ble enable" : "ble disable",
+                                           argv[2],
+                                           enable ? "ble enable" : "ble disable");
+            return;
+        }
+        const esp_err_t err = solar_os_ble_keyboard_set_enabled_for_next_boot(enable);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "BLE boot setting saved: %s. Current boot is unchanged; reboot to apply.\n",
+                                     enable ? "enabled" : "disabled");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "BLE boot setting save failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        }
+        return;
+    }
+
+    if (!current_boot_enabled) {
+        solar_os_shell_io_writeln(
+            term,
+            "BLE is disabled for this boot; run 'ble enable' and reboot first");
         return;
     }
 
@@ -1390,7 +1433,7 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     solar_os_shell_diag_subcommand(term, "ble", argc, argv,
-                                   "ble [status|scan|pair|forget|gatt] ...",
+                                   "ble [status|enable|disable|scan|pair|forget|gatt] ...",
                                    ble_subcommands,
                                    sizeof(ble_subcommands) / sizeof(ble_subcommands[0]));
 }

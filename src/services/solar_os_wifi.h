@@ -68,6 +68,9 @@ typedef struct {
 } solar_os_wifi_profile_t;
 
 esp_err_t solar_os_wifi_init(void);
+bool solar_os_wifi_enabled_for_current_boot(void);
+bool solar_os_wifi_enabled_for_next_boot(void);
+esp_err_t solar_os_wifi_set_enabled_for_next_boot(bool enabled);
 esp_err_t solar_os_wifi_start(void);
 esp_err_t solar_os_wifi_stop(void);
 esp_err_t solar_os_wifi_prepare_sleep(void);

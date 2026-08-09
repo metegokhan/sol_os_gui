@@ -19,6 +19,7 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
 #include "solar_os_app_registry.h"
 #if SOLAR_OS_PACKAGE_APP_AGENT
 #include "solar_os_agent.h"
@@ -81,6 +82,8 @@
 #define SHELL_HISTORY_FILE "history"
 #define SHELL_STARTUP_FILE "startup"
 #define SHELL_ALIAS_FILE "alias"
+#define SHELL_NVS_NAMESPACE "shell"
+#define SHELL_NVS_STARTUP_SOURCE_KEY "startup_src"
 #define SHELL_SCRIPT_MAX_DEPTH 3
 #define SHELL_ALIAS_MAX_DEPTH 4
 #define SHELL_WATCH_DEFAULT_INTERVAL_MS 2000U
@@ -195,6 +198,114 @@ struct solar_os_shell_session {
 
 static EXT_RAM_BSS_ATTR solar_os_shell_session_t shell_display_session;
 static bool shell_startup_attempted;
+static bool shell_startup_source_loaded;
+static solar_os_shell_startup_source_t shell_startup_source = SOLAR_OS_SHELL_STARTUP_FLASH;
+
+solar_os_shell_startup_source_t solar_os_shell_startup_source(void)
+{
+    if (shell_startup_source_loaded) {
+        return shell_startup_source;
+    }
+
+    shell_startup_source = SOLAR_OS_SHELL_STARTUP_FLASH;
+
+    nvs_handle_t nvs;
+    if (nvs_open(SHELL_NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
+        uint8_t stored = (uint8_t)SOLAR_OS_SHELL_STARTUP_FLASH;
+        if (nvs_get_u8(nvs, SHELL_NVS_STARTUP_SOURCE_KEY, &stored) == ESP_OK &&
+            stored <= (uint8_t)SOLAR_OS_SHELL_STARTUP_SD) {
+            const solar_os_shell_startup_source_t source =
+                (solar_os_shell_startup_source_t)stored;
+            if (source != SOLAR_OS_SHELL_STARTUP_SD ||
+                solar_os_board_has(SOLAR_OS_BOARD_CAP_SD)) {
+                shell_startup_source = source;
+            }
+        }
+        nvs_close(nvs);
+    }
+
+    shell_startup_source_loaded = true;
+    return shell_startup_source;
+}
+
+const char *solar_os_shell_startup_source_name(solar_os_shell_startup_source_t source)
+{
+    switch (source) {
+    case SOLAR_OS_SHELL_STARTUP_FLASH:
+        return "flash";
+    case SOLAR_OS_SHELL_STARTUP_SD:
+        return "sd";
+    default:
+        return "unknown";
+    }
+}
+
+bool solar_os_shell_parse_startup_source(const char *name,
+                                         solar_os_shell_startup_source_t *source)
+{
+    if (name == NULL || source == NULL) {
+        return false;
+    }
+    if (strcmp(name, "flash") == 0) {
+        *source = SOLAR_OS_SHELL_STARTUP_FLASH;
+        return true;
+    }
+    if (strcmp(name, "sd") == 0) {
+        *source = SOLAR_OS_SHELL_STARTUP_SD;
+        return true;
+    }
+    return false;
+}
+
+esp_err_t solar_os_shell_set_startup_source(solar_os_shell_startup_source_t source)
+{
+    if (source != SOLAR_OS_SHELL_STARTUP_FLASH && source != SOLAR_OS_SHELL_STARTUP_SD) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (source == SOLAR_OS_SHELL_STARTUP_SD &&
+        !solar_os_board_has(SOLAR_OS_BOARD_CAP_SD)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(SHELL_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = nvs_set_u8(nvs, SHELL_NVS_STARTUP_SOURCE_KEY, (uint8_t)source);
+    if (ret == ESP_OK) {
+        ret = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    if (ret == ESP_OK) {
+        shell_startup_source = source;
+        shell_startup_source_loaded = true;
+    }
+    return ret;
+}
+
+esp_err_t solar_os_shell_startup_path(char *path, size_t path_len)
+{
+    if (path == NULL || path_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const solar_os_shell_startup_source_t source = solar_os_shell_startup_source();
+    const char *base_path = source == SOLAR_OS_SHELL_STARTUP_SD ?
+        solar_os_storage_sd_mount_point() :
+        solar_os_storage_flash_mount_point();
+    char state_dir[SHELL_PATH_MAX];
+    esp_err_t ret = solar_os_storage_join_path(base_path,
+                                               SHELL_STATE_DIR,
+                                               state_dir,
+                                               sizeof(state_dir));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return solar_os_storage_join_path(state_dir, SHELL_STARTUP_FILE, path, path_len);
+}
 
 static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv);
@@ -414,6 +525,7 @@ static const char * const setterm_subcommands[] = {
     "typerate",
     "repeat",
     "timezone",
+    "startup",
     "otaurl",
     "ota",
 };
@@ -428,6 +540,7 @@ static const char * const setterm_charset_values[] = {"utf8", "ascii"};
 static const char * const setterm_keyboard_values[] = {"us", "de"};
 static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};
+static const char * const setterm_startup_values[] = {"flash", "sd"};
 
 static const char * const display_subcommands[] = {
     "list",
@@ -444,6 +557,8 @@ static const char * const identity_subcommands[] = {"status", "user", "hostname"
 
 static const char * const ble_subcommands[] = {
     "status",
+    "enable",
+    "disable",
     "scan",
     "pair",
     "forget",
@@ -471,6 +586,8 @@ static const char * const ble_addr_type_values[] = {
 
 static const char * const wifi_subcommands[] = {
     "status",
+    "enable",
+    "disable",
     "on",
     "off",
     "ap",
@@ -1247,6 +1364,7 @@ static const char * const path_setterm_keyrate[] = {"setterm", "keyrate"};
 static const char * const path_setterm_typerate[] = {"setterm", "typerate"};
 static const char * const path_setterm_repeat[] = {"setterm", "repeat"};
 static const char * const path_setterm_timezone[] = {"setterm", "timezone"};
+static const char * const path_setterm_startup[] = {"setterm", "startup"};
 static const char * const path_display[] = {"display"};
 static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
@@ -2263,6 +2381,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_typerate, setterm_keyrate_values),
     SHELL_COMPLETION_STATIC(path_setterm_repeat, setterm_keyrate_values),
     SHELL_COMPLETION_STATIC(path_setterm_timezone, setterm_timezone_values),
+    SHELL_COMPLETION_STATIC(path_setterm_startup, setterm_startup_values),
     SHELL_COMPLETION_STATIC(path_display, display_subcommands),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_test),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
@@ -7735,12 +7854,15 @@ static bool shell_run_startup_script(solar_os_context_t *ctx)
     }
     shell_startup_attempted = true;
 
-    if (!solar_os_storage_is_mounted() ||
-        !shell_make_state_path(path, sizeof(path), SHELL_STARTUP_FILE)) {
+    const solar_os_shell_startup_source_t source = solar_os_shell_startup_source();
+    const bool source_mounted = source == SOLAR_OS_SHELL_STARTUP_SD ?
+        solar_os_storage_sd_is_mounted() :
+        solar_os_storage_flash_is_mounted();
+    if (!source_mounted || solar_os_shell_startup_path(path, sizeof(path)) != ESP_OK) {
         return true;
     }
 
-    return solar_os_shell_run_script(ctx, path, "/.shell/startup", false);
+    return solar_os_shell_run_script(ctx, path, path, false);
 }
 
 esp_err_t solar_os_shell_session_start(solar_os_context_t *ctx,
