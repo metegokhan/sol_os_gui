@@ -75,6 +75,23 @@ class FlavorPackagesTest(unittest.TestCase):
             self.catalog.package_defs["app_aplay"].depends,
             ("service_audio", "service_audio_codecs"),
         )
+        self.assertEqual(
+            self.catalog.package_defs["service_webradio"].requires,
+            ("nvs_flash",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["app_webradio"].depends,
+            (
+                "service_audio",
+                "service_audio_codecs",
+                "service_http_client",
+                "service_webradio",
+            ),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["app_webradio"].capabilities,
+            ("wifi",),
+        )
         self.assertEqual(self.catalog.package_defs["app_aplay"].capabilities, ())
         self.assertEqual(self.catalog.package_defs["app_arecord"].capabilities, ())
         self.assertEqual(
@@ -119,6 +136,26 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_audio_codecs",
             "app_aplay",
             "app_arecord",
+        ):
+            self.assertTrue(pruned[package], package)
+        for package in ("service_audio_board", "service_synth", "app_synth"):
+            self.assertFalse(pruned[package], package)
+
+    def test_webradio_survives_on_wifi_board_without_builtin_audio(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"wifi"},
+        )
+
+        for package in (
+            "service_audio",
+            "service_audio_codecs",
+            "service_http_client",
+            "service_webradio",
+            "app_webradio",
         ):
             self.assertTrue(pruned[package], package)
         for package in ("service_audio_board", "service_synth", "app_synth"):
@@ -291,6 +328,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_http_server",
             "app_invaders",
             "app_curl",
+            "app_webradio",
             "app_telnet",
             "app_web",
             "app_email",

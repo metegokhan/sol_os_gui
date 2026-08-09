@@ -84,11 +84,21 @@ Network ownership is intentionally split. `network.base`, `network.mqtt`,
 decoding are separate `media.image` and `media.document` packages, so selecting
 `app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
 
-`network.http-client` owns the shared TLS-enabled HTTP transport used by `curl`
-and `web`. It exposes request headers and bodies, redirects, streaming response
-events, cross-task cancellation, per-I/O timeouts, and an end-to-end deadline.
+`network.http-client` owns the shared TLS-enabled HTTP transport used by `curl`,
+`webradio`, and `web`. It exposes request headers and bodies, redirects,
+streaming response events, cross-task cancellation, per-I/O timeouts, and an
+end-to-end deadline.
 Callers continue to own their worker task and response consumer; see
 [HTTP Client Service](../http_client.md) for the native API and lifecycle.
+
+`service.webradio` owns the NVS-backed user station catalog. `app.webradio`
+combines that catalog with the shared HTTP client, MP3 codec, and generic audio
+output service. Its package requires Wi-Fi but does not require the board-audio
+capability: a headless board can include the app and later gain a default audio
+output from a runtime-attached expansion. The foreground app owns separate
+network/decode and steady playback workers joined by a PSRAM-preferred PCM
+jitter buffer. Suspending its UI leaves those workers running; closing the app
+stops them and releases their resources.
 
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider

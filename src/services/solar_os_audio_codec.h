@@ -7,6 +7,12 @@
 #include "solar_os_stream.h"
 
 #define SOLAR_OS_AUDIO_MP3_MAX_PCM_SAMPLES 2304U
+/*
+ * Retain at least this much live-stream data before asking minimp3 to find the
+ * next frame. A shorter incomplete tail can be reported as consumed sync
+ * garbage, which loses the frame boundary when the next network chunk arrives.
+ */
+#define SOLAR_OS_AUDIO_MP3_STREAM_WINDOW_BYTES 4096U
 
 typedef struct solar_os_audio_mp3_decoder solar_os_audio_mp3_decoder_t;
 

@@ -113,6 +113,7 @@ members = [
   "app_ssh",
   "app_scp",
   "app_curl",
+  "app_webradio",
   "app_telnet",
   "app_web",
   "app_email",
@@ -129,6 +130,7 @@ triggers = [
   "app_ssh",
   "app_scp",
   "app_curl",
+  "app_webradio",
   "app_telnet",
   "app_web",
   "app_email",
@@ -476,7 +478,10 @@ capabilities = ["sd"]
 [packages.service_audio]
 label = "service.audio"
 depends = ["service_streams"]
-sources = ["services/solar_os_audio.c"]
+sources = [
+  "services/solar_os_audio.c",
+  "services/solar_os_audio_pcm.c",
+]
 
 [packages.service_audio_board]
 label = "service.audio-board"
@@ -488,6 +493,11 @@ capabilities = ["audio"]
 label = "service.audio-codecs"
 sources = ["services/solar_os_audio_codec.c"]
 requires = ["minimp3"]
+
+[packages.service_webradio]
+label = "service.webradio"
+sources = ["services/solar_os_webradio_catalog.c"]
+requires = ["nvs_flash"]
 
 [packages.service_synth]
 label = "service.synth"
@@ -801,6 +811,17 @@ capabilities = ["wifi"]
 label = "app.curl"
 depends = ["service_http_client"]
 sources = ["apps/solar_os_curl.c"]
+capabilities = ["wifi"]
+
+[packages.app_webradio]
+label = "app.webradio"
+depends = [
+  "service_audio",
+  "service_audio_codecs",
+  "service_http_client",
+  "service_webradio",
+]
+sources = ["apps/solar_os_webradio.c"]
 capabilities = ["wifi"]
 
 [packages.app_telnet]

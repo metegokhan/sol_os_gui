@@ -24,6 +24,7 @@
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_APP_APLAY
 #include "solar_os_audio_codec.h"
+#include "solar_os_audio_pcm.h"
 #endif
 #include "solar_os_storage.h"
 
@@ -114,14 +115,6 @@ static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
                                         uint8_t volume,
                                         const volatile bool *cancelled);
 static void audio_tone_cancel_all(void);
-#endif
-
-#if SOLAR_OS_PACKAGE_APP_APLAY
-typedef struct {
-    uint32_t sample_rate;
-    uint8_t channels;
-    uint64_t phase_q16;
-} audio_mp3_resampler_t;
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
@@ -472,83 +465,6 @@ static void audio_mp3_consume_input(uint8_t *input, size_t *input_len, size_t co
     }
     memmove(input, input + consumed, *input_len - consumed);
     *input_len -= consumed;
-}
-
-static int16_t audio_mp3_lerp_i16(int16_t a, int16_t b, uint32_t frac_q16)
-{
-    const int32_t delta = (int32_t)b - (int32_t)a;
-    return (int16_t)((int32_t)a + (int32_t)(((int64_t)delta * frac_q16) >> 16));
-}
-
-static size_t audio_mp3_convert_to_native(const int16_t *input,
-                                          int frames,
-                                          int channels,
-                                          int sample_rate,
-                                          const solar_os_stream_audio_format_t *target,
-                                          audio_mp3_resampler_t *resampler,
-                                          int16_t *output,
-                                          size_t output_samples_cap,
-                                          bool *source_done)
-{
-    if (input == NULL || frames <= 0 || target == NULL || output == NULL ||
-        resampler == NULL || channels <= 0 || channels > 2 || sample_rate <= 0 ||
-        target->sample_format != SOLAR_OS_STREAM_AUDIO_S16_LE ||
-        target->sample_rate == 0U || target->channels == 0U ||
-        target->channels > 2U || target->bits_per_sample != 16U) {
-        if (source_done != NULL) {
-            *source_done = false;
-        }
-        return 0;
-    }
-
-    const uint32_t source_frames = (uint32_t)frames;
-
-    if (resampler->sample_rate != (uint32_t)sample_rate ||
-        resampler->channels != (uint8_t)channels) {
-        resampler->sample_rate = (uint32_t)sample_rate;
-        resampler->channels = (uint8_t)channels;
-        resampler->phase_q16 = 0;
-    }
-
-    uint64_t phase = resampler->phase_q16;
-    const uint64_t limit = (uint64_t)source_frames << 16;
-    uint64_t step = ((uint64_t)sample_rate << 16) / target->sample_rate;
-    if (step == 0) {
-        step = 1;
-    }
-
-    size_t out_samples = 0;
-    const size_t out_frame_cap = output_samples_cap / target->channels;
-    while (phase < limit && (out_samples / target->channels) < out_frame_cap) {
-        const uint32_t idx = (uint32_t)(phase >> 16);
-        const uint32_t next_idx = idx + 1U < source_frames ? idx + 1U : idx;
-        const uint32_t frac = (uint32_t)(phase & 0xffffU);
-
-        const int16_t left_a = input[idx * (uint32_t)channels];
-        const int16_t left_b = input[next_idx * (uint32_t)channels];
-        int16_t left = audio_mp3_lerp_i16(left_a, left_b, frac);
-        int16_t right = left;
-        if (channels > 1) {
-            const int16_t right_a = input[(idx * (uint32_t)channels) + 1U];
-            const int16_t right_b = input[(next_idx * (uint32_t)channels) + 1U];
-            right = audio_mp3_lerp_i16(right_a, right_b, frac);
-        }
-
-        if (target->channels == 1U) {
-            output[out_samples++] = (int16_t)(((int32_t)left + right) / 2);
-        } else {
-            output[out_samples++] = left;
-            output[out_samples++] = right;
-        }
-        phase += step;
-    }
-
-    const bool done = phase >= limit;
-    resampler->phase_q16 = done ? phase - limit : phase;
-    if (source_done != NULL) {
-        *source_done = done;
-    }
-    return out_samples;
 }
 
 static void audio_mp3_fill_output_info(
@@ -2595,7 +2511,7 @@ static esp_err_t audio_play_mp3_stream(const char *path,
     bool eof = false;
     bool decoded_any = false;
     size_t playback_samples = 0;
-    audio_mp3_resampler_t resampler = {0};
+    solar_os_audio_s16_converter_t converter = {0};
     const uint32_t progress_interval_ms = audio_wav_progress_interval_ms(options);
     int64_t next_progress_us = esp_timer_get_time() + ((int64_t)progress_interval_ms * 1000);
 
@@ -2633,18 +2549,22 @@ static esp_err_t audio_play_mp3_stream(const char *path,
                     break;
                 }
 
-                const size_t out_samples = audio_mp3_convert_to_native(decoded,
-                                                                       (int)frame.frames,
-                                                                       frame.format.channels,
-                                                                       (int)frame.format.sample_rate,
-                                                                       &stream.audio,
-                                                                       &resampler,
-                                                                       output,
-                                                                       AUDIO_MP3_OUTPUT_SAMPLES_MAX,
-                                                                       &source_done);
-                if (out_samples == 0 ||
+                size_t out_samples = 0U;
+                ret = solar_os_audio_s16_convert(
+                    &converter,
+                    decoded,
+                    frame.frames,
+                    &frame.format,
+                    &stream.audio,
+                    output,
+                    AUDIO_MP3_OUTPUT_SAMPLES_MAX,
+                    &out_samples,
+                    &source_done);
+                if (ret != ESP_OK || out_samples == 0U ||
                     (out_samples % stream.audio.channels) != 0U) {
-                    ret = ESP_ERR_INVALID_RESPONSE;
+                    if (ret == ESP_OK) {
+                        ret = ESP_ERR_INVALID_RESPONSE;
+                    }
                     break;
                 }
 

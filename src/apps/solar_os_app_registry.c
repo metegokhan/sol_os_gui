@@ -35,6 +35,9 @@
 #if SOLAR_OS_PACKAGE_APP_WEB
 #include "solar_os_web.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_WEBRADIO
+#include "solar_os_webradio.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
 #include "solar_os_clock.h"
 #endif
@@ -143,6 +146,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEB
     APP_ENTRY("web", "simple web browser", &solar_os_web_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "web <URL>", 2, 2),
+#endif
+#if SOLAR_OS_PACKAGE_APP_WEBRADIO
+    APP_ENTRY("webradio", "streaming internet radio", &solar_os_webradio_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "webradio [URL | list | add NAME URL | remove NAME | reset]", 1, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
     APP_ENTRY("clock", "clock, countdown alarm, stopwatch", &solar_os_clock_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "clock [-s | -a MM:SS]", 1, 3),

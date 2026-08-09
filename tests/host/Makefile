@@ -85,9 +85,10 @@ stream_test: stream_test.c $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/se
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		stream_test.c $(ROOT)/src/services/solar_os_stream.c -o $@
 
-audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c $(ROOT)/src/services/solar_os_audio_codec.h esp_err.h
+audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c $(ROOT)/src/services/solar_os_audio_codec.h $(ROOT)/src/services/solar_os_audio_pcm.c $(ROOT)/src/services/solar_os_audio_pcm.h esp_err.h
 	$(CC) $(CFLAGS) -DSOLAR_OS_AUDIO_CODEC_HOST_TEST -I. -I$(ROOT)/src/services -I$(ROOT)/components/minimp3/include \
 		audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c \
+		$(ROOT)/src/services/solar_os_audio_pcm.c \
 		$(ROOT)/components/minimp3/minimp3_impl.c -o $@
 
 test: $(TARGETS)

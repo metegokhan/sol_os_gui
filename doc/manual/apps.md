@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph"
+keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -321,6 +321,51 @@ curl [-L] [-o file] URL
 Controls:
 
 - App-exit key cancels an active transfer.
+
+## webradio
+
+Stream a direct MP3 URL through the default registered audio output. On a
+graphical display shell, WebRadio opens a station-list GUI. On UART, USB CDC,
+Telnet, SSH, and other text shells, it opens a TUI with the same catalog and
+playback controls.
+
+The catalog is stored in NVS and starts with the Nightride, Chillsynth,
+Datawave, Spacesynth, Darksynth, Horrorsynth, EBSM, and Rekt streams. Catalog
+changes survive reboot. `reset` restores this initial list.
+
+Usage:
+
+```text
+webradio
+webradio https://stream.nightride.fm/nightride.mp3
+webradio list
+webradio add MyStation https://example.net/live.mp3
+webradio remove MyStation
+webradio reset
+```
+
+URLs are literal HTTP or HTTPS MP3 stream URLs. WebRadio does not translate
+station names or website addresses and does not discover streams from HTML
+pages. The initial implementation does not support playlists, HLS, or AAC.
+
+Controls:
+
+- `Up`/`Down` selects a catalog entry.
+- `Enter` starts the selected stream.
+- Space stops playback.
+- `Delete` removes the selected catalog entry.
+- `R` reconnects the current stream.
+- `Q`, `Esc`, or the app-exit key exits.
+
+The app is available on Wi-Fi builds even when the board has no built-in audio
+hardware. Playback starts when a default output device has been registered,
+including an output supplied by a runtime-attached expansion.
+
+Network reception and MP3 decoding feed an app-owned PCM jitter buffer. A
+separate playback worker consumes that buffer at the audio device's steady
+rate. Both workers continue while the resumable WebRadio session is suspended
+or another foreground app is selected. Closing WebRadio cancels the network
+request, stops both workers, and releases the audio device.
 
 ## help
 
