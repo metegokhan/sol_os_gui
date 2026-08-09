@@ -6223,6 +6223,7 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
                                              shell_completion_match_t *state)
 {
     bool rule_seen = false;
+    size_t best_wildcards = SHELL_ARG_MAX + 1U;
 
     if (state == NULL) {
         return false;
@@ -6236,8 +6237,28 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
 
     for (size_t i = 0; i < SHELL_ARRAY_COUNT(shell_completion_rules); i++) {
         const shell_completion_rule_t *rule = &shell_completion_rules[i];
+        size_t wildcards = 0;
+
         if (rule->complete_path ||
-            !shell_completion_path_matches(rule, tokens, token_count, NULL)) {
+            !shell_completion_path_matches(rule, tokens, token_count, &wildcards)) {
+            continue;
+        }
+        if (rule->required_prefix != NULL &&
+            (prefix == NULL || !starts_with(prefix, rule->required_prefix))) {
+            continue;
+        }
+        if (wildcards < best_wildcards) {
+            best_wildcards = wildcards;
+        }
+    }
+
+    for (size_t i = 0; i < SHELL_ARRAY_COUNT(shell_completion_rules); i++) {
+        const shell_completion_rule_t *rule = &shell_completion_rules[i];
+        size_t wildcards = 0;
+
+        if (rule->complete_path ||
+            !shell_completion_path_matches(rule, tokens, token_count, &wildcards) ||
+            wildcards != best_wildcards) {
             continue;
         }
         if (rule->required_prefix != NULL &&
