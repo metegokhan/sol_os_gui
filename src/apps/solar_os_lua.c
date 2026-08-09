@@ -31,6 +31,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 #include "solar_os_controls.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_DSP
+#include "solar_os_dsp.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
@@ -4862,6 +4865,10 @@ static void solua_new_submodule(lua_State *L, int parent, const char *name)
     lua_setfield(L, parent, name);
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_DSP
+#include "solar_os_lua_dsp.inc"
+#endif
+
 static int solua_require(lua_State *L)
 {
     const char *name = luaL_checkstring(L, 1);
@@ -4876,6 +4883,9 @@ static int solua_require(lua_State *L)
 
 static void solua_open_solaros(lua_State *L)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_DSP
+    solua_dsp_register_type(L);
+#endif
     lua_newtable(L);
     const int solaros = lua_gettop(L);
     solua_set_func(L, solaros, "write", solua_solaros_write);
@@ -5033,6 +5043,22 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "list", solua_controls_list);
     solua_set_func(L, mod, "get", solua_controls_get);
     solua_set_func(L, mod, "set", solua_controls_set);
+    lua_pop(L, 1);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_DSP
+    solua_new_submodule(L, solaros, "dsp");
+    mod = lua_gettop(L);
+    solua_set_func(L, mod, "backend", solua_dsp_backend);
+    solua_set_func(L, mod, "capabilities", solua_dsp_capabilities);
+    solua_set_func(L, mod, "dot", solua_dsp_dot);
+    solua_set_func(L, mod, "gain", solua_dsp_gain);
+    solua_set_func(L, mod, "mix", solua_dsp_mix);
+    solua_set_func(L, mod, "clip", solua_dsp_clip);
+    solua_set_func(L, mod, "level", solua_dsp_level);
+    solua_set_func(L, mod, "window", solua_dsp_window);
+    solua_set_func(L, mod, "fir", solua_dsp_fir);
+    solua_set_func(L, mod, "fft", solua_dsp_fft);
     lua_pop(L, 1);
 #endif
 

@@ -56,6 +56,8 @@ Optional API groups follow these package gates:
   `service.uart`: their matching submodules
 - `service.audio`, `service.synth`, `service.battery`, and `service.sensors`:
   their matching helpers and submodules
+- `service.dsp`: `solaros.dsp` fixed-point block operations and caller-owned
+  FIR, decimator, and FFT processors
 
 ```python
 print(solaros.storage.resolve("/.shell/history"))
@@ -1135,6 +1137,15 @@ solaros.write("env {:.1f} C {:.1f}%\n".format(env["temperature_c"], env["humidit
 wifi = solaros.wifi.status()
 solaros.write("wifi {} {}\n".format(wifi["state"], wifi["ip"]))
 ```
+
+## `solaros.dsp`
+
+`solaros.dsp` accepts native little-endian signed 16-bit buffers and provides
+`backend`, `capabilities`, `dot`, `gain`, `mix`, `clip`, `level`, `window`,
+`fir`, and `fft`. Stateless output operations return a new `bytearray`.
+Streaming constructors return objects with explicit `reset()` and `close()`
+methods. See [Digital signal processing](dsp.md) for the fixed-point contract,
+limits, and examples.
 
 ## Not Exposed Yet
 

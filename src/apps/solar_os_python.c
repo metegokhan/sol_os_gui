@@ -42,6 +42,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 #include "solar_os_controls.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_DSP
+#include "solar_os_dsp.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
@@ -5174,6 +5177,10 @@ static mp_obj_t solaros_gfx_text(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_text_obj, 3, 3, solaros_gfx_text);
 
+#if SOLAR_OS_PACKAGE_SERVICE_DSP
+#include "solar_os_python_dsp.inc"
+#endif
+
 static void python_module_store(mp_obj_t module, const char *name, mp_obj_t value)
 {
     mp_store_attr(module, qstr_from_str(name), value);
@@ -5327,6 +5334,20 @@ static void python_register_solaros_module(void)
                         MP_OBJ_FROM_PTR(&solaros_controls_get_obj));
     python_module_store(controls, "set",
                         MP_OBJ_FROM_PTR(&solaros_controls_set_obj));
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_DSP
+    mp_obj_t dsp = python_new_submodule(module, "dsp");
+    python_module_store(dsp, "backend", MP_OBJ_FROM_PTR(&solaros_dsp_backend_obj));
+    python_module_store(dsp, "capabilities", MP_OBJ_FROM_PTR(&solaros_dsp_capabilities_obj));
+    python_module_store(dsp, "dot", MP_OBJ_FROM_PTR(&solaros_dsp_dot_obj));
+    python_module_store(dsp, "gain", MP_OBJ_FROM_PTR(&solaros_dsp_gain_obj));
+    python_module_store(dsp, "mix", MP_OBJ_FROM_PTR(&solaros_dsp_mix_obj));
+    python_module_store(dsp, "clip", MP_OBJ_FROM_PTR(&solaros_dsp_clip_obj));
+    python_module_store(dsp, "level", MP_OBJ_FROM_PTR(&solaros_dsp_level_obj));
+    python_module_store(dsp, "window", MP_OBJ_FROM_PTR(&solaros_dsp_window_obj));
+    python_module_store(dsp, "fir", MP_OBJ_FROM_PTR(&solaros_dsp_fir_obj));
+    python_module_store(dsp, "fft", MP_OBJ_FROM_PTR(&solaros_dsp_fft_obj));
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_PWM

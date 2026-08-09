@@ -19,6 +19,8 @@
 #define MICROPY_PY_SYS_EXIT                     (1)
 #define MICROPY_PY_MICROPYTHON                  (1)
 #define MICROPY_PY_BUILTINS_MIN_MAX             (1)
+#define MICROPY_PY_BUILTINS_BYTEARRAY           (1)
+#define MICROPY_PY_ARRAY                        (1)
 #define MICROPY_KBD_EXCEPTION                   (1)
 #define MICROPY_HELPER_REPL                     (1)
 

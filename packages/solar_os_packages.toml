@@ -15,6 +15,7 @@ members = [
   "service_resources",
   "service_engines",
   "service_vector",
+  "service_dsp",
   "service_gpio",
   "service_onewire",
   "service_logic",
@@ -510,6 +511,12 @@ requires = ["esp_timer"]
 [packages.service_vector]
 label = "service.vector"
 sources = ["services/solar_os_vector.c"]
+
+[packages.service_dsp]
+label = "service.dsp"
+depends = ["service_engines"]
+sources = ["services/solar_os_dsp.c"]
+requires = ["espressif__esp-dsp"]
 
 [packages.service_gpio]
 label = "service.gpio"

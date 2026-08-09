@@ -184,6 +184,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Scripting APIs
 
 - [Compatibility I/O modules](compatibility.io.md) — Use the legacy single-bus I2C, SPI, UART, and OneWire APIs
+- [Digital signal processing](dsp.md) — Use portable Q15 blocks, streaming filters, decimation, and FFT contexts
 - [Lua API reference](lua.md) — Complete Lua service API, conventions, and examples
 - [Lua graphics API](lua.gfx.md) — Draw through SolarOS displays from Lua
 - [Lua text user-interface API](lua.tui.md) — Build terminal applications from Lua
