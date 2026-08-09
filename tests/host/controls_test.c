@@ -6,12 +6,13 @@
 
 esp_err_t solar_os_stream_get_info(const char *id, solar_os_stream_info_t *info)
 {
-    if (strcmp(id, "adc1") != 0) {
+    if (strcmp(id, "adc1") != 0 && strcmp(id, "gpio1") != 0) {
         return ESP_ERR_NOT_FOUND;
     }
     memset(info, 0, sizeof(*info));
     strcpy(info->id, id);
-    info->type = SOLAR_OS_STREAM_TYPE_SCALAR;
+    info->type = strcmp(id, "adc1") == 0 ?
+        SOLAR_OS_STREAM_TYPE_SCALAR : SOLAR_OS_STREAM_TYPE_EVENT;
     return ESP_OK;
 }
 
@@ -25,6 +26,16 @@ int main(void)
         .deadband = 10.0f,
         .smoothing_ms = 40U,
     };
+    solar_os_control_config_t missing = config;
+    strcpy(missing.name, "missing");
+    strcpy(missing.source, "adc0");
+    assert(solar_os_control_create(&missing) == ESP_ERR_NOT_FOUND);
+
+    solar_os_control_config_t event = config;
+    strcpy(event.name, "event");
+    strcpy(event.source, "gpio1");
+    assert(solar_os_control_create(&event) == ESP_ERR_NOT_SUPPORTED);
+
     assert(solar_os_control_create(&config) == ESP_OK);
     assert(solar_os_control_create(&config) == ESP_ERR_INVALID_STATE);
     assert(solar_os_control_publish_sample("cutoff", 100.0f, 20U) == ESP_OK);
