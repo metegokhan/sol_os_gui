@@ -22,6 +22,7 @@
 #define TERM_NVS_FONT_KEY "font"
 #define TERM_NVS_TEXT_SIZE_KEY "textsize"
 #define TERM_NVS_PALETTE_KEY "palette"
+#define TERM_NVS_STATUS_BAR_KEY "statusbar"
 
 #ifndef SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION
 #define SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION 0
@@ -459,6 +460,27 @@ esp_err_t solar_os_terminal_set_palette_preference(bool inverted)
     return terminal_save_u16(TERM_NVS_PALETTE_KEY, inverted ? 1 : 0);
 }
 
+bool solar_os_terminal_status_bar_preference_visible(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open(TERM_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
+        return true;
+    }
+
+    uint16_t value = 1;
+    const esp_err_t err = nvs_get_u16(nvs, TERM_NVS_STATUS_BAR_KEY, &value);
+    nvs_close(nvs);
+    if (err != ESP_OK || value > 1) {
+        return true;
+    }
+    return value != 0;
+}
+
+esp_err_t solar_os_terminal_set_status_bar_preference(bool visible)
+{
+    return terminal_save_u16(TERM_NVS_STATUS_BAR_KEY, visible ? 1 : 0);
+}
+
 static void terminal_load_settings(solar_os_terminal_t *terminal)
 {
     nvs_handle_t nvs;
@@ -489,6 +511,11 @@ static void terminal_load_settings(solar_os_terminal_t *terminal)
     ret = nvs_get_u16(nvs, TERM_NVS_PALETTE_KEY, &value);
     if (ret == ESP_OK && value <= 1) {
         terminal->palette_inverted = value != 0;
+    }
+
+    ret = nvs_get_u16(nvs, TERM_NVS_STATUS_BAR_KEY, &value);
+    if (ret == ESP_OK && value <= 1) {
+        terminal->status_bar_visible = value != 0;
     }
 
     nvs_close(nvs);
@@ -556,7 +583,7 @@ static void terminal_apply_settings(solar_os_terminal_t *terminal, bool clear_sc
 
     const int display_width = u8g2_GetDisplayWidth(u8g2);
     const int display_height = u8g2_GetDisplayHeight(u8g2);
-    int status_bar_height = TERM_STATUS_BAR_HEIGHT;
+    int status_bar_height = terminal->status_bar_visible ? TERM_STATUS_BAR_HEIGHT : 0;
     if (status_bar_height > display_height / 3) {
         status_bar_height = display_height / 3;
     }
@@ -885,6 +912,7 @@ void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2)
     terminal->line_height = 14;
     terminal->baseline_offset = 13;
     terminal->status_bar_height = TERM_STATUS_BAR_HEIGHT;
+    terminal->status_bar_visible = true;
     terminal->cursor_visible = true;
     terminal_load_settings(terminal);
     terminal_apply_settings(terminal, false);
@@ -1368,6 +1396,48 @@ void solar_os_terminal_get_status_bar(const solar_os_terminal_t *terminal,
     }
 
     *status = terminal->status_bar;
+}
+
+static void terminal_apply_status_bar_visibility(solar_os_terminal_t *terminal, bool visible)
+{
+    if (terminal->status_bar_visible == visible) {
+        return;
+    }
+
+    const size_t previous_rows = terminal_rows(terminal);
+    terminal->status_bar_visible = visible;
+    terminal_apply_settings(terminal, false);
+    const size_t current_rows = terminal_rows(terminal);
+    for (size_t row = previous_rows; row < current_rows; row++) {
+        solar_os_terminal_clear_line_from(terminal, row, 0);
+    }
+    solar_os_terminal_mark_dirty(terminal);
+}
+
+bool solar_os_terminal_status_bar_visible(const solar_os_terminal_t *terminal)
+{
+    return terminal != NULL ? terminal->status_bar_visible : true;
+}
+
+esp_err_t solar_os_terminal_set_status_bar_visible(solar_os_terminal_t *terminal, bool visible)
+{
+    if (terminal == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    terminal_apply_status_bar_visibility(terminal, visible);
+    return solar_os_terminal_set_status_bar_preference(visible);
+}
+
+esp_err_t solar_os_terminal_set_status_bar_visible_transient(solar_os_terminal_t *terminal,
+                                                              bool visible)
+{
+    if (terminal == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    terminal_apply_status_bar_visibility(terminal, visible);
+    return ESP_OK;
 }
 
 void solar_os_terminal_set_footer(solar_os_terminal_t *terminal,
@@ -2613,7 +2683,9 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     u8g2_ClearBuffer(u8g2);
     terminal_set_draw_color(terminal, u8g2, 1);
     u8g2_DrawBox(u8g2, 0, 0, u8g2_GetDisplayWidth(u8g2), u8g2_GetDisplayHeight(u8g2));
-    terminal_draw_status_bar(terminal, u8g2);
+    if (terminal->status_bar_visible) {
+        terminal_draw_status_bar(terminal, u8g2);
+    }
     terminal_set_draw_color(terminal, u8g2, 0);
     u8g2_SetFontMode(u8g2, 1);
     u8g2_SetFontPosBaseline(u8g2);

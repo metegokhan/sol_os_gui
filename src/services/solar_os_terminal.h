@@ -71,6 +71,12 @@ void solar_os_terminal_set_status_bar(solar_os_terminal_t *terminal,
                                       const solar_os_status_bar_t *status);
 void solar_os_terminal_get_status_bar(const solar_os_terminal_t *terminal,
                                       solar_os_status_bar_t *status);
+bool solar_os_terminal_status_bar_preference_visible(void);
+esp_err_t solar_os_terminal_set_status_bar_preference(bool visible);
+bool solar_os_terminal_status_bar_visible(const solar_os_terminal_t *terminal);
+esp_err_t solar_os_terminal_set_status_bar_visible(solar_os_terminal_t *terminal, bool visible);
+esp_err_t solar_os_terminal_set_status_bar_visible_transient(solar_os_terminal_t *terminal,
+                                                              bool visible);
 void solar_os_terminal_set_footer(solar_os_terminal_t *terminal,
                                   const char *text);
 void solar_os_terminal_set_black_is_one(solar_os_terminal_t *terminal, bool black_is_one);

@@ -1880,6 +1880,36 @@ esp_err_t solar_os_sessions_set_terminal_palette_inverted(solar_os_terminal_t *t
     return err;
 }
 
+esp_err_t solar_os_sessions_set_terminal_status_bar_visible(solar_os_terminal_t *terminal,
+                                                            bool visible)
+{
+    if (terminal == NULL) {
+        return solar_os_terminal_set_status_bar_preference(visible);
+    }
+
+    solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
+    const esp_err_t err = session_terminal_setting_is_persistent(owner) ?
+        solar_os_terminal_set_status_bar_visible(terminal, visible) :
+        solar_os_terminal_set_status_bar_visible_transient(terminal, visible);
+    if (err == ESP_ERR_INVALID_ARG) {
+        return err;
+    }
+
+    if (owner != NULL) {
+        for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+            solar_os_session_entry_t *peer = &session_state.sessions[i];
+            if (peer->used &&
+                peer->terminal != NULL &&
+                peer->terminal != terminal &&
+                session_uses_same_display(owner, peer)) {
+                (void)solar_os_terminal_set_status_bar_visible_transient(peer->terminal,
+                                                                         visible);
+            }
+        }
+    }
+    return err;
+}
+
 static solar_os_session_entry_t *session_active_for_display(const char *target_name)
 {
     if (target_name == NULL || target_name[0] == '\0') {

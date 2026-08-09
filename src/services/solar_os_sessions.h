@@ -33,6 +33,8 @@ esp_err_t solar_os_sessions_set_terminal_text_size(solar_os_terminal_t *terminal
                                                    solar_os_terminal_text_size_t text_size);
 esp_err_t solar_os_sessions_set_terminal_palette_inverted(solar_os_terminal_t *terminal,
                                                           bool inverted);
+esp_err_t solar_os_sessions_set_terminal_status_bar_visible(solar_os_terminal_t *terminal,
+                                                            bool visible);
 
 bool solar_os_sessions_switch_to_app(const solar_os_app_t *app);
 bool solar_os_sessions_switch_to_app_with_policy(const solar_os_app_t *app,

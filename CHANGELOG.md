@@ -2,6 +2,9 @@
 
 ## 4.x
 
+- **4.7.1** — 2026-08-09 — Added a persistent `setterm statusbar show|hide`
+  setting. Hiding the graphical shell status bar gives its space to terminal
+  rows; the default remains `show` when NVS has no saved setting.
 - **4.6.28** — 2026-08-09 — Added `player`, an interactive WAV and MP3 player
   with a persistent playlist, file browser, GUI, and simple TUI. It supports
   pause, volume, automatic advance, background playback, and cassette,

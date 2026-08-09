@@ -39,6 +39,7 @@ typedef enum {
     SETTERM_TUI_FONT,
     SETTERM_TUI_TEXTSIZE,
     SETTERM_TUI_PALETTE,
+    SETTERM_TUI_STATUSBAR,
     SETTERM_TUI_BRIGHTNESS,
     SETTERM_TUI_KEYBOARD,
     SETTERM_TUI_KEYRATE,
@@ -73,6 +74,7 @@ static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_FONT] = {.label = "font"},
     [SETTERM_TUI_TEXTSIZE] = {.label = "textsize"},
     [SETTERM_TUI_PALETTE] = {.label = "palette"},
+    [SETTERM_TUI_STATUSBAR] = {.label = "statusbar"},
     [SETTERM_TUI_BRIGHTNESS] = {.label = "brightness"},
     [SETTERM_TUI_KEYBOARD] = {.label = "keyboard"},
     [SETTERM_TUI_KEYRATE] = {.label = "keyrate"},
@@ -140,6 +142,11 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
     case SETTERM_TUI_PALETTE:
         strlcpy(buffer,
                 solar_os_terminal_palette_inverted(term) ? "inverted" : "normal",
+                buffer_len);
+        break;
+    case SETTERM_TUI_STATUSBAR:
+        strlcpy(buffer,
+                solar_os_terminal_status_bar_visible(term) ? "show" : "hide",
                 buffer_len);
         break;
     case SETTERM_TUI_BRIGHTNESS: {
@@ -309,6 +316,7 @@ static bool setterm_tui_cycle_selected(int direction)
     static const char * const font_values[] = {"mono", "compact"};
     static const char * const textsize_values[] = {"10", "12", "14", "16", "18", "20"};
     static const char * const palette_values[] = {"normal", "inverted"};
+    static const char * const statusbar_values[] = {"show", "hide"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
     static const char * const startup_values[] = {"flash", "sd"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -331,6 +339,10 @@ static bool setterm_tui_cycle_selected(int direction)
     case SETTERM_TUI_PALETTE:
         return setterm_tui_cycle_value(palette_values,
                                        sizeof(palette_values) / sizeof(palette_values[0]),
+                                       direction);
+    case SETTERM_TUI_STATUSBAR:
+        return setterm_tui_cycle_value(statusbar_values,
+                                       sizeof(statusbar_values) / sizeof(statusbar_values[0]),
                                        direction);
     case SETTERM_TUI_BRIGHTNESS:
         return setterm_tui_cycle_value(brightness_values,
@@ -443,6 +455,14 @@ static bool setterm_tui_apply_selected(void)
         }
         if (strcmp(setterm_tui.edit_text, "inverted") == 0) {
             return solar_os_sessions_set_terminal_palette_inverted(term, true) == ESP_OK;
+        }
+        return false;
+    case SETTERM_TUI_STATUSBAR:
+        if (strcmp(setterm_tui.edit_text, "show") == 0) {
+            return solar_os_sessions_set_terminal_status_bar_visible(term, true) == ESP_OK;
+        }
+        if (strcmp(setterm_tui.edit_text, "hide") == 0) {
+            return solar_os_sessions_set_terminal_status_bar_visible(term, false) == ESP_OK;
         }
         return false;
     case SETTERM_TUI_BRIGHTNESS: {

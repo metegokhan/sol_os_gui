@@ -237,6 +237,7 @@ setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [10|12|14|16|18|20]
 setterm palette [normal|inverted]
+setterm statusbar [show|hide]
 setterm brightness [0..100]
 setterm backlight [0..100]
 setterm profile [vt100|ansi|dumb]
@@ -263,7 +264,8 @@ them from a port shell. `profile` controls terminal escape sequences;
 `charset` controls TUI glyph output. The default `utf8` mode uses Unicode box
 drawing. Select `ascii` for DOS and other legacy serial terminals; TUI borders,
 blocks, arrows, and punctuation are replaced with readable ASCII characters.
-Display layout settings (`orientation`, `font`, `textsize`, and `palette`) apply
+Display layout settings (`orientation`, `font`, `textsize`, `palette`, and
+`statusbar`) apply
 to the current display and its app sessions. Settings on the primary display
 are persistent; settings on secondary or virtual displays such as `web0` are
 runtime-only. `palette` exchanges logical black and white in terminal content
@@ -272,6 +274,10 @@ remains independent of hardware inversion modes exposed by `display mode`, and
 does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
+
+`setterm statusbar hide` removes the top status bar from graphical shell
+sessions and gives its space to the terminal. `show` restores it. The default is
+`show` when no value is stored in NVS.
 
 ## Apps And Jobs
 

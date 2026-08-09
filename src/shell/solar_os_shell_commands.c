@@ -7,7 +7,7 @@ static const char * const ota_commands[] = {"status", "check", "upgrade", "url",
 #endif
 static const char * const job_commands[] = {"status", "start", "stop"};
 static const char * const setterm_commands[] = {
-    "orientation", "font", "textsize", "palette", "brightness", "backlight",
+    "orientation", "font", "textsize", "palette", "statusbar", "brightness", "backlight",
     "profile", "charset", "keyboard", "keymap", "keyrate", "typerate",
     "repeat", "timezone", "startup", "otaurl", "ota",
 };
@@ -1427,6 +1427,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
     solar_os_shell_io_writeln(term, "  setterm textsize [10|12|14|16|18|20]");
     solar_os_shell_io_writeln(term, "  setterm palette [normal|inverted]");
+    solar_os_shell_io_writeln(term, "  setterm statusbar [show|hide]");
     solar_os_shell_io_writeln(term, "  setterm brightness [0..100]");
     solar_os_shell_io_writeln(term, "  setterm profile [vt100|ansi|dumb]");
     solar_os_shell_io_writeln(term, "  setterm charset [utf8|ascii]");
@@ -1615,6 +1616,34 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         const esp_err_t err =
             solar_os_sessions_set_terminal_palette_inverted(display, inverted);
         setterm_print_save_result(term, "palette", argv[2], err);
+        return;
+    }
+
+    if (strcmp(argv[1], "statusbar") == 0) {
+        if (argc == 2) {
+            const bool visible = display != NULL ?
+                solar_os_terminal_status_bar_visible(display) :
+                solar_os_terminal_status_bar_preference_visible();
+            solar_os_shell_io_printf(term, "statusbar: %s\n", visible ? "show" : "hide");
+            solar_os_shell_io_writeln(term, "values: show hide");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_diag_unexpected(term, "setterm statusbar", argv[3],
+                                           "setterm statusbar [show|hide]");
+            return;
+        }
+        if (strcmp(argv[2], "show") != 0 && strcmp(argv[2], "hide") != 0) {
+            solar_os_shell_diag_invalid(term, "setterm statusbar", "statusbar", argv[2],
+                                        "show or hide",
+                                        "setterm statusbar [show|hide]", false);
+            return;
+        }
+
+        const bool visible = strcmp(argv[2], "show") == 0;
+        const esp_err_t err =
+            solar_os_sessions_set_terminal_status_bar_visible(display, visible);
+        setterm_print_save_result(term, "statusbar", argv[2], err);
         return;
     }
 
@@ -1948,7 +1977,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                    "setterm",
                                    argc,
                                    argv,
-                                   "setterm orientation|font|textsize|palette|brightness|backlight|profile|charset|keyboard|keyrate|timezone|startup|otaurl",
+                                   "setterm orientation|font|textsize|palette|statusbar|brightness|backlight|profile|charset|keyboard|keyrate|timezone|startup|otaurl",
                                    setterm_commands,
                                    sizeof(setterm_commands) / sizeof(setterm_commands[0]));
 }
