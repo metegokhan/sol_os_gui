@@ -48,11 +48,20 @@ class FlavorPackagesTest(unittest.TestCase):
             {"app_gameboy"},
         )
         self.assertIn("service_synth", self.catalog.group_defs["system"].members)
+        self.assertIn("service_streams", self.catalog.group_defs["system"].members)
         self.assertIn("job_controls", self.catalog.group_defs["system"].members)
         self.assertIn("service_synth", self.catalog.group_defs["audio"].members)
         self.assertEqual(
             self.catalog.package_defs["service_synth"].depends,
-            ("service_audio", "service_dsp"),
+            ("service_audio", "service_dsp", "service_streams"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["core_runtime"].depends,
+            ("service_streams",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["service_audio"].depends,
+            ("service_streams",),
         )
         self.assertEqual(
             self.catalog.package_defs["app_gameboy"].depends,

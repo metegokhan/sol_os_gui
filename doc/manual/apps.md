@@ -96,8 +96,9 @@ Controls:
 
 ## aplay
 
-Play audio files through the board audio output. WAV and MP3 are supported when
-the audio package is compiled and the board has audio hardware.
+Play audio files through the default `audio0.playback` stream. WAV and MP3 are
+supported when the audio package is compiled and an output device is
+registered.
 
 Usage:
 
@@ -111,8 +112,8 @@ Controls:
 
 ## arecord
 
-Record microphone input to a WAV file. This requires the audio package and
-board microphone hardware.
+Record the default `audio0.capture` stream to a WAV file. This requires the
+audio package and a registered input device.
 
 Usage:
 

@@ -8,12 +8,53 @@
 #include "solar_os_config.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
+#include "solar_os_stream.h"
 
 #if SOLAR_OS_BOARD_HAS_GPIO
 #include "driver/gpio.h"
 #include "gpio_port.h"
 #include "solar_os_board.h"
 #endif
+
+static esp_err_t gpio_stream_read(void *user,
+                                  solar_os_stream_handle_t *handle,
+                                  void *data,
+                                  size_t len,
+                                  uint32_t timeout_ms,
+                                  size_t *read_len)
+{
+    (void)handle;
+    (void)timeout_ms;
+    if (data == NULL || len < 1U || read_len == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    bool level = false;
+    const esp_err_t err = solar_os_gpio_read((int)(intptr_t)user, &level);
+    if (err == ESP_OK) {
+        ((uint8_t *)data)[0] = level ? 1U : 0U;
+        *read_len = 1U;
+    }
+    return err;
+}
+
+static esp_err_t gpio_register_stream(int pin)
+{
+    solar_os_stream_driver_t driver = {
+        .info = {
+            .type = SOLAR_OS_STREAM_TYPE_EVENT,
+            .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
+            .sharing = SOLAR_OS_STREAM_SHARING_SHARED,
+        },
+        .read = gpio_stream_read,
+        .user = (void *)(intptr_t)pin,
+    };
+    snprintf(driver.info.id, sizeof(driver.info.id), "gpio%d", pin);
+    strlcpy(driver.info.provider, "gpio", sizeof(driver.info.provider));
+    strlcpy(driver.info.device, driver.info.id, sizeof(driver.info.device));
+    strlcpy(driver.info.format, "bool", sizeof(driver.info.format));
+    strlcpy(driver.info.summary, "expansion GPIO state", sizeof(driver.info.summary));
+    return solar_os_stream_register(&driver);
+}
 
 #if SOLAR_OS_BOARD_HAS_GPIO
 typedef struct {
@@ -129,6 +170,28 @@ esp_err_t solar_os_gpio_init(void)
 #if !SOLAR_OS_BOARD_HAS_GPIO
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    size_t registered = 0U;
+    for (size_t i = 0; i < solar_os_gpio_pin_count(); i++) {
+        solar_os_gpio_pin_info_t info;
+        if (!solar_os_gpio_get_pin_info(i, &info) || !info.runtime_allowed) {
+            continue;
+        }
+        const esp_err_t err = gpio_register_stream(info.pin);
+        if (err != ESP_OK) {
+            for (size_t j = 0; j < i && registered > 0U; j++) {
+                solar_os_gpio_pin_info_t prior;
+                if (solar_os_gpio_get_pin_info(j, &prior) &&
+                    prior.runtime_allowed) {
+                    char id[SOLAR_OS_STREAM_ID_MAX];
+                    snprintf(id, sizeof(id), "gpio%d", prior.pin);
+                    (void)solar_os_stream_unregister(id);
+                    registered--;
+                }
+            }
+            return err;
+        }
+        registered++;
+    }
     return ESP_OK;
 #endif
 }

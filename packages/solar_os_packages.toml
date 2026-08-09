@@ -9,6 +9,7 @@ members = [
   "service_ble",
   "service_sd",
   "service_audio",
+  "service_streams",
   "service_synth",
   "service_controls",
   "job_controls",
@@ -192,6 +193,7 @@ triggers = [
 
 [packages.core_runtime]
 label = "bootstrap.runtime"
+depends = ["service_streams"]
 sources = [
   "main.c",
   "solar_os.c",
@@ -223,7 +225,6 @@ sources = [
   "services/solar_os_sessions.c",
   "services/solar_os_splash.c",
   "services/solar_os_storage.c",
-  "services/solar_os_stream.c",
   "services/solar_os_terminal.c",
   "services/solar_os_time.c",
   "services/solar_os_tui.c",
@@ -465,13 +466,14 @@ capabilities = ["sd"]
 
 [packages.service_audio]
 label = "service.audio"
+depends = ["service_streams"]
 sources = ["services/solar_os_audio.c"]
 requires = ["esp_codec_dev", "esp_driver_i2s", "minimp3"]
 capabilities = ["audio"]
 
 [packages.service_synth]
 label = "service.synth"
-depends = ["service_audio", "service_dsp"]
+depends = ["service_audio", "service_dsp", "service_streams"]
 sources = [
   "services/solar_os_synth.c",
   "services/solar_os_synth_voice.c",
@@ -492,6 +494,10 @@ sources = [
   "services/solar_os_controls.c",
   "shell/solar_os_shell_controls.c",
 ]
+
+[packages.service_streams]
+label = "service.streams"
+sources = ["services/solar_os_stream.c"]
 
 [packages.service_resources]
 label = "service.resources"
@@ -520,7 +526,7 @@ requires = ["espressif__esp-dsp"]
 
 [packages.service_gpio]
 label = "service.gpio"
-depends = ["service_resources"]
+depends = ["service_resources", "service_streams"]
 sources = ["services/solar_os_gpio.c", "services/solar_os_status_led.c"]
 requires = ["esp_driver_gpio"]
 capabilities = ["gpio"]
@@ -700,6 +706,7 @@ capabilities = ["uart"]
 
 [packages.service_battery]
 label = "service.battery"
+depends = ["service_streams"]
 sources = ["services/solar_os_battery.c"]
 capabilities = ["battery"]
 
@@ -709,11 +716,13 @@ capabilities = ["rtc"]
 
 [packages.service_sensors]
 label = "service.sensors"
+depends = ["service_streams"]
 sources = ["services/solar_os_sensors.c"]
 any_capabilities = ["temperature", "humidity"]
 
 [packages.service_adc]
 label = "service.adc"
+depends = ["service_streams"]
 sources = ["services/solar_os_adc.c"]
 requires = ["esp_adc", "esp_driver_gpio"]
 capabilities = ["adc", "gpio"]
@@ -1028,6 +1037,7 @@ capabilities = ["battery"]
 
 [packages.job_daq]
 label = "job.daq"
+depends = ["service_streams"]
 sources = [
   "jobs/solar_os_daq_job.c",
   "shell/solar_os_shell_daq.c",

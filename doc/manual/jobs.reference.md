@@ -351,8 +351,8 @@ Notes:
 
 ## daq
 
-Data acquisition job. It captures scalar streams to timestamped CSV, or one
-byte stream directly to a raw file.
+Data acquisition job. It captures scalar and event streams to timestamped CSV,
+or one byte or PCM audio source directly to a raw file.
 
 The `daq` shell command is usually easier to remember:
 
@@ -371,6 +371,7 @@ Direct job usage:
 job start daq <stream...> <file> [--rate seconds|--rate-ms ms] [--append|--replace]
 job start daq <file> <stream...> [--rate seconds|--rate-ms ms] [--append|--replace]
 job start daq <byte-stream> <file> --raw [--rate-ms ms] [--append|--replace]
+job start daq <audio-stream> <file> --raw [--rate-ms ms] [--append|--replace]
 job stop daq
 job status daq
 ```
@@ -381,6 +382,7 @@ Defaults:
 | --- | --- |
 | Scalar CSV | `1000` ms |
 | Raw byte stream | `25` ms |
+| Raw audio stream | Continuous |
 
 Examples:
 
@@ -388,13 +390,16 @@ Examples:
 daq start temperature /logs/temp.csv --rate 60
 daq start /logs/env.csv temperature humidity battery --rate 60
 daq start uart0 /logs/uart0.bin --raw --rate-ms 25
+daq start audio0.capture /logs/microphones.pcm --raw
 job start daq /logs/env.csv temperature humidity battery --rate 60
 ```
 
 Notes:
 
-- Multi-stream mode supports scalar streams only.
-- Raw capture is single-stream only and writes incoming bytes directly.
+- Multi-stream mode supports scalar and event streams only.
+- Raw capture is single-stream only and writes byte or PCM audio data directly.
+- Raw audio files contain the native format shown by
+  `stream status audio0.capture`; use `arecord` when a WAV container is needed.
 - CSV rows include a timestamp column and one value column per stream.
 - Available streams depend on board capabilities.
 

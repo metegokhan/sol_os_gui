@@ -11,6 +11,7 @@ typedef int esp_err_t;
 #define ESP_ERR_NOT_SUPPORTED 0x106
 #define ESP_ERR_INVALID_STATE 0x107
 #define ESP_ERR_INVALID_RESPONSE 0x108
+#define ESP_ERR_TIMEOUT 0x109
 #define ESP_ERR_NVS_NOT_FOUND 0x1102
 
 const char *esp_err_to_name(esp_err_t err);

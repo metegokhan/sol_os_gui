@@ -13,6 +13,11 @@ SolarOS package selection is declared in `packages/solar_os_packages.toml`.
 Flavor files select groups or individual packages; the generator resolves
 package dependencies and then removes packages unsupported by the target board.
 
+`service.streams` owns the dynamic typed endpoint registry. Sensor, port, and
+audio providers register their endpoints there at runtime. `service.audio`
+also owns audio-device discovery; devices refer to their capture and playback
+stream IDs instead of exposing a board-specific global data path.
+
 ## Ownership Rules
 
 - `bootstrap` is immutable and contains only the runtime and shell needed to

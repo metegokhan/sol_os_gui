@@ -1125,6 +1125,8 @@ static const char * const battery_max_voltage_values[] = {"4.1", "4.2", "4100", 
 
 static const char * const audio_subcommands[] = {
     "status",
+    "devices",
+    "device",
     "tone",
     "tone-async",
     "queue",
@@ -5672,9 +5674,11 @@ static bool shell_daq_stream_type_allowed(solar_os_stream_type_t type,
 {
     switch (kind) {
     case SHELL_DAQ_COMPLETION_STREAMS_BYTES:
-        return type == SOLAR_OS_STREAM_TYPE_BYTES;
+        return type == SOLAR_OS_STREAM_TYPE_BYTES ||
+            type == SOLAR_OS_STREAM_TYPE_AUDIO;
     case SHELL_DAQ_COMPLETION_STREAMS_CSV:
-        return type != SOLAR_OS_STREAM_TYPE_BYTES;
+        return type != SOLAR_OS_STREAM_TYPE_BYTES &&
+            type != SOLAR_OS_STREAM_TYPE_AUDIO;
     case SHELL_DAQ_COMPLETION_STREAMS_ALL:
         return true;
     default:
@@ -5889,7 +5893,8 @@ static bool shell_complete_daq_start(solar_os_context_t *ctx,
                                        show_matches);
     }
 
-    if (completed.raw || completed.first_pos_type == SOLAR_OS_STREAM_TYPE_BYTES) {
+    if (completed.raw || completed.first_pos_type == SOLAR_OS_STREAM_TYPE_BYTES ||
+        completed.first_pos_type == SOLAR_OS_STREAM_TYPE_AUDIO) {
         if (completed.positional_count == 1) {
             shell_complete_path(ctx, token_start, false, show_matches);
             return true;

@@ -55,7 +55,7 @@ static const char * const ble_subcommands[] = {
 };
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "disconnect", "services", "chars", "read", "write", "write-nr"};
 static const char * const audio_subcommands[] = {
-    "status", "tone", "tone-async", "queue", "cancel", "level", "mic", "loopback", "off",
+    "status", "devices", "device", "tone", "tone-async", "queue", "cancel", "level", "mic", "loopback", "off",
 };
 static const char * const uart_subcommands[] = {"status", "baud", "mode", "write", "read"};
 static const char * const led_subcommands[] = {"status", "on", "off", "toggle"};
@@ -1537,10 +1537,71 @@ static void audio_print_status(solar_os_shell_io_t *term)
 #endif
 }
 
+static void audio_print_device(solar_os_shell_io_t *term,
+                               const solar_os_audio_device_info_t *device)
+{
+    solar_os_shell_io_printf(term, "ID: %s\n", device->id);
+    solar_os_shell_io_printf(term, "Name: %s\n", device->name);
+    solar_os_shell_io_printf(term, "Provider: %s\n", device->provider);
+    solar_os_shell_io_printf(
+        term,
+        "Capabilities: %s%s%s%s\n",
+        (device->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_INPUT) != 0U ? "input " : "",
+        (device->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) != 0U ? "output " : "",
+        (device->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME) != 0U ? "volume " : "",
+        (device->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN) != 0U ?
+            "input-gain" : "");
+    solar_os_shell_io_printf(term, "Capture stream: %s\n",
+                             device->capture_stream[0] != '\0' ?
+                             device->capture_stream : "-");
+    solar_os_shell_io_printf(term, "Playback stream: %s\n",
+                             device->playback_stream[0] != '\0' ?
+                             device->playback_stream : "-");
+    solar_os_shell_io_printf(
+        term,
+        "Native format: %s, %" PRIu32 " Hz, %u ch, %u bit, %u frames/block\n",
+        solar_os_stream_audio_sample_format_name(device->native_format.sample_format),
+        device->native_format.sample_rate,
+        (unsigned)device->native_format.channels,
+        (unsigned)device->native_format.bits_per_sample,
+        (unsigned)device->native_format.frames_per_block);
+}
+
+static void audio_print_devices(solar_os_shell_io_t *term)
+{
+    const size_t count = solar_os_audio_device_count();
+    if (count == 0U) {
+        solar_os_shell_io_writeln(term, "audio devices: none");
+        return;
+    }
+    solar_os_shell_io_writeln(term, "ID       PROVIDER     CAPABILITIES  CAPTURE           PLAYBACK");
+    for (size_t i = 0; i < count; i++) {
+        solar_os_audio_device_info_t device;
+        if (!solar_os_audio_device_get(i, &device)) {
+            continue;
+        }
+        const char *capability =
+            (device.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_INPUT) != 0U ?
+            ((device.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) != 0U ?
+             "input/output" : "input") : "output";
+        solar_os_shell_io_printf(term,
+                                 "%-8s %-12s %-13s %-17s %s\n",
+                                 device.id,
+                                 device.provider,
+                                 capability,
+                                 device.capture_stream[0] != '\0' ?
+                                 device.capture_stream : "-",
+                                 device.playback_stream[0] != '\0' ?
+                                 device.playback_stream : "-");
+    }
+}
+
 static void audio_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  audio status");
+    solar_os_shell_io_writeln(term, "  audio devices");
+    solar_os_shell_io_writeln(term, "  audio device <id>");
     solar_os_shell_io_writeln(term, "  audio tone [hz] [ms] [volume]");
     solar_os_shell_io_writeln(term, "  audio tone-async [hz] [ms] [volume]");
     solar_os_shell_io_writeln(term, "  audio queue");
@@ -1836,6 +1897,34 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+    if (strcmp(argv[1], "devices") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "audio devices", argv[2],
+                                           "audio devices");
+            return;
+        }
+        audio_print_devices(term);
+        return;
+    }
+
+    if (strcmp(argv[1], "device") == 0) {
+        if (argc != 3) {
+            audio_print_usage(term);
+            return;
+        }
+        solar_os_audio_device_info_t device;
+        const esp_err_t err = solar_os_audio_device_get_info(argv[2], &device);
+        if (err == ESP_ERR_NOT_FOUND) {
+            solar_os_shell_io_printf(term, "audio device: not found: %s\n", argv[2]);
+        } else if (err != ESP_OK) {
+            solar_os_shell_io_printf(term, "audio device failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        } else {
+            audio_print_device(term, &device);
+        }
+        return;
+    }
+
     if (strcmp(argv[1], "tone") == 0) {
         audio_cmd_tone(term, argc, argv);
     } else if (strcmp(argv[1], "tone-async") == 0) {
@@ -1875,7 +1964,7 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_shell_io_writeln(term, "audio: off");
     } else {
         solar_os_shell_diag_subcommand(term, "audio", argc, argv,
-                                       "audio [status|tone|tone-async|queue|cancel|level|mic|loopback|off] ...",
+                                       "audio [status|devices|device|tone|tone-async|queue|cancel|level|mic|loopback|off] ...",
                                        audio_subcommands,
                                        sizeof(audio_subcommands) / sizeof(audio_subcommands[0]));
     }

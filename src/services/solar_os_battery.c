@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "solar_os_board_caps.h"
+#include "solar_os_stream.h"
 
 #if SOLAR_OS_BOARD_HAS_BATTERY
 #include "solar_os_board_battery.h"
@@ -50,6 +51,43 @@ static size_t battery_voltage_sample_index;
 static uint32_t battery_voltage_sample_sum;
 static battery_monitor_sample_t monitor_samples[BATTERY_MONITOR_HISTORY];
 static size_t monitor_sample_count;
+
+static esp_err_t battery_stream_read_scalar(
+    void *user,
+    const solar_os_stream_read_options_t *options,
+    float *value)
+{
+    (void)user;
+    (void)options;
+    if (value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_battery_status_t status;
+    const esp_err_t err = solar_os_battery_get_status(&status);
+    if (err == ESP_OK) {
+        *value = (float)status.voltage_mv / 1000.0f;
+    }
+    return err;
+}
+
+static esp_err_t battery_register_stream(void)
+{
+    solar_os_stream_driver_t driver = {
+        .info = {
+            .type = SOLAR_OS_STREAM_TYPE_SCALAR,
+            .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
+            .sharing = SOLAR_OS_STREAM_SHARING_SHARED,
+        },
+        .read_scalar = battery_stream_read_scalar,
+    };
+    strlcpy(driver.info.id, "battery", sizeof(driver.info.id));
+    strlcpy(driver.info.provider, "battery", sizeof(driver.info.provider));
+    strlcpy(driver.info.device, "battery0", sizeof(driver.info.device));
+    strlcpy(driver.info.unit, "V", sizeof(driver.info.unit));
+    strlcpy(driver.info.format, "f32", sizeof(driver.info.format));
+    strlcpy(driver.info.summary, "battery voltage", sizeof(driver.info.summary));
+    return solar_os_stream_register(&driver);
+}
 
 static bool battery_voltage_range_valid(uint16_t min_mv, uint16_t max_mv)
 {
@@ -298,7 +336,8 @@ esp_err_t solar_os_battery_init(void)
 #if !SOLAR_OS_BOARD_HAS_BATTERY
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    return solar_os_board_battery_init();
+    esp_err_t err = solar_os_board_battery_init();
+    return err == ESP_OK ? battery_register_stream() : err;
 #endif
 }
 

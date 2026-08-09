@@ -9,6 +9,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "solar_os_stream.h"
 
 typedef struct {
     bool registered;
@@ -104,6 +105,70 @@ static bool port_handle_valid_locked(const solar_os_port_handle_t *handle)
     return entry->registered && entry->claimed && entry->token == handle->token;
 }
 
+static esp_err_t port_stream_open(void *user,
+                                  const char *owner,
+                                  const solar_os_stream_open_options_t *options,
+                                  solar_os_stream_handle_t *handle)
+{
+    (void)options;
+    solar_os_port_entry_t *entry = user;
+    if (entry == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_port_handle_t port = SOLAR_OS_PORT_HANDLE_INIT;
+    const esp_err_t err = solar_os_port_claim(entry->name, owner, &port);
+    if (err == ESP_OK) {
+        handle->private_data[0] = (uintptr_t)(intptr_t)port.index;
+        handle->private_data[1] = port.token;
+    }
+    return err;
+}
+
+static solar_os_port_handle_t port_stream_handle(
+    const solar_os_stream_handle_t *handle)
+{
+    return (solar_os_port_handle_t){
+        .index = (int)(intptr_t)handle->private_data[0],
+        .token = (uint32_t)handle->private_data[1],
+    };
+}
+
+static void port_stream_close(void *user, solar_os_stream_handle_t *handle)
+{
+    (void)user;
+    solar_os_port_handle_t port = port_stream_handle(handle);
+    if (solar_os_port_handle_valid(&port)) {
+        (void)solar_os_port_release(&port);
+    }
+    handle->private_data[0] = 0U;
+    handle->private_data[1] = 0U;
+}
+
+static esp_err_t port_stream_read(void *user,
+                                  solar_os_stream_handle_t *handle,
+                                  void *data,
+                                  size_t len,
+                                  uint32_t timeout_ms,
+                                  size_t *read_len)
+{
+    (void)user;
+    const solar_os_port_handle_t port = port_stream_handle(handle);
+    return solar_os_port_read(&port, data, len, timeout_ms, read_len);
+}
+
+static esp_err_t port_stream_write(void *user,
+                                   solar_os_stream_handle_t *handle,
+                                   const void *data,
+                                   size_t len,
+                                   uint32_t timeout_ms,
+                                   size_t *written)
+{
+    (void)user;
+    (void)timeout_ms;
+    const solar_os_port_handle_t port = port_stream_handle(handle);
+    return solar_os_port_write(&port, data, len, written);
+}
+
 esp_err_t solar_os_port_init(void)
 {
     return port_ensure_init();
@@ -152,7 +217,41 @@ esp_err_t solar_os_port_register(const solar_os_port_driver_t *driver)
     slot->close = driver->close;
     slot->user = driver->user;
     port_unlock();
-    return ESP_OK;
+
+    solar_os_stream_direction_t direction = SOLAR_OS_STREAM_DIRECTION_SOURCE;
+    if ((driver->capabilities & (SOLAR_OS_PORT_CAP_READ | SOLAR_OS_PORT_CAP_WRITE)) ==
+        (SOLAR_OS_PORT_CAP_READ | SOLAR_OS_PORT_CAP_WRITE)) {
+        direction = SOLAR_OS_STREAM_DIRECTION_DUPLEX;
+    } else if ((driver->capabilities & SOLAR_OS_PORT_CAP_WRITE) != 0U) {
+        direction = SOLAR_OS_STREAM_DIRECTION_SINK;
+    }
+    solar_os_stream_driver_t stream_driver = {
+        .info = {
+            .type = SOLAR_OS_STREAM_TYPE_BYTES,
+            .direction = direction,
+            .sharing = SOLAR_OS_STREAM_SHARING_EXCLUSIVE,
+        },
+        .open = port_stream_open,
+        .close = port_stream_close,
+        .read = (driver->capabilities & SOLAR_OS_PORT_CAP_READ) != 0U ?
+            port_stream_read : NULL,
+        .write = (driver->capabilities & SOLAR_OS_PORT_CAP_WRITE) != 0U ?
+            port_stream_write : NULL,
+        .user = slot,
+    };
+    strlcpy(stream_driver.info.id, slot->name, sizeof(stream_driver.info.id));
+    strlcpy(stream_driver.info.provider, "port", sizeof(stream_driver.info.provider));
+    strlcpy(stream_driver.info.device, slot->name, sizeof(stream_driver.info.device));
+    strlcpy(stream_driver.info.unit, "bytes", sizeof(stream_driver.info.unit));
+    strlcpy(stream_driver.info.format, "bytes", sizeof(stream_driver.info.format));
+    strlcpy(stream_driver.info.summary, slot->label, sizeof(stream_driver.info.summary));
+    ret = solar_os_stream_register(&stream_driver);
+    if (ret != ESP_OK) {
+        port_lock();
+        memset(slot, 0, sizeof(*slot));
+        port_unlock();
+    }
+    return ret;
 }
 
 esp_err_t solar_os_port_unregister(const char *name)
@@ -176,7 +275,18 @@ esp_err_t solar_os_port_unregister(const char *name)
         port_unlock();
         return ESP_ERR_INVALID_STATE;
     }
-    memset(&ports[index], 0, sizeof(ports[index]));
+    port_unlock();
+    ret = solar_os_stream_unregister(name);
+    if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+        return ret;
+    }
+    port_lock();
+    const int current = port_find_locked(name);
+    if (current < 0 || ports[current].claimed) {
+        port_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    memset(&ports[current], 0, sizeof(ports[current]));
     port_unlock();
     return ESP_OK;
 }

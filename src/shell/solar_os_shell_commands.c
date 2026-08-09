@@ -1968,19 +1968,21 @@ static void stream_print_list(solar_os_shell_io_t *term)
         return;
     }
 
-    solar_os_shell_io_writeln(term, "ID           TYPE    FORMAT UNIT      SUMMARY");
+    solar_os_shell_io_writeln(term,
+                              "ID                TYPE    DIR     PROVIDER     DEVICE       OWNER");
     for (size_t i = 0; i < count; i++) {
         solar_os_stream_info_t info;
         if (!solar_os_stream_get(i, &info)) {
             continue;
         }
         solar_os_shell_io_printf(term,
-                                 "%-12s %-7s %-6s %-9s %s\n",
+                                 "%-17s %-7s %-7s %-12s %-12s %s\n",
                                  info.id,
                                  solar_os_stream_type_name(info.type),
-                                 info.format,
-                                 info.unit[0] != '\0' ? info.unit : "-",
-                                 info.summary);
+                                 solar_os_stream_direction_name(info.direction),
+                                 info.provider[0] != '\0' ? info.provider : "-",
+                                 info.device[0] != '\0' ? info.device : "-",
+                                 info.owner[0] != '\0' ? info.owner : "-");
     }
 }
 
@@ -2008,10 +2010,38 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
         char header[SOLAR_OS_STREAM_CSV_HEADER_MAX];
         solar_os_shell_io_printf(term, "ID: %s\n", info.id);
         solar_os_shell_io_printf(term, "Type: %s\n", solar_os_stream_type_name(info.type));
+        solar_os_shell_io_printf(term, "Direction: %s\n",
+                                 solar_os_stream_direction_name(info.direction));
+        solar_os_shell_io_printf(term, "Sharing: %s\n",
+                                 solar_os_stream_sharing_name(info.sharing));
+        solar_os_shell_io_printf(term, "Provider: %s\n",
+                                 info.provider[0] != '\0' ? info.provider : "-");
+        solar_os_shell_io_printf(term, "Device: %s\n",
+                                 info.device[0] != '\0' ? info.device : "-");
         solar_os_shell_io_printf(term, "Format: %s\n", info.format);
         solar_os_shell_io_printf(term, "Unit: %s\n", info.unit[0] != '\0' ? info.unit : "-");
         solar_os_shell_io_printf(term, "Summary: %s\n", info.summary);
-        if (solar_os_stream_csv_header(&info, header, sizeof(header)) == ESP_OK) {
+        solar_os_shell_io_printf(term, "Handles: %" PRIu32 "\n", info.active_handles);
+        solar_os_shell_io_printf(term, "Owner: %s\n",
+                                 info.owner[0] != '\0' ? info.owner : "-");
+        solar_os_shell_io_printf(term,
+                                 "Units: read %" PRIu64 ", written %" PRIu64 "\n",
+                                 info.read_units,
+                                 info.written_units);
+        solar_os_shell_io_printf(term,
+                                 "Flow errors: overruns %" PRIu32 ", underruns %" PRIu32 "\n",
+                                 info.overruns,
+                                 info.underruns);
+        if (info.type == SOLAR_OS_STREAM_TYPE_AUDIO) {
+            solar_os_shell_io_printf(
+                term,
+                "Audio: %s, %" PRIu32 " Hz, %u ch, %u bit, %u frames/block\n",
+                solar_os_stream_audio_sample_format_name(info.audio.sample_format),
+                info.audio.sample_rate,
+                (unsigned)info.audio.channels,
+                (unsigned)info.audio.bits_per_sample,
+                (unsigned)info.audio.frames_per_block);
+        } else if (solar_os_stream_csv_header(&info, header, sizeof(header)) == ESP_OK) {
             solar_os_shell_io_printf(term, "CSV: %s\n", header);
         }
         return;
