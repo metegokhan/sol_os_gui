@@ -19,8 +19,15 @@ discarding their state.
 ```text
 session list
 session fg 3
+session send 3 wifi status
 session close 3
 ```
+
+`session send ID COMMAND` runs a command on an active display shell from any
+other shell. The command is echoed and added to the target shell's history, and
+its output stays on the target display. SolarOS refuses the request if the
+target is an application, is suspended, has a partially typed command, or is
+the calling shell.
 
 `Alt+Tab` or `Alt+Right` switches to the next session on the locally focused
 display. `Alt+Left` switches to the previous session. Either Alt key is

@@ -83,6 +83,7 @@ typedef struct {
 typedef enum {
     SOLAR_OS_SESSION_OPERATION_CREATE_DISPLAY_APP = 0,
     SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION,
+    SOLAR_OS_SESSION_OPERATION_SEND_COMMAND,
 } solar_os_session_operation_type_t;
 
 typedef struct {
@@ -92,6 +93,9 @@ typedef struct {
     int argc;
     char **argv;
     uint8_t close_session_id;
+    uint8_t command_session_id;
+    const char *command;
+    solar_os_shell_io_t *caller_io;
     SemaphoreHandle_t complete;
     esp_err_t result;
     uint8_t session_id;
@@ -114,6 +118,9 @@ static esp_err_t session_create_display_app_internal(
     size_t busy_owner_len);
 static esp_err_t session_close_internal(uint8_t session_id,
                                         bool reject_current_shell);
+static esp_err_t session_send_command_internal(uint8_t session_id,
+                                               const char *command,
+                                               solar_os_shell_io_t *caller_io);
 
 static const char *app_display_name(const solar_os_app_t *app)
 {
@@ -2124,6 +2131,55 @@ bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
     return true;
 }
 
+static esp_err_t session_send_command_internal(uint8_t session_id,
+                                               const char *command,
+                                               solar_os_shell_io_t *caller_io)
+{
+    if (command == NULL || command[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    solar_os_session_entry_t *session = session_by_id(session_id);
+    if (session == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (session->app != solar_os_shell_app() || session->shell_session == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (session->suspended || !session->started) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (caller_io != NULL && caller_io == session_shell_io(session)) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
+
+    solar_os_session_context_snapshot_t previous = {0};
+    solar_os_session_entry_t *previous_foreground = session_state.foreground_session;
+    session_context_capture(&previous);
+    session_prepare_context(session);
+    const esp_err_t result =
+        solar_os_shell_session_submit_command(session_state.ctx,
+                                              session->shell_session,
+                                              command);
+    if (result == ESP_OK) {
+        if (session == previous_foreground) {
+            solar_os_sessions_process_requests();
+        } else {
+            (void)process_addressed_session_requests(session);
+            session_draw_terminal_if_needed(session);
+        }
+    }
+    if (session_state.foreground_session == previous_foreground &&
+        (previous_foreground == NULL || previous_foreground->used)) {
+        session_context_restore(&previous);
+    } else if (session_state.foreground_session != NULL) {
+        restore_foreground_context();
+    } else {
+        session_restore_base_context();
+    }
+    return result;
+}
+
 static void session_process_operation_requests(void)
 {
     if (session_operation_queue == NULL) {
@@ -2149,6 +2205,12 @@ static void session_process_operation_requests(void)
         case SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION:
             request->result =
                 session_close_internal(request->close_session_id, false);
+            break;
+        case SOLAR_OS_SESSION_OPERATION_SEND_COMMAND:
+            request->result =
+                session_send_command_internal(request->command_session_id,
+                                              request->command,
+                                              request->caller_io);
             break;
         default:
             request->result = ESP_ERR_INVALID_ARG;
@@ -2295,6 +2357,45 @@ void solar_os_sessions_prompt_if_shell_active(void)
     if (session != NULL) {
         solar_os_shell_session_prompt(session_state.ctx, session);
     }
+}
+
+esp_err_t solar_os_sessions_send_command(uint8_t session_id,
+                                         const char *command,
+                                         solar_os_shell_io_t *caller_io)
+{
+    if (command == NULL || command[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xTaskGetCurrentTaskHandle() == session_scheduler_task) {
+        return session_send_command_internal(session_id, command, caller_io);
+    }
+    if (session_operation_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    solar_os_session_operation_request_t request = {
+        .type = SOLAR_OS_SESSION_OPERATION_SEND_COMMAND,
+        .command_session_id = session_id,
+        .command = command,
+        .caller_io = caller_io,
+        .complete = xSemaphoreCreateBinary(),
+    };
+    if (request.complete == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    solar_os_session_operation_request_t *queued_request = &request;
+    if (xQueueSend(session_operation_queue,
+                   &queued_request,
+                   pdMS_TO_TICKS(1000)) != pdTRUE) {
+        vSemaphoreDelete(request.complete);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    (void)xSemaphoreTake(request.complete, portMAX_DELAY);
+    const esp_err_t result = request.result;
+    vSemaphoreDelete(request.complete);
+    return result;
 }
 
 static esp_err_t create_display_shell(const char *target_name,

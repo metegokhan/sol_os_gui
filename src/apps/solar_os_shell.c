@@ -633,6 +633,7 @@ static const char * const session_subcommands[] = {
     "foreground",
     "switch",
     "close",
+    "send",
     "focus",
     "background",
     "bg",
@@ -1638,6 +1639,7 @@ static const char * const path_session_fg[] = {"session", "fg"};
 static const char * const path_session_foreground[] = {"session", "foreground"};
 static const char * const path_session_switch[] = {"session", "switch"};
 static const char * const path_session_close[] = {"session", "close"};
+static const char * const path_session_send[] = {"session", "send"};
 static const char * const path_session_focus[] = {"session", "focus"};
 static const char * const path_stream[] = {"stream"};
 static const char * const path_stream_status[] = {"stream", "status"};
@@ -2515,6 +2517,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_session_foreground),
     SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_session_switch),
     SHELL_COMPLETION_SESSION_IDS(path_session_close),
+    SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_session_send),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_session_focus),
     SHELL_COMPLETION_STATIC(path_stream, stream_subcommands),
     SHELL_COMPLETION_STREAMS(path_stream_status),
@@ -6868,6 +6871,7 @@ static void session_print_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  session fg [session-id]");
     solar_os_shell_io_writeln(io, "  session switch [session-id]");
     solar_os_shell_io_writeln(io, "  session close <session-id>");
+    solar_os_shell_io_writeln(io, "  session send <session-id> <command> [args...]");
     solar_os_shell_io_writeln(io, "  session focus [display-target]");
 }
 
@@ -7088,7 +7092,7 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
 
     if (argc < 2) {
         solar_os_shell_diag_missing(io, "session", "subcommand",
-                                    "session <list|create|fg|switch|close|focus> ...");
+                                    "session <list|create|fg|switch|close|send|focus> ...");
         return;
     }
 
@@ -7252,6 +7256,60 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+    if (strcmp(argv[1], "send") == 0) {
+        uint8_t session_id = 0;
+        if (argc < 4 || !parse_session_id(argv[2], &session_id)) {
+            if (argc < 3) {
+                solar_os_shell_diag_missing(io, "session send", "session ID",
+                                            "session send <session-id> <command> [args...]");
+            } else if (!parse_session_id(argv[2], &session_id)) {
+                solar_os_shell_diag_invalid(io, "session send", "session ID", argv[2],
+                                            "integer from 0 to 255",
+                                            "session send <session-id> <command> [args...]", false);
+            } else {
+                solar_os_shell_diag_missing(io, "session send", "command",
+                                            "session send <session-id> <command> [args...]");
+            }
+            return;
+        }
+
+        char command[SHELL_INPUT_MAX] = "";
+        for (int i = 3; i < argc; i++) {
+            if (!shell_append_token(command, sizeof(command), argv[i])) {
+                solar_os_shell_diag_problem(io, "session send",
+                                            "command is empty or too long",
+                                            "session send <session-id> <command> [args...]", NULL);
+                return;
+            }
+        }
+
+        const esp_err_t err =
+            solar_os_sessions_send_command(session_id, command, io);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(io, "sent command to session %u\n",
+                                     (unsigned)session_id);
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            solar_os_shell_io_printf(io, "session send: no such session: %u\n",
+                                     (unsigned)session_id);
+        } else if (err == ESP_ERR_NOT_SUPPORTED) {
+            solar_os_shell_io_printf(io,
+                                     "session send: session %u is not a display shell\n",
+                                     (unsigned)session_id);
+        } else if (err == ESP_ERR_NOT_ALLOWED) {
+            solar_os_shell_io_writeln(io,
+                                      "session send: cannot send to the calling shell");
+        } else if (err == ESP_ERR_INVALID_STATE) {
+            solar_os_shell_io_printf(
+                io,
+                "session send: session %u is suspended or not at an empty prompt\n",
+                (unsigned)session_id);
+        } else {
+            solar_os_shell_io_printf(io, "session send failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        }
+        return;
+    }
+
     if (strcmp(argv[1], "background") == 0 || strcmp(argv[1], "bg") == 0) {
         solar_os_shell_io_writeln(
             io,
@@ -7260,10 +7318,10 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     static const char * const session_subcommands[] = {
-        "list", "create", "fg", "foreground", "switch", "close", "focus", "background", "bg",
+        "list", "create", "fg", "foreground", "switch", "close", "send", "focus", "background", "bg",
     };
     solar_os_shell_diag_subcommand(io, "session", argc, argv,
-                                   "session <list|create|fg|switch|close|focus> ...",
+                                   "session <list|create|fg|switch|close|send|focus> ...",
                                    session_subcommands,
                                    sizeof(session_subcommands) / sizeof(session_subcommands[0]));
 }
@@ -7982,6 +8040,30 @@ bool solar_os_shell_session_event(solar_os_context_t *ctx,
 
     shell_handle_char(ctx, event->data.ch);
     return true;
+}
+
+esp_err_t solar_os_shell_session_submit_command(solar_os_context_t *ctx,
+                                                solar_os_shell_session_t *session,
+                                                const char *command)
+{
+    if (ctx == NULL || session == NULL || command == NULL || command[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (strlen(command) >= sizeof(session->input)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (session->input_len != 0 || session->watch_active ||
+        session->log_follow_active || session->watch_executing) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    solar_os_context_set_shell_session(ctx, session);
+    solar_os_context_set_shell_io(ctx, &session->io);
+    for (const char *p = command; *p != '\0'; p++) {
+        shell_handle_char(ctx, *p);
+    }
+    shell_handle_char(ctx, '\r');
+    return ESP_OK;
 }
 
 void solar_os_shell_session_prompt(solar_os_context_t *ctx, solar_os_shell_session_t *session)

@@ -301,6 +301,7 @@ sessions and gives its space to the terminal. `show` restores it. The default is
 | `session` | `session focus [display-target]` | Show or assign the display that receives BLE keyboard and local board-control input. |
 | `session` | `session fg [id]` or `session switch [id]` | Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port's last suspended app. |
 | `session` | `session close <id>` | Close a display app, display shell, port-owned app, or port shell session. |
+| `session` | `session send <id> <command> [args...]` | Run a command on an active display-shell session. The target must be at an empty prompt. |
 | `session` | `session background` | Explain the foreground/background controls. |
 
 Port shells default to `--term auto`. Auto mode sends a terminal Device

@@ -75,6 +75,9 @@ bool solar_os_sessions_context_uses_display(solar_os_context_t *ctx,
                                             const char *target_name);
 bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
                                               const solar_os_event_t *event);
+esp_err_t solar_os_sessions_send_command(uint8_t session_id,
+                                         const char *command,
+                                         solar_os_shell_io_t *caller_io);
 esp_err_t solar_os_sessions_close_display(const char *target_name);
 esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_t *io);
 esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *io);
