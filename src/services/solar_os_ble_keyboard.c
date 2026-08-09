@@ -334,7 +334,7 @@ static const char *addr_type_name(esp_ble_addr_type_t addr_type);
 static void set_status(ble_keyboard_state_t next_state, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 static void schedule_reconnect(uint32_t delay_ms);
-static bool hidh_link_ready(esp_hidh_dev_t *dev, esp_gap_conn_params_t *params);
+static bool hidh_conn_params_ready(esp_hidh_dev_t *dev, esp_gap_conn_params_t *params);
 static bool drop_existing_hidh_device(const uint8_t *bda, const char *reason, uint32_t timeout_ms);
 static void restore_status_after_scan(ble_keyboard_scan_mode_t mode);
 static esp_err_t run_keyboard_scan(ble_keyboard_scan_mode_t mode);
@@ -943,7 +943,7 @@ static esp_err_t clear_remembered_peers(void)
     return ret;
 }
 
-static bool hidh_link_ready(esp_hidh_dev_t *dev, esp_gap_conn_params_t *params)
+static bool hidh_conn_params_ready(esp_hidh_dev_t *dev, esp_gap_conn_params_t *params)
 {
     if (dev == NULL || !esp_hidh_dev_exists(dev)) {
         return false;
@@ -959,14 +959,14 @@ static bool hidh_link_ready(esp_hidh_dev_t *dev, esp_gap_conn_params_t *params)
     const esp_err_t ret = esp_ble_get_current_conn_params((uint8_t *)bda, out_params);
     if (ret != ESP_OK) {
         SOLAR_OS_LOGW(TAG,
-                      "HID keyboard link has no BLE conn params: %s",
+                      "BLE conn params not ready at HID open: %s; continuing",
                       esp_err_to_name(ret));
         return false;
     }
 
     if (out_params->interval == 0 || out_params->timeout == 0) {
         SOLAR_OS_LOGW(TAG,
-                      "HID keyboard link has invalid BLE conn params interval=%u timeout=%u",
+                      "BLE conn params not ready at HID open interval=%u timeout=%u; continuing",
                       (unsigned)out_params->interval,
                       (unsigned)out_params->timeout);
         return false;
@@ -2336,25 +2336,13 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
         if (param->open.status == ESP_OK) {
             const uint8_t *bda = esp_hidh_dev_bda_get(param->open.dev);
             esp_gap_conn_params_t params = {0};
-            if (bda == NULL || !hidh_link_ready(param->open.dev, &params)) {
-                connected = false;
-                connected_dev = NULL;
-                pending_dev = NULL;
-                keyboard_report_state_reset(false);
-                SOLAR_OS_LOGW(TAG, "open rejected: HID keyboard link is not usable");
-                set_status(BLE_KEYBOARD_FAILED, "bad keyboard link");
-                const esp_err_t close_ret = esp_hidh_dev_close(param->open.dev);
-                if (close_ret != ESP_OK) {
-                    SOLAR_OS_LOGW(TAG,
-                                  "bad keyboard link close failed: %s",
-                                  esp_err_to_name(close_ret));
-                    if (!reconnect_is_suppressed()) {
-                        schedule_reconnect(BLE_KEYBOARD_RECONNECT_RETRY_DELAY_MS);
-                    }
-                }
-                break;
+            if (bda == NULL) {
+                SOLAR_OS_LOGW(TAG, "HID keyboard address unavailable at open; using requested address");
+                bda = pending_bda;
             }
 
+            const bool conn_params_ready =
+                hidh_conn_params_ready(param->open.dev, &params);
             connected = true;
             connected_dev = param->open.dev;
             keyboard_report_state_reset(true);
@@ -2364,13 +2352,14 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
             SOLAR_OS_LOGI(TAG, ESP_BD_ADDR_STR " open: %s",
                      ESP_BD_ADDR_HEX(bda),
                      connected_name);
-            log_conn_params("open", &params);
+            if (conn_params_ready) {
+                log_conn_params("open", &params);
+            }
             if (pairing_retry_pending && remembered_peer_count() == 0) {
                 SOLAR_OS_LOGI(TAG, "not remembering keyboard superseded by pairing request");
             } else {
                 save_remembered_peer(bda, pending_addr_type, connected_name);
             }
-            esp_hidh_dev_dump(param->open.dev, stdout);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name);
             if (pairing_retry_pending) {
                 esp_err_t pair_ret = start_pairing_scan_now();

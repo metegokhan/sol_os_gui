@@ -237,6 +237,7 @@ setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [10|12|14|16|18|20]
 setterm palette [normal|inverted]
+setterm statusbar [show|hide]
 setterm brightness [0..100]
 setterm backlight [0..100]
 setterm profile [vt100|ansi|dumb]
@@ -263,7 +264,8 @@ them from a port shell. `profile` controls terminal escape sequences;
 `charset` controls TUI glyph output. The default `utf8` mode uses Unicode box
 drawing. Select `ascii` for DOS and other legacy serial terminals; TUI borders,
 blocks, arrows, and punctuation are replaced with readable ASCII characters.
-Display layout settings (`orientation`, `font`, `textsize`, and `palette`) apply
+Display layout settings (`orientation`, `font`, `textsize`, `palette`, and
+`statusbar`) apply
 to the current display and its app sessions. Settings on the primary display
 are persistent; settings on secondary or virtual displays such as `web0` are
 runtime-only. `palette` exchanges logical black and white in terminal content
@@ -272,6 +274,10 @@ remains independent of hardware inversion modes exposed by `display mode`, and
 does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
+
+`setterm statusbar hide` removes the top status bar from graphical shell
+sessions and gives its space to the terminal. `show` restores it. The default is
+`show` when no value is stored in NVS.
 
 ## Apps And Jobs
 
@@ -295,6 +301,7 @@ subsequently created terminal and graphic sessions inherit it.
 | `session` | `session focus [display-target]` | Show or assign the display that receives BLE keyboard and local board-control input. |
 | `session` | `session fg [id]` or `session switch [id]` | Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port's last suspended app. |
 | `session` | `session close <id>` | Close a display app, display shell, port-owned app, or port shell session. |
+| `session` | `session send <id> <command> [args...]` | Run a command on an active display-shell session. The target must be at an empty prompt. |
 | `session` | `session background` | Explain the foreground/background controls. |
 
 Port shells default to `--term auto`. Auto mode sends a terminal Device

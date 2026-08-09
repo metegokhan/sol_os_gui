@@ -53,6 +53,7 @@ struct solar_os_terminal {
     uint8_t line_height;
     uint8_t baseline_offset;
     uint8_t status_bar_height;
+    bool status_bar_visible;
     solar_os_status_bar_t status_bar;
     char footer[SOLAR_OS_TERMINAL_MAX_COLS + 1];
     bool footer_enabled;
