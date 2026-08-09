@@ -9,7 +9,7 @@ static const char * const job_commands[] = {"status", "start", "stop"};
 static const char * const setterm_commands[] = {
     "orientation", "font", "textsize", "palette", "brightness", "backlight",
     "profile", "charset", "keyboard", "keymap", "keyrate", "typerate",
-    "repeat", "timezone", "otaurl", "ota",
+    "repeat", "timezone", "startup", "otaurl", "ota",
 };
 static const char * const stream_commands[] = {"list", "status"};
 static const char * const log_commands[] = {"status", "show", "follow", "clear", "level", "sink"};
@@ -40,6 +40,7 @@ static const char * const sshkey_commands[] = {"status", "gen", "pub", "rm"};
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_app_registry.h"
+#include "solar_os_board_caps.h"
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
 #endif
@@ -1434,6 +1435,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
 #endif
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
     solar_os_shell_io_writeln(term, "  setterm timezone [UTC|Europe/Berlin|POSIX-TZ]");
+    solar_os_shell_io_writeln(term, "  setterm startup [flash|sd]");
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     solar_os_shell_io_writeln(term, "  setterm otaurl [url]");
 #endif
@@ -1852,6 +1854,64 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+    if (strcmp(argv[1], "startup") == 0) {
+        if (argc == 2) {
+            char path[SOLAR_OS_STORAGE_PATH_MAX];
+            const solar_os_shell_startup_source_t source = solar_os_shell_startup_source();
+            solar_os_shell_io_printf(term,
+                                     "startup: %s\n",
+                                     solar_os_shell_startup_source_name(source));
+            if (solar_os_shell_startup_path(path, sizeof(path)) == ESP_OK) {
+                solar_os_shell_io_printf(term, "path: %s\n", path);
+            }
+            solar_os_shell_io_writeln(
+                term,
+                solar_os_board_has(SOLAR_OS_BOARD_CAP_SD) ?
+                    "values: flash sd" :
+                    "values: flash (SD is not supported on this board)");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_diag_unexpected(term,
+                                           "setterm startup",
+                                           argv[3],
+                                           "setterm startup [flash|sd]");
+            return;
+        }
+
+        solar_os_shell_startup_source_t source;
+        if (!solar_os_shell_parse_startup_source(argv[2], &source)) {
+            solar_os_shell_diag_invalid(term,
+                                        "setterm startup",
+                                        "source",
+                                        argv[2],
+                                        "flash or sd",
+                                        "setterm startup [flash|sd]",
+                                        false);
+            return;
+        }
+
+        const esp_err_t err = solar_os_shell_set_startup_source(source);
+        if (err == ESP_ERR_NOT_SUPPORTED) {
+            solar_os_shell_io_writeln(term, "startup: SD is not supported on this board");
+            return;
+        }
+        if (err != ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "startup: save failed: %s\n",
+                                     solar_os_shell_error_text(err));
+            return;
+        }
+
+        char path[SOLAR_OS_STORAGE_PATH_MAX];
+        solar_os_shell_io_printf(term, "startup: %s\n", argv[2]);
+        if (solar_os_shell_startup_path(path, sizeof(path)) == ESP_OK) {
+            solar_os_shell_io_printf(term, "path: %s\n", path);
+        }
+        solar_os_shell_io_writeln(term, "The new startup source applies on the next boot.");
+        return;
+    }
+
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     if (strcmp(argv[1], "otaurl") == 0 || strcmp(argv[1], "ota") == 0) {
         if (argc == 2) {
@@ -1888,7 +1948,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                    "setterm",
                                    argc,
                                    argv,
-                                   "setterm orientation|font|textsize|palette|brightness|backlight|profile|charset|keyboard|keyrate|timezone|otaurl",
+                                   "setterm orientation|font|textsize|palette|brightness|backlight|profile|charset|keyboard|keyrate|timezone|startup|otaurl",
                                    setterm_commands,
                                    sizeof(setterm_commands) / sizeof(setterm_commands[0]));
 }

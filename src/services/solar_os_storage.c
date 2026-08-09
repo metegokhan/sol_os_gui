@@ -242,6 +242,18 @@ const char *solar_os_storage_mount_point(void)
         storage_flash_default_mount_point();
 }
 
+bool solar_os_storage_flash_is_mounted(void)
+{
+    return flash_storage_is_mounted();
+}
+
+const char *solar_os_storage_flash_mount_point(void)
+{
+    return flash_storage_is_mounted() ?
+        flash_storage_mount_point() :
+        storage_flash_default_mount_point();
+}
+
 const char *solar_os_storage_sd_mount_point(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD

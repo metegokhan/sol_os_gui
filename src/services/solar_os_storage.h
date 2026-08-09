@@ -70,6 +70,11 @@ bool solar_os_storage_is_mounted(void);
 void solar_os_storage_get_status(char *buffer, size_t len);
 const char *solar_os_storage_mount_point(void);
 
+// Explicit internal-flash state. Internal flash is mounted at /flash on
+// SD-capable boards and at / on boards without SD support.
+bool solar_os_storage_flash_is_mounted(void);
+const char *solar_os_storage_flash_mount_point(void);
+
 // Explicit removable-media state. The generic helpers above select the
 // preferred mounted persistent storage, falling back to internal flash when
 // an SD-capable board has no card inserted.

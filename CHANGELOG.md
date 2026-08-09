@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.6.21** — 2026-08-09 — Added persistent `setterm startup flash|sd`
+  selection for the boot `.shell/startup` source. Internal flash is the default,
+  including after `nvs clear`; SD-capable boards can explicitly select the SD
+  copy without silently falling back between volumes. Added matching Setterm
+  TUI controls, shell completion, resolved-path status, and documentation.
 - **4.6.18** — 2026-08-08 — Added universal continuous controls for scalar
   streams, native app parameters, MIDI CC targets, and Python/Lua scripts;
   Synth now exposes its tunable sound controls through the shared contract.

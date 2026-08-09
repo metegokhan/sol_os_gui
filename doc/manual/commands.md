@@ -44,15 +44,20 @@ path directly; for example, `./somescript.sh` is equivalent to
 bit for this shorthand.
 
 History is kept in memory and cached at `/.shell/history` when storage is
-available. Optional startup and alias files:
+available. The optional alias file follows the default storage volume:
 
 ```text
-/.shell/startup
 /.shell/alias
 ```
 
-`/.shell/startup` runs once per boot on the first startup-enabled shell. Shell
-sessions created by that script do not run it again.
+The startup script source is selected with `setterm startup [flash|sd]` and is
+stored in NVS. Internal flash is the default, including after `nvs clear`. On an
+SD-capable board, the paths are `/flash/.shell/startup` and
+`/sdcard/.shell/startup`; on a board without SD, internal flash is mounted at
+`/`, so its path is `/.shell/startup`. The selected source does not fall back to
+the other volume when it is unavailable. The script runs once per boot on the
+first startup-enabled shell. Shell sessions created by that script do not run
+it again.
 
 The device user and hostname are stored in NVS and configured with `identity`.
 The user is also the default remote username used by `ssh` and `scp` when
@@ -239,12 +244,18 @@ setterm charset [utf8|ascii]
 setterm keyboard [us|de]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm timezone [UTC|Europe/Berlin|POSIX-TZ]
+setterm startup [flash|sd]
 setterm otaurl [url]
 ```
 
 `setterm keyrate` configures the shared repeat policy for BLE keyboards, fixed
 board buttons, `gpio-keys`, joysticks, ADC D-pads, and future keyboard buses.
 The value is stored in NVS and is available on builds without BLE.
+
+`setterm startup` selects the volume used for `.shell/startup` on the next boot.
+The default is `flash`. Selecting `sd` is rejected on boards without SD support.
+Use `setterm startup` without a value to show the selected source and resolved
+path.
 
 `setterm profile` and `setterm charset` are runtime-only and apply to the
 current port shell. From the display shell they print guidance to configure

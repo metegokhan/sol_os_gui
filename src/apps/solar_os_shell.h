@@ -6,7 +6,19 @@
 #include "solar_os.h"
 #include "solar_os_log.h"
 
+typedef enum {
+    SOLAR_OS_SHELL_STARTUP_FLASH = 0,
+    SOLAR_OS_SHELL_STARTUP_SD = 1,
+} solar_os_shell_startup_source_t;
+
 const solar_os_app_t *solar_os_shell_app(void);
+
+solar_os_shell_startup_source_t solar_os_shell_startup_source(void);
+const char *solar_os_shell_startup_source_name(solar_os_shell_startup_source_t source);
+bool solar_os_shell_parse_startup_source(const char *name,
+                                         solar_os_shell_startup_source_t *source);
+esp_err_t solar_os_shell_set_startup_source(solar_os_shell_startup_source_t source);
+esp_err_t solar_os_shell_startup_path(char *path, size_t path_len);
 
 solar_os_shell_session_t *solar_os_shell_session_create(void);
 void solar_os_shell_session_destroy(solar_os_shell_session_t *session);

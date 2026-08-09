@@ -13,6 +13,13 @@ SolarOS presents the default storage volume as `/`. On an SD-backed target this
 normally means the SD card, while `/flash` remains the internal flash volume.
 On a board without SD, `/` normally maps to internal flash.
 
+Shell startup is deliberately independent of whichever volume is currently the
+default. `setterm startup flash` reads `/flash/.shell/startup` on SD-capable
+boards and `/.shell/startup` on boards where flash is root. `setterm startup sd`
+reads `/sdcard/.shell/startup`. The setting is stored in NVS, takes effect on the
+next boot, and defaults to internal flash. If the selected volume is unavailable,
+SolarOS does not run a startup script from the other volume.
+
 Use `disk` for both internal and removable persistent storage:
 
 ```text

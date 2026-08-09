@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "solar_os_config.h"
+#include "solar_os_board_caps.h"
 #include "solar_os_display.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
@@ -15,6 +16,7 @@
 #include "solar_os_ota.h"
 #endif
 #include "solar_os_sessions.h"
+#include "solar_os_shell.h"
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
 #include "solar_os_tui.h"
@@ -41,6 +43,7 @@ typedef enum {
     SETTERM_TUI_KEYBOARD,
     SETTERM_TUI_KEYRATE,
     SETTERM_TUI_TIMEZONE,
+    SETTERM_TUI_STARTUP,
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     SETTERM_TUI_OTAURL,
 #endif
@@ -74,6 +77,7 @@ static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_KEYBOARD] = {.label = "keyboard"},
     [SETTERM_TUI_KEYRATE] = {.label = "keyrate"},
     [SETTERM_TUI_TIMEZONE] = {.label = "timezone"},
+    [SETTERM_TUI_STARTUP] = {.label = "startup"},
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     [SETTERM_TUI_OTAURL] = {.label = "otaurl"},
 #endif
@@ -168,6 +172,11 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
     }
     case SETTERM_TUI_TIMEZONE:
         solar_os_time_get_timezone(buffer, buffer_len, NULL, 0);
+        break;
+    case SETTERM_TUI_STARTUP:
+        strlcpy(buffer,
+                solar_os_shell_startup_source_name(solar_os_shell_startup_source()),
+                buffer_len);
         break;
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     case SETTERM_TUI_OTAURL:
@@ -301,6 +310,7 @@ static bool setterm_tui_cycle_selected(int direction)
     static const char * const textsize_values[] = {"10", "12", "14", "16", "18", "20"};
     static const char * const palette_values[] = {"normal", "inverted"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
+    static const char * const startup_values[] = {"flash", "sd"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     static const char * const keyboard_values[] = {"us", "de"};
 #endif
@@ -332,6 +342,12 @@ static bool setterm_tui_cycle_selected(int direction)
                                        sizeof(keyboard_values) / sizeof(keyboard_values[0]),
                                        direction);
 #endif
+    case SETTERM_TUI_STARTUP:
+        return setterm_tui_cycle_value(
+            startup_values,
+            solar_os_board_has(SOLAR_OS_BOARD_CAP_SD) ?
+                sizeof(startup_values) / sizeof(startup_values[0]) : 1,
+            direction);
     default:
         return false;
     }
@@ -443,6 +459,11 @@ static bool setterm_tui_apply_selected(void)
         return setterm_tui_apply_keyrate();
     case SETTERM_TUI_TIMEZONE:
         return solar_os_time_set_timezone(setterm_tui.edit_text) == ESP_OK;
+    case SETTERM_TUI_STARTUP: {
+        solar_os_shell_startup_source_t source;
+        return solar_os_shell_parse_startup_source(setterm_tui.edit_text, &source) &&
+            solar_os_shell_set_startup_source(source) == ESP_OK;
+    }
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     case SETTERM_TUI_OTAURL:
         return solar_os_ota_set_url(setterm_tui.edit_text) == ESP_OK;
@@ -471,7 +492,9 @@ static void setterm_tui_commit_edit(void)
     if (setterm_tui_apply_selected()) {
         setterm_tui.editing = false;
         setterm_tui.cursor_visible = false;
-        setterm_tui_set_status("saved");
+        setterm_tui_set_status(
+            setterm_tui.selected == SETTERM_TUI_STARTUP ?
+                "saved; reboot to apply" : "saved");
     } else {
         setterm_tui_reset_cursor_blink();
         setterm_tui_set_status("invalid value");
