@@ -94,6 +94,8 @@ typedef struct {
     uint32_t pcm_generation;
     uint32_t pcm_hash;
     uint32_t pcm_mean_abs;
+    uint32_t pcm_peak;
+    uint32_t pcm_rms;
     int16_t pcm_min;
     int16_t pcm_max;
     size_t pcm_sample_count;

@@ -1351,11 +1351,7 @@ static void synth_draw_wave_icon(solar_os_gfx_t *gfx, int x, int y, int width,
 
   if (status != NULL && status->pcm_sample_count > 1U &&
       status->pcm_waveform == waveform) {
-    int32_t scope_peak = status->pcm_max;
-    const int32_t negative_peak = -(int32_t)status->pcm_min;
-    if (negative_peak > scope_peak) {
-      scope_peak = negative_peak;
-    }
+    int32_t scope_peak = (int32_t)status->pcm_peak;
     if (scope_peak < 1) {
       scope_peak = 1;
     }

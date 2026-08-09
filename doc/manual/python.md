@@ -732,7 +732,7 @@ Available when the firmware includes the synth service. The native engine has
 eight voices and renders continuously without running Python in the real-time
 audio callback. It uses the system's global speaker volume.
 
-- `status()`: return ownership, both oscillator configurations, amplifier and filter envelopes, mono and glide settings, voice, sample-rate, and render-deadline telemetry.
+- `status()`: return ownership, both oscillator configurations, amplifier and filter envelopes, mono and glide settings, voice, sample-rate, render-deadline, and captured-PCM telemetry. The `pcm_peak` and `pcm_rms` fields come from the shared DSP service.
 - `configure(waveform[, attack_ms[, decay_ms[, sustain_percent[, release_ms]]]])`: configure active voices immediately and set the defaults for future notes. Waveforms are `square`, `triangle`, `saw`, `sine`, and `noise`; envelope times are 0 through 10000 ms and sustain is 0 through 100 percent.
 - `configure_oscillator2(waveform[, octave[, detune_cents[, mix_percent]]])`: configure the second oscillator. Octave is -2 through +2, detune is -100 through +100 cents, and mix is 0 through 100 percent. A zero mix is an exact oscillator-1 bypass.
 - `configure_performance([mono[, glide_ms]])`: select polyphonic or monophonic last-note playback and set portamento from 0 through 2500 ms.

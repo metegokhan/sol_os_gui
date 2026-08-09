@@ -471,7 +471,7 @@ capabilities = ["audio"]
 
 [packages.service_synth]
 label = "service.synth"
-depends = ["service_audio"]
+depends = ["service_audio", "service_dsp"]
 sources = [
   "services/solar_os_synth.c",
   "services/solar_os_synth_voice.c",

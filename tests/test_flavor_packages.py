@@ -52,7 +52,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertIn("service_synth", self.catalog.group_defs["audio"].members)
         self.assertEqual(
             self.catalog.package_defs["service_synth"].depends,
-            ("service_audio",),
+            ("service_audio", "service_dsp"),
         )
         self.assertEqual(
             self.catalog.package_defs["app_gameboy"].depends,

@@ -159,4 +159,6 @@ The script bridge accepts at most 32768 samples per call.
 Use `service.dsp` for synchronous fixed-point block processing. The service
 selects portable or ESP32-S3 PIE code without application-side board checks.
 Callers own streaming contexts and must destroy or close them. Python uses
-signed 16-bit buffer objects; Lua uses binary strings.
+signed 16-bit buffer objects; Lua uses binary strings. The native Synth service
+uses `level` for its captured PCM scope blocks and publishes the resulting peak
+and RMS values through Synth status.

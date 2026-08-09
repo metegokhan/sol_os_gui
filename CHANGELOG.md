@@ -2,6 +2,10 @@
 
 ## 4.x
 
+- **4.6.23** — 2026-08-09 — Synth now uses shared DSP block-level PCM analysis
+  for oscilloscope scaling and publishes DSP-derived peak and RMS telemetry.
+- **4.6.22** — 2026-08-09 — Added the shared fixed-point DSP service with
+  native, Python, and Lua APIs.
 - **4.6.21** — 2026-08-09 — Added persistent `setterm startup flash|sd`
   selection for the boot `.shell/startup` source. Internal flash is the default,
   including after `nvs clear`; SD-capable boards can explicitly select the SD
