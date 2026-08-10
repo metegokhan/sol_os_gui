@@ -6,7 +6,10 @@
   GUI/TUI interfaces, a live oscilloscope, selectable runtime playback streams,
   six waveform shapes, amplitude and pulse-width controls, and repeating
   frequency sweeps. Every adjustable control is available through the shared
-  parameter/control-binding system.
+  parameter/control-binding system. Added the focused `rover-synth` flavor for
+  BLE/MIDI-controlled Synth with an attached LEDC PWM audio output. BLE keyboard
+  pairing and forgetting now wait for an active HID open to finish, preventing
+  connected keyboards without input and disconnect-time resets.
 - **4.7.5** — 2026-08-10 — Mixed-interface applications now accept `--tui`
   to force their text interface on a graphical shell. This applies to Calc,
   Player, WebRadio, and Recorder. Added an ESP-NOW transport for SolarOS Link,

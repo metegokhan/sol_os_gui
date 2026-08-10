@@ -72,6 +72,13 @@ the practical internal-memory margin. The board's 4 MB flash uses one large
 factory application slot, so these flavors omit OTA and remote manual
 synchronization. The embedded `docs` application remains available.
 
+`rover-synth` is a focused classic-ESP32 synthesizer build. It retains BLE and
+PS/2 keyboard input, SD and basic file tools, controls, MIDI, and the LEDC PWM
+audio expansion while omitting Wi-Fi/networking, packet radio, media, games,
+scripting, and unrelated application groups. Composite video owns I2S0, so the
+on-board audio package remains disabled and Synth uses a runtime-attached PWM
+output. This smaller profile preserves Bluetooth controller memory headroom.
+
 `rover-retro` is a focused Freenove Game Boy build with the normal system
 service baseline. It includes BLE keyboard input, SD storage, UART ports,
 hardware I/O services, filesystem commands, Docs, Edit, Less, Com, Files, the

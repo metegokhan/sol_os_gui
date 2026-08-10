@@ -316,6 +316,54 @@ class FlavorPackagesTest(unittest.TestCase):
             },
         )
 
+    def test_rover_synth_is_a_focused_ble_audio_expansion_flavor(self):
+        name, _, groups, packages = self.resolve("rover-synth")
+
+        self.assertEqual(name, "rover-synth")
+        for group in (
+            "system",
+            "expansions",
+            "maintenance_apps",
+            "maintenance_jobs",
+            "hardware_jobs",
+            "net",
+            "agent",
+            "media",
+            "games",
+            "retro",
+            "python",
+            "lua",
+            "utils",
+        ):
+            self.assertFalse(groups[group], group)
+
+        for package in (
+            "system_shell",
+            "service_ble",
+            "service_sd",
+            "service_audio",
+            "service_synth",
+            "service_controls",
+            "job_controls",
+            "service_expansion",
+            "expansion_audio_pwm",
+            "app_synth",
+            "job_midi",
+            "job_log",
+        ):
+            self.assertTrue(packages[package], package)
+
+        for package in (
+            "service_audio_board",
+            "service_wifi",
+            "service_radio",
+            "service_meshcore",
+            "app_funcgen",
+            "app_invaders",
+            "app_view",
+        ):
+            self.assertFalse(packages[package], package)
+
     def test_existing_flavors_preserve_hardware_job_selection(self):
         for flavor in ("core", "full", "netrunner"):
             with self.subTest(flavor=flavor):
