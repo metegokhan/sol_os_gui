@@ -2,6 +2,10 @@
 
 ## 4.x
 
+- **4.7.4** — 2026-08-10 — Display-capable systems now allocate port-shell
+  workers on demand, leaving the 16 KiB shell stack available until a UART or
+  USB CDC shell is opened. Headless systems retain a reserved worker for their
+  primary interactive console.
 - **4.7.3** — 2026-08-10 — Added `recorder`, an interactive GUI/TUI WAV
   recorder with capture-stream selection, mono/stereo recording, selectable
   sample rate and resolution, hardware input gain, output volume, live

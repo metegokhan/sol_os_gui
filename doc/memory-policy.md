@@ -78,6 +78,11 @@ worker. `mem policy` reports requests, admissions, denials, launch failures,
 the current number of waiting jobs, successful delayed launches, and cancelled
 waits.
 
+Headless configurations preallocate one 16 KiB port-shell worker because it
+immediately becomes their primary interactive console. Display-capable systems
+create UART and USB CDC port-shell workers on demand, leaving that internal
+stack unallocated until a port shell is requested.
+
 ## FreeRTOS objects
 
 ESP-IDF deliberately allocates ordinary dynamic FreeRTOS task stacks and queues
