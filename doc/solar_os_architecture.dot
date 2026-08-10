@@ -50,7 +50,7 @@ digraph solar_os_architecture {
                     <TR><TD><B>Foreground apps</B></TD></TR>
                     <TR><TD>shell, clock, edit, com</TD></TR>
                     <TR><TD>ssh, scp, curl</TD></TR>
-                    <TR><TD>arecord, aplay, python</TD></TR>
+                    <TR><TD>arecord, recorder, aplay, python</TD></TR>
                 </TABLE>
             >,
             fillcolor="#dbeafe",

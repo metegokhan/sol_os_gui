@@ -41,6 +41,9 @@
 #if SOLAR_OS_PACKAGE_APP_PLAYER
 #include "solar_os_player.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+#include "solar_os_recorder.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
 #include "solar_os_clock.h"
 #endif
@@ -125,6 +128,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_ARECORD
     APP_ENTRY("arecord", "record WAV audio", &solar_os_arecord_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY, "arecord [-d seconds] <file.wav>", 2, 4),
+#endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+    APP_ENTRY("recorder", "interactive WAV recorder", &solar_os_recorder_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "recorder [file.wav]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
     APP_ENTRY("chat", "provider-neutral conversation client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "chat [gateway|meshcore|link|conversation-id]", 1, 2),

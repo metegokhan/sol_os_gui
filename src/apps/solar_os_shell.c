@@ -4131,6 +4131,9 @@ static bool shell_is_path_command(const char *command)
 #if SOLAR_OS_PACKAGE_APP_ARECORD
            strcmp(command, "arecord") == 0 ||
 #endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+           strcmp(command, "recorder") == 0 ||
+#endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
            strcmp(command, "edit") == 0 ||
            strcmp(command, "hexedit") == 0 ||

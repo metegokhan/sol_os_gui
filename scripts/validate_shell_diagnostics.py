@@ -29,8 +29,8 @@ def main() -> int:
         r'"([^"]+)",\s*(\d+),\s*(\d+)(?:,\s*"[^"]+")?\),'
     )
     entries = entry_pattern.findall(registry_text)
-    if len(entries) != 36:
-        raise SystemExit(f"expected 36 registered app launch schemas, found {len(entries)}")
+    if len(entries) != 37:
+        raise SystemExit(f"expected 37 registered app launch schemas, found {len(entries)}")
     for name, usage, min_argc_text, max_argc_text in entries:
         min_argc = int(min_argc_text)
         max_argc = int(max_argc_text)

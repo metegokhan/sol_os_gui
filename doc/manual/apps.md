@@ -129,6 +129,59 @@ Controls:
 
 - App-exit stops recording, finalizes the WAV header, and returns to the prompt.
 
+## recorder
+
+Interactive GUI/TUI counterpart to `arecord`. Recorder writes PCM WAV files so
+the channel count, sample rate, and resolution travel with the recording and
+the result can be played immediately. It accepts any registered signed-16-bit
+PCM capture stream. On the Waveshare board it initially selects
+`audio0.capture`. Mono/stereo output, 8/16-bit file resolution, and sample rates
+from 8 kHz through 48 kHz are converted from the selected stream as necessary.
+
+Usage:
+
+```text
+recorder [file.wav]
+```
+
+The optional path supplies the initial recording folder and filename. The
+Setup view can edit the filename or select another destination directory with
+the shared file browser. When the filename is empty, each recording gets a
+unique local-time name such as `rec-260810-113045.wav`; a numeric suffix avoids
+overwriting a file created in the same second. Recorder remembers its selected
+input, folder, format, hardware input gain, output volume, and visualizer in
+`.recorder/settings.bin` on the current storage root. An explicit path argument
+overrides the remembered folder. The filename is not remembered, so reopening
+Recorder cannot accidentally reuse a one-off name.
+
+`Tab` switches between Record and Setup. The Record view uses the shared
+cassette widget by default; `V` cycles through Cassette, Oscilloscope, and
+Spectrum. `R` starts recording, Space pauses or resumes, `S` stops and
+finalizes the WAV header, and `P` plays the most recent or selected recording.
+`M` starts or stops monitoring: it continuously streams the selected input to
+the default output and visualizer. Monitoring can remain enabled when recording
+starts and can be toggled while the WAV writer continues. `Up`/`Down` changes
+monitor and playback volume. The cassette reels move during recording and
+playback, but remain still during monitoring. Oscilloscope and Spectrum remain
+live during monitoring. Active visualizers are presented on the 40 ms app tick
+(nominally 25 frames per second), independently of the audio block rate.
+
+Setup selects the capture stream, recording folder, mono/stereo conversion,
+sample rate, 8/16-bit WAV resolution, input gain, and output volume. Enter on
+Folder opens the WAV-filtered browser. `D` selects its current directory as the
+recording folder; Enter on a WAV file plays it and returns to Record. Input gain
+is not a generic stream multiplier:
+Recorder enables it only when the selected capture stream belongs to an audio
+device that advertises hardware input-gain control. Thus `audio0.capture` on
+the Waveshare controls the ES7210 microphone gain, while an unrelated generic
+stream shows `Input gain: n/a`. The hardware gain is system-wide; Recorder does
+not add hidden digital amplification to the saved PCM.
+
+The text interface exposes the same setup values, browser, transport keys,
+monitoring, pause behavior, and playback path. Recorder is resumable: capture,
+monitoring, or playback continues while its UI session is in the background,
+and closing the app stops the worker and finalizes an active recording.
+
 ## player
 
 Interactive WAV/MP3 player and the user-facing counterpart to `aplay`. `player`
@@ -157,6 +210,10 @@ or stops, Space pauses or resumes, `A` opens the filtered file browser,
 playing, paused, or stopped state with elapsed and total time. Playback follows
 the resumable app while another foreground session is selected and stops when
 Player closes. End of file advances to the next playlist entry.
+
+WAV playback converts the file's mono/stereo channel count and sample rate to
+the selected output stream. A mono recording therefore plays through a fixed
+stereo device without changing the recording stored on disk.
 
 ## calc
 

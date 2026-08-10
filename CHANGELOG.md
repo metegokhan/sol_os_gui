@@ -2,6 +2,14 @@
 
 ## 4.x
 
+- **4.7.3** — 2026-08-10 — Added `recorder`, an interactive GUI/TUI WAV
+  recorder with capture-stream selection, mono/stereo recording, selectable
+  sample rate and resolution, hardware input gain, output volume, live
+  monitoring, pause/stop/playback controls, automatic filenames, an integrated
+  folder browser, persistent settings, and cassette, oscilloscope, and spectrum
+  views. Player, WebRadio, and Recorder now share standard graphical media
+  controls. WAV playback converts channel count and sample rate to the selected
+  output stream.
 - **4.7.1** — 2026-08-09 — Added a persistent `setterm statusbar show|hide`
   setting. Hiding the graphical shell status bar gives its space to terminal
   rows; the default remains `show` when NVS has no saved setting.

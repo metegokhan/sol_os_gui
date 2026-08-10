@@ -23,6 +23,7 @@
 #include "solar_os_gfx.h"
 #include "solar_os_http_client.h"
 #include "solar_os_log.h"
+#include "solar_os_media_widgets.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_signal_widgets.h"
@@ -569,21 +570,6 @@ static void webradio_draw_graphics_header(solar_os_gfx_t *gfx, int width)
     solar_os_gfx_text(gfx, width - tabs_width - 7, 18, tabs);
 }
 
-static void webradio_draw_transport_button(solar_os_gfx_t *gfx,
-                                           int x,
-                                           int y,
-                                           int width,
-                                           int height,
-                                           const char *label)
-{
-    solar_os_gfx_rect(gfx, x, y, width, height);
-    const int label_width = (int)solar_os_gfx_text_width(gfx, label);
-    solar_os_gfx_text(gfx,
-                      x + (width - label_width) / 2,
-                      y + height - 6,
-                      label);
-}
-
 static void webradio_render_player(solar_os_gfx_t *gfx,
                                    int width,
                                    int height)
@@ -686,20 +672,17 @@ static void webradio_render_player(solar_os_gfx_t *gfx,
     const int button_width = (width - 4 * gap) / 3;
     const bool stopped = state == WEBRADIO_PLAYBACK_IDLE ||
                          state == WEBRADIO_PLAYBACK_ERROR;
-    webradio_draw_transport_button(
-        gfx, gap, button_y, button_width, 21, "< prev");
-    webradio_draw_transport_button(gfx,
-                                   gap * 2 + button_width,
-                                   button_y,
-                                   button_width,
-                                   21,
-                                   stopped ? "play" : "stop");
-    webradio_draw_transport_button(gfx,
-                                   gap * 3 + button_width * 2,
-                                   button_y,
-                                   button_width,
-                                   21,
-                                   "next >");
+    solar_os_media_transport_button_draw(
+        gfx, gap, button_y, button_width, 21,
+        SOLAR_OS_MEDIA_TRANSPORT_PREVIOUS, false);
+    solar_os_media_transport_button_draw(
+        gfx, gap * 2 + button_width, button_y, button_width, 21,
+        stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
+                  SOLAR_OS_MEDIA_TRANSPORT_STOP,
+        false);
+    solar_os_media_transport_button_draw(
+        gfx, gap * 3 + button_width * 2, button_y, button_width, 21,
+        SOLAR_OS_MEDIA_TRANSPORT_NEXT, false);
 }
 
 static const char *webradio_dialog_label(void)

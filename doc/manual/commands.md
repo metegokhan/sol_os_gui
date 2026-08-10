@@ -452,7 +452,10 @@ daq start /logs/microphones.pcm audio0.capture --raw
 `daq` CSV rows include `uptime_ms`, and include UTC `time_ms` when wall-clock time is
 trusted. Raw mode accepts one byte or audio source and writes its data directly
 without CSV framing. Audio uses the native PCM format reported by `stream
-status`; `arecord` writes the same input as a WAV file.
+status`; `arecord` writes the same input as a WAV file. `recorder` adds
+interactive stream and WAV-format selection, no-file live input monitoring,
+hardware input gain when the selected device supports it, visualization,
+pause, and playback.
 
 Streams are runtime-registered endpoints, similar to services and displays.
 Providers can add or remove scalar sensor, event, byte, and PCM audio streams.

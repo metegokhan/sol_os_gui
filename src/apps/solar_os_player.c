@@ -532,14 +532,6 @@ static void player_draw_header(solar_os_gfx_t *gfx, int width)
                       18, tabs);
 }
 
-static void player_draw_button(solar_os_gfx_t *gfx, int x, int y, int width,
-                               int height, const char *label)
-{
-    solar_os_gfx_rect(gfx, x, y, width, height);
-    solar_os_gfx_text(gfx, x + (width - (int)solar_os_gfx_text_width(gfx, label)) / 2,
-                      y + height - 6, label);
-}
-
 static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
 {
     const int media_top = height * 2 / 3;
@@ -590,11 +582,17 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
     const int gap = 5;
     const int button_width = (width - 4 * gap) / 3;
     const int button_y = height - 25;
-    player_draw_button(gfx, gap, button_y, button_width, 21, "< prev");
-    player_draw_button(gfx, gap * 2 + button_width, button_y, button_width, 21,
-                       player.task != NULL ? "stop" : "play");
-    player_draw_button(gfx, gap * 3 + button_width * 2, button_y,
-                       button_width, 21, "next >");
+    solar_os_media_transport_button_draw(
+        gfx, gap, button_y, button_width, 21,
+        SOLAR_OS_MEDIA_TRANSPORT_PREVIOUS, false);
+    solar_os_media_transport_button_draw(
+        gfx, gap * 2 + button_width, button_y, button_width, 21,
+        player.task != NULL ? SOLAR_OS_MEDIA_TRANSPORT_STOP :
+                              SOLAR_OS_MEDIA_TRANSPORT_PLAY,
+        false);
+    solar_os_media_transport_button_draw(
+        gfx, gap * 3 + button_width * 2, button_y, button_width, 21,
+        SOLAR_OS_MEDIA_TRANSPORT_NEXT, false);
 }
 
 static void player_render_list(solar_os_gfx_t *gfx, int width, int height)

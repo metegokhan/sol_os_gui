@@ -96,10 +96,11 @@ members = [
   "service_synth",
   "app_aplay",
   "app_arecord",
+  "app_recorder",
   "app_player",
   "app_synth",
 ]
-triggers = ["app_aplay", "app_arecord", "app_player", "app_synth"]
+triggers = ["app_aplay", "app_arecord", "app_recorder", "app_player", "app_synth"]
 
 [groups.net]
 capabilities = ["wifi"]
@@ -819,6 +820,16 @@ label = "app.arecord"
 depends = ["service_audio"]
 sources = ["apps/solar_os_audio_apps.c"]
 
+[packages.app_recorder]
+label = "app.recorder"
+depends = [
+  "service_audio",
+  "service_media_widgets",
+  "service_signal_widgets",
+  "service_storage_browser",
+]
+sources = ["apps/solar_os_recorder.c"]
+
 [packages.app_player]
 label = "app.player"
 depends = [
@@ -861,6 +872,7 @@ depends = [
   "service_audio",
   "service_audio_codecs",
   "service_http_client",
+  "service_media_widgets",
   "service_signal_widgets",
   "service_webradio",
 ]

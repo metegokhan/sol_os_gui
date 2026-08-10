@@ -12,7 +12,7 @@ int main(void)
 {
     static const char *const first_path_apps[] = {
         "edit", "hexedit", "notes", "writer", "sheet", "gameboy",
-        "python", "lua", "files",
+        "recorder", "python", "lua", "files",
     };
     char *first_path[] = {NULL, "relative/file"};
     for (size_t i = 0; i < sizeof(first_path_apps) / sizeof(first_path_apps[0]); i++) {

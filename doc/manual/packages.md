@@ -109,10 +109,28 @@ those workers running; closing the app stops them and releases their resources.
 `app.player` combines the shared audio and codec services with a persistent
 playlist on the current storage root, the reusable storage browser, signal
 widgets, and the reusable cassette widget. Its file browser selects existing
-WAV/MP3 files; the same browser model also exposes current-directory selection
-for a future Recorder app without coupling recording policy to Player. Player
-has no built-in-audio capability requirement, so a runtime-attached output
-device can satisfy playback.
+WAV/MP3 files. Player has no built-in-audio capability requirement, so a
+runtime-attached output device can satisfy playback.
+
+`app.recorder` is the interactive counterpart to `arecord`. It combines the
+generic audio and stream services with the same storage browser, cassette,
+oscilloscope, and spectrum packages as Player. It records PCM WAV from a
+runtime-selected capture stream and does not require built-in board audio.
+Its monitor transport loops the selected capture stream to the current default
+output and visualization widgets without opening a recording file. Recorder
+allocates its app-lifetime state in PSRAM on PSRAM boards and releases it when
+the application closes. Its browser, widgets, conversion buffers, and PCM queue
+also use PSRAM. Its 8 KiB capture/file worker and the reusable audio-player
+sink are admitted as user-started foreground transports with internal stacks,
+and continue while the Recorder UI is suspended. Capture and sink timing, plus
+cache-disabled filesystem access, therefore do not depend on a PSRAM stack.
+Recorder stores its selected input, destination folder, format, device gain,
+volume, and visualizer under `.recorder` on the current storage root. Its
+cassette animates only for record and playback; scope and spectrum continue to
+present monitored input at the app's nominal 25 Hz graphical cadence.
+Hardware input gain is exposed through an optional audio-device operation;
+streams without a gain-capable owning device remain valid recording inputs and
+show gain as unavailable.
 
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider
