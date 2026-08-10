@@ -56,6 +56,7 @@ typedef struct {
 
 static audio_device_entry_t audio_devices[SOLAR_OS_AUDIO_DEVICE_MAX];
 static portMUX_TYPE audio_devices_lock = portMUX_INITIALIZER_UNLOCKED;
+static char audio_default_output[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
 
 static bool audio_volume_arg_valid(uint8_t volume)
 {
@@ -677,6 +678,9 @@ esp_err_t solar_os_audio_unregister_device(const char *id)
             return ESP_ERR_INVALID_STATE;
         }
         portENTER_CRITICAL(&audio_devices_lock);
+        if (strcmp(audio_default_output, id) == 0) {
+            audio_default_output[0] = '\0';
+        }
         memset(&audio_devices[i], 0, sizeof(audio_devices[i]));
         portEXIT_CRITICAL(&audio_devices_lock);
         return ESP_OK;
@@ -738,6 +742,69 @@ esp_err_t solar_os_audio_device_get_info(const char *id,
     return ESP_ERR_NOT_FOUND;
 }
 
+esp_err_t solar_os_audio_set_default_output(const char *id)
+{
+    if (id == NULL || id[0] == '\0') {
+        portENTER_CRITICAL(&audio_devices_lock);
+        audio_default_output[0] = '\0';
+        portEXIT_CRITICAL(&audio_devices_lock);
+        return ESP_OK;
+    }
+    solar_os_audio_device_info_t device;
+    const esp_err_t err = solar_os_audio_device_get_info(id, &device);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if ((device.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) == 0U ||
+        device.playback_stream[0] == '\0') {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    portENTER_CRITICAL(&audio_devices_lock);
+    strlcpy(audio_default_output, id, sizeof(audio_default_output));
+    portEXIT_CRITICAL(&audio_devices_lock);
+    return ESP_OK;
+}
+
+bool solar_os_audio_get_default_output(char *id, size_t id_len)
+{
+    if (id == NULL || id_len == 0U) {
+        return false;
+    }
+    portENTER_CRITICAL(&audio_devices_lock);
+    strlcpy(id, audio_default_output, id_len);
+    const bool selected = audio_default_output[0] != '\0';
+    portEXIT_CRITICAL(&audio_devices_lock);
+    return selected;
+}
+
+static esp_err_t audio_open_candidate(
+    const solar_os_audio_device_info_t *candidate,
+    solar_os_stream_direction_t direction,
+    const char *owner,
+    const solar_os_stream_open_options_t *requested,
+    solar_os_stream_handle_t *stream,
+    solar_os_audio_device_info_t *device)
+{
+    const uint32_t required_capability =
+        direction == SOLAR_OS_STREAM_DIRECTION_SOURCE ?
+        SOLAR_OS_AUDIO_DEVICE_CAP_INPUT : SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT;
+    if (candidate == NULL ||
+        (candidate->capabilities & required_capability) == 0U) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    const char *endpoint = direction == SOLAR_OS_STREAM_DIRECTION_SOURCE ?
+        candidate->capture_stream : candidate->playback_stream;
+    if (endpoint[0] == '\0') {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    const esp_err_t err = solar_os_stream_open_ex(
+        endpoint, owner, requested, stream);
+    if (err == ESP_OK && device != NULL) {
+        *device = *candidate;
+    }
+    return err;
+}
+
 esp_err_t solar_os_audio_open_default(
     solar_os_stream_direction_t direction,
     const char *owner,
@@ -751,30 +818,38 @@ esp_err_t solar_os_audio_open_default(
         return ESP_ERR_INVALID_ARG;
     }
 
-    const uint32_t required_capability =
-        direction == SOLAR_OS_STREAM_DIRECTION_SOURCE ?
-        SOLAR_OS_AUDIO_DEVICE_CAP_INPUT : SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT;
     solar_os_stream_open_options_t requested = options != NULL ?
         *options : (solar_os_stream_open_options_t){0};
     requested.direction = direction;
 
+    char preferred_id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
+    if (direction == SOLAR_OS_STREAM_DIRECTION_SINK &&
+        solar_os_audio_get_default_output(preferred_id, sizeof(preferred_id))) {
+        solar_os_audio_device_info_t preferred;
+        if (solar_os_audio_device_get_info(preferred_id, &preferred) == ESP_OK) {
+            const esp_err_t err = audio_open_candidate(
+                &preferred, direction, owner, &requested, stream, device);
+            if (err == ESP_OK) {
+                return ESP_OK;
+            }
+            if (err != ESP_ERR_NOT_FOUND && err != ESP_ERR_NOT_SUPPORTED &&
+                err != ESP_ERR_INVALID_STATE) {
+                return err;
+            }
+        }
+    } else {
+        preferred_id[0] = '\0';
+    }
+
     for (size_t index = 0; index < solar_os_audio_device_count(); index++) {
         solar_os_audio_device_info_t candidate;
         if (!solar_os_audio_device_get(index, &candidate) ||
-            (candidate.capabilities & required_capability) == 0U) {
+            strcmp(candidate.id, preferred_id) == 0) {
             continue;
         }
-        const char *endpoint = direction == SOLAR_OS_STREAM_DIRECTION_SOURCE ?
-            candidate.capture_stream : candidate.playback_stream;
-        if (endpoint[0] == '\0') {
-            continue;
-        }
-        const esp_err_t err = solar_os_stream_open_ex(
-            endpoint, owner, &requested, stream);
+        const esp_err_t err = audio_open_candidate(
+            &candidate, direction, owner, &requested, stream, device);
         if (err == ESP_OK) {
-            if (device != NULL) {
-                *device = candidate;
-            }
             return ESP_OK;
         }
         if (err != ESP_ERR_NOT_FOUND && err != ESP_ERR_NOT_SUPPORTED &&

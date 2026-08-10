@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "audio-pwm", "ledc-audio", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral audio pwm ledc radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -79,6 +79,24 @@ expansion detach pixels0
 SolarOS stores colors in RGB form and transmits the strip's standard GRB wire
 order. Attach clears all declared pixels. `set` and `fill` refresh immediately
 in the shell; scripting APIs buffer changes until `show()`.
+
+An LEDC PWM audio output uses one runtime-safe PWM pin and appears as a normal
+mono playback device:
+
+```text
+expansion attach audio-pwm pwm0 pwm=gpio1
+audio devices
+audio default pwm0
+aplay /audio/example.mp3
+audio default auto
+expansion detach pwm0
+```
+
+The output is 8-bit PWM with a 78.125 kHz carrier and a 16 kHz native PCM rate.
+It is a signal output, not a speaker driver. Put a reconstruction low-pass
+filter, DC-blocking/coupling stage, and suitable amplifier between the GPIO and
+a speaker. A bare speaker can overload and damage the GPIO. Only one LEDC PWM
+audio device can be attached at a time.
 
 ## Quick reference
 

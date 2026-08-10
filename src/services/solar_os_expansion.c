@@ -23,6 +23,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 #include "solar_os_neopixel.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_AUDIO_PWM
+#include "solar_os_audio_pwm.h"
+#endif
 #include "solar_os_resources.h"
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
@@ -88,6 +91,18 @@ static const solar_os_expansion_binding_spec_t neopixel_binding_specs[] = {
         .has_value_range = true,
         .min_value = 1,
         .max_value = SOLAR_OS_NEOPIXEL_MAX_PIXELS,
+    },
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_AUDIO_PWM
+static const solar_os_expansion_binding_spec_t audio_pwm_binding_specs[] = {
+    {
+        .key = "pwm",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PWM,
+        .role = "pwm",
+        .required = true,
     },
 };
 #endif
@@ -180,6 +195,19 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
             sizeof(neopixel_binding_specs[0]),
         .attach = solar_os_neopixel_attach,
         .detach = solar_os_neopixel_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_AUDIO_PWM
+    {
+        .name = "audio-pwm",
+        .summary = "LEDC PWM mono audio output",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_PWM,
+        .probe_supported = false,
+        .binding_specs = audio_pwm_binding_specs,
+        .binding_spec_count = sizeof(audio_pwm_binding_specs) /
+            sizeof(audio_pwm_binding_specs[0]),
+        .attach = solar_os_audio_pwm_attach,
+        .detach = solar_os_audio_pwm_detach,
     },
 #endif
 };

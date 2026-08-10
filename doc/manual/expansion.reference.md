@@ -4,7 +4,7 @@ title = "Expansion hardware reference"
 section = "hardware"
 summary = "Resource rules, workflows, drivers, bindings, and wiring examples"
 aliases = ["hardware.expansion"]
-keywords = "expansion ports gpio adc pwm buses i2c spi uart midi wiring displays neopixel ws2812 rgb led strip"
+keywords = "expansion ports gpio adc pwm ledc audio buses i2c spi uart midi wiring displays neopixel ws2812 rgb led strip"
 packages_any = []
 +++
 # Expansion Ports
@@ -225,6 +225,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
 | `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
+| `audio-pwm` | LEDC PWM mono audio output | `pwm=<pin>` | Claims the PWM GPIO and registers a 16 kHz mono playback device. One instance can be attached. |
 
 Manual profiles are useful when another app or workflow operates the hardware
 but SolarOS still needs to prevent conflicting claims:
@@ -266,6 +267,29 @@ roughly 60 mA each. Do not power a multi-pixel strip from a board GPIO. A 3.3 V
 data signal may work with short wiring when the strip supply is low enough, but
 a 3.3-to-5 V logic-level shifter is the reliable arrangement. Put the usual
 bulk capacitor across the strip supply and a small series resistor near DIN.
+
+### LEDC PWM audio output
+
+Use a runtime-safe PWM pin. The driver updates an 8-bit, 78.125 kHz LEDC carrier
+from a GPTimer-paced 16 kHz mono PCM stream. It registers the attached name as
+an audio device and `<name>.playback` as its stream:
+
+```text
+expansion attach audio-pwm pwm0 pwm=gpio1
+audio device pwm0
+audio default pwm0
+aplay /audio/example.mp3
+```
+
+`audio default` is runtime-only because attached expansion devices are also
+runtime-only. Run `audio default auto` to return to the first compatible output.
+Detaching the selected device also returns selection to `auto`.
+
+Do not connect a speaker directly to the GPIO. The pin provides a 3.3 V PWM
+signal centered near 50 percent duty during silence. Use a reconstruction
+low-pass filter, a DC-blocking/coupling stage, and an amplifier suitable for the
+speaker impedance. Keep the board and amplifier grounds common. Stop playback
+before detaching; detach reports busy while the playback stream is open.
 
 ## Wiring Examples
 

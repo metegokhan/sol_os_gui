@@ -23,6 +23,10 @@ board endpoints and retains the hardware capability gate. The independent
 file players and network sources can share the same decoder without owning an
 audio device.
 
+`expansion.audio-pwm` depends on the generic audio and expansion services, not
+on `service.audio-board`. On a board with expansion PWM it can therefore add a
+runtime playback device even when no built-in codec or DAC exists.
+
 ## Ownership Rules
 
 - `bootstrap` is immutable and contains only the runtime and shell needed to

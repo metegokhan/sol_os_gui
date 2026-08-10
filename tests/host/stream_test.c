@@ -50,6 +50,19 @@ static esp_err_t write_audio(void *user,
     return ESP_OK;
 }
 
+static esp_err_t open_audio(void *user,
+                            const char *owner,
+                            const solar_os_stream_open_options_t *options,
+                            solar_os_stream_handle_t *handle)
+{
+    (void)user;
+    (void)owner;
+    if (options->requested_audio.channels != 0U) {
+        handle->audio.channels = options->requested_audio.channels;
+    }
+    return ESP_OK;
+}
+
 static solar_os_stream_driver_t scalar_driver(float *value)
 {
     solar_os_stream_driver_t driver = {
@@ -85,6 +98,7 @@ static solar_os_stream_driver_t audio_driver(size_t *bytes)
                 .frames_per_block = 4U,
             },
         },
+        .open = open_audio,
         .write = write_audio,
         .user = bytes,
     };
@@ -133,7 +147,12 @@ int main(void)
                                    &source_options, &first) ==
            ESP_ERR_NOT_SUPPORTED);
 
-    assert(solar_os_stream_open("audio0.playback", "synth", &first) == ESP_OK);
+    solar_os_stream_open_options_t sink_options = {
+        .direction = SOLAR_OS_STREAM_DIRECTION_SINK,
+        .requested_audio.channels = 1U,
+    };
+    assert(solar_os_stream_open_ex("audio0.playback", "synth",
+                                   &sink_options, &first) == ESP_OK);
     assert(solar_os_stream_open("audio0.playback", "aplay", &second) ==
            ESP_ERR_INVALID_STATE);
     int16_t samples[8] = {0};
@@ -143,7 +162,7 @@ int main(void)
     assert(written == sizeof(samples));
     assert(bytes == sizeof(samples));
     assert(solar_os_stream_get_info("audio0.playback", &info) == ESP_OK);
-    assert(info.written_units == 4U);
+    assert(info.written_units == 8U);
     assert(strcmp(info.owner, "synth") == 0);
     solar_os_stream_close(&first);
     assert(solar_os_stream_unregister("audio0.playback") == ESP_OK);

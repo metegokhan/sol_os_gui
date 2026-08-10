@@ -483,14 +483,17 @@ static esp_err_t stream_get_callbacks(solar_os_stream_handle_t *handle,
     return ESP_OK;
 }
 
-static size_t stream_transfer_units(const stream_entry_t *entry, size_t bytes)
+static size_t stream_transfer_units(const stream_entry_t *entry,
+                                    const solar_os_stream_handle_t *handle,
+                                    size_t bytes)
 {
     if (entry->driver.info.type != SOLAR_OS_STREAM_TYPE_AUDIO) {
         return bytes;
     }
+    const solar_os_stream_audio_format_t *format = handle != NULL ?
+        &handle->audio : &entry->driver.info.audio;
     const size_t frame_bytes =
-        ((size_t)entry->driver.info.audio.channels *
-         entry->driver.info.audio.bits_per_sample) / 8U;
+        ((size_t)format->channels * format->bits_per_sample) / 8U;
     return frame_bytes != 0U ? bytes / frame_bytes : 0U;
 }
 
@@ -530,7 +533,7 @@ esp_err_t solar_os_stream_read(solar_os_stream_handle_t *handle,
     stream_lock();
     if (entry->registered && entry->generation == handle->generation) {
         if (err == ESP_OK) {
-            entry->read_units += stream_transfer_units(entry, *read_len);
+            entry->read_units += stream_transfer_units(entry, handle, *read_len);
         } else if (err == ESP_ERR_TIMEOUT) {
             entry->underruns++;
         }
@@ -575,7 +578,7 @@ esp_err_t solar_os_stream_write(solar_os_stream_handle_t *handle,
     stream_lock();
     if (entry->registered && entry->generation == handle->generation) {
         if (err == ESP_OK) {
-            entry->written_units += stream_transfer_units(entry, *written);
+            entry->written_units += stream_transfer_units(entry, handle, *written);
         } else if (err == ESP_ERR_TIMEOUT) {
             entry->overruns++;
         }

@@ -108,6 +108,14 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertEqual(self.catalog.package_defs["app_player"].capabilities, ())
         self.assertEqual(
+            self.catalog.package_defs["expansion_audio_pwm"].depends,
+            ("service_audio", "service_expansion"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["expansion_audio_pwm"].capabilities,
+            ("expansion_pwm",),
+        )
+        self.assertEqual(
             self.catalog.package_defs["app_gameboy"].depends,
             (),
         )
@@ -175,6 +183,25 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertTrue(pruned[package], package)
         for package in ("service_audio_board", "service_synth", "app_synth"):
             self.assertFalse(pruned[package], package)
+
+    def test_pwm_audio_expansion_survives_without_builtin_audio(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_pwm"},
+        )
+
+        for package in (
+            "service_audio",
+            "service_expansion",
+            "expansion_audio_pwm",
+            "app_aplay",
+            "app_player",
+        ):
+            self.assertTrue(pruned[package], package)
+        self.assertFalse(pruned["service_audio_board"])
 
     def test_rover_flavors_share_an_expansion_capable_baseline(self):
         rover_name, _, rover_groups, rover_packages = self.resolve("rover")

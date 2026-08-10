@@ -55,7 +55,7 @@ static const char * const ble_subcommands[] = {
 };
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "disconnect", "services", "chars", "read", "write", "write-nr"};
 static const char * const audio_subcommands[] = {
-    "status", "devices", "device", "tone", "tone-async", "queue", "cancel", "level", "mic", "loopback", "off",
+    "status", "devices", "device", "default", "tone", "tone-async", "queue", "cancel", "level", "mic", "loopback", "off",
 };
 static const char * const uart_subcommands[] = {"status", "baud", "mode", "write", "read"};
 static const char * const led_subcommands[] = {"status", "on", "off", "toggle"};
@@ -1487,6 +1487,12 @@ static void audio_print_status(solar_os_shell_io_t *term)
     solar_os_audio_get_status(&status);
 
     solar_os_shell_io_printf(term, "Audio: %s\n", status.initialized ? "on" : "off");
+    char default_output[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
+    solar_os_shell_io_printf(
+        term,
+        "Default output: %s\n",
+        solar_os_audio_get_default_output(default_output, sizeof(default_output)) ?
+        default_output : "auto");
     solar_os_shell_io_printf(term,
                              "Codec: out %s, in %s\n",
                              status.output_codec,
@@ -1602,6 +1608,7 @@ static void audio_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  audio status");
     solar_os_shell_io_writeln(term, "  audio devices");
     solar_os_shell_io_writeln(term, "  audio device <id>");
+    solar_os_shell_io_writeln(term, "  audio default [auto|<id>]");
     solar_os_shell_io_writeln(term, "  audio tone [hz] [ms] [volume]");
     solar_os_shell_io_writeln(term, "  audio tone-async [hz] [ms] [volume]");
     solar_os_shell_io_writeln(term, "  audio queue");
@@ -1925,6 +1932,46 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+    if (strcmp(argv[1], "default") == 0) {
+        if (argc == 2) {
+            char default_output[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
+            solar_os_shell_io_printf(
+                term,
+                "Default output: %s\n",
+                solar_os_audio_get_default_output(default_output,
+                                                  sizeof(default_output)) ?
+                default_output : "auto");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_diag_unexpected(term,
+                                           "audio default",
+                                           argv[3],
+                                           "audio default [auto|<id>]");
+            return;
+        }
+        const char *id = strcmp(argv[2], "auto") == 0 ? "" : argv[2];
+        const esp_err_t err = solar_os_audio_set_default_output(id);
+        if (err == ESP_ERR_NOT_FOUND) {
+            solar_os_shell_io_printf(term,
+                                     "audio default: device not found: %s\n",
+                                     argv[2]);
+        } else if (err == ESP_ERR_NOT_SUPPORTED) {
+            solar_os_shell_io_printf(term,
+                                     "audio default: device has no output: %s\n",
+                                     argv[2]);
+        } else if (err != ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "audio default failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "Default output: %s\n",
+                                     id[0] != '\0' ? id : "auto");
+        }
+        return;
+    }
+
     if (strcmp(argv[1], "tone") == 0) {
         audio_cmd_tone(term, argc, argv);
     } else if (strcmp(argv[1], "tone-async") == 0) {
@@ -1964,7 +2011,7 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_shell_io_writeln(term, "audio: off");
     } else {
         solar_os_shell_diag_subcommand(term, "audio", argc, argv,
-                                       "audio [status|devices|device|tone|tone-async|queue|cancel|level|mic|loopback|off] ...",
+                                       "audio [status|devices|device|default|tone|tone-async|queue|cancel|level|mic|loopback|off] ...",
                                        audio_subcommands,
                                        sizeof(audio_subcommands) / sizeof(audio_subcommands[0]));
     }

@@ -582,6 +582,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `audio` | `audio status` | Show audio state, global speaker level, tone queue, and active synth telemetry. |
 | `audio` | `audio devices` | List registered audio devices and their capture/playback streams. |
 | `audio` | `audio device <id>` | Show one audio device and its native PCM format. |
+| `audio` | `audio default [auto\|<id>]` | Show or select the preferred playback device. `auto` restores first-compatible-device selection. |
 | `audio` | `audio tone [hz] [ms] [volume]` | Play a diagnostic tone. |
 | `audio` | `audio tone-async [hz] [ms] [volume]` | Queue a tone and return its request ID immediately. |
 | `audio` | `audio queue` | Show asynchronous tone queue state and counters. |
