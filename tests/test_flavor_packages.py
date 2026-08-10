@@ -184,6 +184,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_recorder",
             "app_player",
             "app_synth",
+            "app_funcgen",
         ):
             self.assertTrue(pruned[package], package)
         self.assertFalse(pruned["service_audio_board"])
@@ -207,6 +208,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_signal_widgets",
             "service_webradio",
             "app_synth",
+            "app_funcgen",
             "app_webradio",
             "service_espnow",
             "job_espnow_link",
@@ -231,6 +233,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_aplay",
             "app_player",
             "app_synth",
+            "app_funcgen",
         ):
             self.assertTrue(pruned[package], package)
         self.assertFalse(pruned["service_audio_board"])

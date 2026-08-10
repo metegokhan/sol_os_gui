@@ -8,8 +8,10 @@ timing, and telemetry.
 
 ## Client contract
 
-A client supplies `solar_os_synth_config_t` with a stable owner name, render
-callback, callback context, and a block size from 32 through 512 frames. The
+A client supplies `solar_os_synth_config_t` with a stable owner name, optional
+exact playback-stream ID, render callback, callback context, and a block size
+from 32 through 512 frames. An empty playback-stream selection follows the
+current default audio output. The
 callback receives signed 16-bit interleaved stereo storage and the active output
 sample rate. It must fill exactly the requested frame count without blocking or
 performing filesystem or network I/O.
@@ -17,11 +19,11 @@ performing filesystem or network I/O.
 Only one client can run at a time. `solar_os_synth_start()` returns
 `ESP_ERR_INVALID_STATE` when audio output or another synth client is busy.
 The same owner stops the worker with `solar_os_synth_stop()`. Status reports
-the owner, format, rendered frames and blocks, render deadline misses, write
+the owner, selected playback stream, format, rendered frames and blocks, render deadline misses, write
 errors, maximum render time, and the last service error.
 
 The worker uses an internal-memory stack and a bounded internal PCM block. It
-opens the default playback stream through `service.audio`, renders and writes
+opens the selected or default playback stream through `service.audio`, renders and writes
 blocks until stopped, submits one silent tail block, and then releases the
 stream and its provider resources. The stream is opened, written, and closed by
 the same task.

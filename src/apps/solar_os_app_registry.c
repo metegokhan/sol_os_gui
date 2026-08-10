@@ -50,6 +50,9 @@
 #if SOLAR_OS_PACKAGE_APP_SYNTH
 #include "solar_os_synth_app.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_FUNCGEN
+#include "solar_os_funcgen.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_CALC
 #include "solar_os_calc.h"
 #endif
@@ -167,6 +170,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_SYNTH
     APP_ENTRY("synth", "polyphonic synthesizer and sound designer", &solar_os_synth_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "synth [--headless]", 1, 2),
+#endif
+#if SOLAR_OS_PACKAGE_APP_FUNCGEN
+    APP_ENTRY("funcgen", "audio function generator", &solar_os_funcgen_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "funcgen [--tui]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CALC
     APP_ENTRY("calc", "scientific calculator and function plotter", &solar_os_calc_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "calc [--tui | -e expression]", 1, 0),

@@ -1246,6 +1246,9 @@ static const char * const webradio_tui_subcommands[] = {
 #if SOLAR_OS_PACKAGE_APP_PLAYER
 static const char * const player_options[] = {"--tui"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_FUNCGEN
+static const char * const funcgen_options[] = {"--tui"};
+#endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const logic_rate_values[] = {"10000", "100000", "500000", "1000000", "2000000"};
 static const char * const logic_sample_values[] = {"1024", "4096", "16384", "32768"};
@@ -1328,6 +1331,9 @@ static const char * const path_webradio_tui[] = {"webradio", "--tui"};
 #if SOLAR_OS_PACKAGE_APP_PLAYER
 static const char * const path_player[] = {"player"};
 static const char * const path_player_tui[] = {"player", "--tui"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_FUNCGEN
+static const char * const path_funcgen[] = {"funcgen"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const path_logic[] = {"logic"};
@@ -2416,6 +2422,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_player, player_options),
     SHELL_COMPLETION_PATH(path_player, false),
     SHELL_COMPLETION_PATH(path_player_tui, false),
+#endif
+#if SOLAR_OS_PACKAGE_APP_FUNCGEN
+    SHELL_COMPLETION_OPTIONS(path_funcgen, funcgen_options),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
     SHELL_COMPLETION_GPIO_PINS(path_logic),

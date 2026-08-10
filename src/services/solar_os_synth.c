@@ -23,6 +23,8 @@ typedef struct {
     solar_os_synth_render_cb_t render;
     void *user;
     char owner[SOLAR_OS_SYNTH_OWNER_MAX];
+    char requested_playback_stream[SOLAR_OS_STREAM_ID_MAX];
+    char playback_stream[SOLAR_OS_STREAM_ID_MAX];
     size_t block_frames;
     uint32_t sample_rate;
     volatile bool stop_requested;
@@ -79,6 +81,8 @@ static void synth_finish(esp_err_t result)
     synth.render = NULL;
     synth.user = NULL;
     synth.owner[0] = '\0';
+    synth.requested_playback_stream[0] = '\0';
+    synth.playback_stream[0] = '\0';
     synth_unlock();
 }
 
@@ -91,6 +95,9 @@ static void synth_worker(void *arg)
     synth_lock();
     char owner[SOLAR_OS_SYNTH_OWNER_MAX];
     strlcpy(owner, synth.owner, sizeof(owner));
+    char playback_stream[SOLAR_OS_STREAM_ID_MAX];
+    strlcpy(playback_stream, synth.requested_playback_stream,
+            sizeof(playback_stream));
     const size_t block_frames = synth.block_frames;
     solar_os_synth_render_cb_t render = synth.render;
     void *user = synth.user;
@@ -105,8 +112,12 @@ static void synth_worker(void *arg)
             .bits_per_sample = 16U,
         },
     };
-    esp_err_t result = solar_os_audio_open_default(
-        SOLAR_OS_STREAM_DIRECTION_SINK, owner, &open_options, &stream, NULL);
+    esp_err_t result =
+        playback_stream[0] != '\0'
+            ? solar_os_stream_open_ex(playback_stream, owner, &open_options,
+                                      &stream)
+            : solar_os_audio_open_default(SOLAR_OS_STREAM_DIRECTION_SINK, owner,
+                                          &open_options, &stream, NULL);
     const solar_os_stream_audio_format_t format = stream.audio;
     if (result == ESP_OK &&
         (format.channels != 2U || format.bits_per_sample != 16U)) {
@@ -119,6 +130,9 @@ static void synth_worker(void *arg)
     synth.starting = false;
     synth.running = result == ESP_OK;
     synth.sample_rate = result == ESP_OK ? format.sample_rate : 0U;
+    strlcpy(synth.playback_stream,
+            result == ESP_OK ? stream.id : playback_stream,
+            sizeof(synth.playback_stream));
     synth.last_error = result;
     synth_unlock();
     (void)xSemaphoreGive(synth.started);
@@ -133,8 +147,8 @@ static void synth_worker(void *arg)
 
     const uint32_t block_deadline_us =
         (uint32_t)(((uint64_t)block_frames * 1000000ULL) / format.sample_rate);
-    SOLAR_OS_LOGI(TAG, "started: owner=%s rate=%" PRIu32 " frames=%u", owner,
-                  format.sample_rate, (unsigned)block_frames);
+    SOLAR_OS_LOGI(TAG, "started: owner=%s output=%s rate=%" PRIu32 " frames=%u",
+                  owner, stream.id, format.sample_rate, (unsigned)block_frames);
 
     while (!synth.stop_requested) {
         memset(synth.samples, 0,
@@ -197,6 +211,9 @@ esp_err_t solar_os_synth_start(const solar_os_synth_config_t *config)
 {
     if (config == NULL || config->owner == NULL || config->owner[0] == '\0' ||
         config->render == NULL ||
+        (config->playback_stream != NULL &&
+         strnlen(config->playback_stream, SOLAR_OS_STREAM_ID_MAX) >=
+             SOLAR_OS_STREAM_ID_MAX) ||
         config->block_frames < SOLAR_OS_SYNTH_BLOCK_FRAMES_MIN ||
         config->block_frames > SOLAR_OS_SYNTH_BLOCK_FRAMES_MAX) {
         return ESP_ERR_INVALID_ARG;
@@ -230,6 +247,10 @@ esp_err_t solar_os_synth_start(const solar_os_synth_config_t *config)
     synth.render = config->render;
     synth.user = config->user;
     strlcpy(synth.owner, config->owner, sizeof(synth.owner));
+    strlcpy(synth.requested_playback_stream,
+            config->playback_stream != NULL ? config->playback_stream : "",
+            sizeof(synth.requested_playback_stream));
+    synth.playback_stream[0] = '\0';
     synth.block_frames = config->block_frames;
     synth.sample_rate = 0;
     synth.stop_requested = false;
@@ -323,6 +344,8 @@ void solar_os_synth_get_status(solar_os_synth_status_t *status)
     status->starting = synth.starting;
     status->running = synth.running;
     strlcpy(status->owner, synth.owner, sizeof(status->owner));
+    strlcpy(status->playback_stream, synth.playback_stream,
+            sizeof(status->playback_stream));
     status->sample_rate = synth.sample_rate;
     status->block_frames = synth.block_frames;
     status->rendered_frames = synth.rendered_frames;

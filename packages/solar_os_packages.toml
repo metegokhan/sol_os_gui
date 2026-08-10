@@ -99,8 +99,16 @@ members = [
   "app_recorder",
   "app_player",
   "app_synth",
+  "app_funcgen",
 ]
-triggers = ["app_aplay", "app_arecord", "app_recorder", "app_player", "app_synth"]
+triggers = [
+  "app_aplay",
+  "app_arecord",
+  "app_recorder",
+  "app_player",
+  "app_synth",
+  "app_funcgen",
+]
 
 [groups.net]
 capabilities = ["wifi"]
@@ -859,6 +867,11 @@ sources = ["apps/solar_os_player.c"]
 label = "app.synth"
 depends = ["service_midi", "service_synth"]
 sources = ["apps/solar_os_synth_app.c"]
+
+[packages.app_funcgen]
+label = "app.funcgen"
+depends = ["service_signal_widgets", "service_synth"]
+sources = ["apps/solar_os_funcgen.c"]
 
 [packages.app_ssh]
 label = "app.ssh"

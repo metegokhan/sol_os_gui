@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3"
+keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3 function generator funcgen waveform sweep"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -185,6 +185,56 @@ The text interface exposes the same setup values, browser, transport keys,
 monitoring, pause behavior, and playback path. Recorder is resumable: capture,
 monitoring, or playback continues while its UI session is in the background,
 and closing the app stops the worker and finalizes an active recording.
+
+## funcgen
+
+Audio-only function generator built on the shared real-time Synth service.
+It emits signed 16-bit stereo PCM and can use the default playback device or
+an explicitly selected runtime playback stream, including an attached LEDC PWM
+audio expansion.
+
+Usage:
+
+```text
+funcgen [--tui]
+```
+
+The graphical interface shows the exact generated PCM in the shared
+oscilloscope widget. The remaining controls select sine, square, triangle, saw,
+pulse, or noise output; frequency from 20 through 8000 Hz; amplitude; pulse
+width; a repeating linear sweep; sweep end frequency; sweep time; and playback
+stream. The TUI exposes the same controls. `--tui` forces it on a graphical
+shell.
+
+Controls:
+
+- `Left`/`Right` selects a control.
+- `Up`/`Down`, `+`/`-`, or `Enter` adjusts the selected control.
+- `Space` starts or stops output.
+- `Esc`, `Q`, or the app-exit key closes the application.
+
+The output is off initially. Frequency is capped below the selected stream's
+Nyquist limit during rendering. A sweep moves linearly from Frequency to Sweep
+end during Sweep time, then repeats without resetting oscillator phase.
+Suspending the UI leaves an active generator running; closing it stops the
+Synth worker and releases the stream.
+
+All controls can be targeted by the shared control-binding system while
+Funcgen is active:
+
+- `funcgen.waveform`: 0 sine, 1 square, 2 triangle, 3 saw, 4 pulse, 5 noise.
+- `funcgen.frequency`: 20 through 8000 Hz, logarithmic.
+- `funcgen.amplitude`: 0 through 100 percent.
+- `funcgen.pulse.width`: 1 through 99 percent.
+- `funcgen.sweep.enabled`: 0 off or 1 on.
+- `funcgen.sweep.end`: 20 through 8000 Hz, logarithmic.
+- `funcgen.sweep.time`: 100 through 60000 ms, logarithmic.
+- `funcgen.output`: runtime output index; 0 follows the default output.
+- `funcgen.enabled`: 0 off or 1 on.
+
+The durable foreground state and oscilloscope storage use PSRAM when present.
+Only the bounded oscillator/render state, Synth worker stack, and PCM block
+remain in internal SRAM.
 
 ## player
 

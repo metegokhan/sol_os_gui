@@ -132,6 +132,13 @@ Hardware input gain is exposed through an optional audio-device operation;
 streams without a gain-capable owning device remain valid recording inputs and
 show gain as unavailable.
 
+`app.funcgen` combines `service.synth` with the shared oscilloscope widget.
+It has no built-in-audio capability requirement and discovers runtime output
+devices when opened. Its foreground and widget state prefer PSRAM; the bounded
+oscillator state and Synth worker remain internal for deterministic rendering.
+Every displayed control has a corresponding native parameter for physical and
+MIDI control bindings.
+
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider
 configuration, bounded tool-loop policy, a declarative typed-tool registry,

@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.7.6** — 2026-08-10 — Added `funcgen`, an audio function generator with
+  GUI/TUI interfaces, a live oscilloscope, selectable runtime playback streams,
+  six waveform shapes, amplitude and pulse-width controls, and repeating
+  frequency sweeps. Every adjustable control is available through the shared
+  parameter/control-binding system.
 - **4.7.5** — 2026-08-10 — Mixed-interface applications now accept `--tui`
   to force their text interface on a graphical shell. This applies to Calc,
   Player, WebRadio, and Recorder. Added an ESP-NOW transport for SolarOS Link,

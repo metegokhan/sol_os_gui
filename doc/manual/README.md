@@ -110,6 +110,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Application reference](apps.md) — Usage, controls, and examples for every foreground application
 - [arecord application](apps.md#arecord) — Record a registered audio capture stream to a WAV file.
 - [recorder application](apps.md#recorder) — Interactive GUI/TUI WAV recorder with stream and format selection, no-file live input monitoring, hardware gain control, playback, shared widgets, and a `--tui` override.
+- [funcgen application](apps.md#funcgen) — Audio function generator with GUI/TUI controls, selectable playback streams, six waveforms, sweeps, a live oscilloscope, and bindable parameters.
 - [player application](apps.md#player) — Persistent WAV/MP3 playlist player with graphical visualizers, a text playlist, and a `--tui` override.
 - [calc application](apps.md#calc) — Scientific calculator and function plotter with a `--tui` override for its text REPL.
 - [chat application](apps.md#chat) — Two-pane provider-neutral conversation client. The left pane lists gateway and radio conversations, the right pane shows bounded shared history, and the bottom line is the message/command input. It opens and remains useful offline; network or radio transport jobs connect independently.
