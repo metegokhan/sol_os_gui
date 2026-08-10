@@ -47,6 +47,7 @@ members = [
   "expansion_pcd8544",
   "expansion_ssd1306",
   "expansion_neopixel",
+  "expansion_audio_pwm",
   "job_midi",
   "job_pocsag",
   "job_radio_link",
@@ -734,6 +735,16 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_rmt"]
 capabilities = ["expansion_gpio"]
+
+[packages.expansion_audio_pwm]
+label = "expansion.audio-pwm"
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/audio_pwm.c",
+  "services/solar_os_audio_pwm.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_gptimer", "esp_driver_ledc"]
+capabilities = ["expansion_pwm"]
 
 [packages.service_json]
 label = "service.json"

@@ -825,14 +825,20 @@ static bool parse_binding_token(const char *arg,
     return false;
 }
 
-static void expansion_print_attach_error(solar_os_shell_io_t *term, esp_err_t err)
+static void expansion_print_attach_error(solar_os_shell_io_t *term,
+                                         const char *driver,
+                                         esp_err_t err)
 {
     switch (err) {
     case ESP_ERR_NOT_SUPPORTED:
         solar_os_shell_io_writeln(term, "expansion: no expansion resources on this board");
         break;
     case ESP_ERR_NOT_FOUND:
-        solar_os_shell_io_writeln(term, "expansion attach: unknown or unsupported driver");
+        solar_os_shell_io_printf(term,
+                                 "expansion attach: driver '%s' is unavailable\n",
+                                 driver);
+        solar_os_shell_io_writeln(term,
+                                  "run 'expansion drivers' to list compiled drivers");
         break;
     case ESP_ERR_INVALID_STATE:
         solar_os_shell_io_writeln(term, "expansion attach: device name or resource already in use");
@@ -841,7 +847,14 @@ static void expansion_print_attach_error(solar_os_shell_io_t *term, esp_err_t er
         solar_os_shell_io_writeln(term, "expansion attach: invalid device name or resource combination");
         break;
     case ESP_ERR_NO_MEM:
-        solar_os_shell_io_writeln(term, "expansion attach: no free device or resource slots");
+        solar_os_shell_io_writeln(
+            term,
+            "expansion attach: no free internal expansion, resource, or service slots");
+        break;
+    case ESP_ERR_NOT_ALLOWED:
+        solar_os_shell_io_printf(term,
+                                 "expansion attach: driver '%s' has reached its instance limit\n",
+                                 driver);
         break;
     case ESP_ERR_INVALID_RESPONSE:
         solar_os_shell_io_writeln(term, "expansion attach: device probe failed");
@@ -865,7 +878,16 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
     }
     if (!expansion_find_driver(argv[2], &driver)) {
         solar_os_shell_io_printf(term, "expansion attach: unknown driver '%s'\n", argv[2]);
-        solar_os_shell_io_writeln(term, "run 'expansion drivers' to list available drivers");
+        solar_os_shell_io_writeln(term, "run 'expansion drivers' to list compiled drivers");
+        return;
+    }
+    if (!solar_os_expansion_driver_supported(driver.name)) {
+        solar_os_shell_io_printf(
+            term,
+            "expansion attach: driver '%s' is compiled but unsupported on this board\n",
+            driver.name);
+        solar_os_shell_io_writeln(term,
+                                  "run 'expansion drivers' to inspect driver support");
         return;
     }
     if (argc < 4) {
@@ -925,7 +947,7 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
 
     const esp_err_t err = solar_os_expansion_attach(argv[2], argv[3], bindings, binding_count);
     if (err != ESP_OK) {
-        expansion_print_attach_error(term, err);
+        expansion_print_attach_error(term, driver.name, err);
         return;
     }
     solar_os_shell_io_printf(term, "attached %s using %s\n", argv[3], argv[2]);

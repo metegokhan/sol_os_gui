@@ -17,8 +17,8 @@ def main() -> int:
     table = shell_text.split("static const shell_command_t shell_builtin_commands[] = {", 1)[1]
     table = table.split("};", 1)[0]
     builtins = re.findall(r'^\s*\{"([a-z][a-z0-9-]*)",', table, re.MULTILINE)
-    if len(builtins) != 83:
-        raise SystemExit(f"expected 83 built-in command declarations, found {len(builtins)}")
+    if len(builtins) != 85:
+        raise SystemExit(f"expected 85 built-in command declarations, found {len(builtins)}")
     duplicates = sorted({name for name in builtins if builtins.count(name) > 1})
     if duplicates:
         raise SystemExit(f"duplicate built-in commands: {', '.join(duplicates)}")
@@ -29,8 +29,8 @@ def main() -> int:
         r'"([^"]+)",\s*(\d+),\s*(\d+)(?:,\s*"[^"]+")?\),'
     )
     entries = entry_pattern.findall(registry_text)
-    if len(entries) != 34:
-        raise SystemExit(f"expected 34 registered app launch schemas, found {len(entries)}")
+    if len(entries) != 36:
+        raise SystemExit(f"expected 36 registered app launch schemas, found {len(entries)}")
     for name, usage, min_argc_text, max_argc_text in entries:
         min_argc = int(min_argc_text)
         max_argc = int(max_argc_text)

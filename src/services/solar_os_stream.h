@@ -6,7 +6,7 @@
 
 #include "esp_err.h"
 
-#define SOLAR_OS_STREAM_MAX 32
+#define SOLAR_OS_STREAM_MAX 40
 #define SOLAR_OS_STREAM_ID_MAX 24
 #define SOLAR_OS_STREAM_PROVIDER_MAX 20
 #define SOLAR_OS_STREAM_DEVICE_MAX 16

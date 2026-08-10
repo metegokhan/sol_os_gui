@@ -21,6 +21,9 @@
 #include "freertos/task.h"
 #include "nvs.h"
 #include "solar_os_app_registry.h"
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+#include "solar_os_audio.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
 #include "solar_os_agent.h"
 #endif
@@ -128,6 +131,8 @@ typedef struct {
     bool complete_contact_ids;
     bool complete_endpoint_ids;
     bool complete_playground_apps;
+    bool complete_audio_outputs;
+    bool complete_expansion_drivers;
     bool complete_expansion_devices;
     bool complete_connectors;
     bool complete_display_session_ids;
@@ -771,27 +776,6 @@ static const char * const expansion_bus_protocols[] = {
     "uart",
 #endif
 };
-static const char * const expansion_driver_values[] = {
-    "manual",
-#if SOLAR_OS_PACKAGE_EXPANSION_RFM69
-    "rfm69",
-    "rfm69h",
-#endif
-#if SOLAR_OS_PACKAGE_EXPANSION_RFM95
-    "rfm95",
-#endif
-#if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
-    "pcd8544",
-#endif
-#if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
-    "ssd1306",
-    "sh1106",
-#endif
-#if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
-    "neopixel",
-#endif
-};
-
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 static const char * const neopixel_subcommands[] = {
     "status",
@@ -1131,6 +1115,7 @@ static const char * const audio_subcommands[] = {
     "status",
     "devices",
     "device",
+    "default",
     "tone",
     "tone-async",
     "queue",
@@ -1979,6 +1964,7 @@ static const char * const path_battery_capacity[] = {"battery", "capacity"};
 static const char * const path_battery_min_voltage[] = {"battery", "min_voltage"};
 static const char * const path_battery_max_voltage[] = {"battery", "max_voltage"};
 static const char * const path_audio[] = {"audio"};
+static const char * const path_audio_default[] = {"audio", "default"};
 static const char * const path_audio_tone[] = {"audio", "tone"};
 static const char * const path_audio_tone_hz[] = {"audio", "tone", SHELL_COMPLETION_ANY};
 static const char * const path_audio_tone_ms[] = {
@@ -2078,6 +2064,18 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_playground_apps = true, \
+    }
+#define SHELL_COMPLETION_AUDIO_OUTPUTS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_audio_outputs = true, \
+    }
+#define SHELL_COMPLETION_EXPANSION_DRIVERS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_expansion_drivers = true, \
     }
 #define SHELL_COMPLETION_EXPANSION_DEVICES(path_array) \
     { \
@@ -2702,7 +2700,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_BUSES(path_expansion_bus_attach),
     SHELL_COMPLETION_BUSES(path_expansion_bus_detach),
     SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
-    SHELL_COMPLETION_STATIC(path_expansion_attach, expansion_driver_values),
+    SHELL_COMPLETION_EXPANSION_DRIVERS(path_expansion_attach),
     SHELL_COMPLETION_EXPANSION_DEVICES(path_expansion_detach),
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MIDI
@@ -2776,6 +2774,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_battery_min_voltage, battery_min_voltage_values),
     SHELL_COMPLETION_STATIC(path_battery_max_voltage, battery_max_voltage_values),
     SHELL_COMPLETION_STATIC(path_audio, audio_subcommands),
+    SHELL_COMPLETION_AUDIO_OUTPUTS(path_audio_default),
     SHELL_COMPLETION_STATIC(path_audio_tone, audio_hz_values),
     SHELL_COMPLETION_STATIC(path_audio_tone_hz, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_tone_ms, audio_volume_values),
@@ -5588,6 +5587,39 @@ static void shell_completion_emit_streams(shell_completion_match_t *state, bool 
     }
 }
 
+static void shell_completion_emit_expansion_drivers(
+    shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    const size_t count = solar_os_expansion_driver_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_expansion_driver_t driver;
+        if (solar_os_expansion_get_driver(i, &driver) &&
+            solar_os_expansion_driver_supported(driver.name)) {
+            shell_completion_emit(state, driver.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static void shell_completion_emit_audio_outputs(shell_completion_match_t *state)
+{
+    shell_completion_emit(state, "auto");
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    const size_t count = solar_os_audio_device_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_audio_device_info_t device;
+        if (solar_os_audio_device_get(i, &device) &&
+            (device.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) != 0U &&
+            device.playback_stream[0] != '\0') {
+            shell_completion_emit(state, device.id);
+        }
+    }
+#endif
+}
+
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 static void shell_completion_emit_controls(shell_completion_match_t *state)
 {
@@ -6296,6 +6328,12 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_playground_apps) {
             shell_completion_emit_playground_apps(state);
+        }
+        if (rule->complete_audio_outputs) {
+            shell_completion_emit_audio_outputs(state);
+        }
+        if (rule->complete_expansion_drivers) {
+            shell_completion_emit_expansion_drivers(state);
         }
         if (rule->complete_expansion_devices) {
             shell_completion_emit_expansion_devices(state);
