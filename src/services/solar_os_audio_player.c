@@ -376,6 +376,9 @@ esp_err_t solar_os_audio_player_create(
         return ESP_OK;
     }
 
+    /* The sink is timing-sensitive and remains active for suspended media
+     * apps. Keep its stack internal. Playback is explicitly user-started
+     * foreground work for admission purposes. */
     const BaseType_t created = solar_os_task_create_pinned_internal(
         audio_player_task,
         "audio_player",

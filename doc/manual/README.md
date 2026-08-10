@@ -38,6 +38,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [dpad command](commands.md) — Show ADC D-pad pins, raw values, zones, and calibration thresholds.
 - [email command](commands.md) — Open the receive-only email app.
 - [engine command](commands.md) — Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations.
+- [espnow command](commands.md) — Inspect ESP-NOW transport state and manage Link-ID-to-MAC peer mappings.
 - [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell when another interactive shell remains.
 - [expansion command](expansion.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
@@ -107,9 +108,11 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Agent service and tool reference](agent.service.md) — Provider contract, typed tools, policy, resource bounds, and roadmap
 - [aplay application](apps.md#aplay) — Play audio files through the board audio output. WAV and MP3 are supported when the audio package is compiled and the board has audio hardware.
 - [Application reference](apps.md) — Usage, controls, and examples for every foreground application
-- [arecord application](apps.md#arecord) — Record microphone input to a WAV file. This requires the audio package and board microphone hardware.
-- [player application](apps.md#player) — Persistent WAV/MP3 playlist player with graphical cassette, oscilloscope, and spectrum views plus a simple text playlist.
-- [calc application](apps.md#calc) — Scientific calculator and function plotter. On a graphical display, calc opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet, or any other text-only shell, the same command opens a scientific REPL without the plot pane. calc --text forces that REPL even when graphics are available.
+- [arecord application](apps.md#arecord) — Record a registered audio capture stream to a WAV file.
+- [recorder application](apps.md#recorder) — Interactive GUI/TUI WAV recorder with stream and format selection, no-file live input monitoring, hardware gain control, playback, shared widgets, and a `--tui` override.
+- [funcgen application](apps.md#funcgen) — Audio function generator with GUI/TUI controls, selectable playback streams, six waveforms, sweeps, a live oscilloscope, and bindable parameters.
+- [player application](apps.md#player) — Persistent WAV/MP3 playlist player with graphical visualizers, a text playlist, and a `--tui` override.
+- [calc application](apps.md#calc) — Scientific calculator and function plotter with a `--tui` override for its text REPL.
 - [chat application](apps.md#chat) — Two-pane provider-neutral conversation client. The left pane lists gateway and radio conversations, the right pane shows bounded shared history, and the bottom line is the message/command input. It opens and remains useful offline; network or radio transport jobs connect independently.
 - [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch.
 - [com application](apps.md#com) — Serial terminal for a bidirectional byte-stream port. Display-keyboard or port-shell input is forwarded to the selected port, and received bytes are drawn in the active terminal. The port may be a UART or a virtual port such as a peer-bound SolarOS Link stream.
@@ -141,7 +144,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [telnet application](apps.md#telnet) — Telnet client for classic TCP terminal sessions. It supports basic Telnet option negotiation, terminal type reporting, window size reporting, and raw mode.
 - [view application](apps.md#view) — Graphical image viewer. It supports the image formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF playback when the media package is enabled.
 - [web application](apps.md#web) — Simple graphical web browser for lightweight HTML pages. It shares document and image rendering infrastructure with reader where possible.
-- [webradio application](apps.md#webradio) — Direct MP3 internet-radio player with reusable scope/spectrum views, Player and Channels GUI tabs, and a persistent user-managed station catalog.
+- [webradio application](apps.md#webradio) — Direct MP3 internet-radio player with GUI/TUI station controls, reusable visualizers, a persistent catalog, and a `--tui` override.
 - [writer application](apps.md#writer) — Resumable graphical Markdown editor for PSRAM display boards. Inactive blocks are formatted like reader; the block containing the cursor and every block touched by a selection show their exact Markdown source. edit remains the portable text editor for port shells and boards without graphics or PSRAM.
 
 ## Background jobs
@@ -155,6 +158,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [daq job](jobs.reference.md#daq) — Data acquisition job. It captures scalar streams to timestamped CSV, or one byte stream directly to a raw file.
 - [displayd job](jobs.reference.md#displayd) — Authenticated HTTP display and remote control. It has two modes:
 - [email-sync job](jobs.reference.md#email-sync) — Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local email app and publishes each new message to the universal inbox.
+- [espnow-link job](jobs.reference.md#espnow-link) — ESP-NOW adapter for the transport-independent SolarOS Link service.
 - [gateway-sync job](jobs.reference.md#gateway-sync) — Background synchronizer for the gateway messaging provider. Start and stop it explicitly, using the same lifecycle as email-sync:
 - [gpio-keys job](jobs.reference.md#gpio-keys) — Maps runtime-safe GPIO inputs to SolarOS keyboard presses. The job configures each pin as an input with its internal pull-up enabled, treats a low level as pressed, and applies the same 25 ms debounce used by fixed board buttons. Each debounced transition publishes a generic SolarOS key press or release. Held keys use the system repeat rate configured by setterm keyrate.
 - [httpd job](jobs.reference.md#httpd) — Static HTTP file server for a folder on mounted storage.
@@ -201,7 +205,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Foreground sessions and applications](sessions.apps.md) — Create shells and inspect resumable foreground applications
 - [MeshCore companion messaging](meshcore.md) — Secure direct and shared-group messages over a claimed packet radio
 - [Messaging, contacts, and credential security](messaging.md) — Provider-neutral messaging identities, trust, persistence, and secret handling
-- [SolarOS Link](link.md) — Packet messaging, reliable virtual serial ports, and the radio-link adapter
+- [SolarOS Link](link.md) — Packet messaging and reliable virtual serial ports over packet radio or ESP-NOW
 
 ## Boards and firmware
 

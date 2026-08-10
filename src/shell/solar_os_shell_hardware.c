@@ -1535,10 +1535,12 @@ static void audio_print_status(solar_os_shell_io_t *term)
     solar_os_synth_get_status(&synth);
     solar_os_shell_io_printf(
         term,
-        "Synth: %s, owner %s, blocks %" PRIu32 ", misses %" PRIu32
+        "Synth: %s, owner %s, output %s, blocks %" PRIu32 ", misses %" PRIu32
         ", errors %" PRIu32 "\n",
         synth.running ? "running" : (synth.starting ? "starting" : "idle"),
-        synth.owner[0] != '\0' ? synth.owner : "-", synth.rendered_blocks,
+        synth.owner[0] != '\0' ? synth.owner : "-",
+        synth.playback_stream[0] != '\0' ? synth.playback_stream : "-",
+        synth.rendered_blocks,
         synth.render_deadline_misses, synth.write_errors);
 #endif
 }

@@ -94,6 +94,6 @@ universal Inbox.
 
 For packet-radio operation, see `meshcore` and `link`. MeshCore direct messages
 use the same conversations and trust states as gateway messages; shared-key
-groups remain visibly sender-unverified. A `radio-link` job started with
-`chat=on` adds unencrypted, packet-sized Link broadcast and direct conversations
-and discovers source device IDs as Contacts.
+groups remain visibly sender-unverified. A `radio-link` or `espnow-link` job
+started with `chat=on` adds unencrypted, packet-sized Link broadcast and direct
+conversations and discovers source device IDs as Contacts.

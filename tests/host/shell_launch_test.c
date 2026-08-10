@@ -23,6 +23,19 @@ int main(void)
     char *python[] = {"python", "tools/check.py", "input.txt"};
     assert(path_arg(3, python) == 1);
 
+    char *player_file[] = {"player", "audio/song.mp3"};
+    char *player_tui_file[] = {"player", "--tui", "audio/song.mp3"};
+    char *player_file_tui[] = {"player", "audio/song.mp3", "--tui"};
+    char *recorder_file[] = {"recorder", "audio/note.wav"};
+    char *recorder_tui_file[] = {"recorder", "--tui", "audio/note.wav"};
+    char *recorder_tui[] = {"recorder", "--tui"};
+    assert(path_arg(2, player_file) == 1);
+    assert(path_arg(3, player_tui_file) == 2);
+    assert(path_arg(3, player_file_tui) == 1);
+    assert(path_arg(2, recorder_file) == 1);
+    assert(path_arg(3, recorder_tui_file) == 2);
+    assert(path_arg(2, recorder_tui) == -1);
+
     char *less_file[] = {"less", "notes/today.md"};
     char *less_manual[] = {"less", "man:storage"};
     assert(path_arg(2, less_file) == 1);

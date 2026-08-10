@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_stream.h"
 
 #define SOLAR_OS_SYNTH_BLOCK_FRAMES_DEFAULT 256U
 #define SOLAR_OS_SYNTH_BLOCK_FRAMES_MIN 32U
@@ -19,6 +20,8 @@ typedef void (*solar_os_synth_render_cb_t)(int16_t *samples,
 
 typedef struct {
     const char *owner;
+    /* NULL or empty selects the current default audio output. */
+    const char *playback_stream;
     solar_os_synth_render_cb_t render;
     void *user;
     size_t block_frames;
@@ -28,6 +31,7 @@ typedef struct {
     bool starting;
     bool running;
     char owner[SOLAR_OS_SYNTH_OWNER_MAX];
+    char playback_stream[SOLAR_OS_STREAM_ID_MAX];
     uint32_t sample_rate;
     size_t block_frames;
     uint64_t rendered_frames;

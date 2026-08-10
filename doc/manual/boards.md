@@ -557,6 +557,22 @@ job start log uart0 debug
 It is silent because composite scanout owns I2S0. Do not combine
 `rover-retro` with `SOLAR_OS_CVBS_MODE=320x200`; the Game Boy image is 320x288.
 
+For the focused Synth build, use:
+
+```sh
+SOLAR_OS_FLAVOR=rover-synth pio run -e freenove_esp32_wrover_v3
+```
+
+`rover-synth` keeps BLE and PS/2 keyboard input, MIDI, controls, storage, and
+basic file tools. It omits Wi-Fi/networking and unrelated application stacks
+to retain classic-ESP32 internal memory for Bluetooth and real-time audio.
+Attach an LEDC PWM audio output at runtime because PAL scanout owns I2S0:
+
+```text
+expansion attach audio-pwm audio pwm=gpio26
+synth
+```
+
 Connect GPIO25 to the composite input's center conductor and a board GND to its
 shield/ground. Keep both leads short and use a PAL-capable input with its normal
 75-ohm termination. The backend continuously owns I2S0 and the APLL while the
@@ -571,9 +587,9 @@ registered on the CH340 pins and cannot be detached by the shell using it.
 
 The board uses `partitions_4mb.csv`, with one 0x3D0000-byte factory application
 slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific `rover`,
-`rover-python`, `rover-lua`, and `rover-retro` flavors do not use a dual-OTA
-layout on 4 MB flash. Install firmware through the CH340 serial connection;
-this partition layout does not support on-device OTA updates.
+`rover-python`, `rover-lua`, `rover-synth`, and `rover-retro` flavors do not use
+a dual-OTA layout on 4 MB flash. Install firmware through the CH340 serial
+connection; this partition layout does not support on-device OTA updates.
 
 ## ODROID-GO
 

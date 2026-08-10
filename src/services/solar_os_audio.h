@@ -42,11 +42,16 @@ typedef struct {
     char capture_stream[SOLAR_OS_STREAM_ID_MAX];
     char playback_stream[SOLAR_OS_STREAM_ID_MAX];
     solar_os_audio_stream_format_t native_format;
+    float input_gain_min_db;
+    float input_gain_max_db;
+    float input_gain_step_db;
 } solar_os_audio_device_info_t;
 
 typedef struct {
     /* Callbacks remain valid until the device is unregistered. */
     esp_err_t (*set_volume)(void *user, uint8_t volume);
+    esp_err_t (*set_input_gain)(void *user, float gain_db);
+    esp_err_t (*get_input_gain)(void *user, float *gain_db);
 } solar_os_audio_device_ops_t;
 
 typedef struct {
@@ -116,6 +121,7 @@ typedef struct {
 
 typedef bool (*solar_os_audio_wav_cancel_cb_t)(void *user);
 typedef bool (*solar_os_audio_wav_pause_cb_t)(void *user);
+typedef bool (*solar_os_audio_wav_monitor_cb_t)(void *user);
 typedef void (*solar_os_audio_wav_samples_cb_t)(const int16_t *samples,
                                                 size_t sample_count,
                                                 uint8_t channels,
@@ -129,6 +135,14 @@ typedef void (*solar_os_audio_wav_progress_cb_t)(const solar_os_audio_wav_progre
 typedef struct {
     /* Playback stream owner; NULL keeps the aplay compatibility name. */
     const char *owner;
+    /* Recording source; NULL selects the first compatible capture device. */
+    const char *capture_stream;
+    /* Zero fields retain the capture stream's native WAV format. */
+    solar_os_audio_stream_format_t record_format;
+    bool monitor;
+    uint8_t monitor_volume;
+    /* Optional live monitor control; when present it supersedes monitor. */
+    solar_os_audio_wav_monitor_cb_t should_monitor;
     solar_os_audio_wav_cancel_cb_t should_cancel;
     solar_os_audio_wav_progress_cb_t progress;
     solar_os_audio_wav_pause_cb_t should_pause;
@@ -161,6 +175,8 @@ esp_err_t solar_os_audio_open_default(
     solar_os_stream_handle_t *stream,
     solar_os_audio_device_info_t *device);
 esp_err_t solar_os_audio_set_device_volume(const char *id, uint8_t volume);
+esp_err_t solar_os_audio_set_device_input_gain(const char *id, float gain_db);
+esp_err_t solar_os_audio_get_device_input_gain(const char *id, float *gain_db);
 /* Register the board device and its scalar/audio endpoints without powering it. */
 esp_err_t solar_os_audio_register_streams(void);
 esp_err_t solar_os_audio_set_volume(uint8_t volume);
@@ -206,6 +222,11 @@ esp_err_t solar_os_audio_record_wav(const char *path,
                                     uint32_t duration_ms,
                                     const solar_os_audio_wav_options_t *options,
                                     solar_os_audio_wav_info_t *info);
+/* Route a selected capture stream to the default output until cancellation. */
+esp_err_t solar_os_audio_monitor_stream(
+    uint8_t volume,
+    const solar_os_audio_wav_options_t *options,
+    solar_os_audio_wav_info_t *info);
 esp_err_t solar_os_audio_play_wav(const char *path,
                                   uint8_t volume,
                                   const solar_os_audio_wav_options_t *options,

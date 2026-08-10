@@ -37,6 +37,9 @@
 #include "solar_os_docs.h"
 #endif
 #include "solar_os_engines.h"
+#if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
+#include "solar_os_espnow.h"
+#endif
 #include "solar_os_expansion.h"
 #include "solar_os_gpio.h"
 #include "solar_os_gfx_internal.h"
@@ -607,6 +610,15 @@ static void enter_light_sleep(const char *reason)
     }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
+    const esp_err_t espnow_sleep_err = solar_os_espnow_prepare_sleep();
+    if (espnow_sleep_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "ESP-NOW sleep prepare failed: %s",
+                      esp_err_to_name(espnow_sleep_err));
+    }
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
     if (board_has(SOLAR_OS_BOARD_CAP_WIFI)) {
         const esp_err_t wifi_sleep_err = solar_os_wifi_prepare_sleep();
@@ -654,6 +666,14 @@ static void enter_light_sleep(const char *reason)
         } else {
             radio_resumed = true;
         }
+    }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
+    const esp_err_t espnow_resume_err = solar_os_espnow_resume();
+    if (espnow_resume_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "ESP-NOW resume failed: %s",
+                      esp_err_to_name(espnow_resume_err));
     }
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -1437,7 +1457,10 @@ void app_main(void)
     print_boot_summary();
     key_button_init();
 
-    const esp_err_t port_shell_err = solar_os_port_shell_init();
+    const bool reserve_port_shell =
+        !board_has(SOLAR_OS_BOARD_CAP_DISPLAY);
+    const esp_err_t port_shell_err =
+        solar_os_port_shell_init(reserve_port_shell);
     if (port_shell_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG,
                       "Port shell reserve unavailable: %s",

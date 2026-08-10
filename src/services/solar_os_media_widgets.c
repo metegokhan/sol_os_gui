@@ -12,6 +12,77 @@ struct solar_os_cassette_widget {
     uint32_t last_tick_ms;
 };
 
+static void media_transport_triangle(solar_os_gfx_t *gfx,
+                                     int left,
+                                     int top,
+                                     int size,
+                                     bool points_right)
+{
+    const solar_os_gfx_point_t points[] = {
+        {points_right ? left : left + size, top},
+        {points_right ? left : left + size, top + size},
+        {points_right ? left + size : left, top + size / 2},
+    };
+    solar_os_gfx_fill_polygon(gfx, points, 3U);
+}
+
+void solar_os_media_transport_button_draw(
+    solar_os_gfx_t *gfx,
+    int x,
+    int y,
+    int width,
+    int height,
+    solar_os_media_transport_icon_t icon,
+    bool active)
+{
+    if (gfx == NULL || width < 12 || height < 12) {
+        return;
+    }
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    if (active) {
+        solar_os_gfx_fill_rect(gfx, x, y, width, height);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+    } else {
+        solar_os_gfx_rect(gfx, x, y, width, height);
+    }
+
+    int size = height - 10;
+    if (size > width - 12) size = width - 12;
+    if (size < 6) size = 6;
+    const int cx = x + width / 2;
+    const int cy = y + height / 2;
+    const int left = cx - size / 2;
+    const int top = cy - size / 2;
+    const int bar = size / 4 > 2 ? size / 4 : 2;
+
+    switch (icon) {
+    case SOLAR_OS_MEDIA_TRANSPORT_PREVIOUS:
+        solar_os_gfx_fill_rect(gfx, left, top, bar, size);
+        media_transport_triangle(gfx, left + bar + 1, top, size, false);
+        break;
+    case SOLAR_OS_MEDIA_TRANSPORT_PLAY:
+        media_transport_triangle(gfx, left, top, size, true);
+        break;
+    case SOLAR_OS_MEDIA_TRANSPORT_PAUSE:
+        solar_os_gfx_fill_rect(gfx, left, top, bar, size);
+        solar_os_gfx_fill_rect(gfx, left + size - bar, top, bar, size);
+        break;
+    case SOLAR_OS_MEDIA_TRANSPORT_STOP:
+        solar_os_gfx_fill_rect(gfx, left, top, size, size);
+        break;
+    case SOLAR_OS_MEDIA_TRANSPORT_RECORD:
+        solar_os_gfx_fill_circle(gfx, cx, cy, size / 2);
+        break;
+    case SOLAR_OS_MEDIA_TRANSPORT_NEXT:
+        media_transport_triangle(gfx, left - bar - 1, top, size, true);
+        solar_os_gfx_fill_rect(gfx, left + size, top, bar, size);
+        break;
+    default:
+        break;
+    }
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+}
+
 esp_err_t solar_os_cassette_widget_create(solar_os_cassette_widget_t **out)
 {
     if (out == NULL) {

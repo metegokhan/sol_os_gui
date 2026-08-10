@@ -96,15 +96,25 @@ members = [
   "service_synth",
   "app_aplay",
   "app_arecord",
+  "app_recorder",
   "app_player",
   "app_synth",
+  "app_funcgen",
 ]
-triggers = ["app_aplay", "app_arecord", "app_player", "app_synth"]
+triggers = [
+  "app_aplay",
+  "app_arecord",
+  "app_recorder",
+  "app_player",
+  "app_synth",
+  "app_funcgen",
+]
 
 [groups.net]
 capabilities = ["wifi"]
 members = [
   "service_wifi",
+  "service_espnow",
   "service_net",
   "service_mqtt",
   "service_ssh",
@@ -127,6 +137,7 @@ members = [
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
+  "job_espnow_link",
 ]
 triggers = [
   "app_ssh",
@@ -144,6 +155,7 @@ triggers = [
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
+  "job_espnow_link",
 ]
 
 [groups.agent]
@@ -338,6 +350,16 @@ sources = [
 requires = ["esp_event", "esp_netif", "esp_wifi", "lwip", "nvs_flash"]
 capabilities = ["wifi"]
 
+[packages.service_espnow]
+label = "service.espnow"
+depends = ["service_wifi"]
+sources = [
+  "services/solar_os_espnow.c",
+  "shell/solar_os_shell_espnow.c",
+]
+requires = ["esp_wifi", "nvs_flash"]
+capabilities = ["wifi"]
+
 [packages.service_net]
 label = "network.base"
 depends = ["service_wifi"]
@@ -504,13 +526,12 @@ requires = ["nvs_flash"]
 
 [packages.service_synth]
 label = "service.synth"
-depends = ["service_audio_board", "service_dsp", "service_streams"]
+depends = ["service_audio", "service_dsp", "service_streams"]
 sources = [
   "services/solar_os_synth.c",
   "services/solar_os_synth_voice.c",
 ]
 requires = ["esp_timer"]
-capabilities = ["audio"]
 
 [packages.service_midi]
 label = "service.midi"
@@ -643,6 +664,7 @@ label = "service.link"
 sources = [
   "services/solar_os_link.c",
   "services/solar_os_link_stream.c",
+  "services/solar_os_link_messaging.c",
   "shell/solar_os_shell_link.c",
 ]
 requires = ["esp_hw_support"]
@@ -819,6 +841,16 @@ label = "app.arecord"
 depends = ["service_audio"]
 sources = ["apps/solar_os_audio_apps.c"]
 
+[packages.app_recorder]
+label = "app.recorder"
+depends = [
+  "service_audio",
+  "service_media_widgets",
+  "service_signal_widgets",
+  "service_storage_browser",
+]
+sources = ["apps/solar_os_recorder.c"]
+
 [packages.app_player]
 label = "app.player"
 depends = [
@@ -835,7 +867,11 @@ sources = ["apps/solar_os_player.c"]
 label = "app.synth"
 depends = ["service_midi", "service_synth"]
 sources = ["apps/solar_os_synth_app.c"]
-capabilities = ["audio", "gfx"]
+
+[packages.app_funcgen]
+label = "app.funcgen"
+depends = ["service_signal_widgets", "service_synth"]
+sources = ["apps/solar_os_funcgen.c"]
 
 [packages.app_ssh]
 label = "app.ssh"
@@ -861,6 +897,7 @@ depends = [
   "service_audio",
   "service_audio_codecs",
   "service_http_client",
+  "service_media_widgets",
   "service_signal_widgets",
   "service_webradio",
 ]
@@ -1176,9 +1213,14 @@ label = "job.radio-link"
 depends = ["service_inbox", "service_link", "service_radio"]
 sources = [
   "jobs/solar_os_radio_link_job.c",
-  "services/solar_os_link_messaging.c",
 ]
 any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
+
+[packages.job_espnow_link]
+label = "job.espnow-link"
+depends = ["service_espnow", "service_inbox", "service_link"]
+sources = ["jobs/solar_os_espnow_link_job.c"]
+capabilities = ["wifi"]
 
 [packages.job_meshcore]
 label = "job.meshcore"

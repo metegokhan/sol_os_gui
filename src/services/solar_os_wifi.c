@@ -58,6 +58,8 @@ static bool wifi_nat_enabled;
 static bool wifi_nat_active;
 static bool wifi_ap_enabled;
 static bool wifi_ap_running;
+static bool wifi_connectionless_active;
+static bool wifi_connectionless_channel_auto;
 static bool wifi_suspended;
 static bool wifi_sleep_was_started;
 static bool wifi_sleep_sta_enabled;
@@ -83,7 +85,9 @@ static uint8_t wifi_disconnect_reason;
 static uint8_t wifi_ap_channel;
 static uint8_t wifi_ap_station_count;
 static uint8_t wifi_ap_max_connections;
+static uint8_t wifi_connectionless_channel;
 static esp_err_t wifi_nat_last_error;
+static char wifi_connectionless_owner[SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX];
 
 static void wifi_set_started_state(bool started);
 static esp_err_t wifi_update_ap_dns_from_sta(void);
@@ -176,6 +180,15 @@ static void wifi_unlock(void)
     if (wifi_mutex != NULL) {
         xSemaphoreGive(wifi_mutex);
     }
+}
+
+static bool wifi_connectionless_fixed(void)
+{
+    bool fixed = false;
+    wifi_lock();
+    fixed = wifi_connectionless_active && !wifi_connectionless_channel_auto;
+    wifi_unlock();
+    return fixed;
 }
 
 static void wifi_copy_ssid(char *dest, size_t dest_len, const uint8_t *ssid, size_t ssid_len)
@@ -944,13 +957,14 @@ restart:
 
 static wifi_mode_t wifi_desired_mode(void)
 {
-    if (wifi_sta_enabled && wifi_ap_enabled) {
+    const bool station_required = wifi_sta_enabled || wifi_connectionless_active;
+    if (station_required && wifi_ap_enabled) {
         return WIFI_MODE_APSTA;
     }
     if (wifi_ap_enabled) {
         return WIFI_MODE_AP;
     }
-    if (wifi_sta_enabled) {
+    if (station_required) {
         return WIFI_MODE_STA;
     }
     return WIFI_MODE_NULL;
@@ -993,17 +1007,18 @@ static esp_err_t wifi_apply_mode(void)
             return ret;
         }
 
-        ret = esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
-        if (ret != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "Wi-Fi power save setup failed: %s", esp_err_to_name(ret));
-        }
+    }
+
+    ret = esp_wifi_set_ps(wifi_connectionless_active ? WIFI_PS_NONE : WIFI_PS_MAX_MODEM);
+    if (ret != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Wi-Fi power save setup failed: %s", esp_err_to_name(ret));
     }
 
     wifi_lock();
     wifi_started = true;
-    if (wifi_sta_enabled && !wifi_connected) {
+    if ((wifi_sta_enabled || wifi_connectionless_active) && !wifi_connected) {
         wifi_state = SOLAR_OS_WIFI_STATE_IDLE;
-    } else if (!wifi_sta_enabled) {
+    } else if (!wifi_sta_enabled && !wifi_connectionless_active) {
         wifi_state = SOLAR_OS_WIFI_STATE_OFF;
     }
     wifi_unlock();
@@ -1052,6 +1067,9 @@ static void wifi_refresh_link_info(void)
     if (err == ESP_OK) {
         wifi_rssi = ap_info.rssi;
         wifi_channel = ap_info.primary;
+        if (wifi_connectionless_active) {
+            wifi_connectionless_channel = ap_info.primary;
+        }
         wifi_copy_ssid(wifi_ssid, sizeof(wifi_ssid), ap_info.ssid, sizeof(ap_info.ssid));
     } else {
         wifi_rssi = 0;
@@ -1066,9 +1084,9 @@ static void wifi_set_started_state(bool started)
     if (!started) {
         wifi_clear_link_state();
         wifi_state = SOLAR_OS_WIFI_STATE_OFF;
-    } else if (wifi_sta_enabled && !wifi_connected) {
+    } else if ((wifi_sta_enabled || wifi_connectionless_active) && !wifi_connected) {
         wifi_state = SOLAR_OS_WIFI_STATE_IDLE;
-    } else if (!wifi_sta_enabled) {
+    } else if (!wifi_sta_enabled && !wifi_connectionless_active) {
         wifi_state = SOLAR_OS_WIFI_STATE_OFF;
     }
 }
@@ -1092,7 +1110,6 @@ static void wifi_event_handler(void *arg,
         switch (event_id) {
         case WIFI_EVENT_STA_START:
             wifi_lock();
-            wifi_sta_enabled = true;
             wifi_set_started_state(true);
             wifi_unlock();
             break;
@@ -1113,13 +1130,16 @@ static void wifi_event_handler(void *arg,
             wifi_lock();
             wifi_started = true;
             wifi_ap_running = true;
+            if (wifi_connectionless_active) {
+                wifi_connectionless_channel = wifi_ap_channel;
+            }
             wifi_unlock();
             break;
         case WIFI_EVENT_AP_STOP:
             wifi_lock();
             wifi_ap_running = false;
             wifi_ap_station_count = 0;
-            if (!wifi_sta_enabled) {
+            if (!wifi_sta_enabled && !wifi_connectionless_active) {
                 wifi_started = false;
             }
             wifi_unlock();
@@ -1146,6 +1166,9 @@ static void wifi_event_handler(void *arg,
             wifi_disconnect_reason = 0;
             wifi_state = SOLAR_OS_WIFI_STATE_CONNECTING;
             wifi_channel = event != NULL ? event->channel : 0;
+            if (wifi_connectionless_active && event != NULL) {
+                wifi_connectionless_channel = event->channel;
+            }
             if (event != NULL) {
                 wifi_copy_ssid(wifi_ssid, sizeof(wifi_ssid), event->ssid, event->ssid_len);
             }
@@ -1190,6 +1213,9 @@ static void wifi_event_handler(void *arg,
             if (ap_err == ESP_OK) {
                 wifi_rssi = ap_info.rssi;
                 wifi_channel = ap_info.primary;
+                if (wifi_connectionless_active) {
+                    wifi_connectionless_channel = ap_info.primary;
+                }
                 wifi_copy_ssid(wifi_ssid, sizeof(wifi_ssid), ap_info.ssid, sizeof(ap_info.ssid));
             }
             wifi_unlock();
@@ -1289,7 +1315,11 @@ esp_err_t solar_os_wifi_init(void)
         return ret;
     }
 
-    ret = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+    /* SolarOS persists station and AP profiles itself. Keep the driver's
+     * working configuration in RAM so esp_wifi_set_config() does not duplicate
+     * it in the small shared NVS partition or fail when that partition is full.
+     */
+    ret = esp_wifi_set_storage(WIFI_STORAGE_RAM);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -1479,6 +1509,18 @@ esp_err_t solar_os_wifi_resume(void)
         return ret;
     }
 
+    wifi_lock();
+    const bool restore_connectionless_channel =
+        wifi_connectionless_active && !wifi_connected && !wifi_ap_enabled;
+    const uint8_t connectionless_channel = wifi_connectionless_channel;
+    wifi_unlock();
+    if (restore_connectionless_channel && connectionless_channel != 0U) {
+        ret = esp_wifi_set_channel(connectionless_channel, WIFI_SECOND_CHAN_NONE);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
     if (reconnect_sta) {
         wifi_lock();
         wifi_state = SOLAR_OS_WIFI_STATE_CONNECTING;
@@ -1503,6 +1545,9 @@ esp_err_t solar_os_wifi_resume(void)
 
 esp_err_t solar_os_wifi_connect(const char *ssid, const char *password)
 {
+    if (wifi_connectionless_fixed()) {
+        return ESP_ERR_INVALID_STATE;
+    }
     esp_err_t ret = wifi_validate_station_settings(ssid, password);
     if (ret != ESP_OK) {
         return ret;
@@ -1558,6 +1603,9 @@ esp_err_t solar_os_wifi_connect(const char *ssid, const char *password)
 
 esp_err_t solar_os_wifi_connect_saved(void)
 {
+    if (wifi_connectionless_fixed()) {
+        return ESP_ERR_INVALID_STATE;
+    }
     esp_err_t ret = solar_os_wifi_start();
     if (ret != ESP_OK) {
         return ret;
@@ -1845,6 +1893,16 @@ esp_err_t solar_os_wifi_ap_start(const char *ssid, const char *password, const c
     config.ap.pmf_cfg.required = false;
 
     wifi_lock();
+    const bool channel_conflict =
+        wifi_connectionless_active &&
+        !wifi_connectionless_channel_auto &&
+        wifi_connectionless_channel != config.ap.channel;
+    wifi_unlock();
+    if (channel_conflict) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    wifi_lock();
     wifi_ap_enabled = true;
     wifi_unlock();
 
@@ -1934,6 +1992,12 @@ esp_err_t solar_os_wifi_scan(solar_os_wifi_ap_t *aps, size_t max_aps, size_t *fo
     if (max_aps > 0 && aps == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    wifi_lock();
+    const bool connectionless_active = wifi_connectionless_active;
+    wifi_unlock();
+    if (connectionless_active) {
+        return ESP_ERR_INVALID_STATE;
+    }
 
     esp_err_t ret = solar_os_wifi_start();
     if (ret != ESP_OK) {
@@ -1994,6 +2058,104 @@ esp_err_t solar_os_wifi_scan(solar_os_wifi_ap_t *aps, size_t max_aps, size_t *fo
     return ESP_OK;
 }
 
+esp_err_t solar_os_wifi_connectionless_acquire(const char *owner,
+                                               uint8_t requested_channel,
+                                               uint8_t *actual_channel)
+{
+    if (owner == NULL || owner[0] == '\0' ||
+        strnlen(owner, SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX) >=
+            SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX ||
+        requested_channel > 13U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t ret = solar_os_wifi_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    wifi_lock();
+    if (wifi_connectionless_active) {
+        wifi_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    const uint8_t active_channel = wifi_connected && wifi_channel != 0U ?
+        wifi_channel :
+        (wifi_ap_enabled ? wifi_ap_channel : 0U);
+    if (requested_channel != 0U && active_channel != 0U &&
+        requested_channel != active_channel) {
+        wifi_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    const uint8_t selected_channel = active_channel != 0U ?
+        active_channel :
+        (requested_channel != 0U ? requested_channel : SOLAR_OS_WIFI_DEFAULT_AP_CHANNEL);
+    wifi_connectionless_active = true;
+    wifi_connectionless_channel_auto = requested_channel == 0U;
+    wifi_connectionless_channel = selected_channel;
+    strlcpy(wifi_connectionless_owner, owner, sizeof(wifi_connectionless_owner));
+    wifi_unlock();
+
+    ret = wifi_apply_mode();
+    if (ret == ESP_OK && active_channel == 0U) {
+        ret = esp_wifi_set_channel(selected_channel, WIFI_SECOND_CHAN_NONE);
+    }
+    if (ret != ESP_OK) {
+        wifi_lock();
+        wifi_connectionless_active = false;
+        wifi_connectionless_channel_auto = false;
+        wifi_connectionless_channel = 0U;
+        wifi_connectionless_owner[0] = '\0';
+        wifi_unlock();
+        (void)wifi_apply_mode();
+        return ret;
+    }
+
+    uint8_t primary = selected_channel;
+    wifi_second_chan_t secondary = WIFI_SECOND_CHAN_NONE;
+    if (esp_wifi_get_channel(&primary, &secondary) != ESP_OK) {
+        primary = selected_channel;
+    }
+    wifi_lock();
+    wifi_connectionless_channel = primary;
+    wifi_unlock();
+    if (actual_channel != NULL) {
+        *actual_channel = primary;
+    }
+    SOLAR_OS_LOGI(TAG,
+                  "connectionless radio acquired owner=%s channel=%u mode=%s",
+                  owner,
+                  (unsigned)primary,
+                  requested_channel == 0U ? "auto" : "fixed");
+    return ESP_OK;
+}
+
+esp_err_t solar_os_wifi_connectionless_release(const char *owner)
+{
+    if (owner == NULL || owner[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    wifi_lock();
+    if (!wifi_connectionless_active) {
+        wifi_unlock();
+        return ESP_OK;
+    }
+    if (strcmp(owner, wifi_connectionless_owner) != 0) {
+        wifi_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    wifi_connectionless_active = false;
+    wifi_connectionless_channel_auto = false;
+    wifi_connectionless_channel = 0U;
+    wifi_connectionless_owner[0] = '\0';
+    wifi_unlock();
+
+    const esp_err_t ret = wifi_apply_mode();
+    SOLAR_OS_LOGI(TAG, "connectionless radio released owner=%s", owner);
+    return ret;
+}
+
 void solar_os_wifi_get_status(solar_os_wifi_status_t *status)
 {
     if (status == NULL) {
@@ -2015,12 +2177,15 @@ void solar_os_wifi_get_status(solar_os_wifi_status_t *status)
         .nat_active = wifi_nat_active,
         .ap_enabled = wifi_ap_enabled,
         .ap_running = wifi_ap_running,
+        .connectionless_active = wifi_connectionless_active,
+        .connectionless_channel_auto = wifi_connectionless_channel_auto,
         .rssi = wifi_rssi,
         .channel = wifi_channel,
         .disconnect_reason = wifi_disconnect_reason,
         .ap_channel = wifi_ap_channel,
         .ap_station_count = wifi_ap_station_count,
         .ap_max_connections = wifi_ap_max_connections,
+        .connectionless_channel = wifi_connectionless_channel,
         .saved_profile_count = (uint8_t)wifi_profile_count,
         .nat_last_error = wifi_nat_last_error,
     };
@@ -2034,6 +2199,9 @@ void solar_os_wifi_get_status(solar_os_wifi_status_t *status)
     strlcpy(status->ap_ssid, wifi_ap_ssid, sizeof(status->ap_ssid));
     strlcpy(status->ap_auth, wifi_ap_auth, sizeof(status->ap_auth));
     strlcpy(status->ap_ip, wifi_ap_ip, sizeof(status->ap_ip));
+    strlcpy(status->connectionless_owner,
+            wifi_connectionless_owner,
+            sizeof(status->connectionless_owner));
     wifi_unlock();
 }
 
@@ -2047,7 +2215,8 @@ void solar_os_wifi_get_status_text(char *buffer, size_t len)
     solar_os_wifi_get_status(&status);
 
     if (!status.initialized ||
-        (status.state == SOLAR_OS_WIFI_STATE_OFF && !status.ap_running)) {
+        (status.state == SOLAR_OS_WIFI_STATE_OFF && !status.ap_running &&
+         !status.connectionless_active)) {
         strlcpy(buffer, "off", len);
     } else if (status.state == SOLAR_OS_WIFI_STATE_CONNECTED && status.has_ip) {
         snprintf(buffer,
@@ -2062,6 +2231,11 @@ void solar_os_wifi_get_status_text(char *buffer, size_t len)
                  "ap %s%s",
                  status.ap_ip[0] != '\0' ? status.ap_ip : status.ap_ssid,
                  status.nat_active ? " nat" : "");
+    } else if (status.connectionless_active) {
+        snprintf(buffer,
+                 len,
+                 "espnow ch%u",
+                 (unsigned)status.connectionless_channel);
     } else if (status.state == SOLAR_OS_WIFI_STATE_CONNECTING && status.ssid[0] != '\0') {
         snprintf(buffer, len, "connecting %s", status.ssid);
     } else if (status.state == SOLAR_OS_WIFI_STATE_DISCONNECTED && status.disconnect_reason != 0) {

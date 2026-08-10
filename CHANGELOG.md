@@ -2,6 +2,35 @@
 
 ## 4.x
 
+- **4.7.6** — 2026-08-10 — Added `funcgen`, an audio function generator with
+  GUI/TUI interfaces, a live oscilloscope, selectable runtime playback streams,
+  six waveform shapes, amplitude and pulse-width controls, and repeating
+  frequency sweeps. Every adjustable control is available through the shared
+  parameter/control-binding system. Added the focused `rover-synth` flavor for
+  BLE/MIDI-controlled Synth with an attached LEDC PWM audio output. BLE keyboard
+  pairing and forgetting now wait for an active HID open to finish, preventing
+  connected keyboards without input and disconnect-time resets.
+- **4.7.5** — 2026-08-10 — Mixed-interface applications now accept `--tui`
+  to force their text interface on a graphical shell. This applies to Calc,
+  Player, WebRadio, and Recorder. Added an ESP-NOW transport for SolarOS Link,
+  with a managed background job, persistent and learned peer mappings, Wi-Fi
+  channel coexistence, shell diagnostics, and completion. Wi-Fi driver runtime
+  configuration no longer duplicates SolarOS profiles in the shared NVS
+  partition, so a full NVS partition cannot block SoftAP or ESP-NOW startup.
+- **4.7.4** — 2026-08-10 — Display-capable systems now allocate port-shell
+  workers on demand, leaving the 16 KiB shell stack available until a UART or
+  USB CDC shell is opened. Headless systems retain a reserved worker for their
+  primary interactive console. Synth is now available on headless systems with
+  runtime audio outputs and supports `synth --headless` for operation without
+  its graphical interface.
+- **4.7.3** — 2026-08-10 — Added `recorder`, an interactive GUI/TUI WAV
+  recorder with capture-stream selection, mono/stereo recording, selectable
+  sample rate and resolution, hardware input gain, output volume, live
+  monitoring, pause/stop/playback controls, automatic filenames, an integrated
+  folder browser, persistent settings, and cassette, oscilloscope, and spectrum
+  views. Player, WebRadio, and Recorder now share standard graphical media
+  controls. WAV playback converts channel count and sample rate to the selected
+  output stream.
 - **4.7.1** — 2026-08-09 — Added a persistent `setterm statusbar show|hide`
   setting. Hiding the graphical shell status bar gives its space to terminal
   rows; the default remains `show` when NVS has no saved setting.

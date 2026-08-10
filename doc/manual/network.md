@@ -20,6 +20,13 @@ enables them again for the next boot. Both commands leave the current boot and
 saved network profiles unchanged. `wifi on` and `wifi off` remain live radio
 controls for the current boot.
 
+The `espnow-link` job uses a connectionless Wi-Fi lease. In automatic mode it
+follows the active station or AP channel and otherwise uses channel 6. While
+the lease is active, scanning is rejected. A fixed ESP-NOW channel also rejects
+a new station connection or an AP configured for another channel. `wifi off`
+turns off station/AP networking but reports that the radio remains active until
+the ESP-NOW job stops.
+
 From the shell, `wifi` opens the display TUI and `wifi status` works on every
 shell. A script can scan before connecting:
 

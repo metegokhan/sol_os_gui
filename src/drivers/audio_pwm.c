@@ -10,12 +10,17 @@
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "hal/ledc_ll.h"
+#include "soc/soc_caps.h"
 
 #define AUDIO_PWM_DUTY_RESOLUTION LEDC_TIMER_8_BIT
 #define AUDIO_PWM_DUTY_MIDPOINT 128U
 #define AUDIO_PWM_TIMER LEDC_TIMER_3
 #define AUDIO_PWM_CHANNEL LEDC_CHANNEL_7
+#if SOC_LEDC_SUPPORT_HS_MODE
+#define AUDIO_PWM_MODE LEDC_HIGH_SPEED_MODE
+#else
 #define AUDIO_PWM_MODE LEDC_LOW_SPEED_MODE
+#endif
 #define AUDIO_PWM_GPTIMER_RESOLUTION_HZ 16000000U
 #define AUDIO_PWM_GPTIMER_ALARM_TICKS \
     (AUDIO_PWM_GPTIMER_RESOLUTION_HZ / AUDIO_PWM_SAMPLE_RATE)
@@ -37,6 +42,11 @@ static audio_pwm_state_t audio_pwm;
 static void IRAM_ATTR audio_pwm_set_duty(uint8_t duty)
 {
     ledc_dev_t *hw = LEDC_LL_GET_HW();
+    if (hw->channel_group[AUDIO_PWM_MODE]
+            .channel[AUDIO_PWM_CHANNEL]
+            .conf1.duty_start) {
+        return;
+    }
     ledc_ll_set_duty_int_part(hw, AUDIO_PWM_MODE, AUDIO_PWM_CHANNEL, duty);
     ledc_ll_set_duty_direction(hw,
                                AUDIO_PWM_MODE,
@@ -46,7 +56,9 @@ static void IRAM_ATTR audio_pwm_set_duty(uint8_t duty)
     ledc_ll_set_duty_cycle(hw, AUDIO_PWM_MODE, AUDIO_PWM_CHANNEL, 1U);
     ledc_ll_set_duty_scale(hw, AUDIO_PWM_MODE, AUDIO_PWM_CHANNEL, 0U);
     ledc_ll_set_duty_start(hw, AUDIO_PWM_MODE, AUDIO_PWM_CHANNEL);
+#if !SOC_LEDC_SUPPORT_HS_MODE
     ledc_ll_ls_channel_update(hw, AUDIO_PWM_MODE, AUDIO_PWM_CHANNEL);
+#endif
 }
 
 static bool IRAM_ATTR audio_pwm_on_sample(
@@ -111,6 +123,19 @@ esp_err_t audio_pwm_open(gpio_num_t pin)
     ESP_RETURN_ON_ERROR(ledc_timer_config(&ledc_timer),
                         "audio_pwm",
                         "LEDC timer config failed");
+
+    /*
+     * ESP-IDF configures a channel's initial duty before binding the timer
+     * requested by ledc_channel_config().  On classic ESP32 the channel still
+     * points at unconfigured timer 0 here, so the duty-start handshake never
+     * completes and ledc_update_duty() holds the spinlock until the interrupt
+     * watchdog fires.  Bind our running carrier timer first.
+     */
+    ESP_RETURN_ON_ERROR(ledc_bind_channel_timer(AUDIO_PWM_MODE,
+                                                AUDIO_PWM_CHANNEL,
+                                                AUDIO_PWM_TIMER),
+                        "audio_pwm",
+                        "LEDC channel timer bind failed");
 
     const ledc_channel_config_t ledc_channel = {
         .gpio_num = pin,

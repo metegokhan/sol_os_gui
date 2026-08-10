@@ -72,6 +72,13 @@ the practical internal-memory margin. The board's 4 MB flash uses one large
 factory application slot, so these flavors omit OTA and remote manual
 synchronization. The embedded `docs` application remains available.
 
+`rover-synth` is a focused classic-ESP32 synthesizer build. It retains BLE and
+PS/2 keyboard input, SD and basic file tools, controls, MIDI, and the LEDC PWM
+audio expansion while omitting Wi-Fi/networking, packet radio, media, games,
+scripting, and unrelated application groups. Composite video owns I2S0, so the
+on-board audio package remains disabled and Synth uses a runtime-attached PWM
+output. This smaller profile preserves Bluetooth controller memory headroom.
+
 `rover-retro` is a focused Freenove Game Boy build with the normal system
 service baseline. It includes BLE keyboard input, SD storage, UART ports,
 hardware I/O services, filesystem commands, Docs, Edit, Less, Com, Files, the
@@ -109,10 +116,35 @@ those workers running; closing the app stops them and releases their resources.
 `app.player` combines the shared audio and codec services with a persistent
 playlist on the current storage root, the reusable storage browser, signal
 widgets, and the reusable cassette widget. Its file browser selects existing
-WAV/MP3 files; the same browser model also exposes current-directory selection
-for a future Recorder app without coupling recording policy to Player. Player
-has no built-in-audio capability requirement, so a runtime-attached output
-device can satisfy playback.
+WAV/MP3 files. Player has no built-in-audio capability requirement, so a
+runtime-attached output device can satisfy playback.
+
+`app.recorder` is the interactive counterpart to `arecord`. It combines the
+generic audio and stream services with the same storage browser, cassette,
+oscilloscope, and spectrum packages as Player. It records PCM WAV from a
+runtime-selected capture stream and does not require built-in board audio.
+Its monitor transport loops the selected capture stream to the current default
+output and visualization widgets without opening a recording file. Recorder
+allocates its app-lifetime state in PSRAM on PSRAM boards and releases it when
+the application closes. Its browser, widgets, conversion buffers, and PCM queue
+also use PSRAM. Its 8 KiB capture/file worker and the reusable audio-player
+sink are admitted as user-started foreground transports with internal stacks,
+and continue while the Recorder UI is suspended. Capture and sink timing, plus
+cache-disabled filesystem access, therefore do not depend on a PSRAM stack.
+Recorder stores its selected input, destination folder, format, device gain,
+volume, and visualizer under `.recorder` on the current storage root. Its
+cassette animates only for record and playback; scope and spectrum continue to
+present monitored input at the app's nominal 25 Hz graphical cadence.
+Hardware input gain is exposed through an optional audio-device operation;
+streams without a gain-capable owning device remain valid recording inputs and
+show gain as unavailable.
+
+`app.funcgen` combines `service.synth` with the shared oscilloscope widget.
+It has no built-in-audio capability requirement and discovers runtime output
+devices when opened. Its foreground and widget state prefer PSRAM; the bounded
+oscillator state and Synth worker remain internal for deterministic rendering.
+Every displayed control has a corresponding native parameter for physical and
+MIDI control bindings.
 
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider
@@ -152,9 +184,11 @@ persisted opt-in notification-sound policy. Audio-capable builds enqueue the
 sound through `service.audio`; Inbox remains available without audio hardware.
 `app.inbox` adds the foreground browser and its shell command.
 
-`service.synth` depends on `service.audio-board` and provides exclusive
-real-time PCM rendering for reusable synthesizers and emulated sound hardware.
-The audio board provider retains hardware-codec, global-volume, and
+`service.synth` depends on the device-independent `service.audio` and provides
+exclusive real-time PCM rendering for reusable synthesizers and emulated sound
+hardware. It opens the default playback endpoint at runtime, so firmware
+without built-in board audio can use a subsequently attached output expansion.
+The selected audio provider retains hardware-codec, global-volume, and
 output-serialization ownership; the synth service owns a bounded render block,
 dedicated worker, client ownership, and deadline/error counters. Native apps
 can supply an independent signed 16-bit stereo render callback.

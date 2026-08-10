@@ -760,6 +760,39 @@ ownership. MeshCore and `radio-link` therefore report normal ownership
 conflicts when pointed at the same radio. See [meshcore.md](meshcore.md) for
 identity, trust, channel, regional-profile, and security details.
 
+## espnow-link
+
+ESP-NOW adapter for the transport-independent SolarOS Link service.
+
+Usage:
+
+```text
+job start espnow-link <link> [channel=auto|1..13] [inbox=off|on] [chat=off|on]
+job stop espnow-link
+job status espnow-link
+espnow status
+```
+
+Example:
+
+```text
+job start espnow-link link0 channel=6 chat=on
+link send link0 broadcast "hello"
+espnow peers
+```
+
+The job leases the Wi-Fi radio, creates a 250-byte-MTU Link, and moves complete
+Link frames through ESP-NOW. `channel=auto` follows an active station or AP and
+otherwise selects channel 6. `inbox=on` and `chat=on` have the same behavior and
+mutual exclusion as `radio-link`.
+
+Incoming frames learn volatile Link-ID-to-MAC mappings; `espnow peer add`
+stores a mapping in NVS for cold-start unicast. The service is bounded to 19
+peers and four queued receive frames. Its queues and 6144-byte internal worker
+stack exist only while the job runs; durable state is in PSRAM. ESP-NOW is
+unencrypted in this release. See [link.md](link.md) for channel coexistence,
+peer conflicts, payload limits, and security constraints.
+
 ## radio-link
 
 Packet-radio adapter for the transport-independent SolarOS Link service.

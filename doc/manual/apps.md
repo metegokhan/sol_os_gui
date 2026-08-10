@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3"
+keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3 function generator funcgen waveform sweep"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -129,6 +129,113 @@ Controls:
 
 - App-exit stops recording, finalizes the WAV header, and returns to the prompt.
 
+## recorder
+
+Interactive GUI/TUI counterpart to `arecord`. Recorder writes PCM WAV files so
+the channel count, sample rate, and resolution travel with the recording and
+the result can be played immediately. It accepts any registered signed-16-bit
+PCM capture stream. On the Waveshare board it initially selects
+`audio0.capture`. Mono/stereo output, 8/16-bit file resolution, and sample rates
+from 8 kHz through 48 kHz are converted from the selected stream as necessary.
+
+Usage:
+
+```text
+recorder [--tui] [file.wav]
+```
+
+The optional path supplies the initial recording folder and filename. The
+Setup view can edit the filename or select another destination directory with
+the shared file browser. When the filename is empty, each recording gets a
+unique local-time name such as `rec-260810-113045.wav`; a numeric suffix avoids
+overwriting a file created in the same second. Recorder remembers its selected
+input, folder, format, hardware input gain, output volume, and visualizer in
+`.recorder/settings.bin` on the current storage root. An explicit path argument
+overrides the remembered folder. The filename is not remembered, so reopening
+Recorder cannot accidentally reuse a one-off name.
+
+Recorder selects its graphical interface on a graphical shell and its text
+interface on a port shell. `--tui` forces the text interface even when the
+launching shell has graphics.
+
+`Tab` switches between Record and Setup. The Record view uses the shared
+cassette widget by default; `V` cycles through Cassette, Oscilloscope, and
+Spectrum. `R` starts recording, Space pauses or resumes, `S` stops and
+finalizes the WAV header, and `P` plays the most recent or selected recording.
+`M` starts or stops monitoring: it continuously streams the selected input to
+the default output and visualizer. Monitoring can remain enabled when recording
+starts and can be toggled while the WAV writer continues. `Up`/`Down` changes
+monitor and playback volume. The cassette reels move during recording and
+playback, but remain still during monitoring. Oscilloscope and Spectrum remain
+live during monitoring. Active visualizers are presented on the 40 ms app tick
+(nominally 25 frames per second), independently of the audio block rate.
+
+Setup selects the capture stream, recording folder, mono/stereo conversion,
+sample rate, 8/16-bit WAV resolution, input gain, and output volume. Enter on
+Folder opens the WAV-filtered browser. `D` selects its current directory as the
+recording folder; Enter on a WAV file plays it and returns to Record. Input gain
+is not a generic stream multiplier:
+Recorder enables it only when the selected capture stream belongs to an audio
+device that advertises hardware input-gain control. Thus `audio0.capture` on
+the Waveshare controls the ES7210 microphone gain, while an unrelated generic
+stream shows `Input gain: n/a`. The hardware gain is system-wide; Recorder does
+not add hidden digital amplification to the saved PCM.
+
+The text interface exposes the same setup values, browser, transport keys,
+monitoring, pause behavior, and playback path. Recorder is resumable: capture,
+monitoring, or playback continues while its UI session is in the background,
+and closing the app stops the worker and finalizes an active recording.
+
+## funcgen
+
+Audio-only function generator built on the shared real-time Synth service.
+It emits signed 16-bit stereo PCM and can use the default playback device or
+an explicitly selected runtime playback stream, including an attached LEDC PWM
+audio expansion.
+
+Usage:
+
+```text
+funcgen [--tui]
+```
+
+The graphical interface shows the exact generated PCM in the shared
+oscilloscope widget. The remaining controls select sine, square, triangle, saw,
+pulse, or noise output; frequency from 20 through 8000 Hz; amplitude; pulse
+width; a repeating linear sweep; sweep end frequency; sweep time; and playback
+stream. The TUI exposes the same controls. `--tui` forces it on a graphical
+shell.
+
+Controls:
+
+- `Left`/`Right` selects a control.
+- `Up`/`Down`, `+`/`-`, or `Enter` adjusts the selected control.
+- `Space` starts or stops output.
+- `Esc`, `Q`, or the app-exit key closes the application.
+
+The output is off initially. Frequency is capped below the selected stream's
+Nyquist limit during rendering. A sweep moves linearly from Frequency to Sweep
+end during Sweep time, then repeats without resetting oscillator phase.
+Suspending the UI leaves an active generator running; closing it stops the
+Synth worker and releases the stream.
+
+All controls can be targeted by the shared control-binding system while
+Funcgen is active:
+
+- `funcgen.waveform`: 0 sine, 1 square, 2 triangle, 3 saw, 4 pulse, 5 noise.
+- `funcgen.frequency`: 20 through 8000 Hz, logarithmic.
+- `funcgen.amplitude`: 0 through 100 percent.
+- `funcgen.pulse.width`: 1 through 99 percent.
+- `funcgen.sweep.enabled`: 0 off or 1 on.
+- `funcgen.sweep.end`: 20 through 8000 Hz, logarithmic.
+- `funcgen.sweep.time`: 100 through 60000 ms, logarithmic.
+- `funcgen.output`: runtime output index; 0 follows the default output.
+- `funcgen.enabled`: 0 off or 1 on.
+
+The durable foreground state and oscilloscope storage use PSRAM when present.
+Only the bounded oscillator/render state, Synth worker stack, and PCM block
+remain in internal SRAM.
+
 ## player
 
 Interactive WAV/MP3 player and the user-facing counterpart to `aplay`. `player`
@@ -139,8 +246,12 @@ playback. Missing files remain listed so removable media can be reattached.
 Usage:
 
 ```text
-player [file.wav|file.mp3]
+player [--tui] [file.wav|file.mp3]
 ```
+
+Player selects its graphical interface on a graphical shell and its text
+interface on a port shell. `--tui` forces the text interface even when the
+launching shell has graphics.
 
 On a graphical session, `Tab` switches between Play and Playlist. The Play tab
 uses the top two-thirds for a cassette visualizer by default; `V` cycles through
@@ -158,12 +269,16 @@ playing, paused, or stopped state with elapsed and total time. Playback follows
 the resumable app while another foreground session is selected and stops when
 Player closes. End of file advances to the next playlist entry.
 
+WAV playback converts the file's mono/stereo channel count and sample rate to
+the selected output stream. A mono recording therefore plays through a fixed
+stereo device without changing the recording stored on disk.
+
 ## calc
 
 Scientific calculator and function plotter. On a graphical display, `calc`
 opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet,
 or any other text-only shell, the same command opens a scientific REPL without
-the plot pane. `calc --text` forces that REPL even when graphics are available.
+the plot pane. `calc --tui` forces that REPL even when graphics are available.
 
 The expression engine supports `+`, `-`, `*`, `/`, `%`, powers with `^`,
 parentheses, scientific notation, and implicit multiplication such as `2pi` or
@@ -369,12 +484,17 @@ Usage:
 
 ```text
 webradio
+webradio --tui
 webradio https://stream.nightride.fm/nightride.mp3
 webradio list
 webradio add MyStation https://example.net/live.mp3
 webradio remove MyStation
 webradio reset
 ```
+
+`--tui` forces the station-list TUI even on a graphical shell and can be
+combined with a direct stream URL. Catalog-management commands also accept it
+as a harmless interface override.
 
 URLs are literal HTTP or HTTPS MP3 stream URLs. WebRadio does not translate
 station names or website addresses and does not discover streams from HTML
@@ -1092,11 +1212,16 @@ Controls:
 Open the native synthesizer and sound designer:
 
 ```text
-synth
+synth [--headless]
 ```
 
 The app uses the same eight-voice fixed-point engine exposed to Python and Lua,
-but keyboard and MIDI events reach it directly. Its Play tab contains the waveform,
+but keyboard and MIDI events reach it directly. On a display, the default
+graphical interface provides the complete editor described below. `--headless`
+suppresses graphical rendering while keeping the same note keys, editing keys,
+published parameters, control bindings, and MIDI input active. This permits use
+from a port shell on a headless board after a playback device such as the LEDC
+PWM audio expansion has been attached. Its Play tab contains the waveform,
 envelope, volume, ADSR, and piano controls. The Wave tab is a graphical
 wavetable editor with selectable 16, 32, or 64-point resolution;
 edits reshape held notes immediately while the piano remains playable. The

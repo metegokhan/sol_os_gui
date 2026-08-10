@@ -452,7 +452,10 @@ daq start /logs/microphones.pcm audio0.capture --raw
 `daq` CSV rows include `uptime_ms`, and include UTC `time_ms` when wall-clock time is
 trusted. Raw mode accepts one byte or audio source and writes its data directly
 without CSV framing. Audio uses the native PCM format reported by `stream
-status`; `arecord` writes the same input as a WAV file.
+status`; `arecord` writes the same input as a WAV file. `recorder` adds
+interactive stream and WAV-format selection, no-file live input monitoring,
+hardware input gain when the selected device supports it, visualization,
+pause, and playback.
 
 Streams are runtime-registered endpoints, similar to services and displays.
 Providers can add or remove scalar sensor, event, byte, and PCM audio streams.
@@ -483,7 +486,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `wifi` | `wifi enable` | Save Wi-Fi enabled for the next boot. The current boot is unchanged. |
 | `wifi` | `wifi disable` | Save Wi-Fi disabled for the next boot. The current boot is unchanged. |
 | `wifi` | `wifi on` | Start Wi-Fi station mode and connect to remembered networks. |
-| `wifi` | `wifi off` | Stop Wi-Fi station mode. |
+| `wifi` | `wifi off` | Stop station/AP networking; an active ESP-NOW lease retains the radio. |
 | `wifi` | `wifi scan` | Scan access points. |
 | `wifi` | `wifi connect [ssid [password]]` | Connect and save/update a station profile. |
 | `wifi` | `wifi disconnect` | Disconnect station mode. |
@@ -642,6 +645,10 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
+| `espnow` | `espnow [status]` | Show ESP-NOW owner, channel, peers, traffic, drops, conflicts, and last error. |
+| `espnow` | `espnow peers\|list` | List persistent configured and volatile learned Link-ID-to-MAC mappings. |
+| `espnow` | `espnow peer add <link-id> <mac>` | Save a persistent unicast peer mapping. |
+| `espnow` | `espnow peer remove <link-id>` | Remove a configured or learned peer mapping. |
 | `link` | `link status\|list` | List active SolarOS Link instances and their queue/protocol counters. |
 | `link` | `link status <link>` | Show local ID, transport MTU, queues, acknowledgements, duplicates, CRC errors, and drops. |
 | `link` | `link send <link> <broadcast\|destination-id> <text>` | Queue a text message. Unicast requests an acknowledgement. |

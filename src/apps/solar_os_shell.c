@@ -417,6 +417,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
     {"wifi", "Wi-Fi station control", solar_os_shell_cmd_wifi},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
+    {"espnow", "ESP-NOW transport and peers", solar_os_shell_cmd_espnow},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_MQTT
     {"mqtt", "MQTT client", solar_os_shell_cmd_mqtt},
 #endif
@@ -828,6 +831,38 @@ static const char * const radio_link_option_values[] = {
     "chat=on",
 };
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
+static const char * const espnow_subcommands[] = {
+    "status",
+    "peers",
+    "list",
+    "peer",
+};
+static const char * const espnow_peer_subcommands[] = {"add", "remove"};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK
+static const char * const espnow_link_names[] = {"link0", "link1"};
+static const char * const espnow_link_option_values[] = {
+    "channel=auto",
+    "channel=1",
+    "channel=2",
+    "channel=3",
+    "channel=4",
+    "channel=5",
+    "channel=6",
+    "channel=7",
+    "channel=8",
+    "channel=9",
+    "channel=10",
+    "channel=11",
+    "channel=12",
+    "channel=13",
+    "inbox=off",
+    "inbox=on",
+    "chat=off",
+    "chat=on",
+};
+#endif
 static const char * const radio_config_fields[] = {
     "frequency",
     "modulation",
@@ -1183,6 +1218,9 @@ static const char * const aplay_volume_values[] = {"0", "25", "50", "75", "100"}
 static const char * const arecord_options[] = {"-d"};
 static const char * const arecord_duration_values[] = {"1", "5", "10", "30", "60"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+static const char * const recorder_options[] = {"--tui"};
+#endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
 static const char * const clock_options[] = {"-s", "-a"};
 static const char * const clock_alarm_values[] = {"00:30", "01:00", "05:00", "10:00"};
@@ -1192,11 +1230,24 @@ static const char * const curl_options[] = {"-L", "-o"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
 static const char * const webradio_subcommands[] = {
+    "--tui",
     "add",
     "list",
     "remove",
     "reset",
 };
+static const char * const webradio_tui_subcommands[] = {
+    "add",
+    "list",
+    "remove",
+    "reset",
+};
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLAYER
+static const char * const player_options[] = {"--tui"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_FUNCGEN
+static const char * const funcgen_options[] = {"--tui"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const logic_rate_values[] = {"10000", "100000", "500000", "1000000", "2000000"};
@@ -1252,8 +1303,12 @@ static const char * const path_clock[] = {"clock"};
 static const char * const path_clock_alarm[] = {"clock", "-a"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CALC
-static const char * const calc_options[] = {"--text", "-e", "--eval"};
+static const char * const calc_options[] = {"--tui", "-e", "--eval"};
 static const char * const path_calc[] = {"calc"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+static const char * const path_recorder[] = {"recorder"};
+static const char * const path_recorder_tui[] = {"recorder", "--tui"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
 static const char * const com_options[] = {"--autobaud", "--hex"};
@@ -1271,6 +1326,14 @@ static const char * const path_curl_output[] = {"curl", "-o"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
 static const char * const path_webradio[] = {"webradio"};
+static const char * const path_webradio_tui[] = {"webradio", "--tui"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLAYER
+static const char * const path_player[] = {"player"};
+static const char * const path_player_tui[] = {"player", "--tui"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_FUNCGEN
+static const char * const path_funcgen[] = {"funcgen"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const path_logic[] = {"logic"};
@@ -1544,6 +1607,26 @@ static const char * const path_job_start_radio_link_profile[] = {
 static const char * const path_job_start_radio_link_option[] = {
     "job", "start", "radio-link", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
+};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK
+static const char * const path_job_start_espnow_link[] = {
+    "job", "start", "espnow-link"
+};
+static const char * const path_job_start_espnow_link_name[] = {
+    "job", "start", "espnow-link", SHELL_COMPLETION_ANY
+};
+static const char * const path_job_start_espnow_link_option[] = {
+    "job", "start", "espnow-link", SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY
+};
+static const char * const path_job_start_espnow_link_option2[] = {
+    "job", "start", "espnow-link", SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
+};
+static const char * const path_job_start_espnow_link_option3[] = {
+    "job", "start", "espnow-link", SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
 };
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
@@ -1937,6 +2020,10 @@ static const char * const path_radio_state[] = {"radio", "state"};
 static const char * const path_radio_state_name[] = {"radio", "state", SHELL_COMPLETION_ANY};
 static const char * const path_radio_send[] = {"radio", "send"};
 static const char * const path_radio_recv[] = {"radio", "recv"};
+#if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
+static const char * const path_espnow[] = {"espnow"};
+static const char * const path_espnow_peer[] = {"espnow", "peer"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_LINK
 static const char * const path_link[] = {"link"};
 static const char * const path_link_status[] = {"link", "status"};
@@ -2306,6 +2393,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_arecord, arecord_options),
     SHELL_COMPLETION_STATIC(path_arecord_duration, arecord_duration_values),
 #endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+    SHELL_COMPLETION_OPTIONS(path_recorder, recorder_options),
+    SHELL_COMPLETION_PATH(path_recorder, false),
+    SHELL_COMPLETION_PATH(path_recorder_tui, false),
+#endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
     SHELL_COMPLETION_STATIC(path_clock, clock_options),
     SHELL_COMPLETION_STATIC(path_clock_alarm, clock_alarm_values),
@@ -2324,6 +2416,15 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
     SHELL_COMPLETION_STATIC(path_webradio, webradio_subcommands),
+    SHELL_COMPLETION_STATIC(path_webradio_tui, webradio_tui_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLAYER
+    SHELL_COMPLETION_OPTIONS(path_player, player_options),
+    SHELL_COMPLETION_PATH(path_player, false),
+    SHELL_COMPLETION_PATH(path_player_tui, false),
+#endif
+#if SOLAR_OS_PACKAGE_APP_FUNCGEN
+    SHELL_COMPLETION_OPTIONS(path_funcgen, funcgen_options),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
     SHELL_COMPLETION_GPIO_PINS(path_logic),
@@ -2475,6 +2576,17 @@ static const shell_completion_rule_t shell_completion_rules[] = {
                             radio_link_option_values),
     SHELL_COMPLETION_STATIC(path_job_start_radio_link_option,
                             radio_link_option_values),
+#endif
+#if SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK
+    SHELL_COMPLETION_STATIC(path_job_start_espnow_link, espnow_link_names),
+    SHELL_COMPLETION_STATIC(path_job_start_espnow_link_name,
+                            espnow_link_option_values),
+    SHELL_COMPLETION_STATIC(path_job_start_espnow_link_option,
+                            espnow_link_option_values),
+    SHELL_COMPLETION_STATIC(path_job_start_espnow_link_option2,
+                            espnow_link_option_values),
+    SHELL_COMPLETION_STATIC(path_job_start_espnow_link_option3,
+                            espnow_link_option_values),
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
     SHELL_COMPLETION_RADIOS(path_job_start_meshcore),
@@ -2749,6 +2861,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_radio_state_name, radio_state_values),
     SHELL_COMPLETION_RADIOS(path_radio_send),
     SHELL_COMPLETION_RADIOS(path_radio_recv),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
+    SHELL_COMPLETION_STATIC(path_espnow, espnow_subcommands),
+    SHELL_COMPLETION_STATIC(path_espnow_peer, espnow_peer_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_LINK
     SHELL_COMPLETION_STATIC(path_link, link_subcommands),
@@ -4130,6 +4246,9 @@ static bool shell_is_path_command(const char *command)
 #endif
 #if SOLAR_OS_PACKAGE_APP_ARECORD
            strcmp(command, "arecord") == 0 ||
+#endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+           strcmp(command, "recorder") == 0 ||
 #endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
            strcmp(command, "edit") == 0 ||

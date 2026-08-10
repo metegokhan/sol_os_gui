@@ -11,6 +11,7 @@
 #define SOLAR_OS_WIFI_SCAN_MAX_RESULTS 12
 #define SOLAR_OS_WIFI_AUTH_MAX 18
 #define SOLAR_OS_WIFI_PROFILE_MAX 5
+#define SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX 32
 
 typedef enum {
     SOLAR_OS_WIFI_STATE_OFF,
@@ -42,6 +43,8 @@ typedef struct {
     bool nat_active;
     bool ap_enabled;
     bool ap_running;
+    bool connectionless_active;
+    bool connectionless_channel_auto;
     char ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
     char saved_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
     char saved_ap_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
@@ -58,8 +61,10 @@ typedef struct {
     uint8_t ap_channel;
     uint8_t ap_station_count;
     uint8_t ap_max_connections;
+    uint8_t connectionless_channel;
     uint8_t saved_profile_count;
     esp_err_t nat_last_error;
+    char connectionless_owner[SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX];
 } solar_os_wifi_status_t;
 
 typedef struct {
@@ -87,6 +92,10 @@ esp_err_t solar_os_wifi_ap_start(const char *ssid, const char *password, const c
 esp_err_t solar_os_wifi_ap_stop(void);
 esp_err_t solar_os_wifi_nat_set(bool enabled);
 esp_err_t solar_os_wifi_scan(solar_os_wifi_ap_t *aps, size_t max_aps, size_t *found);
+esp_err_t solar_os_wifi_connectionless_acquire(const char *owner,
+                                               uint8_t requested_channel,
+                                               uint8_t *actual_channel);
+esp_err_t solar_os_wifi_connectionless_release(const char *owner);
 void solar_os_wifi_get_status(solar_os_wifi_status_t *status);
 void solar_os_wifi_get_status_text(char *buffer, size_t len);
 const char *solar_os_wifi_state_name(solar_os_wifi_state_t state);

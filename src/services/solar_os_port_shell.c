@@ -1167,8 +1167,13 @@ static void port_shell_reserved_worker(void *arg)
     }
 }
 
-esp_err_t solar_os_port_shell_init(void)
+esp_err_t solar_os_port_shell_init(bool reserve_worker)
 {
+    if (!reserve_worker) {
+        SOLAR_OS_LOGI(TAG, "port shell workers allocated on demand");
+        return ESP_OK;
+    }
+
     portENTER_CRITICAL(&port_shells_lock);
     if (port_shell_reserved_task != NULL) {
         portEXIT_CRITICAL(&port_shells_lock);
