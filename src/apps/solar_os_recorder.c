@@ -1592,7 +1592,18 @@ static esp_err_t recorder_set_initial_path(const char *argument)
 static esp_err_t recorder_start(solar_os_context_t *ctx)
 {
     const int argc = solar_os_context_argc(ctx);
-    if (argc < 1 || argc > 2) return ESP_ERR_INVALID_ARG;
+    bool force_tui = false;
+    const char *path_arg = NULL;
+    for (int i = 1; i < argc; i++) {
+        const char *arg = solar_os_context_argv(ctx, i);
+        if (strcmp(arg, "--tui") == 0) {
+            force_tui = true;
+        } else if (path_arg == NULL) {
+            path_arg = arg;
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
     if (!solar_os_storage_is_mounted()) return ESP_ERR_INVALID_STATE;
     if (recorder_state != NULL) return ESP_ERR_INVALID_STATE;
     const uint32_t internal_before = (uint32_t)heap_caps_get_free_size(
@@ -1628,8 +1639,7 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
     if (status.volume <= 100U) recorder.volume = status.volume;
 #endif
     const bool settings_loaded = recorder_load_settings();
-    esp_err_t err = recorder_set_initial_path(
-        argc == 2 ? solar_os_context_argv(ctx, 1) : NULL);
+    esp_err_t err = recorder_set_initial_path(path_arg);
     if (err != ESP_OK) goto fail_state;
     recorder_refresh_inputs();
     SOLAR_OS_LOGI(TAG, "inputs discovered count=%u selected=%s",
@@ -1663,7 +1673,7 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
         recorder_wav_file, NULL, &recorder.browser);
     if (err != ESP_OK) goto fail_state;
     recorder_log_internal_memory("browser", internal_before);
-    recorder.mode = recorder_graphical_session(ctx) ?
+    recorder.mode = !force_tui && recorder_graphical_session(ctx) ?
         RECORDER_MODE_GRAPHICS : RECORDER_MODE_TUI;
     if (recorder.mode == RECORDER_MODE_TUI) {
         err = solar_os_tui_begin(&recorder.tui, ctx);

@@ -12,9 +12,19 @@ static bool app_has_first_path_arg(const char *app_name)
         strcmp(app_name, "writer") == 0 ||
         strcmp(app_name, "sheet") == 0 ||
         strcmp(app_name, "gameboy") == 0 ||
-        strcmp(app_name, "recorder") == 0 ||
         strcmp(app_name, "python") == 0 ||
         strcmp(app_name, "lua") == 0;
+}
+
+static int mixed_ui_path_arg(int argc, char *const argv[])
+{
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--tui") == 0) {
+            continue;
+        }
+        return argv[i][0] == '-' ? -1 : i;
+    }
+    return -1;
 }
 
 static int option_path_arg(int argc,
@@ -56,6 +66,10 @@ int solar_os_shell_launch_path_arg(const char *app_name,
 
     if (app_has_first_path_arg(app_name)) {
         return 1;
+    }
+    if (strcmp(app_name, "player") == 0 ||
+        strcmp(app_name, "recorder") == 0) {
+        return mixed_ui_path_arg(argc, argv);
     }
     if (strcmp(app_name, "files") == 0) {
         return strcmp(argv[1], "--launcher") == 0 ?

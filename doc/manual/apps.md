@@ -141,7 +141,7 @@ from 8 kHz through 48 kHz are converted from the selected stream as necessary.
 Usage:
 
 ```text
-recorder [file.wav]
+recorder [--tui] [file.wav]
 ```
 
 The optional path supplies the initial recording folder and filename. The
@@ -153,6 +153,10 @@ input, folder, format, hardware input gain, output volume, and visualizer in
 `.recorder/settings.bin` on the current storage root. An explicit path argument
 overrides the remembered folder. The filename is not remembered, so reopening
 Recorder cannot accidentally reuse a one-off name.
+
+Recorder selects its graphical interface on a graphical shell and its text
+interface on a port shell. `--tui` forces the text interface even when the
+launching shell has graphics.
 
 `Tab` switches between Record and Setup. The Record view uses the shared
 cassette widget by default; `V` cycles through Cassette, Oscilloscope, and
@@ -192,8 +196,12 @@ playback. Missing files remain listed so removable media can be reattached.
 Usage:
 
 ```text
-player [file.wav|file.mp3]
+player [--tui] [file.wav|file.mp3]
 ```
+
+Player selects its graphical interface on a graphical shell and its text
+interface on a port shell. `--tui` forces the text interface even when the
+launching shell has graphics.
 
 On a graphical session, `Tab` switches between Play and Playlist. The Play tab
 uses the top two-thirds for a cassette visualizer by default; `V` cycles through
@@ -220,7 +228,7 @@ stereo device without changing the recording stored on disk.
 Scientific calculator and function plotter. On a graphical display, `calc`
 opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet,
 or any other text-only shell, the same command opens a scientific REPL without
-the plot pane. `calc --text` forces that REPL even when graphics are available.
+the plot pane. `calc --tui` forces that REPL even when graphics are available.
 
 The expression engine supports `+`, `-`, `*`, `/`, `%`, powers with `^`,
 parentheses, scientific notation, and implicit multiplication such as `2pi` or
@@ -426,12 +434,17 @@ Usage:
 
 ```text
 webradio
+webradio --tui
 webradio https://stream.nightride.fm/nightride.mp3
 webradio list
 webradio add MyStation https://example.net/live.mp3
 webradio remove MyStation
 webradio reset
 ```
+
+`--tui` forces the station-list TUI even on a graphical shell and can be
+combined with a direct stream URL. Catalog-management commands also accept it
+as a harmless interface override.
 
 URLs are literal HTTP or HTTPS MP3 stream URLs. WebRadio does not translate
 station names or website addresses and does not discover streams from HTML

@@ -773,7 +773,18 @@ static esp_err_t player_start(solar_os_context_t *ctx)
 {
     memset(&player, 0, sizeof(player));
     const int argc = solar_os_context_argc(ctx);
-    if (argc < 1 || argc > 2) return ESP_ERR_INVALID_ARG;
+    bool force_tui = false;
+    const char *path_arg = NULL;
+    for (int i = 1; i < argc; i++) {
+        const char *arg = solar_os_context_argv(ctx, i);
+        if (strcmp(arg, "--tui") == 0) {
+            force_tui = true;
+        } else if (path_arg == NULL) {
+            path_arg = arg;
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
     player.task_done = true;
     player.active_index = SIZE_MAX;
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
@@ -795,7 +806,8 @@ static esp_err_t player_start(solar_os_context_t *ctx)
         player.browser = NULL;
         return err;
     }
-    player.mode = player_graphical_session(ctx) ? PLAYER_MODE_GRAPHICS : PLAYER_MODE_TUI;
+    player.mode = !force_tui && player_graphical_session(ctx) ?
+        PLAYER_MODE_GRAPHICS : PLAYER_MODE_TUI;
     if (player.mode == PLAYER_MODE_TUI) {
         err = solar_os_tui_begin(&player.tui, ctx);
         if (err == ESP_OK) (void)solar_os_tui_enable_diff(&player.tui, true);
@@ -813,10 +825,9 @@ static esp_err_t player_start(solar_os_context_t *ctx)
     if (err != ESP_OK) return err;
     player.ui_started = true;
     player_refresh_playlist();
-    if (argc == 2) {
+    if (path_arg != NULL) {
         char path[SOLAR_OS_STORAGE_PATH_MAX];
-        err = solar_os_storage_resolve_path(solar_os_context_argv(ctx, 1),
-                                            path, sizeof(path));
+        err = solar_os_storage_resolve_path(path_arg, path, sizeof(path));
         size_t index = 0U;
         if (err == ESP_OK) err = solar_os_player_playlist_add(path, &index);
         if (err == ESP_OK) {

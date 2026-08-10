@@ -841,7 +841,7 @@ static void calc_print_usage(solar_os_context_t *ctx, const char *reason)
     solar_os_shell_io_t *io = calc_io(ctx);
     if (reason != NULL)
         solar_os_shell_io_printf(io, "calc: %s\n", reason);
-    solar_os_shell_io_writeln(io, "usage: calc [--text]");
+    solar_os_shell_io_writeln(io, "usage: calc [--tui]");
     solar_os_shell_io_writeln(io, "       calc -e <expression>");
     solar_os_shell_io_flush(io);
     solar_os_context_request_terminal_preserve(ctx);
@@ -857,14 +857,14 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
     calc->rows[0].visible = true;
     calc->units_x = calc->units_y = 0.05;
 
-    bool force_text = false;
+    bool force_tui = false;
     bool one_shot = false;
     char expression[CALC_SOURCE_MAX] = "";
     const int argc = solar_os_context_argc(ctx);
     for (int i = 1; i < argc; i++) {
         const char *arg = solar_os_context_argv(ctx, i);
-        if (strcmp(arg, "--text") == 0)
-            force_text = true;
+        if (strcmp(arg, "--tui") == 0)
+            force_tui = true;
         else if (strcmp(arg, "-e") == 0 || strcmp(arg, "--eval") == 0)
             one_shot = true;
         else if (one_shot) {
@@ -907,7 +907,7 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
     const bool port_shell =
         launch_io != NULL &&
         solar_os_shell_io_kind(launch_io) == SOLAR_OS_SHELL_IO_KIND_PORT;
-    if (!force_text && !port_shell && solar_os_context_gfx(ctx) != NULL) {
+    if (!force_tui && !port_shell && solar_os_context_gfx(ctx) != NULL) {
         calc->mode = CALC_MODE_GRAPHICS;
         solar_os_context_set_graphics_active(ctx, true);
         calc_graphics_render(ctx);

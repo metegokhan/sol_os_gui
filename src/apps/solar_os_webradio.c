@@ -1607,17 +1607,19 @@ static void webradio_remove_selected(void)
     portEXIT_CRITICAL(&webradio_lock);
 }
 
-static bool webradio_manage_command(solar_os_context_t *ctx, esp_err_t *result)
+static bool webradio_manage_command(solar_os_context_t *ctx,
+                                    int argc,
+                                    const char *const *argv,
+                                    esp_err_t *result)
 {
-    const int argc = solar_os_context_argc(ctx);
-    if (argc < 2) {
+    if (argc < 1) {
         return false;
     }
-    const char *command = solar_os_context_argv(ctx, 1);
+    const char *command = argv[0];
     solar_os_shell_io_t *io = webradio_io(ctx);
     esp_err_t err = ESP_OK;
     bool handled = true;
-    if (strcmp(command, "list") == 0 && argc == 2) {
+    if (strcmp(command, "list") == 0 && argc == 1) {
         solar_os_webradio_station_t stations[SOLAR_OS_WEBRADIO_STATION_MAX];
         const size_t count = solar_os_webradio_catalog_snapshot(
             stations, SOLAR_OS_WEBRADIO_STATION_MAX, NULL);
@@ -1627,22 +1629,21 @@ static bool webradio_manage_command(solar_os_context_t *ctx, esp_err_t *result)
         if (count == 0U) {
             solar_os_shell_io_writeln(io, "webradio: catalog is empty");
         }
-    } else if (strcmp(command, "add") == 0 && argc == 4) {
-        err = solar_os_webradio_catalog_add(solar_os_context_argv(ctx, 2),
-                                            solar_os_context_argv(ctx, 3));
+    } else if (strcmp(command, "add") == 0 && argc == 3) {
+        err = solar_os_webradio_catalog_add(argv[1], argv[2]);
         if (err == ESP_OK) {
             solar_os_shell_io_printf(io,
                                      "webradio: saved %s\n",
-                                     solar_os_context_argv(ctx, 2));
+                                     argv[1]);
         }
-    } else if (strcmp(command, "remove") == 0 && argc == 3) {
-        err = solar_os_webradio_catalog_remove(solar_os_context_argv(ctx, 2));
+    } else if (strcmp(command, "remove") == 0 && argc == 2) {
+        err = solar_os_webradio_catalog_remove(argv[1]);
         if (err == ESP_OK) {
             solar_os_shell_io_printf(io,
                                      "webradio: removed %s\n",
-                                     solar_os_context_argv(ctx, 2));
+                                     argv[1]);
         }
-    } else if (strcmp(command, "reset") == 0 && argc == 2) {
+    } else if (strcmp(command, "reset") == 0 && argc == 1) {
         err = solar_os_webradio_catalog_reset();
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(io, "webradio: restored default stations");
@@ -1677,16 +1678,29 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
         return err;
     }
 
-    if (webradio_manage_command(ctx, &err)) {
+    bool force_tui = false;
+    const char *args[3] = {0};
+    int arg_count = 0;
+    const int argc = solar_os_context_argc(ctx);
+    for (int i = 1; i < argc; i++) {
+        const char *arg = solar_os_context_argv(ctx, i);
+        if (strcmp(arg, "--tui") == 0) {
+            force_tui = true;
+        } else if (arg_count < (int)(sizeof(args) / sizeof(args[0]))) {
+            args[arg_count++] = arg;
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    if (webradio_manage_command(ctx, arg_count, args, &err)) {
         return ESP_OK;
     }
-    const int argc = solar_os_context_argc(ctx);
-    if (argc > 2 ||
-        (argc == 2 &&
-         !solar_os_webradio_url_valid(solar_os_context_argv(ctx, 1)))) {
+    if (arg_count > 1 ||
+        (arg_count == 1 && !solar_os_webradio_url_valid(args[0]))) {
         return ESP_ERR_INVALID_ARG;
     }
-    webradio.mode = webradio_graphical_session(ctx) ?
+    webradio.mode = !force_tui && webradio_graphical_session(ctx) ?
         WEBRADIO_MODE_GRAPHICS : WEBRADIO_MODE_TUI;
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
     solar_os_audio_status_t audio_status;
@@ -1724,9 +1738,8 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
     webradio.ui_started = true;
     webradio_refresh_catalog();
     webradio.redraw = true;
-    if (argc == 2) {
-        err = webradio_start_playback("Direct stream",
-                                      solar_os_context_argv(ctx, 1));
+    if (arg_count == 1) {
+        err = webradio_start_playback("Direct stream", args[0]);
         if (err != ESP_OK && err != ESP_ERR_NO_MEM) {
             webradio_set_playback_state(WEBRADIO_PLAYBACK_ERROR,
                                         esp_err_to_name(err));

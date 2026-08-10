@@ -108,9 +108,9 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [aplay application](apps.md#aplay) — Play audio files through the board audio output. WAV and MP3 are supported when the audio package is compiled and the board has audio hardware.
 - [Application reference](apps.md) — Usage, controls, and examples for every foreground application
 - [arecord application](apps.md#arecord) — Record a registered audio capture stream to a WAV file.
-- [recorder application](apps.md#recorder) — Interactive GUI/TUI WAV recorder with stream and format selection, no-file live input monitoring, hardware gain control, playback, and shared cassette, oscilloscope, spectrum, and file-browser views.
-- [player application](apps.md#player) — Persistent WAV/MP3 playlist player with graphical cassette, oscilloscope, and spectrum views plus a simple text playlist.
-- [calc application](apps.md#calc) — Scientific calculator and function plotter. On a graphical display, calc opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet, or any other text-only shell, the same command opens a scientific REPL without the plot pane. calc --text forces that REPL even when graphics are available.
+- [recorder application](apps.md#recorder) — Interactive GUI/TUI WAV recorder with stream and format selection, no-file live input monitoring, hardware gain control, playback, shared widgets, and a `--tui` override.
+- [player application](apps.md#player) — Persistent WAV/MP3 playlist player with graphical visualizers, a text playlist, and a `--tui` override.
+- [calc application](apps.md#calc) — Scientific calculator and function plotter with a `--tui` override for its text REPL.
 - [chat application](apps.md#chat) — Two-pane provider-neutral conversation client. The left pane lists gateway and radio conversations, the right pane shows bounded shared history, and the bottom line is the message/command input. It opens and remains useful offline; network or radio transport jobs connect independently.
 - [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch.
 - [com application](apps.md#com) — Serial terminal for a bidirectional byte-stream port. Display-keyboard or port-shell input is forwarded to the selected port, and received bytes are drawn in the active terminal. The port may be a UART or a virtual port such as a peer-bound SolarOS Link stream.
@@ -142,7 +142,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [telnet application](apps.md#telnet) — Telnet client for classic TCP terminal sessions. It supports basic Telnet option negotiation, terminal type reporting, window size reporting, and raw mode.
 - [view application](apps.md#view) — Graphical image viewer. It supports the image formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF playback when the media package is enabled.
 - [web application](apps.md#web) — Simple graphical web browser for lightweight HTML pages. It shares document and image rendering infrastructure with reader where possible.
-- [webradio application](apps.md#webradio) — Direct MP3 internet-radio player with reusable scope/spectrum views, Player and Channels GUI tabs, and a persistent user-managed station catalog.
+- [webradio application](apps.md#webradio) — Direct MP3 internet-radio player with GUI/TUI station controls, reusable visualizers, a persistent catalog, and a `--tui` override.
 - [writer application](apps.md#writer) — Resumable graphical Markdown editor for PSRAM display boards. Inactive blocks are formatted like reader; the block containing the cursor and every block touched by a selection show their exact Markdown source. edit remains the portable text editor for port shells and boards without graphics or PSRAM.
 
 ## Background jobs

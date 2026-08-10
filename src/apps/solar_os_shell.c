@@ -1183,6 +1183,9 @@ static const char * const aplay_volume_values[] = {"0", "25", "50", "75", "100"}
 static const char * const arecord_options[] = {"-d"};
 static const char * const arecord_duration_values[] = {"1", "5", "10", "30", "60"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+static const char * const recorder_options[] = {"--tui"};
+#endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
 static const char * const clock_options[] = {"-s", "-a"};
 static const char * const clock_alarm_values[] = {"00:30", "01:00", "05:00", "10:00"};
@@ -1192,11 +1195,21 @@ static const char * const curl_options[] = {"-L", "-o"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
 static const char * const webradio_subcommands[] = {
+    "--tui",
     "add",
     "list",
     "remove",
     "reset",
 };
+static const char * const webradio_tui_subcommands[] = {
+    "add",
+    "list",
+    "remove",
+    "reset",
+};
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLAYER
+static const char * const player_options[] = {"--tui"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const logic_rate_values[] = {"10000", "100000", "500000", "1000000", "2000000"};
@@ -1252,8 +1265,12 @@ static const char * const path_clock[] = {"clock"};
 static const char * const path_clock_alarm[] = {"clock", "-a"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CALC
-static const char * const calc_options[] = {"--text", "-e", "--eval"};
+static const char * const calc_options[] = {"--tui", "-e", "--eval"};
 static const char * const path_calc[] = {"calc"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+static const char * const path_recorder[] = {"recorder"};
+static const char * const path_recorder_tui[] = {"recorder", "--tui"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
 static const char * const com_options[] = {"--autobaud", "--hex"};
@@ -1271,6 +1288,11 @@ static const char * const path_curl_output[] = {"curl", "-o"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
 static const char * const path_webradio[] = {"webradio"};
+static const char * const path_webradio_tui[] = {"webradio", "--tui"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLAYER
+static const char * const path_player[] = {"player"};
+static const char * const path_player_tui[] = {"player", "--tui"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 static const char * const path_logic[] = {"logic"};
@@ -2306,6 +2328,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_arecord, arecord_options),
     SHELL_COMPLETION_STATIC(path_arecord_duration, arecord_duration_values),
 #endif
+#if SOLAR_OS_PACKAGE_APP_RECORDER
+    SHELL_COMPLETION_OPTIONS(path_recorder, recorder_options),
+    SHELL_COMPLETION_PATH(path_recorder, false),
+    SHELL_COMPLETION_PATH(path_recorder_tui, false),
+#endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
     SHELL_COMPLETION_STATIC(path_clock, clock_options),
     SHELL_COMPLETION_STATIC(path_clock_alarm, clock_alarm_values),
@@ -2324,6 +2351,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
     SHELL_COMPLETION_STATIC(path_webradio, webradio_subcommands),
+    SHELL_COMPLETION_STATIC(path_webradio_tui, webradio_tui_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_APP_PLAYER
+    SHELL_COMPLETION_OPTIONS(path_player, player_options),
+    SHELL_COMPLETION_PATH(path_player, false),
+    SHELL_COMPLETION_PATH(path_player_tui, false),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
     SHELL_COMPLETION_GPIO_PINS(path_logic),
