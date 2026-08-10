@@ -170,9 +170,11 @@ persisted opt-in notification-sound policy. Audio-capable builds enqueue the
 sound through `service.audio`; Inbox remains available without audio hardware.
 `app.inbox` adds the foreground browser and its shell command.
 
-`service.synth` depends on `service.audio-board` and provides exclusive
-real-time PCM rendering for reusable synthesizers and emulated sound hardware.
-The audio board provider retains hardware-codec, global-volume, and
+`service.synth` depends on the device-independent `service.audio` and provides
+exclusive real-time PCM rendering for reusable synthesizers and emulated sound
+hardware. It opens the default playback endpoint at runtime, so firmware
+without built-in board audio can use a subsequently attached output expansion.
+The selected audio provider retains hardware-codec, global-volume, and
 output-serialization ownership; the synth service owns a bounded render block,
 dedicated worker, client ownership, and deadline/error counters. Native apps
 can supply an independent signed 16-bit stereo render callback.

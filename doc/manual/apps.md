@@ -1149,11 +1149,16 @@ Controls:
 Open the native synthesizer and sound designer:
 
 ```text
-synth
+synth [--headless]
 ```
 
 The app uses the same eight-voice fixed-point engine exposed to Python and Lua,
-but keyboard and MIDI events reach it directly. Its Play tab contains the waveform,
+but keyboard and MIDI events reach it directly. On a display, the default
+graphical interface provides the complete editor described below. `--headless`
+suppresses graphical rendering while keeping the same note keys, editing keys,
+published parameters, control bindings, and MIDI input active. This permits use
+from a port shell on a headless board after a playback device such as the LEDC
+PWM audio expansion has been attached. Its Play tab contains the waveform,
 envelope, volume, ADSR, and piano controls. The Wave tab is a graphical
 wavetable editor with selectable 16, 32, or 64-point resolution;
 edits reshape held notes immediately while the piano remains playable. The

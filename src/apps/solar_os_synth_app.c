@@ -7,6 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "esp_attr.h"
 #include "esp_timer.h"
 #include "solar_os_audio.h"
 #include "solar_os_gfx.h"
@@ -180,11 +181,12 @@ typedef struct {
   uint32_t last_deadline_misses;
   uint32_t last_status_poll_ms;
   bool last_running;
+  bool headless;
   bool suspended;
   bool parameter_dirty;
 } synth_app_state_t;
 
-static synth_app_state_t synth_app;
+static EXT_RAM_BSS_ATTR synth_app_state_t synth_app;
 
 static void synth_release_all(bool stop);
 
@@ -2055,7 +2057,7 @@ static void synth_draw_mode_editor(solar_os_gfx_t *gfx, int width, int height) {
 
 static void synth_render(solar_os_context_t *ctx) {
   solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
-  if (gfx == NULL || synth_app.suspended) {
+  if (synth_app.headless || gfx == NULL || synth_app.suspended) {
     return;
   }
 
@@ -3119,11 +3121,18 @@ static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
 }
 
 static esp_err_t synth_start(solar_os_context_t *ctx) {
-  if (solar_os_context_gfx(ctx) == NULL) {
+  const int argc = solar_os_context_argc(ctx);
+  const bool headless =
+      argc == 2 && strcmp(solar_os_context_argv(ctx, 1), "--headless") == 0;
+  if (argc > 2 || (argc == 2 && !headless)) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (!headless && solar_os_context_gfx(ctx) == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
 
   memset(&synth_app, 0, sizeof(synth_app));
+  synth_app.headless = headless;
   synth_app.midi_subscription =
       (solar_os_midi_subscription_t)SOLAR_OS_MIDI_SUBSCRIPTION_INIT;
   synth_app.config = synth_default_config();
@@ -3153,7 +3162,7 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
         SYNTH_APP_OWNER, &synth_app.performance);
   }
   synth_parameters_register();
-  solar_os_context_set_graphics_active(ctx, true);
+  solar_os_context_set_graphics_active(ctx, !synth_app.headless);
   synth_render(ctx);
   return ESP_OK;
 }
@@ -3187,7 +3196,7 @@ static void synth_resume(solar_os_context_t *ctx) {
         SYNTH_APP_OWNER, &synth_app.performance);
   }
   synth_parameters_register();
-  solar_os_context_set_graphics_active(ctx, true);
+  solar_os_context_set_graphics_active(ctx, !synth_app.headless);
   synth_render(ctx);
 }
 

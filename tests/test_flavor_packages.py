@@ -53,7 +53,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertIn("service_synth", self.catalog.group_defs["audio"].members)
         self.assertEqual(
             self.catalog.package_defs["service_synth"].depends,
-            ("service_audio_board", "service_dsp", "service_streams"),
+            ("service_audio", "service_dsp", "service_streams"),
         )
         self.assertEqual(
             self.catalog.package_defs["core_runtime"].depends,
@@ -166,14 +166,15 @@ class FlavorPackagesTest(unittest.TestCase):
         for package in (
             "service_audio",
             "service_audio_codecs",
+            "service_synth",
             "app_aplay",
             "app_arecord",
             "app_recorder",
             "app_player",
+            "app_synth",
         ):
             self.assertTrue(pruned[package], package)
-        for package in ("service_audio_board", "service_synth", "app_synth"):
-            self.assertFalse(pruned[package], package)
+        self.assertFalse(pruned["service_audio_board"])
 
     def test_webradio_survives_on_wifi_board_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
@@ -187,14 +188,15 @@ class FlavorPackagesTest(unittest.TestCase):
         for package in (
             "service_audio",
             "service_audio_codecs",
+            "service_synth",
             "service_http_client",
             "service_signal_widgets",
             "service_webradio",
+            "app_synth",
             "app_webradio",
         ):
             self.assertTrue(pruned[package], package)
-        for package in ("service_audio_board", "service_synth", "app_synth"):
-            self.assertFalse(pruned[package], package)
+        self.assertFalse(pruned["service_audio_board"])
 
     def test_pwm_audio_expansion_survives_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
@@ -207,10 +209,12 @@ class FlavorPackagesTest(unittest.TestCase):
 
         for package in (
             "service_audio",
+            "service_synth",
             "service_expansion",
             "expansion_audio_pwm",
             "app_aplay",
             "app_player",
+            "app_synth",
         ):
             self.assertTrue(pruned[package], package)
         self.assertFalse(pruned["service_audio_board"])

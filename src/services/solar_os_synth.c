@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "solar_os_audio.h"
 #include "solar_os_log.h"
 #include "solar_os_stream.h"
 #include "solar_os_task.h"
@@ -104,8 +105,8 @@ static void synth_worker(void *arg)
             .bits_per_sample = 16U,
         },
     };
-    esp_err_t result = solar_os_stream_open_ex(
-        "audio0.playback", owner, &open_options, &stream);
+    esp_err_t result = solar_os_audio_open_default(
+        SOLAR_OS_STREAM_DIRECTION_SINK, owner, &open_options, &stream, NULL);
     const solar_os_stream_audio_format_t format = stream.audio;
     if (result == ESP_OK &&
         (format.channels != 2U || format.bits_per_sample != 16U)) {
