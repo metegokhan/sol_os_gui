@@ -3432,6 +3432,32 @@ static esp_err_t forget_remembered_keyboard(void)
         SOLAR_OS_LOGW(TAG, "clear remembered keyboard failed: %s", esp_err_to_name(ret));
     }
 
+    /*
+     * Removing a live bond also disconnects the link.  Close the HID host
+     * device first and wait for its close event; otherwise bond removal and
+     * esp_hidh_dev_close() can queue two close events for the same device.
+     * ESP-IDF frees the device after each close event, so that sequence can
+     * double-free it.
+     */
+    if (connected_dev != NULL) {
+        while (close_done_sem != NULL && xSemaphoreTake(close_done_sem, 0) == pdTRUE) {
+        }
+
+        const esp_err_t close_ret = esp_hidh_dev_close(connected_dev);
+        if (close_ret != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "forget keyboard close failed: %s", esp_err_to_name(close_ret));
+            if (ret == ESP_OK) {
+                ret = close_ret;
+            }
+        } else if (close_done_sem != NULL &&
+                   xSemaphoreTake(close_done_sem,
+                                  pdMS_TO_TICKS(BLE_KEYBOARD_STALE_CLOSE_TIMEOUT_MS)) != pdTRUE) {
+            SOLAR_OS_LOGW(TAG, "forget keyboard close timeout");
+            set_status(BLE_KEYBOARD_FAILED, "forget close timeout");
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+
     for (size_t i = 0; i < BLE_KEYBOARD_MAX_REMEMBERED; i++) {
         if (forgotten_peers[i].magic != BLE_KEYBOARD_PEER_MAGIC) {
             continue;
@@ -3446,15 +3472,7 @@ static esp_err_t forget_remembered_keyboard(void)
         }
     }
 
-    if (connected_dev != NULL) {
-        const esp_err_t close_ret = esp_hidh_dev_close(connected_dev);
-        if (close_ret != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "forget keyboard close failed: %s", esp_err_to_name(close_ret));
-        }
-        set_status(BLE_KEYBOARD_IDLE, "forgetting keyboard");
-    } else {
-        set_status(BLE_KEYBOARD_IDLE, "forgot keyboard");
-    }
+    set_status(BLE_KEYBOARD_IDLE, "forgot keyboard");
 
     return ret;
 }
