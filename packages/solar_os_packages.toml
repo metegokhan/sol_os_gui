@@ -106,6 +106,7 @@ triggers = ["app_aplay", "app_arecord", "app_recorder", "app_player", "app_synth
 capabilities = ["wifi"]
 members = [
   "service_wifi",
+  "service_espnow",
   "service_net",
   "service_mqtt",
   "service_ssh",
@@ -128,6 +129,7 @@ members = [
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
+  "job_espnow_link",
 ]
 triggers = [
   "app_ssh",
@@ -145,6 +147,7 @@ triggers = [
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
+  "job_espnow_link",
 ]
 
 [groups.agent]
@@ -337,6 +340,16 @@ sources = [
   "shell/solar_os_shell_wifi_tui.c",
 ]
 requires = ["esp_event", "esp_netif", "esp_wifi", "lwip", "nvs_flash"]
+capabilities = ["wifi"]
+
+[packages.service_espnow]
+label = "service.espnow"
+depends = ["service_wifi"]
+sources = [
+  "services/solar_os_espnow.c",
+  "shell/solar_os_shell_espnow.c",
+]
+requires = ["esp_wifi", "nvs_flash"]
 capabilities = ["wifi"]
 
 [packages.service_net]
@@ -643,6 +656,7 @@ label = "service.link"
 sources = [
   "services/solar_os_link.c",
   "services/solar_os_link_stream.c",
+  "services/solar_os_link_messaging.c",
   "shell/solar_os_shell_link.c",
 ]
 requires = ["esp_hw_support"]
@@ -1186,9 +1200,14 @@ label = "job.radio-link"
 depends = ["service_inbox", "service_link", "service_radio"]
 sources = [
   "jobs/solar_os_radio_link_job.c",
-  "services/solar_os_link_messaging.c",
 ]
 any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
+
+[packages.job_espnow_link]
+label = "job.espnow-link"
+depends = ["service_espnow", "service_inbox", "service_link"]
+sources = ["jobs/solar_os_espnow_link_job.c"]
+capabilities = ["wifi"]
 
 [packages.job_meshcore]
 label = "job.meshcore"

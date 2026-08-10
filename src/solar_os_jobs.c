@@ -531,6 +531,33 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
     return ret;
 }
 
+bool solar_os_jobs_get_error_detail(const char *name,
+                                    char *buffer,
+                                    size_t buffer_len)
+{
+    if (name == NULL || name[0] == '\0' || buffer == NULL || buffer_len == 0U) {
+        return false;
+    }
+    const esp_err_t ret = solar_os_jobs_init();
+    if (ret != ESP_OK) {
+        return false;
+    }
+    void (*error_detail)(char *, size_t) = NULL;
+    portENTER_CRITICAL(&jobs_lock);
+    const int index = job_index_by_name(name);
+    if (index >= 0 && job_runtimes[index].entry != NULL &&
+        job_runtimes[index].entry->job != NULL) {
+        error_detail = job_runtimes[index].entry->job->error_detail;
+    }
+    portEXIT_CRITICAL(&jobs_lock);
+    buffer[0] = '\0';
+    if (error_detail == NULL) {
+        return false;
+    }
+    error_detail(buffer, buffer_len);
+    return buffer[0] != '\0';
+}
+
 esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name)
 {
     esp_err_t ret = solar_os_jobs_init();

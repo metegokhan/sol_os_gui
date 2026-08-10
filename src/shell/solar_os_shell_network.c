@@ -152,6 +152,14 @@ static void wifi_print_status(solar_os_shell_io_t *term)
     } else {
         solar_os_shell_io_writeln(term, "AP: off");
     }
+    if (status.connectionless_active) {
+        solar_os_shell_io_printf(term,
+                                 "Connectionless: %s ch %u (%s)\n",
+                                 status.connectionless_owner[0] != '\0' ?
+                                     status.connectionless_owner : "active",
+                                 (unsigned)status.connectionless_channel,
+                                 status.connectionless_channel_auto ? "auto" : "fixed");
+    }
     wifi_print_nat_status(term, &status);
     if (status.disconnect_reason != 0) {
         solar_os_shell_io_printf(term,
@@ -478,7 +486,17 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
         }
         const esp_err_t err = solar_os_wifi_stop();
         if (err == ESP_OK) {
-            solar_os_shell_io_writeln(term, "WiFi radio off");
+            solar_os_wifi_status_t status;
+            solar_os_wifi_get_status(&status);
+            if (status.connectionless_active) {
+                solar_os_shell_io_printf(
+                    term,
+                    "WiFi networking off; radio retained by %s on channel %u\n",
+                    status.connectionless_owner,
+                    (unsigned)status.connectionless_channel);
+            } else {
+                solar_os_shell_io_writeln(term, "WiFi radio off");
+            }
         } else {
             solar_os_shell_io_printf(term, "wifi off failed: %s\n", solar_os_shell_error_text(err));
         }

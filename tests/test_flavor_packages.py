@@ -127,6 +127,18 @@ class FlavorPackagesTest(unittest.TestCase):
             ("expansion_pwm",),
         )
         self.assertEqual(
+            self.catalog.package_defs["service_espnow"].depends,
+            ("service_wifi",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["job_espnow_link"].depends,
+            ("service_espnow", "service_inbox", "service_link"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["job_espnow_link"].capabilities,
+            ("wifi",),
+        )
+        self.assertEqual(
             self.catalog.package_defs["app_gameboy"].depends,
             (),
         )
@@ -175,6 +187,8 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertTrue(pruned[package], package)
         self.assertFalse(pruned["service_audio_board"])
+        self.assertFalse(pruned["service_espnow"])
+        self.assertFalse(pruned["job_espnow_link"])
 
     def test_webradio_survives_on_wifi_board_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
@@ -194,6 +208,8 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_webradio",
             "app_synth",
             "app_webradio",
+            "service_espnow",
+            "job_espnow_link",
         ):
             self.assertTrue(pruned[package], package)
         self.assertFalse(pruned["service_audio_board"])

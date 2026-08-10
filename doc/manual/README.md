@@ -38,6 +38,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [dpad command](commands.md) — Show ADC D-pad pins, raw values, zones, and calibration thresholds.
 - [email command](commands.md) — Open the receive-only email app.
 - [engine command](commands.md) — Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations.
+- [espnow command](commands.md) — Inspect ESP-NOW transport state and manage Link-ID-to-MAC peer mappings.
 - [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell when another interactive shell remains.
 - [expansion command](expansion.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
@@ -156,6 +157,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [daq job](jobs.reference.md#daq) — Data acquisition job. It captures scalar streams to timestamped CSV, or one byte stream directly to a raw file.
 - [displayd job](jobs.reference.md#displayd) — Authenticated HTTP display and remote control. It has two modes:
 - [email-sync job](jobs.reference.md#email-sync) — Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local email app and publishes each new message to the universal inbox.
+- [espnow-link job](jobs.reference.md#espnow-link) — ESP-NOW adapter for the transport-independent SolarOS Link service.
 - [gateway-sync job](jobs.reference.md#gateway-sync) — Background synchronizer for the gateway messaging provider. Start and stop it explicitly, using the same lifecycle as email-sync:
 - [gpio-keys job](jobs.reference.md#gpio-keys) — Maps runtime-safe GPIO inputs to SolarOS keyboard presses. The job configures each pin as an input with its internal pull-up enabled, treats a low level as pressed, and applies the same 25 ms debounce used by fixed board buttons. Each debounced transition publishes a generic SolarOS key press or release. Held keys use the system repeat rate configured by setterm keyrate.
 - [httpd job](jobs.reference.md#httpd) — Static HTTP file server for a folder on mounted storage.
@@ -202,7 +204,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Foreground sessions and applications](sessions.apps.md) — Create shells and inspect resumable foreground applications
 - [MeshCore companion messaging](meshcore.md) — Secure direct and shared-group messages over a claimed packet radio
 - [Messaging, contacts, and credential security](messaging.md) — Provider-neutral messaging identities, trust, persistence, and secret handling
-- [SolarOS Link](link.md) — Packet messaging, reliable virtual serial ports, and the radio-link adapter
+- [SolarOS Link](link.md) — Packet messaging and reliable virtual serial ports over packet radio or ESP-NOW
 
 ## Boards and firmware
 

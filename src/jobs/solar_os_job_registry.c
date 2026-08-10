@@ -22,6 +22,9 @@
 #if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
 #include "solar_os_email_sync_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK
+#include "solar_os_espnow_link_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_HTTPD
 #include "solar_os_httpd_job.h"
 #endif
@@ -83,6 +86,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
     {"email-sync", "periodic IMAP email synchronization", &solar_os_email_sync_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK
+    {"espnow-link", "SolarOS Link ESP-NOW transport", &solar_os_espnow_link_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_HTTPD
     {"httpd", "static HTTP file server", &solar_os_httpd_job},

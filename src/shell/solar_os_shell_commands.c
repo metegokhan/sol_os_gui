@@ -1071,9 +1071,14 @@ static void job_print_status(solar_os_shell_io_t *term,
                                  (unsigned)status->resource_count);
     }
     if (status->state == SOLAR_OS_JOB_FAILED && status->last_error != ESP_OK) {
+        char error_detail[SOLAR_OS_JOB_ERROR_DETAIL_MAX];
         solar_os_shell_io_printf(term,
                                  "  last error: %s\n",
-                                 solar_os_shell_error_text(status->last_error));
+                                 solar_os_jobs_get_error_detail(status->name,
+                                                                error_detail,
+                                                                sizeof(error_detail)) ?
+                                     error_detail :
+                                     solar_os_shell_error_text(status->last_error));
     }
     if (!detail) {
         return;
@@ -1375,9 +1380,18 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
                                          "job start failed: not found\n");
             }
         } else {
-            solar_os_shell_io_printf(term,
-                                     "job start failed: %s\n",
-                                     solar_os_shell_error_text(err));
+            char error_detail[SOLAR_OS_JOB_ERROR_DETAIL_MAX];
+            if (solar_os_jobs_get_error_detail(argv[2],
+                                               error_detail,
+                                               sizeof(error_detail))) {
+                solar_os_shell_io_printf(term,
+                                         "job start failed: %s\n",
+                                         error_detail);
+            } else {
+                solar_os_shell_io_printf(term,
+                                         "job start failed: %s\n",
+                                         solar_os_shell_error_text(err));
+            }
         }
         return;
     }

@@ -4,7 +4,11 @@
 
 - **4.7.5** — 2026-08-10 — Mixed-interface applications now accept `--tui`
   to force their text interface on a graphical shell. This applies to Calc,
-  Player, WebRadio, and Recorder.
+  Player, WebRadio, and Recorder. Added an ESP-NOW transport for SolarOS Link,
+  with a managed background job, persistent and learned peer mappings, Wi-Fi
+  channel coexistence, shell diagnostics, and completion. Wi-Fi driver runtime
+  configuration no longer duplicates SolarOS profiles in the shared NVS
+  partition, so a full NVS partition cannot block SoftAP or ESP-NOW startup.
 - **4.7.4** — 2026-08-10 — Display-capable systems now allocate port-shell
   workers on demand, leaving the 16 KiB shell stack available until a UART or
   USB CDC shell is opened. Headless systems retain a reserved worker for their

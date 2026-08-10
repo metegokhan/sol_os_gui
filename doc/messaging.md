@@ -40,8 +40,8 @@ and provider-specific metadata. Generic services own contacts, trust,
 conversation summaries, retained messages, delivery state, and the volatile
 outbox.
 
-When `radio-link` starts with `chat=on`, each 32-bit Link source ID becomes a
-discovered endpoint and the active Link gets one broadcast conversation.
+When `radio-link` or `espnow-link` starts with `chat=on`, each 32-bit Link source
+ID becomes a discovered endpoint and the active Link gets one broadcast conversation.
 Accepted text is projected without consuming the bounded Link receive queue.
 When that diagnostic queue is full it evicts its oldest copy; its capacity does
 not limit Messaging delivery. Direct Link messages remain `sending` until their
@@ -49,8 +49,8 @@ acknowledgement arrives; broadcast messages become `sent` after radio
 transmission. Link v1 provides no
 encryption, authentication, fragmentation, routing, or automatic retry.
 The adapter combines each source/sequence pair with a fresh local adapter
-session epoch before deduplication, so restarting `radio-link` cannot make new
-messages collide with retained history when the Link sequence restarts at one.
+session epoch before deduplication, so restarting a Link transport cannot make
+new messages collide with retained history when the Link sequence restarts at one.
 
 ## Contacts and endpoints
 

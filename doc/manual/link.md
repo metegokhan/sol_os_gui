@@ -2,10 +2,10 @@
 id = "link"
 title = "SolarOS Link"
 section = "service"
-summary = "Packet messaging, reliable virtual serial ports, and the radio-link adapter"
-aliases = ["radio-link", "link.protocol"]
-keywords = "link packet radio text binary stream virtual serial port shell acknowledgement retry broadcast queue protocol crc duplicate"
-packages_any = ["service_link", "job_radio_link"]
+summary = "Packet messaging and reliable virtual serial ports over packet radio or ESP-NOW"
+aliases = ["radio-link", "espnow-link", "link.protocol"]
+keywords = "link packet radio esp-now espnow wifi text binary stream virtual serial port shell acknowledgement retry broadcast queue protocol crc duplicate"
+packages_any = ["service_link", "job_radio_link", "job_espnow_link"]
 +++
 # SolarOS Link
 
@@ -65,6 +65,38 @@ Its capacity does not limit Chat delivery. `chat=on` and `inbox=on` are mutually
 exclusive because generic messaging already publishes received Chat messages to
 Inbox.
 
+## ESP-NOW Quick Start
+
+Start the ESP-NOW adapter on two SolarOS devices using the same channel:
+
+```text
+job start espnow-link link0 channel=6
+link status link0
+link send link0 broadcast "hello"
+```
+
+The default `channel=auto` follows an active station or access-point channel.
+When neither exists, it starts on channel 6. A fixed channel prevents a new
+station connection or an AP on another channel. Wi-Fi scanning is rejected
+while ESP-NOW is active because a scan leaves the transport channel. `wifi off`
+stops station and AP networking but retains the radio while `espnow-link` owns
+its connectionless lease.
+
+An accepted incoming frame learns its Link source-ID-to-MAC mapping for the
+current boot. This permits unicast replies after the peer has sent a frame.
+Add a persistent mapping when this device must initiate unicast after boot:
+
+```text
+espnow peers
+espnow peer add 0x12345678 24:6f:28:11:22:33
+espnow peer remove 0x12345678
+```
+
+There are 19 peer slots. Configured peers are stored in NVS; learned peers are
+volatile and the oldest learned entry is evicted when necessary. SolarOS
+rejects a learned mapping that conflicts with an existing source ID or MAC
+instead of silently redirecting traffic.
+
 ## Commands
 
 | Command | Description |
@@ -86,7 +118,8 @@ local ID as hexadecimal; it is derived from the ESP32 base MAC.
 The displayed frame MTU comes from the active transport and radio profile. The
 payload limit is the MTU minus the 12-byte header and 2-byte protocol CRC. For
 example, the 255-byte LoRa packet profile carries at most 241 Link payload
-bytes, while a 64-byte FSK profile carries at most 50.
+bytes, a 64-byte FSK profile carries at most 50, and the 250-byte ESP-NOW
+transport carries at most 236.
 
 ## radio-link Job
 
@@ -124,6 +157,35 @@ security flag.
 Each messaging-adapter session scopes Link source/sequence identities with a
 fresh local epoch, so restarting `radio-link` does not make new packets collide
 with retained messages from the previous sequence cycle.
+
+## espnow-link Job
+
+Usage:
+
+```text
+job start espnow-link <link> [channel=auto|1..13] [inbox=off|on] [chat=off|on]
+job status espnow-link
+job stop espnow-link
+```
+
+The job acquires the Wi-Fi radio through the connectionless lease, initializes
+ESP-NOW, creates a Link instance with a 250-byte frame MTU, and moves complete
+frames between the two services. Inbox and Chat behavior is the same as for
+`radio-link`; both options default to off and cannot be enabled together.
+
+The transport state and peer table live in PSRAM. Its bounded four-frame receive
+queue, two-entry send-completion queue, and 6144-byte time-critical worker stack
+are allocated only while the job runs and released when it stops. A stopped
+compiled service therefore has no queues or worker stack reserved for a future
+ESP-NOW session.
+
+`radio-link` and `espnow-link` can run at the same time with different Link
+names. Only one can use `chat=on` because the Link messaging projection is a
+single provider. Direct Link queues and `inbox=on` do not share that provider.
+
+ESP-NOW frames are unencrypted in this release. Link IDs and learned MAC
+mappings are not cryptographic identities, so peers can be spoofed. Do not
+expose a privileged Link stream over an untrusted ESP-NOW channel.
 
 ## Version 1 Frame
 
@@ -243,9 +305,10 @@ session close <id>
 link stream remove vser0
 ```
 
-Stopping and restarting `radio-link` with the same Link name leaves the virtual
-port registered. Buffered users see a disconnected stream until the transport
-returns; the stream epochs then resynchronize without reusing stale bytes.
+Stopping and restarting `radio-link` or `espnow-link` with the same Link name
+leaves the virtual port registered. Buffered users see a disconnected stream
+until the transport returns; the stream epochs then resynchronize without
+reusing stale bytes.
 
 ## Quick reference
 
@@ -254,6 +317,8 @@ lora-eu868 [inbox=off|on] [chat=off|on]`. Use `link status link0`, `link send
 link0 broadcast "text"`, and `link receive link0`. Use `chat=on` for unified
 Link broadcast/direct conversations and discovered Contacts. Use `link stream
 create link0 vser0 PEER_ID` when a reliable virtual serial port is required.
+For ESP-NOW, use `job start espnow-link link0 [channel=auto|1..13]` and configure
+cold-start unicast peers with `espnow peer add`.
 Unicast packet messages request acknowledgements. The base packet layer has no
 routing, fragmentation, encryption, mesh forwarding, or automatic
 retransmission; the peer-bound stream layer adds segmentation, ordering,

@@ -14,6 +14,7 @@
 #define SOLAR_OS_JOB_RESOURCE_MAX 4
 #define SOLAR_OS_JOB_RESOURCE_NAME_MAX 64
 #define SOLAR_OS_JOB_RESOURCE_DETAIL_MAX 32
+#define SOLAR_OS_JOB_ERROR_DETAIL_MAX 128
 
 typedef enum {
     SOLAR_OS_JOB_STOPPED,
@@ -100,6 +101,9 @@ esp_err_t solar_os_jobs_note_resource(const char *name,
                                       solar_os_job_resource_type_t type,
                                       const char *resource,
                                       const char *detail);
+bool solar_os_jobs_get_error_detail(const char *name,
+                                    char *buffer,
+                                    size_t buffer_len);
 void solar_os_jobs_clear_resources(const char *name);
 esp_err_t solar_os_jobs_claim_port(const char *name,
                                    const char *port_name,
