@@ -5,7 +5,8 @@
 - **4.8.2** — 2026-08-11 — Synth now adapts to compact OLED and LCD targets
   with a parameter HUD, large values, level bars, live waveform and
   wavetable graphs, single-slot preset browsing, and immediate feedback from
-  external control bindings.
+  external control bindings. Added a runtime PCM5102A I2S expansion that
+  registers a stereo audio device and exclusive playback stream.
 - **4.7.6** — 2026-08-10 — Added `funcgen`, an audio function generator with
   GUI/TUI interfaces, a live oscilloscope, selectable runtime playback streams,
   six waveform shapes, amplitude and pulse-width controls, and repeating

@@ -26,6 +26,7 @@ CAPABILITY_DEPENDENCIES = {
     "EXPANSION_UART": ("UART",),
     "EXPANSION_ADC": ("GPIO", "ADC"),
     "EXPANSION_PWM": ("GPIO", "PWM"),
+    "EXPANSION_I2S": ("GPIO", "EXPANSION_GPIO"),
 }
 
 PIN_SURFACES = (
@@ -334,6 +335,10 @@ def _validate_pin_metadata(board: BoardMetadata) -> list[str]:
         )
     if not users <= expansion:
         errors.append(f"{board.board_id}: user GPIOs are not a subset of expansion GPIOs")
+    if "EXPANSION_I2S" in board.capabilities and len(users) < 3:
+        errors.append(
+            f"{board.board_id}: EXPANSION_I2S requires at least three runtime GPIOs"
+        )
 
     slots = _gpio_slots(macros)
     free_pins = {pin for pin, policy in slots.items() if policy == "FREE"}
@@ -378,6 +383,7 @@ def _validate_pin_metadata(board: BoardMetadata) -> list[str]:
     for mask_name, required in (
         ("SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK", ("SPI", "EXPANSION_SPI")),
         ("SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK", ("UART", "EXPANSION_UART")),
+        ("SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK", ("EXPANSION_I2S",)),
     ):
         value = macros.get(mask_name, "0")
         nonempty = not bool(re.fullmatch(r"(?:0|0U|0UL|0ULL)", value))
@@ -385,6 +391,12 @@ def _validate_pin_metadata(board: BoardMetadata) -> list[str]:
             for capability in required:
                 if capability not in board.capabilities:
                     errors.append(f"{board.board_id}: {mask_name} requires {capability}")
+    i2s_mask = macros.get("SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK", "0")
+    i2s_mask_nonempty = not bool(re.fullmatch(r"(?:0|0U|0UL|0ULL)", i2s_mask))
+    if ("EXPANSION_I2S" in board.capabilities) != i2s_mask_nonempty:
+        errors.append(
+            f"{board.board_id}: EXPANSION_I2S and runtime I2S port mask differ"
+        )
     return errors
 
 

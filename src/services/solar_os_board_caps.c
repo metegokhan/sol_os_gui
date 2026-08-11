@@ -32,6 +32,7 @@ static const board_capability_name_t capability_names[] = {
     {SOLAR_OS_BOARD_CAP_EXPANSION_UART, "expansion_uart"},
     {SOLAR_OS_BOARD_CAP_EXPANSION_ADC, "expansion_adc"},
     {SOLAR_OS_BOARD_CAP_EXPANSION_PWM, "expansion_pwm"},
+    {SOLAR_OS_BOARD_CAP_EXPANSION_I2S, "expansion_i2s"},
     {SOLAR_OS_BOARD_CAP_KEY, "key"},
     {SOLAR_OS_BOARD_CAP_BUTTONS, "buttons"},
     {SOLAR_OS_BOARD_CAP_JOYSTICK, "joystick"},
@@ -68,6 +69,7 @@ solar_os_board_capabilities_t solar_os_board_capabilities(void)
         (SOLAR_OS_BOARD_HAS_EXPANSION_UART ? SOLAR_OS_BOARD_CAP_EXPANSION_UART : 0U) |
         (SOLAR_OS_BOARD_HAS_EXPANSION_ADC ? SOLAR_OS_BOARD_CAP_EXPANSION_ADC : 0U) |
         (SOLAR_OS_BOARD_HAS_EXPANSION_PWM ? SOLAR_OS_BOARD_CAP_EXPANSION_PWM : 0U) |
+        (SOLAR_OS_BOARD_HAS_EXPANSION_I2S ? SOLAR_OS_BOARD_CAP_EXPANSION_I2S : 0U) |
         (SOLAR_OS_BOARD_HAS_KEY ? SOLAR_OS_BOARD_CAP_KEY : 0U) |
         (SOLAR_OS_BOARD_HAS_BUTTONS ? SOLAR_OS_BOARD_CAP_BUTTONS : 0U) |
         (SOLAR_OS_BOARD_HAS_JOYSTICK ? SOLAR_OS_BOARD_CAP_JOYSTICK : 0U) |

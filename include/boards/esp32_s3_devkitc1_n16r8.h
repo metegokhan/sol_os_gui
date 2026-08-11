@@ -2,6 +2,7 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c_types.h"
+#include "driver/i2s_types.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "solar_os_bus_types.h"
@@ -33,6 +34,7 @@
 #define SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ 4096
 #define SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK (1U << SPI3_HOST)
 #define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
+#define SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK (1U << I2S_NUM_1)
 #define SOLAR_OS_BOARD_SPI_CS_SLOTS { \
     {.pin = GPIO_NUM_4, .name = "gpio4"}, \
     {.pin = GPIO_NUM_10, .name = "gpio10"}, \

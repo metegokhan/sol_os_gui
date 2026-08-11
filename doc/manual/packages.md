@@ -26,6 +26,11 @@ audio device.
 `expansion.audio-pwm` depends on the generic audio and expansion services, not
 on `service.audio-board`. On a board with expansion PWM it can therefore add a
 runtime playback device even when no built-in codec or DAC exists.
+`expansion.pcm5102` follows the same ownership model on boards with the
+`expansion_i2s` capability and adds an I2S playback device without requiring
+built-in audio. That capability guarantees a spare I2S controller and at least
+three runtime-safe output GPIOs, so the package is pruned from boards such as
+ODROID-GO that cannot expose all required signals.
 
 ## Ownership Rules
 

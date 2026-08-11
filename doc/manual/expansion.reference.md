@@ -226,6 +226,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
 | `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
 | `audio-pwm` | LEDC PWM mono audio output | `pwm=<pin>` | Claims the PWM GPIO and registers a 16 kHz mono playback device. One instance can be attached. |
+| `pcm5102` | PCM5102A three-wire I2S DAC | `bck=<pin> din=<pin> rck=<pin>` | Requires `expansion_i2s`, claims three GPIOs and I2S1, then registers a 16 kHz stereo playback device and stream. One instance can be attached. |
 
 Manual profiles are useful when another app or workflow operates the hardware
 but SolarOS still needs to prevent conflicting claims:
@@ -290,6 +291,35 @@ signal centered near 50 percent duty during silence. Use a reconstruction
 low-pass filter, a DC-blocking/coupling stage, and an amplifier suitable for the
 speaker impedance. Keep the board and amplifier grounds common. Stop playback
 before detaching; detach reports busy while the playback stream is open.
+
+### PCM5102A I2S audio output
+
+Wire the module's BCK, DIN, and RCK pins to three runtime-safe output GPIOs and
+connect SCK to ground. The driver is an I2S master in Philips format with
+32-bit slots, so its 16-bit stereo stream supplies the 64 BCK cycles per frame
+needed by the PCM5102A PLL at 16 kHz. The attached name becomes an audio device
+and `<name>.playback` becomes an exclusive 16 kHz, signed 16-bit stereo PCM
+sink:
+
+```text
+PCM5102A VCC -> module-rated supply   PCM5102A GND -> SolarOS GND
+PCM5102A SCK -> GND                   PCM5102A BCK -> GPIO1
+PCM5102A DIN -> GPIO2                 PCM5102A RCK -> GPIO3
+
+expansion attach pcm5102 dac0 bck=gpio1 din=gpio2 rck=gpio3
+audio device dac0
+audio default dac0
+aplay /audio/example.mp3
+```
+
+The example pins are the Waveshare board's runtime-safe expansion GPIOs. Mono
+streams are duplicated to left and right. Volume is applied in software before
+samples reach I2S. On current supported ESP32 and ESP32-S3 boards the driver
+uses I2S1, leaving I2S0 available to onboard audio or composite video. The
+PCM5102A output is line level: use a powered input or a suitable amplifier, not
+a passive speaker. Stop playback before detaching; detach reports busy while
+the playback stream is open. Run `audio default auto` after testing to restore
+automatic output selection.
 
 ## Wiring Examples
 

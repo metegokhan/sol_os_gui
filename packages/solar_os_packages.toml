@@ -48,6 +48,7 @@ members = [
   "expansion_ssd1306",
   "expansion_neopixel",
   "expansion_audio_pwm",
+  "expansion_pcm5102",
   "job_midi",
   "job_pocsag",
   "job_radio_link",
@@ -662,6 +663,7 @@ any_capabilities = [
   "expansion_uart",
   "expansion_adc",
   "expansion_pwm",
+  "expansion_i2s",
 ]
 
 [packages.service_radio]
@@ -785,6 +787,16 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_gptimer", "esp_driver_ledc"]
 capabilities = ["expansion_pwm"]
+
+[packages.expansion_pcm5102]
+label = "expansion.pcm5102"
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/pcm5102.c",
+  "services/solar_os_pcm5102.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_i2s"]
+capabilities = ["expansion_i2s"]
 
 [packages.service_json]
 label = "service.json"

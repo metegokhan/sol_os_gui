@@ -300,6 +300,8 @@ const char *solar_os_resource_kind_name(solar_os_resource_kind_t kind)
         return "spi_cs";
     case SOLAR_OS_RESOURCE_UART_PORT:
         return "uart";
+    case SOLAR_OS_RESOURCE_I2S_PORT:
+        return "i2s_port";
     default:
         return "unknown";
     }

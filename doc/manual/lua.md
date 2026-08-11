@@ -261,8 +261,8 @@ local reply = solaros.buses.onewire_xfer("onewire0", 9, "\xcc\x44")
 active devices with normalized bindings. `attach(driver, name, bindings)` and
 `detach(name)` mirror the shell lifecycle. Binding tables accept `spi`, `cs`
 (or `ce`), `i2c`, `addr`, `uart`, `gpio`, `irq`, `reset` (or `rst`), `dc`,
-`busy`, `data`, `adc`, `pwm`, and `count`. `cs` requires `spi`, `addr` requires `i2c`, and
-unknown fields are rejected.
+`busy`, `data`, `bck`, `din`, `rck`, `adc`, `pwm`, and `count`. `cs` requires
+`spi`, `addr` requires `i2c`, and unknown fields are rejected.
 
 ```lua
 solaros.expansion.attach("pcd8544", "lcd0", {

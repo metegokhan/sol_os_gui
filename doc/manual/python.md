@@ -585,8 +585,8 @@ service is compiled.
 - `detach(name)`: detach a device and release its resource claims and bus leases.
 
 Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `uart`,
-`gpio`, `irq`, `reset` (or `rst`), `data`, `dc`, `busy`, `adc`, `pwm`, and
-`count`. `cs`
+`gpio`, `irq`, `reset` (or `rst`), `data`, `bck`, `din`, `rck`, `dc`, `busy`,
+`adc`, `pwm`, and `count`. `cs`
 requires `spi`, and `addr` requires `i2c`. Unknown keys are rejected.
 
 ```python

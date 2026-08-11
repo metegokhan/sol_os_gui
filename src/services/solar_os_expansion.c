@@ -26,6 +26,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_AUDIO_PWM
 #include "solar_os_audio_pwm.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PCM5102
+#include "solar_os_pcm5102.h"
+#endif
 #include "solar_os_resources.h"
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
@@ -102,6 +105,32 @@ static const solar_os_expansion_binding_spec_t audio_pwm_binding_specs[] = {
         .value_hint = "gpio",
         .kind = SOLAR_OS_EXPANSION_BINDING_PWM,
         .role = "pwm",
+        .required = true,
+    },
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_PCM5102
+static const solar_os_expansion_binding_spec_t pcm5102_binding_specs[] = {
+    {
+        .key = "bck",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+        .role = "bck",
+        .required = true,
+    },
+    {
+        .key = "din",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+        .role = "din",
+        .required = true,
+    },
+    {
+        .key = "rck",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+        .role = "rck",
         .required = true,
     },
 };
@@ -208,6 +237,19 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
             sizeof(audio_pwm_binding_specs[0]),
         .attach = solar_os_audio_pwm_attach,
         .detach = solar_os_audio_pwm_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PCM5102
+    {
+        .name = "pcm5102",
+        .summary = "PCM5102A I2S stereo audio output",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2S,
+        .probe_supported = false,
+        .binding_specs = pcm5102_binding_specs,
+        .binding_spec_count = sizeof(pcm5102_binding_specs) /
+            sizeof(pcm5102_binding_specs[0]),
+        .attach = solar_os_pcm5102_attach,
+        .detach = solar_os_pcm5102_detach,
     },
 #endif
 };

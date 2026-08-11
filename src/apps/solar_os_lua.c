@@ -2659,7 +2659,8 @@ static bool solua_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
         "spi", "cs", "ce", "i2c", "addr", "uart", "gpio", "irq", "reset",
-        "rst", "data", "dc", "busy", "adc", "pwm", "count",
+        "rst", "data", "bck", "din", "rck", "dc", "busy", "adc", "pwm",
+        "count",
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         if (strcmp(key, keys[i]) == 0) {
@@ -2823,6 +2824,9 @@ static int solua_expansion_attach(lua_State *L)
         {"reset", "reset", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"rst", "reset", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"data", "data", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"bck", "bck", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"din", "din", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"rck", "rck", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"dc", "dc", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"busy", "busy", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"adc", "adc", SOLAR_OS_EXPANSION_BINDING_ADC},
