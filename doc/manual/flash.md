@@ -21,11 +21,24 @@ flash
 ```
 
 The browser reads only the verified catalog saved on SD. It does not access the
-network when it opens. Press `r` to refresh the catalog, `d` to download the
-selected factory artifact, and `f` to program a cached artifact through
-`uart0`. The interactive `f` action expects the target to be in ROM download
-mode already. Progress and the final result remain on screen until a key is
-pressed to return to the catalog.
+network when it opens. Its Catalog tab presents the available board, flavor,
+and version entries as a foldable tree. Use Up and Down to select an entry,
+Left and Right to fold or unfold a group, and Enter to act on a version. An
+asterisk marks an artifact that is cached on SD. Enter offers to download a
+remote artifact or program a cached artifact. `d` always offers a download,
+`f` always offers programming, and `r` refreshes the signed catalog.
+
+Press Tab to open Settings. Select the UART port with Left and Right. Select
+BOOT pin or RESET pin and press Enter to enter a GPIO number from 0 to 63. An
+empty value disables automatic control; Delete also clears the selected pin.
+These settings apply to the current Flash app session. The control pins refer
+to GPIOs on the SolarOS device, not pins on the target.
+
+Before programming starts, a popup stays visible with the instructions for the
+current control-pin setup. With no control pins, put the target into ROM
+download mode manually while the popup is open. During refresh, download,
+verification, and programming, the popup shows the current stage and progress.
+The final success or failure remains visible until it is dismissed.
 
 Catalog refresh uses the same repository as `ota url`. For example, an OTA URL
 of `http://server/solaros/latest` reads the flash catalog and signature from

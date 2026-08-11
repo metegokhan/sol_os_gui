@@ -10,9 +10,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "solar_os_ble_keyboard.h"
 #include "solar_os_bus_types.h"
+#include "solar_os_buses.h"
 #include "solar_os_flash.h"
+#include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_queue.h"
@@ -20,6 +21,7 @@
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
 #include "solar_os_terminal.h"
+#include "solar_os_tui.h"
 #include "solar_os_uart.h"
 
 #define FLASH_APP_TASK_STACK 16384U
@@ -42,6 +44,34 @@ typedef enum {
   FLASH_APP_EVENT_DONE,
 } flash_app_event_type_t;
 
+typedef enum {
+  FLASH_APP_TAB_CATALOG,
+  FLASH_APP_TAB_SETTINGS,
+} flash_app_tab_t;
+
+typedef enum {
+  FLASH_APP_NODE_BOARD,
+  FLASH_APP_NODE_FLAVOR,
+  FLASH_APP_NODE_ARTIFACT,
+} flash_app_node_kind_t;
+
+typedef enum {
+  FLASH_APP_MODAL_NONE,
+  FLASH_APP_MODAL_DOWNLOAD,
+  FLASH_APP_MODAL_PROGRAM,
+  FLASH_APP_MODAL_RESULT,
+  FLASH_APP_MODAL_EDIT_BOOT,
+  FLASH_APP_MODAL_EDIT_RESET,
+} flash_app_modal_t;
+
+typedef struct {
+  flash_app_node_kind_t kind;
+  size_t artifact_index;
+  size_t parent;
+  uint8_t depth;
+  bool expanded;
+} flash_app_node_t;
+
 typedef struct {
   flash_app_event_type_t type;
   solar_os_flash_progress_t progress;
@@ -51,21 +81,32 @@ typedef struct {
 typedef struct {
   solar_os_context_t *ctx;
   solar_os_shell_io_t fallback_io;
+  solar_os_tui_t tui;
   solar_os_flash_catalog_t *catalog;
+  flash_app_node_t *nodes;
+  size_t node_count;
   solar_os_flash_artifact_t artifact;
   solar_os_flash_program_options_t program;
   char port[SOLAR_OS_BUS_NAME_MAX];
   char message[128];
   size_t cursor;
+  size_t top;
+  size_t settings_cursor;
   flash_app_operation_t operation;
+  flash_app_tab_t tab;
+  flash_app_modal_t modal;
   QueueHandle_t events;
   TaskHandle_t task;
   volatile bool task_done;
   bool running;
   bool command_mode;
   bool command_exit_requested;
-  bool result_screen;
   bool result_received;
+  bool tui_active;
+  char input[4];
+  size_t input_len;
+  solar_os_flash_progress_t progress;
+  bool progress_valid;
   volatile solar_os_flash_progress_stage_t worker_stage;
   volatile bool worker_stage_valid;
   solar_os_flash_progress_stage_t last_stage;
@@ -101,53 +142,516 @@ static solar_os_shell_io_t *flash_io(flash_app_state_t *state) {
   return io;
 }
 
-static void flash_app_finish_line(flash_app_state_t *state) {
-  solar_os_shell_io_t *io = flash_io(state);
-  solar_os_shell_io_printf(io, "%s exits\n",
-                           solar_os_shell_io_app_exit_key(io));
-  solar_os_shell_io_flush(io);
+static void flash_app_add_clipped(flash_app_state_t *state, size_t row,
+                                  size_t col, size_t width, const char *text,
+                                  uint8_t attr) {
+  char line[SOLAR_OS_TERMINAL_MAX_COLS + 1U];
+  if (state == NULL || text == NULL || width == 0U)
+    return;
+  if (width > SOLAR_OS_TERMINAL_MAX_COLS)
+    width = SOLAR_OS_TERMINAL_MAX_COLS;
+  size_t len = strlen(text);
+  if (len > width)
+    len = width;
+  memcpy(line, text, len);
+  line[len] = '\0';
+  (void)solar_os_tui_addstr(&state->tui, row, col, line, attr);
 }
 
-static void flash_app_render(flash_app_state_t *state) {
-  solar_os_shell_io_t *io = flash_io(state);
-  solar_os_shell_io_clear(io);
-  solar_os_shell_io_printf_bold(io, "Flash another ESP board\n");
-  if (state->message[0] != '\0') {
-    solar_os_shell_io_printf(io, "\n%s\n", state->message);
+static bool flash_app_artifact_first_board(
+    const solar_os_flash_catalog_t *catalog, size_t index) {
+  for (size_t i = 0U; i < index; i++) {
+    if (strcmp(catalog->artifacts[i].board_id,
+               catalog->artifacts[index].board_id) == 0) {
+      return false;
+    }
   }
+  return true;
+}
+
+static bool flash_app_artifact_first_flavor(
+    const solar_os_flash_catalog_t *catalog, size_t index) {
+  for (size_t i = 0U; i < index; i++) {
+    if (strcmp(catalog->artifacts[i].board_id,
+               catalog->artifacts[index].board_id) == 0 &&
+        strcmp(catalog->artifacts[i].flavor,
+               catalog->artifacts[index].flavor) == 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void flash_app_free_tree(flash_app_state_t *state) {
+  if (state == NULL)
+    return;
+  solar_os_memory_free(state->nodes);
+  state->nodes = NULL;
+  state->node_count = 0U;
+  state->cursor = 0U;
+  state->top = 0U;
+}
+
+static void flash_app_build_tree(flash_app_state_t *state) {
+  flash_app_free_tree(state);
+  if (state == NULL || state->catalog == NULL || state->catalog->count == 0U)
+    return;
+  const size_t capacity = state->catalog->count * 3U;
+  state->nodes = solar_os_memory_calloc(capacity, sizeof(state->nodes[0]),
+                                        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                        "flash.tree");
+  if (state->nodes == NULL)
+    return;
+
+  for (size_t board = 0U; board < state->catalog->count; board++) {
+    if (!flash_app_artifact_first_board(state->catalog, board))
+      continue;
+    const size_t board_node = state->node_count++;
+    state->nodes[board_node] = (flash_app_node_t){
+        .kind = FLASH_APP_NODE_BOARD,
+        .artifact_index = board,
+        .parent = SIZE_MAX,
+        .depth = 0U,
+        .expanded = board_node == 0U,
+    };
+    for (size_t flavor = 0U; flavor < state->catalog->count; flavor++) {
+      const solar_os_flash_artifact_t *flavor_artifact =
+          &state->catalog->artifacts[flavor];
+      if (strcmp(flavor_artifact->board_id,
+                 state->catalog->artifacts[board].board_id) != 0 ||
+          !flash_app_artifact_first_flavor(state->catalog, flavor)) {
+        continue;
+      }
+      const size_t flavor_node = state->node_count++;
+      state->nodes[flavor_node] = (flash_app_node_t){
+          .kind = FLASH_APP_NODE_FLAVOR,
+          .artifact_index = flavor,
+          .parent = board_node,
+          .depth = 1U,
+          .expanded = true,
+      };
+      for (size_t artifact = 0U; artifact < state->catalog->count;
+           artifact++) {
+        const solar_os_flash_artifact_t *candidate =
+            &state->catalog->artifacts[artifact];
+        if (strcmp(candidate->board_id, flavor_artifact->board_id) == 0 &&
+            strcmp(candidate->flavor, flavor_artifact->flavor) == 0) {
+          state->nodes[state->node_count++] = (flash_app_node_t){
+              .kind = FLASH_APP_NODE_ARTIFACT,
+              .artifact_index = artifact,
+              .parent = flavor_node,
+              .depth = 2U,
+          };
+        }
+      }
+    }
+  }
+}
+
+static bool flash_app_node_visible(const flash_app_state_t *state,
+                                   size_t node_index) {
+  if (state == NULL || node_index >= state->node_count)
+    return false;
+  size_t parent = state->nodes[node_index].parent;
+  while (parent != SIZE_MAX) {
+    if (parent >= state->node_count || !state->nodes[parent].expanded)
+      return false;
+    parent = state->nodes[parent].parent;
+  }
+  return true;
+}
+
+static size_t flash_app_visible_count(const flash_app_state_t *state) {
+  size_t count = 0U;
+  for (size_t i = 0U; state != NULL && i < state->node_count; i++) {
+    if (flash_app_node_visible(state, i))
+      count++;
+  }
+  return count;
+}
+
+static bool flash_app_visible_node_at(const flash_app_state_t *state,
+                                      size_t visible_index,
+                                      size_t *node_index) {
+  for (size_t i = 0U; state != NULL && i < state->node_count; i++) {
+    if (!flash_app_node_visible(state, i))
+      continue;
+    if (visible_index == 0U) {
+      if (node_index != NULL)
+        *node_index = i;
+      return true;
+    }
+    visible_index--;
+  }
+  return false;
+}
+
+static size_t flash_app_visible_index_of(const flash_app_state_t *state,
+                                         size_t wanted_node) {
+  size_t visible = 0U;
+  for (size_t i = 0U; state != NULL && i < state->node_count; i++) {
+    if (!flash_app_node_visible(state, i))
+      continue;
+    if (i == wanted_node)
+      return visible;
+    visible++;
+  }
+  return 0U;
+}
+
+static void flash_app_ensure_visible(flash_app_state_t *state,
+                                     size_t visible_rows) {
+  const size_t count = flash_app_visible_count(state);
+  if (count == 0U || visible_rows == 0U) {
+    state->cursor = 0U;
+    state->top = 0U;
+    return;
+  }
+  if (state->cursor >= count)
+    state->cursor = count - 1U;
+  if (state->cursor < state->top)
+    state->top = state->cursor;
+  else if (state->cursor >= state->top + visible_rows)
+    state->top = state->cursor - visible_rows + 1U;
+}
+
+static const solar_os_flash_artifact_t *
+flash_app_selected_artifact(const flash_app_state_t *state,
+                            size_t *node_index) {
+  size_t node = 0U;
+  if (!flash_app_visible_node_at(state, state->cursor, &node) ||
+      state->nodes[node].kind != FLASH_APP_NODE_ARTIFACT ||
+      state->catalog == NULL ||
+      state->nodes[node].artifact_index >= state->catalog->count) {
+    return NULL;
+  }
+  if (node_index != NULL)
+    *node_index = node;
+  return &state->catalog->artifacts[state->nodes[node].artifact_index];
+}
+
+static void flash_app_render_status(flash_app_state_t *state, size_t cols) {
+  char status[192];
+  if (state->running) {
+    const char *stage = state->progress_valid
+                            ? solar_os_flash_progress_stage_name(
+                                  state->progress.stage)
+                            : flash_app_operation_name(state->operation);
+    if (state->progress_valid && state->progress.total_known) {
+      const unsigned percent =
+          state->progress.bytes_total > 0U
+              ? (unsigned)(((uint64_t)state->progress.bytes_done * 100U) /
+                           state->progress.bytes_total)
+              : 100U;
+      snprintf(status, sizeof(status), "Flash | %s | %s %u%%",
+               flash_app_operation_name(state->operation), stage, percent);
+    } else {
+      snprintf(status, sizeof(status), "Flash | %s | %s",
+               flash_app_operation_name(state->operation), stage);
+    }
+  } else if (state->message[0] != '\0') {
+    snprintf(status, sizeof(status), "Flash | %s", state->message);
+  } else if (state->catalog != NULL) {
+    size_t cached = 0U;
+    for (size_t i = 0U; i < state->catalog->count; i++)
+      cached += state->catalog->artifacts[i].cached ? 1U : 0U;
+    snprintf(status, sizeof(status), "Flash | ready | %u/%u cached | %s",
+             (unsigned)cached, (unsigned)state->catalog->count, state->port);
+  } else {
+    snprintf(status, sizeof(status), "Flash | no verified catalog | %s",
+             state->port);
+  }
+  (void)solar_os_tui_fill(&state->tui, 0U, 0U, 1U, cols, ' ',
+                          SOLAR_OS_TUI_ATTR_INVERSE |
+                              SOLAR_OS_TUI_ATTR_BOLD);
+  flash_app_add_clipped(state, 0U, 0U, cols, status,
+                        SOLAR_OS_TUI_ATTR_INVERSE |
+                            SOLAR_OS_TUI_ATTR_BOLD);
+}
+
+static void flash_app_render_tabs(flash_app_state_t *state, size_t cols) {
+  (void)solar_os_tui_fill(&state->tui, 1U, 0U, 1U, cols, ' ',
+                          SOLAR_OS_TUI_ATTR_NORMAL);
+  flash_app_add_clipped(
+      state, 1U, 1U, cols > 1U ? cols - 1U : 0U, " Catalog ",
+      state->tab == FLASH_APP_TAB_CATALOG
+          ? SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD
+          : SOLAR_OS_TUI_ATTR_NORMAL);
+  if (cols > 13U) {
+    flash_app_add_clipped(
+        state, 1U, 12U, cols - 12U, " Settings ",
+        state->tab == FLASH_APP_TAB_SETTINGS
+            ? SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD
+            : SOLAR_OS_TUI_ATTR_NORMAL);
+  }
+}
+
+static void flash_app_render_catalog(flash_app_state_t *state, size_t rows,
+                                     size_t cols) {
+  const size_t visible_rows = rows > 3U ? rows - 3U : 0U;
+  flash_app_ensure_visible(state, visible_rows);
   if (!solar_os_storage_sd_is_mounted()) {
-    solar_os_shell_io_writeln(io, "SD card is not mounted.");
-    flash_app_finish_line(state);
+    flash_app_add_clipped(state, 3U, 2U, cols > 4U ? cols - 4U : 0U,
+                          "SD card is not mounted.",
+                          SOLAR_OS_TUI_ATTR_BOLD);
     return;
   }
   if (state->catalog == NULL) {
-    solar_os_shell_io_writeln(io, "No verified catalog is cached.");
-    solar_os_shell_io_writeln(io, "r refreshes the catalog");
-    flash_app_finish_line(state);
+    flash_app_add_clipped(state, 3U, 2U, cols > 4U ? cols - 4U : 0U,
+                          "No verified catalog. Press r to refresh.",
+                          SOLAR_OS_TUI_ATTR_BOLD);
     return;
   }
-  solar_os_shell_io_printf(io, "%u artifacts; * cached on SD\n\n",
-                           (unsigned)state->catalog->count);
-  const size_t count = state->catalog->count;
-  if (count == 0U) {
-    solar_os_shell_io_writeln(io, "The catalog is empty.");
+  for (size_t row = 0U; row < visible_rows; row++) {
+    size_t node_index = 0U;
+    if (!flash_app_visible_node_at(state, state->top + row, &node_index))
+      continue;
+    const flash_app_node_t *node = &state->nodes[node_index];
+    const solar_os_flash_artifact_t *artifact =
+        &state->catalog->artifacts[node->artifact_index];
+    char line[192];
+    if (node->kind == FLASH_APP_NODE_BOARD) {
+      snprintf(line, sizeof(line), "[%c] %s",
+               node->expanded ? '-' : '+', artifact->board_name);
+    } else if (node->kind == FLASH_APP_NODE_FLAVOR) {
+      snprintf(line, sizeof(line), "  |-- [%c] %s",
+               node->expanded ? '-' : '+', artifact->flavor);
+    } else if (cols >= 54U) {
+      snprintf(line, sizeof(line), "      |-- %c %-12s %-10s %s",
+               artifact->cached ? '*' : ' ', artifact->version,
+               artifact->chip, artifact->cached ? "cached on SD" : "remote");
+    } else {
+      snprintf(line, sizeof(line), "      |-- %c %s",
+               artifact->cached ? '*' : ' ', artifact->version);
+    }
+    const bool selected = state->top + row == state->cursor;
+    const uint8_t attr =
+        selected ? SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD
+                 : (node->kind == FLASH_APP_NODE_ARTIFACT
+                        ? SOLAR_OS_TUI_ATTR_NORMAL
+                        : SOLAR_OS_TUI_ATTR_BOLD);
+    (void)solar_os_tui_fill(&state->tui, row + 2U, 0U, 1U, cols, ' ', attr);
+    flash_app_add_clipped(state, row + 2U, 0U, cols, line, attr);
   }
-  const size_t visible = 12U;
-  size_t top = state->cursor >= visible ? state->cursor - visible + 1U : 0U;
-  if (top + visible > count && count > visible)
-    top = count - visible;
-  for (size_t i = top; i < count && i < top + visible; i++) {
-    const solar_os_flash_artifact_t *artifact = &state->catalog->artifacts[i];
-    solar_os_shell_io_printf(
-        io, "%c%c %-22s %-12s %-10s %s\n", i == state->cursor ? '>' : ' ',
-        artifact->cached ? '*' : ' ', artifact->board_id, artifact->flavor,
-        artifact->version, artifact->chip);
+}
+
+static const char *flash_app_pin_text(int pin, char *buffer,
+                                      size_t buffer_len) {
+  if (pin < 0)
+    return "not set";
+  snprintf(buffer, buffer_len, "gpio%d", pin);
+  return buffer;
+}
+
+static void flash_app_render_settings(flash_app_state_t *state, size_t rows,
+                                      size_t cols) {
+  static const char *const labels[] = {"Port", "BOOT pin", "RESET pin"};
+  if (state->settings_cursor >= 3U)
+    state->settings_cursor = 2U;
+  for (size_t row = 0U; row < 3U && row + 3U < rows; row++) {
+    char pin[16];
+    const char *value = row == 0U
+                            ? state->port
+                            : flash_app_pin_text(
+                                  row == 1U ? state->program.boot_pin
+                                            : state->program.reset_pin,
+                                  pin, sizeof(pin));
+    char line[96];
+    snprintf(line, sizeof(line), "%-12s %s", labels[row], value);
+    const uint8_t attr = row == state->settings_cursor
+                             ? SOLAR_OS_TUI_ATTR_INVERSE |
+                                   SOLAR_OS_TUI_ATTR_BOLD
+                             : SOLAR_OS_TUI_ATTR_NORMAL;
+    (void)solar_os_tui_fill(&state->tui, row + 3U, 1U, 1U,
+                            cols > 2U ? cols - 2U : 0U, ' ', attr);
+    flash_app_add_clipped(state, row + 3U, 1U,
+                          cols > 2U ? cols - 2U : 0U, line, attr);
   }
-  solar_os_shell_io_writeln(
-      io, "\nup/down select  r refresh  d download  f flash via uart0");
-  solar_os_shell_io_writeln(
-      io, "For automatic boot/reset pins, use the shell command form.");
-  flash_app_finish_line(state);
+  if (rows > 8U) {
+    flash_app_add_clipped(
+        state, 7U, 2U, cols > 4U ? cols - 4U : 0U,
+        "Control pins are optional and refer to GPIOs on this SolarOS device.",
+        SOLAR_OS_TUI_ATTR_NORMAL);
+  }
+}
+
+static void flash_app_footer(const flash_app_state_t *state, size_t cols,
+                             char *footer, size_t footer_len) {
+  const char *full = NULL;
+  const char *compact = NULL;
+  if (footer == NULL || footer_len == 0U)
+    return;
+  if (state->running) {
+    full = "Operation active  Ctrl+] waits for completion";
+    compact = "Working  Ctrl+]:wait";
+  } else {
+    switch (state->modal) {
+    case FLASH_APP_MODAL_EDIT_BOOT:
+    case FLASH_APP_MODAL_EDIT_RESET:
+      full = "Type GPIO number  Enter save  Esc cancel  Del clear";
+      compact = "GPIO  Enter:save  Esc:cancel  Del:clear";
+      break;
+    case FLASH_APP_MODAL_DOWNLOAD:
+    case FLASH_APP_MODAL_PROGRAM:
+      full = compact = "Enter:continue  Esc:cancel";
+      break;
+    case FLASH_APP_MODAL_RESULT:
+      full = compact = "Enter:close  Ctrl+]:exit";
+      break;
+    case FLASH_APP_MODAL_NONE:
+    default:
+      if (state->tab == FLASH_APP_TAB_CATALOG) {
+        full = "Tab settings  Up/Down select  Left/Right tree  Enter action  r refresh  q exit";
+        compact = "Arrows  Enter:action  Tab:settings  r:refresh  q:exit";
+      } else {
+        full = "Tab catalog  Up/Down select  Left/Right port  Enter edit  Del clear  q exit";
+        compact = "Arrows  Enter:edit  Del:clear  Tab:catalog  q:exit";
+      }
+      break;
+    }
+  }
+
+  const char *text = strlen(full) <= cols ? full : compact;
+  size_t length = strlen(text);
+  size_t limit = cols < footer_len - 1U ? cols : footer_len - 1U;
+  if (length <= limit) {
+    memcpy(footer, text, length + 1U);
+    return;
+  }
+  if (limit <= 3U) {
+    memset(footer, '.', limit);
+    footer[limit] = '\0';
+    return;
+  }
+  memcpy(footer, text, limit - 3U);
+  memcpy(footer + limit - 3U, "...", 4U);
+}
+
+static void flash_app_render_footer(flash_app_state_t *state, size_t rows,
+                                    size_t cols) {
+  if (rows == 0U)
+    return;
+  char footer[SOLAR_OS_TERMINAL_MAX_COLS + 1U];
+  flash_app_footer(state, cols, footer, sizeof(footer));
+  (void)solar_os_tui_fill(&state->tui, rows - 1U, 0U, 1U, cols, ' ',
+                          SOLAR_OS_TUI_ATTR_INVERSE);
+  flash_app_add_clipped(state, rows - 1U, 0U, cols, footer,
+                        SOLAR_OS_TUI_ATTR_INVERSE);
+}
+
+static solar_os_tui_rect_t flash_app_popup_bounds(size_t rows, size_t cols) {
+  return (solar_os_tui_rect_t){
+      .row = rows > 2U ? 1U : 0U,
+      .col = 0U,
+      .height = rows > 2U ? rows - 2U : rows,
+      .width = cols,
+  };
+}
+
+static void flash_app_render_modal(flash_app_state_t *state, size_t rows,
+                                   size_t cols) {
+  const solar_os_tui_rect_t bounds = flash_app_popup_bounds(rows, cols);
+  solar_os_tui_rect_t popup = {0};
+  char text[256];
+  const solar_os_flash_artifact_t *artifact = &state->artifact;
+  if (state->running) {
+    const char *stage = state->progress_valid
+                            ? solar_os_flash_progress_stage_name(
+                                  state->progress.stage)
+                            : flash_app_operation_name(state->operation);
+    snprintf(text, sizeof(text), "%s is in progress. Please wait.\n ",
+             flash_app_operation_name(state->operation));
+    (void)solar_os_tui_text_popup(&state->tui, &bounds, "Working", text,
+                                  &popup);
+    if (popup.height > 2U && popup.width > 4U) {
+      (void)solar_os_tui_progress_bar(
+          &state->tui, popup.row + popup.height - 2U, popup.col + 2U,
+          popup.width - 4U, stage,
+          state->progress_valid ? state->progress.bytes_done : 0U,
+          state->progress_valid ? state->progress.bytes_total : 0U,
+          state->progress_valid && state->progress.total_known);
+    }
+    return;
+  }
+
+  switch (state->modal) {
+  case FLASH_APP_MODAL_DOWNLOAD:
+    snprintf(text, sizeof(text),
+             "Download and verify %s / %s / %s to the SD card?",
+             artifact->board_id, artifact->flavor, artifact->version);
+    (void)solar_os_tui_text_popup(&state->tui, &bounds, "Download artifact",
+                                  text, NULL);
+    break;
+  case FLASH_APP_MODAL_PROGRAM:
+    if (state->program.boot_pin >= 0 && state->program.reset_pin >= 0) {
+      snprintf(text, sizeof(text),
+               "SolarOS will put the target in ROM download mode using BOOT gpio%d and RESET gpio%d. Connect crossed TX/RX and common GND.",
+               state->program.boot_pin, state->program.reset_pin);
+    } else if (state->program.boot_pin < 0 && state->program.reset_pin < 0) {
+      snprintf(text, sizeof(text),
+               "Put the target in ROM download mode now: hold BOOT, tap RESET, then release BOOT. Connect crossed TX/RX and common GND.");
+    } else if (state->program.boot_pin >= 0) {
+      snprintf(text, sizeof(text),
+               "SolarOS will hold BOOT gpio%d low. After continuing, reset the target manually while the connection is attempted.",
+               state->program.boot_pin);
+    } else {
+      snprintf(text, sizeof(text),
+               "Hold the target BOOT signal active before continuing. SolarOS will toggle RESET gpio%d.",
+               state->program.reset_pin);
+    }
+    (void)solar_os_tui_text_popup(&state->tui, &bounds, "Ready to flash",
+                                  text, NULL);
+    break;
+  case FLASH_APP_MODAL_RESULT:
+    (void)solar_os_tui_text_popup(
+        &state->tui, &bounds,
+        strstr(state->message, "succeeded") != NULL ? "Success" : "Failed",
+        state->message, NULL);
+    break;
+  case FLASH_APP_MODAL_EDIT_BOOT:
+  case FLASH_APP_MODAL_EDIT_RESET:
+    snprintf(text, sizeof(text),
+             "Enter a GPIO number from 0 to 63. Leave it empty to disable automatic control.\nValue: %s_",
+             state->input);
+    (void)solar_os_tui_text_popup(
+        &state->tui, &bounds,
+        state->modal == FLASH_APP_MODAL_EDIT_BOOT ? "Set BOOT pin"
+                                                  : "Set RESET pin",
+        text, NULL);
+    break;
+  case FLASH_APP_MODAL_NONE:
+  default:
+    break;
+  }
+}
+
+static void flash_app_render(flash_app_state_t *state) {
+  if (state == NULL || !state->tui_active)
+    return;
+  const size_t rows = solar_os_tui_rows(&state->tui);
+  const size_t cols = solar_os_tui_cols(&state->tui);
+  (void)solar_os_tui_set_cursor_visible(&state->tui, false);
+  solar_os_tui_clear(&state->tui);
+  if (rows == 0U || cols == 0U) {
+    solar_os_tui_refresh(&state->tui);
+    return;
+  }
+  flash_app_render_status(state, cols);
+  if (rows < 4U || cols < 20U) {
+    if (rows > 1U)
+      flash_app_add_clipped(state, 1U, 0U, cols, "terminal too small",
+                            SOLAR_OS_TUI_ATTR_BOLD);
+  } else {
+    flash_app_render_tabs(state, cols);
+    if (state->tab == FLASH_APP_TAB_CATALOG)
+      flash_app_render_catalog(state, rows, cols);
+    else
+      flash_app_render_settings(state, rows, cols);
+  }
+  flash_app_render_footer(state, rows, cols);
+  if (state->running || state->modal != FLASH_APP_MODAL_NONE)
+    flash_app_render_modal(state, rows, cols);
+  solar_os_tui_refresh(&state->tui);
 }
 
 static void flash_app_progress(const solar_os_flash_progress_t *progress,
@@ -212,7 +716,8 @@ static bool flash_app_start_worker(flash_app_state_t *state,
   state->last_stage_valid = false;
   state->worker_stage_valid = false;
   state->result_received = false;
-  state->result_screen = false;
+  state->progress_valid = false;
+  state->modal = FLASH_APP_MODAL_NONE;
   state->message[0] = '\0';
   SOLAR_OS_LOGI(TAG, "%s started", flash_app_operation_name(operation));
   const BaseType_t created = solar_os_task_create_pinned_external(
@@ -257,19 +762,23 @@ static void flash_app_reload_catalog(flash_app_state_t *state) {
   const esp_err_t err = solar_os_flash_catalog_load(&catalog);
   solar_os_flash_catalog_free(state->catalog);
   state->catalog = err == ESP_OK ? catalog : NULL;
-  if (state->catalog != NULL && state->cursor >= state->catalog->count) {
-    state->cursor =
-        state->catalog->count > 0U ? state->catalog->count - 1U : 0U;
-  }
+  flash_app_build_tree(state);
 }
 
 static void flash_app_drain_events(flash_app_state_t *state) {
   if (state->events == NULL)
     return;
+  bool redraw = false;
   flash_app_event_t event;
   while (xQueueReceive(state->events, &event, 0) == pdPASS) {
     if (event.type == FLASH_APP_EVENT_PROGRESS) {
-      flash_app_print_progress(state, &event.progress);
+      if (state->command_mode) {
+        flash_app_print_progress(state, &event.progress);
+      } else {
+        state->progress = event.progress;
+        state->progress_valid = true;
+        redraw = true;
+      }
       continue;
     }
     state->result_received = true;
@@ -283,7 +792,8 @@ static void flash_app_drain_events(flash_app_state_t *state) {
       snprintf(state->message, sizeof(state->message), "%s succeeded",
                operation);
       SOLAR_OS_LOGI(TAG, "%s succeeded", operation);
-      solar_os_shell_io_writeln(io, "flash: success");
+      if (state->command_mode)
+        solar_os_shell_io_writeln(io, "flash: success");
       if (state->operation == FLASH_APP_OPERATION_REFRESH ||
           state->operation == FLASH_APP_OPERATION_DOWNLOAD) {
         flash_app_reload_catalog(state);
@@ -294,9 +804,12 @@ static void flash_app_drain_events(flash_app_state_t *state) {
                esp_err_to_name(event.result), (unsigned)event.result);
       SOLAR_OS_LOGE(TAG, "%s failed stage=%s error=%s (0x%x)", operation, stage,
                     esp_err_to_name(event.result), (unsigned)event.result);
-      solar_os_shell_io_printf(io, "flash: %s\n", state->message);
+      if (state->command_mode)
+        solar_os_shell_io_printf(io, "flash: %s\n", state->message);
     }
-    solar_os_shell_io_flush(io);
+    if (state->command_mode)
+      solar_os_shell_io_flush(io);
+    redraw = true;
   }
   if (state->task_done && state->running) {
     state->running = false;
@@ -304,19 +817,20 @@ static void flash_app_drain_events(flash_app_state_t *state) {
       strlcpy(state->message, "operation ended without a result event",
               sizeof(state->message));
       SOLAR_OS_LOGE(TAG, "%s", state->message);
-      solar_os_shell_io_writeln(
-          flash_io(state), "flash: operation ended without a result event");
+      if (state->command_mode) {
+        solar_os_shell_io_writeln(
+            flash_io(state), "flash: operation ended without a result event");
+      }
     }
     if (state->command_mode) {
       state->command_exit_requested = true;
     } else {
-      state->result_screen = true;
-      solar_os_shell_io_writeln(flash_io(state),
-                                "Press a key to return to the catalog; "
-                                "app-exit exits.");
-      solar_os_shell_io_flush(flash_io(state));
+      state->modal = FLASH_APP_MODAL_RESULT;
+      redraw = true;
     }
   }
+  if (redraw && !state->command_mode)
+    flash_app_render(state);
 }
 
 static bool flash_parse_pin(const char *text, int *pin) {
@@ -353,6 +867,176 @@ static bool flash_app_select(flash_app_state_t *state, const char *board,
   if (artifact == NULL)
     return false;
   state->artifact = *artifact;
+  return true;
+}
+
+static void flash_app_move_catalog(flash_app_state_t *state, int delta) {
+  const size_t count = flash_app_visible_count(state);
+  if (count == 0U)
+    return;
+  if (delta < 0 && state->cursor > 0U)
+    state->cursor--;
+  else if (delta > 0 && state->cursor + 1U < count)
+    state->cursor++;
+}
+
+static void flash_app_move_catalog_page(flash_app_state_t *state, bool down) {
+  const size_t rows = solar_os_tui_rows(&state->tui);
+  const size_t visible = rows > 3U ? rows - 3U : 1U;
+  const size_t step = visible > 1U ? visible - 1U : 1U;
+  const size_t count = flash_app_visible_count(state);
+  if (count == 0U)
+    return;
+  if (down)
+    state->cursor = state->cursor + step < count ? state->cursor + step
+                                                 : count - 1U;
+  else
+    state->cursor = state->cursor > step ? state->cursor - step : 0U;
+}
+
+static void flash_app_tree_left(flash_app_state_t *state) {
+  size_t node_index = 0U;
+  if (!flash_app_visible_node_at(state, state->cursor, &node_index))
+    return;
+  flash_app_node_t *node = &state->nodes[node_index];
+  if (node->kind != FLASH_APP_NODE_ARTIFACT && node->expanded) {
+    node->expanded = false;
+    return;
+  }
+  if (node->parent != SIZE_MAX)
+    state->cursor = flash_app_visible_index_of(state, node->parent);
+}
+
+static void flash_app_tree_right(flash_app_state_t *state) {
+  size_t node_index = 0U;
+  if (!flash_app_visible_node_at(state, state->cursor, &node_index))
+    return;
+  flash_app_node_t *node = &state->nodes[node_index];
+  if (node->kind != FLASH_APP_NODE_ARTIFACT)
+    node->expanded = true;
+}
+
+static void flash_app_open_selected(flash_app_state_t *state,
+                                    bool force_download,
+                                    bool force_program) {
+  const solar_os_flash_artifact_t *artifact =
+      flash_app_selected_artifact(state, NULL);
+  if (artifact == NULL) {
+    size_t node_index = 0U;
+    if (flash_app_visible_node_at(state, state->cursor, &node_index) &&
+        state->nodes[node_index].kind != FLASH_APP_NODE_ARTIFACT) {
+      state->nodes[node_index].expanded = !state->nodes[node_index].expanded;
+    }
+    return;
+  }
+  state->artifact = *artifact;
+  if (force_program && !artifact->cached) {
+    strlcpy(state->message, "artifact is not cached; download it first",
+            sizeof(state->message));
+    state->modal = FLASH_APP_MODAL_RESULT;
+  } else if (force_download || !artifact->cached) {
+    state->modal = FLASH_APP_MODAL_DOWNLOAD;
+  } else {
+    state->modal = FLASH_APP_MODAL_PROGRAM;
+  }
+}
+
+static void flash_app_cycle_port(flash_app_state_t *state, int delta) {
+  const size_t count =
+      solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART);
+  if (count == 0U)
+    return;
+  size_t current = 0U;
+  bool found = false;
+  solar_os_bus_info_t info;
+  for (size_t i = 0U; i < count; i++) {
+    if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_UART, i, &info) &&
+        strcmp(info.name, state->port) == 0) {
+      current = i;
+      found = true;
+      break;
+    }
+  }
+  if (!found)
+    current = delta < 0 ? count - 1U : 0U;
+  else if (delta < 0)
+    current = current > 0U ? current - 1U : count - 1U;
+  else
+    current = current + 1U < count ? current + 1U : 0U;
+  if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_UART, current, &info)) {
+    strlcpy(state->port, info.name, sizeof(state->port));
+    state->program.port = state->port;
+  }
+}
+
+static void flash_app_begin_pin_edit(flash_app_state_t *state, bool boot) {
+  const int pin = boot ? state->program.boot_pin : state->program.reset_pin;
+  state->input[0] = '\0';
+  state->input_len = 0U;
+  if (pin >= 0) {
+    snprintf(state->input, sizeof(state->input), "%d", pin);
+    state->input_len = strlen(state->input);
+  }
+  state->modal =
+      boot ? FLASH_APP_MODAL_EDIT_BOOT : FLASH_APP_MODAL_EDIT_RESET;
+}
+
+static bool flash_app_handle_pin_edit(flash_app_state_t *state, uint8_t ch) {
+  if (ch == SOLAR_OS_KEY_ESCAPE) {
+    state->modal = FLASH_APP_MODAL_NONE;
+    return true;
+  }
+  if (ch == '\r' || ch == '\n') {
+    int pin = -1;
+    if (state->input_len > 0U && !flash_parse_pin(state->input, &pin)) {
+      strlcpy(state->message, "pin must be a GPIO number from 0 to 63",
+              sizeof(state->message));
+      return true;
+    }
+    if (state->modal == FLASH_APP_MODAL_EDIT_BOOT)
+      state->program.boot_pin = pin;
+    else
+      state->program.reset_pin = pin;
+    state->modal = FLASH_APP_MODAL_NONE;
+    state->message[0] = '\0';
+    return true;
+  }
+  if (ch == '\b' || ch == 0x7fU || ch == SOLAR_OS_KEY_DELETE) {
+    if (state->input_len > 0U)
+      state->input[--state->input_len] = '\0';
+    return true;
+  }
+  if (ch >= '0' && ch <= '9' &&
+      state->input_len + 1U < sizeof(state->input)) {
+    state->input[state->input_len++] = (char)ch;
+    state->input[state->input_len] = '\0';
+  }
+  return true;
+}
+
+static bool flash_app_handle_modal(flash_app_state_t *state, uint8_t ch) {
+  if (state->modal == FLASH_APP_MODAL_EDIT_BOOT ||
+      state->modal == FLASH_APP_MODAL_EDIT_RESET) {
+    return flash_app_handle_pin_edit(state, ch);
+  }
+  if (ch == SOLAR_OS_KEY_ESCAPE) {
+    state->modal = FLASH_APP_MODAL_NONE;
+    return true;
+  }
+  if (state->modal == FLASH_APP_MODAL_RESULT) {
+    if (ch == '\r' || ch == '\n' || ch == ' ')
+      state->modal = FLASH_APP_MODAL_NONE;
+    return true;
+  }
+  if (ch != '\r' && ch != '\n')
+    return true;
+  const flash_app_operation_t operation =
+      state->modal == FLASH_APP_MODAL_DOWNLOAD ? FLASH_APP_OPERATION_DOWNLOAD
+                                                : FLASH_APP_OPERATION_PROGRAM;
+  if (!flash_app_start_worker(state, operation)) {
+    strlcpy(state->message, "worker could not start", sizeof(state->message));
+    state->modal = FLASH_APP_MODAL_RESULT;
+  }
   return true;
 }
 
@@ -471,8 +1155,15 @@ static bool flash_app_handle_command(flash_app_state_t *state) {
 static void flash_app_cleanup(void) {
   if (flash_app == NULL)
     return;
+  if (flash_app->tui_active) {
+    (void)solar_os_tui_set_cursor_visible(&flash_app->tui, true);
+    solar_os_tui_refresh(&flash_app->tui);
+    solar_os_tui_end(&flash_app->tui);
+    flash_app->tui_active = false;
+  }
   if (flash_app->events != NULL)
     solar_os_queue_delete(flash_app->events);
+  flash_app_free_tree(flash_app);
   solar_os_flash_catalog_free(flash_app->catalog);
   solar_os_memory_free(flash_app);
   flash_app = NULL;
@@ -490,8 +1181,22 @@ static esp_err_t flash_app_start(solar_os_context_t *ctx) {
   if (flash_app == NULL)
     return ESP_ERR_NO_MEM;
   flash_app->ctx = ctx;
+  strlcpy(flash_app->port, SOLAR_OS_UART_PORT_NAME, sizeof(flash_app->port));
+  flash_app->program = (solar_os_flash_program_options_t){
+      .port = flash_app->port,
+      .boot_pin = -1,
+      .reset_pin = -1,
+      .baud_rate = 460800U,
+  };
   flash_app_reload_catalog(flash_app);
   if (!flash_app_handle_command(flash_app)) {
+    const esp_err_t err = solar_os_tui_begin(&flash_app->tui, ctx);
+    if (err != ESP_OK) {
+      flash_app_cleanup();
+      return err;
+    }
+    flash_app->tui_active = true;
+    (void)solar_os_tui_enable_diff(&flash_app->tui, true);
     flash_app_render(flash_app);
   }
   solar_os_shell_io_flush(flash_io(flash_app));
@@ -526,57 +1231,129 @@ static bool flash_app_event(solar_os_context_t *ctx,
   const uint8_t ch = (uint8_t)event->data.ch;
   if (ch == SOLAR_OS_KEY_APP_EXIT) {
     if (flash_app->running) {
-      solar_os_shell_io_writeln(
-          flash_io(flash_app),
-          "flash: operation is active; wait for its result");
-      solar_os_shell_io_flush(flash_io(flash_app));
+      strlcpy(flash_app->message,
+              "operation is active; wait for its result",
+              sizeof(flash_app->message));
+      flash_app_render(flash_app);
     } else {
       solar_os_context_request_exit(ctx);
     }
     return true;
   }
-  if (flash_app->result_screen) {
-    flash_app->result_screen = false;
+  if (flash_app->command_mode)
+    return true;
+  if (flash_app->modal != FLASH_APP_MODAL_NONE) {
+    (void)flash_app_handle_modal(flash_app, ch);
     flash_app_render(flash_app);
     return true;
   }
-  if (flash_app->running || flash_app->command_mode)
+  if (flash_app->running)
     return true;
-  const size_t count =
-      flash_app->catalog != NULL ? flash_app->catalog->count : 0U;
-  if ((ch == SOLAR_OS_KEY_UP || ch == 'k') && flash_app->cursor > 0U) {
-    flash_app->cursor--;
-  } else if ((ch == SOLAR_OS_KEY_DOWN || ch == 'j') &&
-             flash_app->cursor + 1U < count) {
-    flash_app->cursor++;
-  } else if (ch == 'r' || ch == 'R') {
-    (void)flash_app_start_worker(flash_app, FLASH_APP_OPERATION_REFRESH);
+
+  if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
+    solar_os_context_request_exit(ctx);
     return true;
-  } else if ((ch == 'd' || ch == 'D') && count > 0U) {
-    flash_app->artifact = flash_app->catalog->artifacts[flash_app->cursor];
-    (void)flash_app_start_worker(flash_app, FLASH_APP_OPERATION_DOWNLOAD);
+  }
+  if (ch == '\t') {
+    flash_app->tab = flash_app->tab == FLASH_APP_TAB_CATALOG
+                         ? FLASH_APP_TAB_SETTINGS
+                         : FLASH_APP_TAB_CATALOG;
+    flash_app_render(flash_app);
     return true;
-  } else if ((ch == 'f' || ch == 'F') && count > 0U) {
-    flash_app->artifact = flash_app->catalog->artifacts[flash_app->cursor];
-    if (!flash_app->artifact.cached) {
-      solar_os_shell_io_writeln(flash_io(flash_app),
-                                "flash: download this artifact first");
+  }
+
+  if (flash_app->tab == FLASH_APP_TAB_CATALOG) {
+    switch (ch) {
+    case SOLAR_OS_KEY_UP:
+    case 'k':
+      flash_app_move_catalog(flash_app, -1);
+      break;
+    case SOLAR_OS_KEY_DOWN:
+    case 'j':
+      flash_app_move_catalog(flash_app, 1);
+      break;
+    case SOLAR_OS_KEY_PAGE_UP:
+      flash_app_move_catalog_page(flash_app, false);
+      break;
+    case SOLAR_OS_KEY_PAGE_DOWN:
+      flash_app_move_catalog_page(flash_app, true);
+      break;
+    case SOLAR_OS_KEY_HOME:
+      flash_app->cursor = 0U;
+      break;
+    case SOLAR_OS_KEY_END:
+      if (flash_app_visible_count(flash_app) > 0U)
+        flash_app->cursor = flash_app_visible_count(flash_app) - 1U;
+      break;
+    case SOLAR_OS_KEY_LEFT:
+      flash_app_tree_left(flash_app);
+      break;
+    case SOLAR_OS_KEY_RIGHT:
+      flash_app_tree_right(flash_app);
+      break;
+    case '\r':
+    case '\n':
+    case ' ':
+      flash_app_open_selected(flash_app, false, false);
+      break;
+    case 'd':
+    case 'D':
+      flash_app_open_selected(flash_app, true, false);
+      break;
+    case 'f':
+    case 'F':
+      flash_app_open_selected(flash_app, false, true);
+      break;
+    case 'r':
+    case 'R':
+      if (!flash_app_start_worker(flash_app, FLASH_APP_OPERATION_REFRESH)) {
+        strlcpy(flash_app->message, "worker could not start",
+                sizeof(flash_app->message));
+        flash_app->modal = FLASH_APP_MODAL_RESULT;
+      }
+      break;
+    default:
       return true;
     }
-    strlcpy(flash_app->port, SOLAR_OS_UART_PORT_NAME, sizeof(flash_app->port));
-    flash_app->program = (solar_os_flash_program_options_t){
-        .port = flash_app->port,
-        .boot_pin = -1,
-        .reset_pin = -1,
-        .baud_rate = 460800U,
-    };
-    solar_os_shell_io_writeln(
-        flash_io(flash_app),
-        "flash: put the target in ROM download mode; connecting via uart0");
-    (void)flash_app_start_worker(flash_app, FLASH_APP_OPERATION_PROGRAM);
-    return true;
   } else {
-    return true;
+    switch (ch) {
+    case SOLAR_OS_KEY_UP:
+    case 'k':
+      if (flash_app->settings_cursor > 0U)
+        flash_app->settings_cursor--;
+      break;
+    case SOLAR_OS_KEY_DOWN:
+    case 'j':
+      if (flash_app->settings_cursor < 2U)
+        flash_app->settings_cursor++;
+      break;
+    case SOLAR_OS_KEY_LEFT:
+      if (flash_app->settings_cursor == 0U)
+        flash_app_cycle_port(flash_app, -1);
+      break;
+    case SOLAR_OS_KEY_RIGHT:
+      if (flash_app->settings_cursor == 0U)
+        flash_app_cycle_port(flash_app, 1);
+      break;
+    case '\r':
+    case '\n':
+    case ' ':
+      if (flash_app->settings_cursor == 0U)
+        flash_app_cycle_port(flash_app, 1);
+      else
+        flash_app_begin_pin_edit(flash_app,
+                                 flash_app->settings_cursor == 1U);
+      break;
+    case SOLAR_OS_KEY_DELETE:
+    case 0x7fU:
+      if (flash_app->settings_cursor == 1U)
+        flash_app->program.boot_pin = -1;
+      else if (flash_app->settings_cursor == 2U)
+        flash_app->program.reset_pin = -1;
+      break;
+    default:
+      return true;
+    }
   }
   flash_app_render(flash_app);
   return true;

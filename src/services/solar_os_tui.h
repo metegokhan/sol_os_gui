@@ -17,6 +17,13 @@ typedef enum {
 } solar_os_tui_attr_t;
 
 typedef struct {
+    size_t row;
+    size_t col;
+    size_t height;
+    size_t width;
+} solar_os_tui_rect_t;
+
+typedef struct {
     solar_os_shell_io_t *io;
     solar_os_shell_io_t fallback_io;
     solar_os_terminal_t *terminal;
@@ -90,3 +97,16 @@ esp_err_t solar_os_tui_fill(solar_os_tui_t *tui,
                             size_t width,
                             uint32_t codepoint,
                             uint8_t attr);
+esp_err_t solar_os_tui_text_popup(solar_os_tui_t *tui,
+                                  const solar_os_tui_rect_t *bounds,
+                                  const char *title,
+                                  const char *text,
+                                  solar_os_tui_rect_t *popup);
+esp_err_t solar_os_tui_progress_bar(solar_os_tui_t *tui,
+                                    size_t row,
+                                    size_t col,
+                                    size_t width,
+                                    const char *label,
+                                    uint64_t value,
+                                    uint64_t total,
+                                    bool total_known);
