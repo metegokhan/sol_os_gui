@@ -1,0 +1,20 @@
+[flavor]
+name = "beta"
+description = "Full SolarOS plus experimental applications."
+
+[packages]
+system = true
+expansions = true
+maintenance_apps = true
+maintenance_jobs = true
+hardware_jobs = true
+audio = true
+net = true
+agent = true
+media = true
+games = true
+retro = true
+python = true
+lua = true
+writing = true
+utils = true

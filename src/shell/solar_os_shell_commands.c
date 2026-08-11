@@ -560,6 +560,32 @@ static void ota_print_check_result(solar_os_shell_io_t *term,
                              result->update_available ? "available" : "not needed");
 }
 
+static bool ota_print_available_flavors(solar_os_shell_io_t *term)
+{
+    const size_t count = solar_os_ota_available_flavor_count();
+    bool printed = false;
+
+    for (size_t i = 0U; i < count; i++) {
+        char flavor[SOLAR_OS_OTA_FLAVOR_MAX];
+        if (!solar_os_ota_get_available_flavor(i, flavor, sizeof(flavor))) {
+            continue;
+        }
+        if (!printed) {
+            solar_os_shell_io_write(term,
+                                    "available flavors from latest version: ");
+        } else {
+            solar_os_shell_io_write(term, ", ");
+        }
+        solar_os_shell_io_write(term, flavor);
+        printed = true;
+    }
+
+    if (printed) {
+        solar_os_shell_io_put_char(term, '\n');
+    }
+    return printed;
+}
+
 typedef struct {
     solar_os_shell_io_t *term;
     size_t row;
@@ -781,6 +807,14 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         const esp_err_t err = solar_os_ota_check(&result);
         if (err == ESP_OK) {
             ota_print_check_result(term, &result);
+        } else if (err == ESP_ERR_NOT_FOUND &&
+                   solar_os_ota_available_flavors_checked() &&
+                   solar_os_ota_available_flavor_count() > 0U) {
+            solar_os_shell_io_printf(term,
+                                     "ota: no release for %s/%s\n",
+                                     result.board_id,
+                                     result.target_flavor);
+            ota_print_available_flavors(term);
         } else {
             solar_os_shell_io_printf(term,
                                      "ota: check failed: %s",

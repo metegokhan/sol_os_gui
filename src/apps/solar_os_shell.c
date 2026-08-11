@@ -59,6 +59,9 @@
 #include "solar_os_log.h"
 #include "solar_os_manual.h"
 #include "solar_os_memory.h"
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
+#include "solar_os_ota.h"
+#endif
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
@@ -1194,7 +1197,6 @@ static const char * const ota_subcommands[] = {
 };
 
 static const char * const ota_boot_values[] = {"0", "1"};
-static const char * const ota_flavor_values[] = {"core", "full"};
 static const char * const stream_subcommands[] = {"list", "status"};
 static const char * const daq_subcommands[] = {"help", "status", "streams", "start", "stop"};
 static const char * const daq_options[] = {
@@ -2088,7 +2090,6 @@ static const char * const path_sshkey_gen_force[] = {"sshkey", "gen", "-f"};
 #endif
 static const char * const path_ota[] = {"ota"};
 static const char * const path_ota_boot[] = {"ota", "boot"};
-static const char * const path_ota_flavor[] = {"ota", "flavor"};
 
 #define SHELL_COMPLETION_STATIC(path_array, value_array) \
     { \
@@ -2915,7 +2916,6 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
     SHELL_COMPLETION_STATIC(path_ota, ota_subcommands),
     SHELL_COMPLETION_STATIC(path_ota_boot, ota_boot_values),
-    SHELL_COMPLETION_STATIC(path_ota_flavor, ota_flavor_values),
 };
 
 #undef SHELL_COMPLETION_PATH
@@ -5837,6 +5837,93 @@ static void shell_completion_init_state(solar_os_context_t *ctx,
     state->print = print;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
+static void shell_completion_emit_ota_flavors(shell_completion_match_t *state)
+{
+    const size_t count = solar_os_ota_available_flavor_count();
+    for (size_t i = 0U; i < count; i++) {
+        char flavor[SOLAR_OS_OTA_FLAVOR_MAX];
+        if (solar_os_ota_get_available_flavor(i, flavor, sizeof(flavor))) {
+            shell_completion_emit(state, flavor);
+        }
+    }
+}
+
+static void shell_completion_show_ota_message(solar_os_context_t *ctx,
+                                              const char *message)
+{
+    char original[SHELL_INPUT_MAX];
+    strlcpy(original, shell_session(ctx)->input, sizeof(original));
+    solar_os_shell_io_newline(shell_io(ctx));
+    solar_os_shell_io_writeln(shell_io(ctx), message);
+    shell_prompt(ctx);
+    shell_replace_input(ctx, original);
+}
+
+static bool shell_complete_ota_flavor_argument(
+    solar_os_context_t *ctx,
+    const char *effective_command,
+    const shell_completion_parse_t *parse,
+    size_t current_index,
+    size_t token_start,
+    bool show_matches)
+{
+    if (strcmp(effective_command, "ota") != 0 || current_index != 2U ||
+        parse->count < 2U || strcmp(parse->tokens[1], "flavor") != 0) {
+        return false;
+    }
+
+    if (!solar_os_ota_available_flavors_checked()) {
+        if (show_matches) {
+            shell_completion_show_ota_message(
+                ctx, "ota flavor: run 'ota check' first");
+        }
+        return true;
+    }
+
+    const char *prefix = "";
+    if (!parse->trailing_space && current_index < parse->count) {
+        prefix = parse->tokens[current_index];
+    }
+
+    shell_completion_match_t state;
+    shell_completion_init_state(ctx, prefix, false, &state);
+    shell_completion_emit_ota_flavors(&state);
+    if (state.count == 0U) {
+        if (show_matches) {
+            shell_completion_show_ota_message(
+                ctx, "ota flavor: no matching flavor for this board");
+        }
+        return true;
+    }
+
+    shell_session(ctx)->history_browsing = false;
+    shell_session(ctx)->history_index = -1;
+    if (state.count == 1U && !show_matches) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s ",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 state.match);
+        shell_replace_input(ctx, completed);
+        return true;
+    }
+
+    if (show_matches) {
+        char original[SHELL_INPUT_MAX];
+        strlcpy(original, shell_session(ctx)->input, sizeof(original));
+        solar_os_shell_io_newline(shell_io(ctx));
+        shell_completion_init_state(ctx, prefix, true, &state);
+        shell_completion_emit_ota_flavors(&state);
+        shell_prompt(ctx);
+        shell_replace_input(ctx, original);
+    }
+    return true;
+}
+#endif
+
 #if SOLAR_OS_PACKAGE_APP_FLASH
 static bool shell_flash_artifact_seen_before(
     const solar_os_flash_catalog_t *catalog,
@@ -6753,6 +6840,16 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
         prefix = parse->tokens[current_index];
     }
 
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
+    if (shell_complete_ota_flavor_argument(ctx,
+                                           effective_command,
+                                           parse,
+                                           current_index,
+                                           token_start,
+                                           show_matches)) {
+        return true;
+    }
+#endif
     if (shell_complete_daq_argument(ctx,
                                     effective_command,
                                     parse,

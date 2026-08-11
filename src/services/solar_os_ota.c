@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
@@ -44,6 +45,15 @@ static char ota_url[SOLAR_OS_OTA_URL_MAX] = SOLAR_OS_OTA_DEFAULT_URL;
 static char ota_target_flavor[SOLAR_OS_OTA_FLAVOR_MAX] = SOLAR_OS_FLAVOR_NAME;
 static bool ota_loaded;
 static const char *TAG = "solar_os_ota";
+
+typedef struct {
+    bool checked;
+    size_t count;
+    char flavors[SOLAR_OS_OTA_AVAILABLE_FLAVOR_MAX][SOLAR_OS_OTA_FLAVOR_MAX];
+} ota_available_flavors_t;
+
+static EXT_RAM_BSS_ATTR ota_available_flavors_t ota_available_flavors;
+static portMUX_TYPE ota_available_flavors_lock = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
     char *body;
@@ -123,6 +133,101 @@ static bool ota_flavor_is_valid(const char *flavor)
         }
     }
     return true;
+}
+
+static void ota_available_flavors_clear(void)
+{
+    portENTER_CRITICAL(&ota_available_flavors_lock);
+    memset(&ota_available_flavors, 0, sizeof(ota_available_flavors));
+    portEXIT_CRITICAL(&ota_available_flavors_lock);
+}
+
+static bool ota_available_flavor_seen(const ota_available_flavors_t *catalog,
+                                      const char *flavor)
+{
+    for (size_t i = 0U; i < catalog->count; i++) {
+        if (strcmp(catalog->flavors[i], flavor) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void ota_available_flavors_sort(ota_available_flavors_t *catalog)
+{
+    for (size_t i = 1U; i < catalog->count; i++) {
+        char flavor[SOLAR_OS_OTA_FLAVOR_MAX];
+        strlcpy(flavor, catalog->flavors[i], sizeof(flavor));
+        size_t position = i;
+        while (position > 0U &&
+               strcmp(catalog->flavors[position - 1U], flavor) > 0) {
+            strlcpy(catalog->flavors[position],
+                    catalog->flavors[position - 1U],
+                    sizeof(catalog->flavors[position]));
+            position--;
+        }
+        strlcpy(catalog->flavors[position], flavor,
+                sizeof(catalog->flavors[position]));
+    }
+}
+
+static esp_err_t ota_available_flavors_update(const solar_os_json_value_t *root)
+{
+    const solar_os_json_value_t *artifacts =
+        solar_os_json_path_get(root, "artifacts");
+    if (!solar_os_json_is_array(artifacts)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    ota_available_flavors_t *catalog = ota_malloc(sizeof(*catalog));
+    if (catalog == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    memset(catalog, 0, sizeof(*catalog));
+
+    esp_err_t err = ESP_OK;
+    const size_t count = solar_os_json_array_size(artifacts);
+    for (size_t i = 0U; i < count; i++) {
+        const solar_os_json_value_t *artifact =
+            solar_os_json_array_get(artifacts, i);
+        if (!solar_os_json_is_object(artifact)) {
+            continue;
+        }
+
+        char board_id[SOLAR_OS_OTA_BOARD_MAX];
+        char flavor[SOLAR_OS_OTA_FLAVOR_MAX];
+        if (solar_os_json_get_path_string(artifact,
+                                          "board_id",
+                                          board_id,
+                                          sizeof(board_id)) != ESP_OK ||
+            solar_os_json_get_path_string(artifact,
+                                          "flavor",
+                                          flavor,
+                                          sizeof(flavor)) != ESP_OK ||
+            strcmp(board_id, SOLAR_OS_BOARD_ID) != 0 ||
+            !ota_flavor_is_valid(flavor) ||
+            ota_available_flavor_seen(catalog, flavor)) {
+            continue;
+        }
+        if (catalog->count >= SOLAR_OS_OTA_AVAILABLE_FLAVOR_MAX) {
+            err = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        strlcpy(catalog->flavors[catalog->count],
+                flavor,
+                sizeof(catalog->flavors[catalog->count]));
+        catalog->count++;
+    }
+
+    if (err == ESP_OK) {
+        ota_available_flavors_sort(catalog);
+        catalog->checked = true;
+        portENTER_CRITICAL(&ota_available_flavors_lock);
+        ota_available_flavors = *catalog;
+        portEXIT_CRITICAL(&ota_available_flavors_lock);
+    }
+    ota_free(catalog);
+    return err;
 }
 
 static bool ota_url_has_suffix(const char *url, const char *suffix)
@@ -659,7 +764,8 @@ static esp_err_t ota_find_artifact_in_index(const solar_os_json_value_t *root,
 
 static esp_err_t ota_parse_release_index(char *index_body,
                                          size_t index_len,
-                                         solar_os_ota_check_result_t *result)
+                                         solar_os_ota_check_result_t *result,
+                                         bool collect_available_flavors)
 {
     if (index_body == NULL || index_len == 0 || result == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -688,6 +794,14 @@ static esp_err_t ota_parse_release_index(char *index_body,
         return ESP_ERR_INVALID_RESPONSE;
     }
 
+    if (collect_available_flavors) {
+        err = ota_available_flavors_update(root);
+        if (err != ESP_OK) {
+            solar_os_json_free(doc);
+            return err;
+        }
+    }
+
     char base_url[SOLAR_OS_OTA_ARTIFACT_URL_MAX];
     err = ota_index_base_url(root, result->index_url, base_url, sizeof(base_url));
     if (err == ESP_OK) {
@@ -698,7 +812,8 @@ static esp_err_t ota_parse_release_index(char *index_body,
     return err;
 }
 
-static esp_err_t ota_resolve_artifact(solar_os_ota_check_result_t *result)
+static esp_err_t ota_resolve_artifact(solar_os_ota_check_result_t *result,
+                                      bool collect_available_flavors)
 {
     if (result == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -758,7 +873,10 @@ static esp_err_t ota_resolve_artifact(solar_os_ota_check_result_t *result)
     }
     result->index_signature_verified = true;
 
-    err = ota_parse_release_index(index_body, index_len, result);
+    err = ota_parse_release_index(index_body,
+                                  index_len,
+                                  result,
+                                  collect_available_flavors);
     ota_free(index_body);
     if (err != ESP_OK) {
         return err;
@@ -879,6 +997,7 @@ esp_err_t solar_os_ota_set_url(const char *url)
     }
 
     strlcpy(ota_url, url, sizeof(ota_url));
+    ota_available_flavors_clear();
     return ota_save();
 }
 
@@ -901,6 +1020,39 @@ esp_err_t solar_os_ota_set_flavor(const char *flavor)
 
     strlcpy(ota_target_flavor, flavor, sizeof(ota_target_flavor));
     return ota_save();
+}
+
+bool solar_os_ota_available_flavors_checked(void)
+{
+    portENTER_CRITICAL(&ota_available_flavors_lock);
+    const bool checked = ota_available_flavors.checked;
+    portEXIT_CRITICAL(&ota_available_flavors_lock);
+    return checked;
+}
+
+size_t solar_os_ota_available_flavor_count(void)
+{
+    portENTER_CRITICAL(&ota_available_flavors_lock);
+    const size_t count = ota_available_flavors.checked ?
+        ota_available_flavors.count : 0U;
+    portEXIT_CRITICAL(&ota_available_flavors_lock);
+    return count;
+}
+
+bool solar_os_ota_get_available_flavor(size_t index, char *flavor, size_t len)
+{
+    if (flavor == NULL || len == 0U) {
+        return false;
+    }
+
+    portENTER_CRITICAL(&ota_available_flavors_lock);
+    const bool found = ota_available_flavors.checked &&
+        index < ota_available_flavors.count;
+    if (found) {
+        strlcpy(flavor, ota_available_flavors.flavors[index], len);
+    }
+    portEXIT_CRITICAL(&ota_available_flavors_lock);
+    return found;
 }
 
 esp_err_t solar_os_ota_get_index_url(char *index_url, size_t index_url_len)
@@ -938,7 +1090,8 @@ esp_err_t solar_os_ota_set_boot_slot(uint8_t slot)
 
 esp_err_t solar_os_ota_check(solar_os_ota_check_result_t *result)
 {
-    return ota_resolve_artifact(result);
+    ota_available_flavors_clear();
+    return ota_resolve_artifact(result, true);
 }
 
 static void ota_report_progress(solar_os_ota_progress_cb_t cb,
@@ -968,7 +1121,7 @@ esp_err_t solar_os_ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
     memset(event, 0, sizeof(*event));
     memset(verify, 0, sizeof(*verify));
 
-    err = ota_resolve_artifact(artifact);
+    err = ota_resolve_artifact(artifact, false);
     if (err != ESP_OK) {
         goto cleanup;
     }
