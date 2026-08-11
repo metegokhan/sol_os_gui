@@ -54,8 +54,14 @@ typedef struct {
     bool remote_glob;
 } scp_app_state_t;
 
-static EXT_RAM_BSS_ATTR scp_app_state_t scp_app;
-static solar_os_shell_io_t scp_fallback_io;
+typedef struct {
+    scp_app_state_t app;
+    solar_os_shell_io_t fallback_io;
+} scp_app_cold_state_t;
+
+static void *scp_app_state;
+#define scp_app (((scp_app_cold_state_t *)scp_app_state)->app)
+#define scp_fallback_io (((scp_app_cold_state_t *)scp_app_state)->fallback_io)
 
 static solar_os_shell_io_t *scp_io(solar_os_context_t *ctx)
 {
@@ -528,5 +534,8 @@ const solar_os_app_t solar_os_scp_app = {
     .start = scp_start,
     .stop = scp_stop,
     .event = scp_event,
+    .state_slot = &scp_app_state,
+    .state_size = sizeof(scp_app_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = SOLAR_OS_SCP_TASK_STACK,
 };

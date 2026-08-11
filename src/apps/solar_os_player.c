@@ -98,7 +98,9 @@ typedef struct {
 } player_state_t;
 
 static const char *TAG = "solar_os_player";
-static EXT_RAM_BSS_ATTR player_state_t player;
+static void *player_state;
+#define player (*(player_state_t *)player_state)
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("audio worker callback spinlock")
 static portMUX_TYPE player_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static const char *player_basename(const char *path)
@@ -666,8 +668,8 @@ static void player_render(solar_os_context_t *ctx)
 static void player_begin_browser(void)
 {
     const char *path = solar_os_storage_mount_point();
+    char directory[SOLAR_OS_STORAGE_PATH_MAX];
     if (player.active_path[0] != '\0') {
-        static char directory[SOLAR_OS_STORAGE_PATH_MAX];
         strlcpy(directory, player.active_path, sizeof(directory));
         char *slash = strrchr(directory, '/');
         if (slash != NULL && slash != directory) *slash = '\0';
@@ -928,6 +930,9 @@ const solar_os_app_t solar_os_player_app = {
     .stop = player_stop,
     .event = player_event,
     .title = player_title,
+    .state_slot = &player_state,
+    .state_size = sizeof(player_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .tick_interval_ms = PLAYER_REFRESH_MS,
     .worker_stack_bytes = PLAYER_TASK_STACK,
     .worker_stack_external = true,

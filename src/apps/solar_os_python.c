@@ -235,9 +235,6 @@ typedef struct {
 } python_app_state_t;
 
 static const char *TAG = "solar_os_python";
-static EXT_RAM_BSS_ATTR python_app_state_t python_app;
-static solar_os_shell_io_t python_fallback_io;
-static EXT_RAM_BSS_ATTR solar_os_script_run_control_t *python_runner_control;
 
 typedef enum {
     PYTHON_RUNTIME_OWNER_NONE,
@@ -245,9 +242,21 @@ typedef enum {
     PYTHON_RUNTIME_OWNER_RUNNER,
 } python_runtime_owner_t;
 
+typedef struct {
+    python_app_state_t app;
+    solar_os_shell_io_t fallback_io;
+} python_cold_state_t;
+
+static void *python_state;
+#define python_app (((python_cold_state_t *)python_state)->app)
+#define python_fallback_io (((python_cold_state_t *)python_state)->fallback_io)
+static solar_os_script_run_control_t *python_runner_control;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("runtime ownership spinlock")
 static portMUX_TYPE python_runtime_lock = portMUX_INITIALIZER_UNLOCKED;
-static EXT_RAM_BSS_ATTR python_runtime_owner_t python_runtime_owner;
-static EXT_RAM_BSS_ATTR uint32_t python_tick_interval_ms;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell and Playground Python runtime")
+static python_runtime_owner_t python_runtime_owner;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell and Playground Python cadence")
+static uint32_t python_tick_interval_ms;
 
 static bool python_runtime_claim(python_runtime_owner_t owner)
 {
@@ -6829,6 +6838,9 @@ const solar_os_app_t solar_os_python_app = {
     .start = python_start,
     .stop = python_stop,
     .event = python_event,
+    .state_slot = &python_state,
+    .state_size = sizeof(python_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = PYTHON_TASK_STACK,
     .requested_tick_interval_ms = python_requested_tick_interval_ms,
 };

@@ -69,8 +69,14 @@ typedef struct {
     bool suspended;
 } ssh_app_state_t;
 
-static ssh_app_state_t ssh_app;
-static solar_os_shell_io_t ssh_fallback_io;
+typedef struct {
+    ssh_app_state_t app;
+    solar_os_shell_io_t fallback_io;
+} ssh_app_cold_state_t;
+
+static void *ssh_app_state;
+#define ssh_app (((ssh_app_cold_state_t *)ssh_app_state)->app)
+#define ssh_fallback_io (((ssh_app_cold_state_t *)ssh_app_state)->fallback_io)
 
 static solar_os_shell_io_t *ssh_io(solar_os_context_t *ctx)
 {
@@ -1112,5 +1118,8 @@ const solar_os_app_t solar_os_ssh_app = {
     .stop = ssh_stop,
     .event = ssh_event,
     .title = ssh_title,
+    .state_slot = &ssh_app_state,
+    .state_size = sizeof(ssh_app_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
     .worker_stack_bytes = SOLAR_OS_SSH_TASK_STACK,
 };

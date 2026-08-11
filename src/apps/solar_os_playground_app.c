@@ -70,7 +70,9 @@ typedef struct {
     char status[96];
 } playground_app_state_t;
 
-static playground_app_state_t playground;
+static void *playground_state;
+#define playground (*(playground_app_state_t *)playground_state)
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("cross-core operation handoff lock")
 static portMUX_TYPE playground_app_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static bool playground_parse_target(const char *value,
@@ -1090,6 +1092,18 @@ static void playground_resume(solar_os_context_t *ctx)
     playground_render();
 }
 
+static void playground_cleanup_tui(void)
+{
+    if (!playground.tui_active) {
+        return;
+    }
+    solar_os_tui_set_cursor_visible(&playground.tui, true);
+    solar_os_tui_clear(&playground.tui);
+    solar_os_tui_refresh(&playground.tui);
+    solar_os_tui_end(&playground.tui);
+    playground.tui_active = false;
+}
+
 static void playground_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
@@ -1099,15 +1113,15 @@ static void playground_stop(solar_os_context_t *ctx)
         !solar_os_task_wait_done(playground.task,
                                  &playground.task_done,
                                  SOLAR_OS_TASK_STOP_WAIT_MS)) {
+        playground_cleanup_tui();
         return;
     }
-    if (playground.tui_active) {
-        solar_os_tui_set_cursor_visible(&playground.tui, true);
-        solar_os_tui_clear(&playground.tui);
-        solar_os_tui_refresh(&playground.tui);
-        solar_os_tui_end(&playground.tui);
-        playground.tui_active = false;
-    }
+    playground_cleanup_tui();
+}
+
+static bool playground_state_release_ready(void)
+{
+    return playground.task == NULL || playground.task_done;
 }
 
 static void playground_title(solar_os_context_t *ctx,
@@ -1302,5 +1316,10 @@ const solar_os_app_t solar_os_playground_app = {
     .stop = playground_stop,
     .event = playground_event,
     .title = playground_title,
+    .state_slot = &playground_state,
+    .state_size = sizeof(playground_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
+    .state_release_ready = playground_state_release_ready,
+    .state_release_cleanup = playground_cleanup_tui,
     .worker_stack_bytes = PLAYGROUND_APP_TASK_STACK,
 };

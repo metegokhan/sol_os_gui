@@ -165,6 +165,7 @@ typedef struct {
 static const char *TAG = "solar_os_recorder";
 static recorder_state_t *recorder_state;
 #define recorder (*recorder_state)
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("audio worker callback spinlock")
 static portMUX_TYPE recorder_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static const uint32_t recorder_sample_rates[] = {

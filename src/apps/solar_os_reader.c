@@ -76,7 +76,8 @@ typedef struct {
     size_t chapter;
 } reader_saved_position_t;
 
-static EXT_RAM_BSS_ATTR reader_state_t reader;
+static void *reader_state;
+#define reader (*(reader_state_t *)reader_state)
 
 static esp_err_t reader_state_path(char *path, size_t path_len, const char *leaf)
 {
@@ -1709,4 +1710,7 @@ const solar_os_app_t solar_os_reader_app = {
     .stop = reader_stop,
     .event = reader_event,
     .title = reader_title,
+    .state_slot = &reader_state,
+    .state_size = sizeof(reader_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };

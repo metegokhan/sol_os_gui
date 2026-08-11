@@ -124,8 +124,15 @@ typedef struct {
     bool sweep_enabled;
 } funcgen_render_state_t;
 
-static EXT_RAM_BSS_ATTR funcgen_app_state_t funcgen;
-static funcgen_render_state_t funcgen_render_state;
+typedef struct {
+    funcgen_app_state_t app;
+    funcgen_render_state_t render;
+} funcgen_cold_state_t;
+
+static void *funcgen_state;
+#define funcgen (((funcgen_cold_state_t *)funcgen_state)->app)
+#define funcgen_render_state (((funcgen_cold_state_t *)funcgen_state)->render)
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("audio render callback spinlock")
 static portMUX_TYPE funcgen_render_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static const char *const funcgen_wave_names[] = {
@@ -984,6 +991,9 @@ const solar_os_app_t solar_os_funcgen_app = {
     .resume = funcgen_resume,
     .stop = funcgen_stop,
     .event = funcgen_event,
+    .state_slot = &funcgen_state,
+    .state_size = sizeof(funcgen_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .tick_interval_ms = FUNCGEN_REFRESH_MS,
     .tick_deadline_ms = FUNCGEN_TICK_DEADLINE_MS,
 };

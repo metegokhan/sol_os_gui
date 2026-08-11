@@ -42,7 +42,8 @@ typedef struct {
     uint32_t last_refresh_ms;
 } wifi_tui_state_t;
 
-static wifi_tui_state_t wifi_tui;
+static void *wifi_tui_state;
+#define wifi_tui (*(wifi_tui_state_t *)wifi_tui_state)
 
 static const wifi_tui_item_def_t wifi_tui_items[] = {
     [WIFI_TUI_RADIO] = {.label = "radio"},
@@ -507,6 +508,9 @@ static const solar_os_app_t wifi_tui_app = {
     .start = wifi_tui_start,
     .stop = wifi_tui_stop,
     .event = wifi_tui_event,
+    .state_slot = &wifi_tui_state,
+    .state_size = sizeof(wifi_tui_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
 };
 
 esp_err_t solar_os_shell_launch_wifi_tui(solar_os_context_t *ctx)

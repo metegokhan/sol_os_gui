@@ -26,6 +26,22 @@ typedef void (*solar_os_session_list_fn)(solar_os_shell_io_t *io, void *user);
 /* Receive structured local key events instead of their legacy character form. */
 #define SOLAR_OS_APP_FLAG_KEY_EVENTS (1U << 2)
 
+/*
+ * Foreground-app mutable state is cold by default: the shared app lifecycle
+ * allocates it immediately before start(), retains it across suspend/resume,
+ * and releases it after stop() or a failed start. File-scope mutable objects
+ * are forbidden unless a narrowly reviewed SRAM exception is declared.
+ */
+typedef enum {
+    SOLAR_OS_APP_STATE_NONE = 0,
+    SOLAR_OS_APP_STATE_TRANSIENT,
+    SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
+    SOLAR_OS_APP_STATE_EXTERNAL_REQUIRED,
+    SOLAR_OS_APP_STATE_INTERNAL_REQUIRED,
+} solar_os_app_state_storage_t;
+
+#define SOLAR_OS_APP_STATIC_SRAM_EXCEPTION(reason)
+
 typedef enum {
     SOLAR_OS_LAUNCH_REPLACE,
     SOLAR_OS_LAUNCH_CHILD_RETURN,
@@ -85,6 +101,17 @@ struct solar_os_app {
     void (*stop)(solar_os_context_t *ctx);
     bool (*event)(solar_os_context_t *ctx, const solar_os_event_t *event);
     void (*title)(solar_os_context_t *ctx, char *buffer, size_t buffer_len);
+    /* Optional lifecycle-managed cold state. state_slot must point to a NULL
+     * file-scope pointer before the first launch. */
+    void **state_slot;
+    size_t state_size;
+    solar_os_app_state_storage_t state_storage;
+    /* Optional guard for asynchronous stop paths. Return true only after no
+     * worker can access the cold state. */
+    bool (*state_release_ready)(void);
+    /* Optional idempotent cleanup for resources referenced by cold state.
+     * Called after state_release_ready and before the state block is freed. */
+    void (*state_release_cleanup)(void);
     /* Declarative launch admission for an app-owned worker. */
     uint32_t worker_stack_bytes;
     bool worker_stack_external;
@@ -95,6 +122,12 @@ struct solar_os_app {
     /* Optional runtime override; zero keeps tick_interval_ms/default policy. */
     uint32_t (*requested_tick_interval_ms)(void);
 };
+
+/* All foreground launchers must use these lifecycle functions instead of
+ * calling descriptor callbacks directly. */
+esp_err_t solar_os_app_start(const solar_os_app_t *app,
+                             solar_os_context_t *ctx);
+void solar_os_app_stop(const solar_os_app_t *app, solar_os_context_t *ctx);
 
 typedef enum {
     SOLAR_OS_JOB_KIND_BACKGROUND,

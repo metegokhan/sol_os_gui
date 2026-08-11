@@ -36,6 +36,48 @@ Allocation classes:
   `external-preferred`. Its lifetime distinguishes it for later reclamation and
   budgeting work.
 
+## Foreground application state
+
+Foreground applications are cold until they are launched. An application must
+not reserve mutable SRAM or PSRAM merely because its package is present in the
+firmware.
+
+The normal implementation puts the application state behind a file-scope
+pointer and declares `state_slot`, `state_size`, and `state_storage` in its
+`solar_os_app_t` descriptor. `solar_os_app_start()` allocates and zeroes that
+state immediately before the app's `start()` callback. The state remains valid
+while the app is suspended so resumable sessions keep their contents.
+`solar_os_app_stop()` releases it after `stop()` returns, and failed starts
+release it as well. Display sessions and UART, USB CDC, Telnet, and other port
+shells use this same lifecycle boundary.
+
+An app can retain custom dynamic allocations when its lifecycle requires more
+than one allocation or a size that is known only at launch. Those allocations
+must still be created no earlier than `start()` and released by `stop()` or the
+failed-start path.
+
+If a worker can outlive `stop()`, the descriptor supplies
+`state_release_ready`. The callback returns true only when no worker can access
+the state. `state_release_cleanup` supplies any idempotent queue, file, or
+service cleanup that must run before the state block is freed. A timed-out stop
+retains the state instead of creating a use-after-free; the next launch reclaims
+it after the worker reports completion.
+
+Concrete mutable file-scope and function-local static objects are forbidden in
+foreground app translation units. `EXT_RAM_BSS_ATTR` is not an exception: it
+still consumes memory before launch and falls back to internal SRAM on boards
+without PSRAM. A static pointer can hold a cold state slot or dynamically owned
+resource. A concrete static object is allowed only when it must remain in SRAM,
+must be shared outside one app launch, or is part of the always-running boot
+shell. Mark each such object immediately before its declaration with
+`SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("specific reason")`.
+
+Run `python3 scripts/check_foreground_app_state.py` to enforce this rule. The
+Python test suite runs the same check for every source file that declares a
+foreground app and for app-owned helper modules listed by the checker. New
+foreground launch paths must call `solar_os_app_start()` and
+`solar_os_app_stop()` rather than descriptor callbacks directly.
+
 Every policy allocation records its class and requested size. Failures record a
 short subsystem tag and a snapshot of free and largest blocks in the log. Use
 `mem policy` to inspect heap regions, class counters, fallback counts, the

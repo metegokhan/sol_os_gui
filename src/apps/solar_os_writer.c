@@ -81,7 +81,8 @@ typedef struct {
     char message[WRITER_MESSAGE_MAX];
 } writer_state_t;
 
-static EXT_RAM_BSS_ATTR writer_state_t writer;
+static void *writer_state;
+#define writer (*(writer_state_t *)writer_state)
 
 static uint32_t writer_hash_bytes(uint32_t hash, const char *data, size_t len)
 {
@@ -1583,6 +1584,9 @@ const solar_os_app_t solar_os_writer_app = {
     .stop = writer_stop,
     .event = writer_event,
     .title = writer_title,
+    .state_slot = &writer_state,
+    .state_size = sizeof(writer_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .tick_interval_ms = 40,
     .tick_deadline_ms = 40,
 };

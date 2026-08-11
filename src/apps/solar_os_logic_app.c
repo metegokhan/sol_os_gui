@@ -28,7 +28,8 @@ typedef struct {
     char message[64];
 } logic_app_state_t;
 
-static logic_app_state_t logic_app;
+static void *logic_app_state;
+#define logic_app (*(logic_app_state_t *)logic_app_state)
 
 static bool logic_parse_u32(const char *text, uint32_t min, uint32_t max, uint32_t *value)
 {
@@ -512,4 +513,7 @@ const solar_os_app_t solar_os_logic_app = {
     .stop = logic_stop,
     .event = logic_event,
     .title = logic_title,
+    .state_slot = &logic_app_state,
+    .state_size = sizeof(logic_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
 };

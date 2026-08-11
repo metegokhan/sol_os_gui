@@ -47,7 +47,8 @@ typedef struct {
 } clock_state_t;
 
 static const char *TAG = "solar_os_clock";
-static clock_state_t clock_state;
+static void *clock_state_storage;
+#define clock_state (*(clock_state_t *)clock_state_storage)
 
 static uint32_t clock_now_ms(void)
 {
@@ -617,6 +618,12 @@ static void clock_stop(solar_os_context_t *ctx)
     solar_os_context_set_graphics_active(ctx, false);
 }
 
+static bool clock_state_release_ready(void)
+{
+    return clock_state.alarm_sound_task == NULL &&
+           !clock_state.alarm_sound_running;
+}
+
 static void clock_suspend(solar_os_context_t *ctx)
 {
     clock_state.suspended = true;
@@ -732,6 +739,10 @@ const solar_os_app_t solar_os_clock_app = {
     .stop = clock_stop,
     .event = clock_event,
     .title = clock_title,
+    .state_slot = &clock_state_storage,
+    .state_size = sizeof(clock_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
+    .state_release_ready = clock_state_release_ready,
     .worker_stack_bytes = CLOCK_ALARM_SOUND_TASK_STACK,
     .tick_interval_ms = 250U,
     .tick_deadline_ms = 25U,

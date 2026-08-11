@@ -151,7 +151,9 @@ typedef struct {
 } webradio_app_state_t;
 
 static const char *TAG = "solar_os_webradio";
-static EXT_RAM_BSS_ATTR webradio_app_state_t webradio;
+static void *webradio_state;
+#define webradio (*(webradio_app_state_t *)webradio_state)
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("audio worker callback spinlock")
 static portMUX_TYPE webradio_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static const char *webradio_dialog_label(void);
@@ -2037,6 +2039,9 @@ const solar_os_app_t solar_os_webradio_app = {
     .stop = webradio_stop,
     .event = webradio_event,
     .title = webradio_title,
+    .state_slot = &webradio_state,
+    .state_size = sizeof(webradio_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .tick_interval_ms = WEBRADIO_VISUALIZER_REFRESH_MS,
     .worker_stack_bytes = WEBRADIO_TASK_STACK,
     .worker_stack_external = true,

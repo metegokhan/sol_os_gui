@@ -42,7 +42,8 @@ typedef struct {
     solar_os_inbox_status_t status;
 } inbox_app_state_t;
 
-static EXT_RAM_BSS_ATTR inbox_app_state_t inbox_app;
+static void *inbox_app_state;
+#define inbox_app (*(inbox_app_state_t *)inbox_app_state)
 
 static size_t inbox_app_utf8_char_len(const char *text)
 {
@@ -807,4 +808,7 @@ const solar_os_app_t solar_os_inbox_app = {
     .stop = inbox_app_stop,
     .event = inbox_app_event,
     .title = inbox_app_title,
+    .state_slot = &inbox_app_state,
+    .state_size = sizeof(inbox_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };

@@ -78,9 +78,18 @@ typedef struct {
 } agent_app_state_t;
 
 static const char *TAG = "agent_app";
-static EXT_RAM_BSS_ATTR agent_app_state_t agent_app;
-static EXT_RAM_BSS_ATTR solar_os_script_run_result_t agent_script_result;
-static solar_os_shell_io_t agent_fallback_io;
+typedef struct {
+    agent_app_state_t app;
+    solar_os_script_run_result_t script_result;
+    solar_os_shell_io_t fallback_io;
+} agent_app_cold_state_t;
+
+static void *agent_app_state;
+#define agent_app (((agent_app_cold_state_t *)agent_app_state)->app)
+#define agent_script_result \
+    (((agent_app_cold_state_t *)agent_app_state)->script_result)
+#define agent_fallback_io \
+    (((agent_app_cold_state_t *)agent_app_state)->fallback_io)
 
 static solar_os_shell_io_t *agent_app_io(solar_os_context_t *ctx)
 {
@@ -588,6 +597,15 @@ static void agent_app_cleanup(void)
     }
 }
 
+static void agent_app_state_release_cleanup(void)
+{
+    agent_app_cleanup_turn();
+    if (agent_app.events != NULL) {
+        solar_os_queue_delete(agent_app.events);
+        agent_app.events = NULL;
+    }
+}
+
 static void agent_app_print_delta(solar_os_shell_io_t *io,
                                   const char *text)
 {
@@ -1012,6 +1030,11 @@ static void agent_app_stop(solar_os_context_t *ctx)
     agent_app_cleanup();
 }
 
+static bool agent_app_state_release_ready(void)
+{
+    return agent_app.task == NULL || agent_app.task_done;
+}
+
 static void agent_app_suspend(solar_os_context_t *ctx)
 {
     (void)ctx;
@@ -1153,5 +1176,10 @@ const solar_os_app_t solar_os_agent_app = {
     .resume = agent_app_resume,
     .stop = agent_app_stop,
     .event = agent_app_event,
+    .state_slot = &agent_app_state,
+    .state_size = sizeof(agent_app_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
+    .state_release_ready = agent_app_state_release_ready,
+    .state_release_cleanup = agent_app_state_release_cleanup,
     .worker_stack_bytes = AGENT_APP_TASK_STACK,
 };

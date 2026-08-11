@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "freertos/portmacro.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_synth.h"
 
 #define AUDIO_SAMPLE_RATE 16000
@@ -22,22 +23,40 @@
 #define GAMEBOY_AUDIO_OWNER "gameboy"
 
 static const char *TAG = "solar_os_gameboy_audio";
-static struct minigb_apu_ctx gameboy_apu;
-static SemaphoreHandle_t gameboy_apu_mutex;
-static StaticSemaphore_t gameboy_apu_mutex_storage;
-static portMUX_TYPE gameboy_apu_init_lock = portMUX_INITIALIZER_UNLOCKED;
-static bool gameboy_apu_initialized;
-static bool gameboy_apu_running;
+typedef struct {
+  struct minigb_apu_ctx apu;
+  SemaphoreHandle_t mutex;
+  StaticSemaphore_t mutex_storage;
+  bool initialized;
+  bool running;
+} gameboy_audio_state_t;
+
+static gameboy_audio_state_t *gameboy_audio_state;
+#define gameboy_apu (gameboy_audio_state->apu)
+#define gameboy_apu_mutex (gameboy_audio_state->mutex)
+#define gameboy_apu_mutex_storage (gameboy_audio_state->mutex_storage)
+#define gameboy_apu_initialized (gameboy_audio_state->initialized)
+#define gameboy_apu_running (gameboy_audio_state->running)
 
 static esp_err_t gameboy_audio_ensure_mutex(void) {
-  portENTER_CRITICAL(&gameboy_apu_init_lock);
+  if (gameboy_audio_state == NULL) {
+    gameboy_audio_state = solar_os_memory_calloc(
+        1U, sizeof(*gameboy_audio_state), SOLAR_OS_MEMORY_INTERNAL_CRITICAL,
+        "gameboy.audio");
+    if (gameboy_audio_state == NULL) {
+      return ESP_ERR_NO_MEM;
+    }
+  }
   if (gameboy_apu_mutex == NULL) {
     gameboy_apu_mutex =
         xSemaphoreCreateMutexStatic(&gameboy_apu_mutex_storage);
   }
-  SemaphoreHandle_t mutex = gameboy_apu_mutex;
-  portEXIT_CRITICAL(&gameboy_apu_init_lock);
-  return mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+  if (gameboy_apu_mutex == NULL) {
+    solar_os_memory_free(gameboy_audio_state);
+    gameboy_audio_state = NULL;
+    return ESP_ERR_NO_MEM;
+  }
+  return ESP_OK;
 }
 
 static void gameboy_audio_lock(void) {
@@ -51,7 +70,7 @@ static void gameboy_audio_unlock(void) {
 static void gameboy_audio_render(int16_t *samples, size_t frames,
                                  uint32_t sample_rate, void *user) {
   (void)user;
-  if (samples == NULL || frames != AUDIO_SAMPLES ||
+  if (gameboy_audio_state == NULL || samples == NULL || frames != AUDIO_SAMPLES ||
       sample_rate != AUDIO_SAMPLE_RATE || !gameboy_apu_initialized) {
     return;
   }
@@ -61,7 +80,7 @@ static void gameboy_audio_render(int16_t *samples, size_t frames,
 }
 
 esp_err_t solar_os_gameboy_audio_resume(void) {
-  if (!gameboy_apu_initialized) {
+  if (gameboy_audio_state == NULL || !gameboy_apu_initialized) {
     return ESP_ERR_INVALID_STATE;
   }
   if (gameboy_apu_running) {
@@ -86,6 +105,12 @@ esp_err_t solar_os_gameboy_audio_resume(void) {
 }
 
 esp_err_t solar_os_gameboy_audio_init(void) {
+  if (gameboy_audio_state != NULL) {
+    solar_os_gameboy_audio_deinit();
+    if (gameboy_audio_state != NULL) {
+      return ESP_ERR_INVALID_STATE;
+    }
+  }
   esp_err_t err = gameboy_audio_ensure_mutex();
   if (err != ESP_OK) {
     return err;
@@ -102,7 +127,7 @@ esp_err_t solar_os_gameboy_audio_init(void) {
 }
 
 void solar_os_gameboy_audio_suspend(void) {
-  if (!gameboy_apu_running) {
+  if (gameboy_audio_state == NULL || !gameboy_apu_running) {
     return;
   }
   const esp_err_t err = solar_os_synth_stop(GAMEBOY_AUDIO_OWNER);
@@ -114,7 +139,7 @@ void solar_os_gameboy_audio_suspend(void) {
 }
 
 void solar_os_gameboy_audio_reset(void) {
-  if (gameboy_apu_mutex == NULL) {
+  if (gameboy_audio_state == NULL || gameboy_apu_mutex == NULL) {
     return;
   }
   gameboy_audio_lock();
@@ -123,16 +148,23 @@ void solar_os_gameboy_audio_reset(void) {
 }
 
 void solar_os_gameboy_audio_deinit(void) {
+  if (gameboy_audio_state == NULL) {
+    return;
+  }
   solar_os_gameboy_audio_suspend();
   if (!gameboy_apu_running && gameboy_apu_mutex != NULL) {
     gameboy_audio_lock();
     gameboy_apu_initialized = false;
     gameboy_audio_unlock();
+    vSemaphoreDelete(gameboy_apu_mutex);
+    solar_os_memory_free(gameboy_audio_state);
+    gameboy_audio_state = NULL;
   }
 }
 
 uint8_t solar_os_gameboy_audio_read(uint16_t address) {
-  if (gameboy_apu_mutex == NULL || !gameboy_apu_initialized ||
+  if (gameboy_audio_state == NULL || gameboy_apu_mutex == NULL ||
+      !gameboy_apu_initialized ||
       address < 0xFF10U || address > 0xFF3FU) {
     return 0xFFU;
   }
@@ -143,7 +175,8 @@ uint8_t solar_os_gameboy_audio_read(uint16_t address) {
 }
 
 void solar_os_gameboy_audio_write(uint16_t address, uint8_t value) {
-  if (gameboy_apu_mutex == NULL || !gameboy_apu_initialized ||
+  if (gameboy_audio_state == NULL || gameboy_apu_mutex == NULL ||
+      !gameboy_apu_initialized ||
       address < 0xFF10U || address > 0xFF3FU) {
     return;
   }

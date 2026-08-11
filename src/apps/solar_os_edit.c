@@ -56,7 +56,8 @@ typedef struct {
     char message[72];
 } editor_state_t;
 
-static EXT_RAM_BSS_ATTR editor_state_t editor;
+static void *editor_state;
+#define editor (*(editor_state_t *)editor_state)
 
 static const solar_os_terminal_text_size_t editor_text_sizes[] = {
     SOLAR_OS_TERMINAL_TEXT_SIZE_10,
@@ -1815,6 +1816,9 @@ const solar_os_app_t solar_os_edit_app = {
     .stop = edit_stop,
     .event = edit_event,
     .title = edit_title,
+    .state_slot = &editor_state,
+    .state_size = sizeof(editor_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };
 
 const solar_os_app_t solar_os_hexedit_app = {
@@ -1826,4 +1830,7 @@ const solar_os_app_t solar_os_hexedit_app = {
     .stop = edit_stop,
     .event = edit_event,
     .title = edit_title,
+    .state_slot = &editor_state,
+    .state_size = sizeof(editor_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };

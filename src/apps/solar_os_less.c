@@ -44,8 +44,14 @@ typedef struct {
     char message[LESS_MESSAGE_MAX];
 } less_state_t;
 
-static EXT_RAM_BSS_ATTR less_state_t less_state;
-static solar_os_shell_io_t less_fallback_io;
+typedef struct {
+    less_state_t app;
+    solar_os_shell_io_t fallback_io;
+} less_cold_state_t;
+
+static void *less_app_state;
+#define less_state (((less_cold_state_t *)less_app_state)->app)
+#define less_fallback_io (((less_cold_state_t *)less_app_state)->fallback_io)
 
 static solar_os_shell_io_t *less_io(solar_os_context_t *ctx)
 {
@@ -896,4 +902,7 @@ const solar_os_app_t solar_os_less_app = {
     .start = less_start,
     .stop = less_stop,
     .event = less_event,
+    .state_slot = &less_app_state,
+    .state_size = sizeof(less_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };

@@ -223,8 +223,6 @@ typedef struct {
 } solua_state_t;
 
 static const char *TAG = "solar_os_lua";
-static EXT_RAM_BSS_ATTR solua_state_t solua;
-static EXT_RAM_BSS_ATTR solar_os_script_run_control_t *solua_runner_control;
 
 typedef enum {
     SOLUA_RUNTIME_OWNER_NONE,
@@ -232,9 +230,19 @@ typedef enum {
     SOLUA_RUNTIME_OWNER_RUNNER,
 } solua_runtime_owner_t;
 
+typedef struct {
+    solua_state_t app;
+} solua_cold_state_t;
+
+static void *solua_state;
+#define solua (((solua_cold_state_t *)solua_state)->app)
+static solar_os_script_run_control_t *solua_runner_control;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("runtime ownership spinlock")
 static portMUX_TYPE solua_runtime_lock = portMUX_INITIALIZER_UNLOCKED;
-static EXT_RAM_BSS_ATTR solua_runtime_owner_t solua_runtime_owner;
-static EXT_RAM_BSS_ATTR uint32_t solua_tick_interval_ms;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell and Playground Lua runtime")
+static solua_runtime_owner_t solua_runtime_owner;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell and Playground Lua cadence")
+static uint32_t solua_tick_interval_ms;
 
 static bool solua_runtime_claim(solua_runtime_owner_t owner)
 {
@@ -6436,6 +6444,9 @@ const solar_os_app_t solar_os_lua_app = {
     .start = solua_start,
     .stop = solua_stop,
     .event = solua_event,
+    .state_slot = &solua_state,
+    .state_size = sizeof(solua_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = SOLUA_TASK_STACK,
     .requested_tick_interval_ms = solua_requested_tick_interval_ms,
 };

@@ -204,9 +204,13 @@ struct solar_os_shell_session {
     solar_os_shell_io_t io;
 };
 
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("boot foreground shell session")
 static EXT_RAM_BSS_ATTR solar_os_shell_session_t shell_display_session;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared boot startup policy")
 static bool shell_startup_attempted;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared boot startup policy")
 static bool shell_startup_source_loaded;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared boot startup policy")
 static solar_os_shell_startup_source_t shell_startup_source = SOLAR_OS_SHELL_STARTUP_FLASH;
 
 solar_os_shell_startup_source_t solar_os_shell_startup_source(void)

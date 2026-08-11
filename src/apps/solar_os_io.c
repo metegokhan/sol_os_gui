@@ -107,7 +107,8 @@ typedef struct {
     io_form_t form;
 } io_state_t;
 
-static EXT_RAM_BSS_ATTR io_state_t io;
+static void *io_state;
+#define io (*(io_state_t *)io_state)
 
 static const uint32_t i2c_rates[] = {100000U, 400000U, 1000000U};
 static const uint32_t uart_rates[] = {9600U, 19200U, 38400U, 57600U, 115200U, 230400U, 460800U, 921600U};
@@ -2395,4 +2396,7 @@ const solar_os_app_t solar_os_io_app = {
     .stop = io_stop,
     .event = io_event,
     .title = io_title,
+    .state_slot = &io_state,
+    .state_size = sizeof(io_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };

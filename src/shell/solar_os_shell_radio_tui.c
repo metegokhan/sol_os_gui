@@ -59,7 +59,8 @@ typedef struct {
     uint32_t last_cursor_blink_ms;
 } radio_tui_state_t;
 
-static radio_tui_state_t radio_tui;
+static void *radio_tui_state;
+#define radio_tui (*(radio_tui_state_t *)radio_tui_state)
 
 static const radio_tui_item_def_t radio_tui_items[] = {
     [RADIO_TUI_ITEM_DEVICE] = {.label = "device", .editable = false},
@@ -995,6 +996,9 @@ static const solar_os_app_t radio_tui_app = {
     .start = radio_tui_start,
     .stop = radio_tui_stop,
     .event = radio_tui_event,
+    .state_slot = &radio_tui_state,
+    .state_size = sizeof(radio_tui_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
 };
 
 esp_err_t solar_os_shell_launch_radio_tui(solar_os_context_t *ctx)

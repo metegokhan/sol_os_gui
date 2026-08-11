@@ -619,7 +619,7 @@ static esp_err_t port_app_start(port_shell_state_t *state,
     solar_os_shell_session_set_foreground_app(state->session, app);
     (void)solar_os_context_take_terminal_preserve(&state->ctx);
     port_shell_reset_terminal_state(state);
-    err = app->start != NULL ? app->start(&state->ctx) : ESP_OK;
+    err = solar_os_app_start(app, &state->ctx);
     if (err != ESP_OK) {
         portENTER_CRITICAL(&port_shells_lock);
         state->active_app_session = NULL;
@@ -697,9 +697,7 @@ static esp_err_t port_app_close(port_shell_state_t *state,
         session->has_return_session ?
             port_app_by_id(state, session->return_session_id) : NULL;
     const solar_os_app_t *app = session->app;
-    if (app->stop != NULL) {
-        app->stop(&state->ctx);
-    }
+    solar_os_app_stop(app, &state->ctx);
     port_app_release(session);
     portENTER_CRITICAL(&port_shells_lock);
     memset(session, 0, sizeof(*session));
@@ -980,9 +978,7 @@ static void port_shell_cleanup(port_shell_state_t *state, uint32_t generation)
             if (!app_session->used || app_session->app == NULL) {
                 continue;
             }
-            if (app_session->app->stop != NULL) {
-                app_session->app->stop(&state->ctx);
-            }
+            solar_os_app_stop(app_session->app, &state->ctx);
             port_app_release(app_session);
             portENTER_CRITICAL(&port_shells_lock);
             memset(app_session, 0, sizeof(*app_session));

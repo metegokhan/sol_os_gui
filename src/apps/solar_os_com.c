@@ -38,7 +38,8 @@ typedef struct {
 } com_app_state_t;
 
 static const char *TAG = "solar_os_com";
-static com_app_state_t com_app;
+static void *com_app_state;
+#define com_app (*(com_app_state_t *)com_app_state)
 
 static solar_os_shell_io_t *com_io(solar_os_context_t *ctx)
 {
@@ -614,4 +615,7 @@ const solar_os_app_t solar_os_com_app = {
     .stop = com_stop,
     .event = com_event,
     .title = com_title,
+    .state_slot = &com_app_state,
+    .state_size = sizeof(com_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
 };

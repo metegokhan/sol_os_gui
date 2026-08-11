@@ -97,7 +97,8 @@ typedef struct {
     size_t input_view_offset;
 } notes_state_t;
 
-static EXT_RAM_BSS_ATTR notes_state_t notes;
+static void *notes_state;
+#define notes (*(notes_state_t *)notes_state)
 
 static void notes_set_message(const char *message)
 {
@@ -1563,4 +1564,7 @@ const solar_os_app_t solar_os_notes_app = {
     .resume = notes_resume,
     .stop = notes_stop,
     .event = notes_event,
+    .state_slot = &notes_state,
+    .state_size = sizeof(notes_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };
