@@ -50,6 +50,9 @@ esp_err_t solar_os_uart_start_bus(const char *name);
 esp_err_t solar_os_uart_stop_bus(const char *name);
 bool solar_os_uart_is_valid_baud_rate(uint32_t baud_rate);
 esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate);
+esp_err_t solar_os_uart_bus_set_baud_rate_owned(const char *name,
+                                                uint32_t baud_rate,
+                                                const char *owner);
 esp_err_t solar_os_uart_bus_autobaud_start(const char *name);
 esp_err_t solar_os_uart_bus_autobaud_finish(const char *name,
                                             solar_os_uart_autobaud_result_t *result);

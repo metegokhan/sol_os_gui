@@ -41,6 +41,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [espnow command](commands.md) — Inspect ESP-NOW transport state and manage Link-ID-to-MAC peer mappings.
 - [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell when another interactive shell remains.
 - [expansion command](expansion.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
+- [flash command](flash.md) — Download verified factory artifacts to SD and program another ESP board over UART.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gateway command](commands.md) — Show gateway configuration, connection state, and traffic counters.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
@@ -111,6 +112,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [arecord application](apps.md#arecord) — Record a registered audio capture stream to a WAV file.
 - [recorder application](apps.md#recorder) — Interactive GUI/TUI WAV recorder with stream and format selection, no-file live input monitoring, hardware gain control, playback, shared widgets, and a `--tui` override.
 - [funcgen application](apps.md#funcgen) — Audio function generator with GUI/TUI controls, selectable playback streams, six waveforms, sweeps, a live oscilloscope, and bindable parameters.
+- [flash application](flash.md) — Browse the signed factory-image catalog, cache artifacts on SD, and program another ESP board over UART.
 - [player application](apps.md#player) — Persistent WAV/MP3 playlist player with graphical visualizers, a text playlist, and a `--tui` override.
 - [calc application](apps.md#calc) — Scientific calculator and function plotter with a `--tui` override for its text REPL.
 - [chat application](apps.md#chat) — Two-pane provider-neutral conversation client. The left pane lists gateway and radio conversations, the right pane shows bounded shared history, and the bottom line is the message/command input. It opens and remains useful offline; network or radio transport jobs connect independently.

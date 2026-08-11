@@ -40,6 +40,9 @@
 #include "solar_os_expansion.h"
 #include "solar_os_pins.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_FLASH
+#include "solar_os_flash.h"
+#endif
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
 #if SOLAR_OS_PACKAGE_APP_INBOX
@@ -5830,6 +5833,109 @@ static void shell_completion_init_state(solar_os_context_t *ctx,
     state->print = print;
 }
 
+#if SOLAR_OS_PACKAGE_APP_FLASH
+static bool shell_flash_artifact_seen_before(
+    const solar_os_flash_catalog_t *catalog,
+    size_t index,
+    bool match_flavor,
+    const char *board_id)
+{
+    const solar_os_flash_artifact_t *artifact = &catalog->artifacts[index];
+    for (size_t i = 0; i < index; i++) {
+        const solar_os_flash_artifact_t *earlier = &catalog->artifacts[i];
+        if (!earlier->cached ||
+            strcmp(earlier->board_id, artifact->board_id) != 0) {
+            continue;
+        }
+        if (!match_flavor ||
+            (strcmp(artifact->board_id, board_id) == 0 &&
+             strcmp(earlier->flavor, artifact->flavor) == 0)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void shell_completion_emit_flash_values(
+    shell_completion_match_t *state,
+    const solar_os_flash_catalog_t *catalog,
+    const shell_completion_parse_t *parse,
+    size_t current_index)
+{
+    if (current_index == 1U) {
+        for (size_t i = 0; i < catalog->count; i++) {
+            const solar_os_flash_artifact_t *artifact = &catalog->artifacts[i];
+            if (artifact->cached &&
+                !shell_flash_artifact_seen_before(catalog, i, false, NULL)) {
+                shell_completion_emit(state, artifact->board_id);
+            }
+        }
+        return;
+    }
+    if (current_index != 2U || parse->count < 2U) {
+        return;
+    }
+    const char *board_id = parse->tokens[1];
+    for (size_t i = 0; i < catalog->count; i++) {
+        const solar_os_flash_artifact_t *artifact = &catalog->artifacts[i];
+        if (artifact->cached &&
+            strcmp(artifact->board_id, board_id) == 0 &&
+            !shell_flash_artifact_seen_before(catalog, i, true, board_id)) {
+            shell_completion_emit(state, artifact->flavor);
+        }
+    }
+}
+
+static bool shell_complete_flash_argument(
+    solar_os_context_t *ctx,
+    const char *effective_command,
+    const shell_completion_parse_t *parse,
+    size_t current_index,
+    size_t token_start,
+    bool show_matches)
+{
+    if (strcmp(effective_command, "flash") != 0 || current_index > 2U) {
+        return false;
+    }
+    const char *prefix = "";
+    if (!parse->trailing_space && current_index < parse->count) {
+        prefix = parse->tokens[current_index];
+    }
+
+    solar_os_flash_catalog_t *catalog = NULL;
+    if (solar_os_flash_catalog_load(&catalog) != ESP_OK) {
+        return true;
+    }
+
+    shell_completion_match_t state;
+    shell_completion_init_state(ctx, prefix, false, &state);
+    shell_completion_emit_flash_values(&state, catalog, parse, current_index);
+    if (state.count == 1U && !show_matches) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s ",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 state.match);
+        shell_replace_input(ctx, completed);
+    } else if (show_matches && state.count > 0U) {
+        char original[SHELL_INPUT_MAX];
+        strlcpy(original, shell_session(ctx)->input, sizeof(original));
+        solar_os_shell_io_newline(shell_io(ctx));
+        shell_completion_init_state(ctx, prefix, true, &state);
+        shell_completion_emit_flash_values(&state,
+                                           catalog,
+                                           parse,
+                                           current_index);
+        shell_prompt(ctx);
+        shell_replace_input(ctx, original);
+    }
+    solar_os_flash_catalog_free(catalog);
+    return true;
+}
+#endif
+
 static bool shell_token_looks_like_path(const char *token)
 {
     return token != NULL &&
@@ -6651,6 +6757,16 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
                                     show_matches)) {
         return true;
     }
+#if SOLAR_OS_PACKAGE_APP_FLASH
+    if (shell_complete_flash_argument(ctx,
+                                      effective_command,
+                                      parse,
+                                      current_index,
+                                      token_start,
+                                      show_matches)) {
+        return true;
+    }
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     if (shell_complete_expansion_argument(ctx,
                                           effective_command,

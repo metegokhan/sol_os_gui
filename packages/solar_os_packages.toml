@@ -71,6 +71,7 @@ members = [
   "app_edit",
   "app_less",
   "app_io",
+  "app_flash",
 ]
 
 [groups.maintenance_jobs]
@@ -292,6 +293,22 @@ depends = [
 ]
 sources = ["services/solar_os_docs.c"]
 capabilities = ["psram", "sd", "wifi"]
+
+[packages.service_flash]
+label = "maintenance.flash"
+depends = [
+  "service_crypto",
+  "service_gpio",
+  "service_http_client",
+  "service_json",
+  "service_ota",
+  "service_sd",
+  "service_uart",
+  "service_zip",
+]
+sources = ["services/solar_os_flash.c"]
+requires = ["espressif__esp-serial-flasher", "esp_timer"]
+capabilities = ["gpio", "psram", "sd", "uart", "wifi"]
 
 [packages.core_shell]
 label = "bootstrap.shell"
@@ -1029,6 +1046,12 @@ sources = ["apps/solar_os_less.c"]
 label = "app.docs"
 depends = ["app_less"]
 sources = ["apps/solar_os_docs_app.c"]
+
+[packages.app_flash]
+label = "app.flash"
+depends = ["service_flash"]
+sources = ["apps/solar_os_flash_app.c"]
+capabilities = ["gpio", "psram", "sd", "uart", "wifi"]
 
 [packages.app_reader]
 label = "app.reader"
