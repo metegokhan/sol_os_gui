@@ -63,8 +63,15 @@ typedef struct {
 } audio_app_state_t;
 
 static const char *TAG = "solar_os_audio_app";
-static audio_app_state_t audio_app;
-static solar_os_shell_io_t audio_app_fallback_io;
+typedef struct {
+    audio_app_state_t app;
+    solar_os_shell_io_t fallback_io;
+} audio_app_cold_state_t;
+
+static void *audio_app_state;
+#define audio_app (((audio_app_cold_state_t *)audio_app_state)->app)
+#define audio_app_fallback_io \
+    (((audio_app_cold_state_t *)audio_app_state)->fallback_io)
 
 static bool audio_app_uses_external_worker(void)
 {
@@ -529,6 +536,11 @@ static void audio_app_stop(solar_os_context_t *ctx)
     memset(&audio_app, 0, sizeof(audio_app));
 }
 
+static bool audio_app_state_release_ready(void)
+{
+    return audio_app.task == NULL || audio_app.task_done;
+}
+
 static bool audio_app_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) {
@@ -579,6 +591,11 @@ const solar_os_app_t solar_os_arecord_app = {
     .start = arecord_start,
     .stop = audio_app_stop,
     .event = audio_app_event,
+    .state_slot = &audio_app_state,
+    .state_size = sizeof(audio_app_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
+    .state_release_ready = audio_app_state_release_ready,
+    .state_release_cleanup = audio_app_cleanup_resources,
     .worker_stack_bytes = AUDIO_APP_TASK_STACK,
 };
 #endif
@@ -590,6 +607,11 @@ const solar_os_app_t solar_os_aplay_app = {
     .start = aplay_start,
     .stop = audio_app_stop,
     .event = audio_app_event,
+    .state_slot = &audio_app_state,
+    .state_size = sizeof(audio_app_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
+    .state_release_ready = audio_app_state_release_ready,
+    .state_release_cleanup = audio_app_cleanup_resources,
     .worker_stack_bytes = AUDIO_APP_TASK_STACK,
     .worker_stack_external = true,
 };

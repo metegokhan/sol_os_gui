@@ -33,7 +33,6 @@
 #define VIEW_TOKEN_MAX 32
 
 static const char *TAG = "solar_os_view";
-static char view_error_detail[96];
 
 typedef enum {
     VIEW_MODE_FIT,
@@ -58,9 +57,12 @@ typedef struct {
     int pan_x;
     int pan_y;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
+    char error_detail[96];
 } view_state_t;
 
-static view_state_t view_state;
+static void *view_state_storage;
+#define view_state (*(view_state_t *)view_state_storage)
+#define view_error_detail (view_state.error_detail)
 
 static uint16_t view_read_le16(const uint8_t *data)
 {
@@ -1170,4 +1172,7 @@ const solar_os_app_t solar_os_view_app = {
     .stop = view_stop,
     .event = view_event,
     .title = view_title,
+    .state_slot = &view_state_storage,
+    .state_size = sizeof(view_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
 };

@@ -76,7 +76,8 @@ typedef struct {
 } gameboy_state_t;
 
 static const char *TAG = "solar_os_gameboy";
-static gameboy_state_t gameboy;
+static void *gameboy_state;
+#define gameboy (*(gameboy_state_t *)gameboy_state)
 
 static bool gameboy_make_save_path(const char *rom_path, char *save_path,
                                    size_t save_path_len) {
@@ -728,6 +729,9 @@ const solar_os_app_t solar_os_gameboy_app = {
     .stop = gameboy_stop,
     .event = gameboy_event,
     .title = gameboy_title,
+    .state_slot = &gameboy_state,
+    .state_size = sizeof(gameboy_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
     .tick_interval_ms = 1U,
     .tick_deadline_ms = 120U,
 };

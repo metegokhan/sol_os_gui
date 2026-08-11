@@ -36,7 +36,8 @@ typedef struct {
     solar_os_email_status_t status;
 } email_app_state_t;
 
-static EXT_RAM_BSS_ATTR email_app_state_t email_app;
+static void *email_app_state;
+#define email_app (*(email_app_state_t *)email_app_state)
 
 static size_t email_app_char_len(const char *text)
 {
@@ -580,4 +581,7 @@ const solar_os_app_t solar_os_email_app = {
     .stop = email_app_stop,
     .event = email_app_event,
     .title = email_app_title,
+    .state_slot = &email_app_state,
+    .state_size = sizeof(email_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };

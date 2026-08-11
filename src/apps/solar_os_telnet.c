@@ -102,7 +102,8 @@ typedef struct {
     uint32_t tx_bytes;
 } telnet_app_state_t;
 
-static telnet_app_state_t telnet_app;
+static void *telnet_app_state;
+#define telnet_app (*(telnet_app_state_t *)telnet_app_state)
 
 static solar_os_shell_io_t *telnet_io(solar_os_context_t *ctx)
 {
@@ -1011,4 +1012,7 @@ const solar_os_app_t solar_os_telnet_app = {
     .stop = telnet_stop,
     .event = telnet_event,
     .title = telnet_title,
+    .state_slot = &telnet_app_state,
+    .state_size = sizeof(telnet_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
 };

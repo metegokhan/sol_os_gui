@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hypergraph.cloud/solaros/schemas/solaros-firmware-manifest.schema.json",
+  "$id": "https://solar-os.eu/schemas/solaros-firmware-manifest.schema.json",
   "title": "SolarOS Firmware Artifact Manifest",
   "description": "Complete metadata for one SolarOS firmware binary built for one board and one flavor.",
   "type": "object",

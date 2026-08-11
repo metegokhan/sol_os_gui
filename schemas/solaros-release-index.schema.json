@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hypergraph.cloud/solaros/schemas/solaros-release-index.schema.json",
+  "$id": "https://solar-os.eu/schemas/solaros-release-index.schema.json",
   "title": "SolarOS Release Index",
   "description": "Board/flavor artifact index for one SolarOS release or moving channel such as latest.",
   "type": "object",

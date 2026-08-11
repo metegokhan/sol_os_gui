@@ -365,7 +365,7 @@ static void session_update_title(solar_os_session_entry_t *session)
         return;
     }
 
-    if (session->app->title != NULL) {
+    if (session->started && session->app->title != NULL) {
         session_prepare_context(session);
         session->title[0] = '\0';
         session->app->title(session_state.ctx, session->title, sizeof(session->title));
@@ -902,9 +902,9 @@ static void show_session_overlay(const solar_os_session_entry_t *session)
 
 static void stop_legacy_foreground(void)
 {
-    if (session_state.foreground_app != NULL && session_state.foreground_app->stop != NULL) {
+    if (session_state.foreground_app != NULL) {
         SOLAR_OS_LOGI(TAG, "stop app: %s", app_display_name(session_state.foreground_app));
-        session_state.foreground_app->stop(session_state.ctx);
+        solar_os_app_stop(session_state.foreground_app, session_state.ctx);
     }
     display_release_app(session_state.foreground_app);
     solar_os_context_set_graphics_active(session_state.ctx, false);
@@ -946,8 +946,9 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
 
     if (!session->started) {
         session_store_context_args(session, session_state.ctx);
-        if (session->app->start != NULL) {
-            const esp_err_t app_err = session->app->start(session_state.ctx);
+        if (session->app->start != NULL || session->app->state_size > 0U) {
+            const esp_err_t app_err =
+                solar_os_app_start(session->app, session_state.ctx);
             if (app_err != ESP_OK) {
                 SOLAR_OS_LOGE(TAG,
                               "App %s failed to start: %s",
@@ -1002,8 +1003,9 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
     solar_os_context_set_graphics_active(session_state.ctx, false);
     if (!session->started) {
         session_store_context_args(session, session_state.ctx);
-        if (session->app->start != NULL) {
-            const esp_err_t app_err = session->app->start(session_state.ctx);
+        if (session->app->start != NULL || session->app->state_size > 0U) {
+            const esp_err_t app_err =
+                solar_os_app_start(session->app, session_state.ctx);
             if (app_err != ESP_OK) {
                 SOLAR_OS_LOGE(TAG,
                               "Detached app %s failed to start: %s",
@@ -1178,11 +1180,13 @@ static bool switch_to_app(const solar_os_app_t *app)
     session_state.foreground_session = NULL;
     session_state.foreground_app = app;
     session_state.foreground_app_claimed = new_app_claimed;
-    if (session_state.foreground_app->start == NULL) {
+    if (session_state.foreground_app->start == NULL &&
+        session_state.foreground_app->state_size == 0U) {
         return true;
     }
 
-    const esp_err_t app_err = session_state.foreground_app->start(session_state.ctx);
+    const esp_err_t app_err = solar_os_app_start(session_state.foreground_app,
+                                                 session_state.ctx);
     if (app_err == ESP_OK) {
         return true;
     }
@@ -1243,12 +1247,12 @@ static bool close_session(solar_os_session_entry_t *session, bool preserve_conte
     }
 
     session_prepare_context(session);
-    if (session->app != NULL && session->app->stop != NULL) {
+    if (session->app != NULL) {
         SOLAR_OS_LOGI(TAG,
                       "close session %u: %s",
                       (unsigned)session->id,
                       app_display_name(session->app));
-        session->app->stop(session_state.ctx);
+        solar_os_app_stop(session->app, session_state.ctx);
     }
     session_release_display(session);
     session_release_display_target(session);

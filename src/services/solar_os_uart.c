@@ -660,7 +660,7 @@ esp_err_t solar_os_uart_init(void)
 #endif
 }
 
-static esp_err_t uart_require_idle(const char *name)
+static esp_err_t uart_require_available(const char *name, const char *owner)
 {
     solar_os_port_info_t info;
     const esp_err_t ret = solar_os_port_get_info(name, &info);
@@ -670,10 +670,15 @@ static esp_err_t uart_require_idle(const char *name)
     if (ret != ESP_OK) {
         return ret;
     }
-    return info.claimed ? ESP_ERR_INVALID_STATE : ESP_OK;
+    return info.claimed &&
+        (owner == NULL || strcmp(info.owner, owner) != 0)
+        ? ESP_ERR_INVALID_STATE
+        : ESP_OK;
 }
 
-esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate)
+static esp_err_t uart_bus_set_baud_rate_owned(const char *name,
+                                              uint32_t baud_rate,
+                                              const char *owner)
 {
     if (name == NULL || !solar_os_uart_is_valid_baud_rate(baud_rate)) {
         return ESP_ERR_INVALID_ARG;
@@ -686,7 +691,7 @@ esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate)
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = uart_require_idle(name);
+    ret = uart_require_available(name, owner);
     if (ret != ESP_OK) {
         uart_unpin(&ref);
         return ret;
@@ -701,6 +706,21 @@ esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate)
     }
     uart_unpin(&ref);
     return ret;
+}
+
+esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate)
+{
+    return uart_bus_set_baud_rate_owned(name, baud_rate, NULL);
+}
+
+esp_err_t solar_os_uart_bus_set_baud_rate_owned(const char *name,
+                                                uint32_t baud_rate,
+                                                const char *owner)
+{
+    if (owner == NULL || owner[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return uart_bus_set_baud_rate_owned(name, baud_rate, owner);
 }
 
 esp_err_t solar_os_uart_bus_autobaud_start(const char *name)
@@ -818,7 +838,7 @@ esp_err_t solar_os_uart_bus_set_mode(const char *name, solar_os_uart_mode_t mode
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = uart_require_idle(name);
+    ret = uart_require_available(name, NULL);
     if (ret != ESP_OK) {
         uart_unpin(&ref);
         return ret;

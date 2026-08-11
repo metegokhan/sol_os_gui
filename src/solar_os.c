@@ -7,7 +7,97 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_gfx.h"
+#include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_splash.h"
+
+static const char *TAG = "solar_os";
+
+static solar_os_memory_class_t app_state_memory_class(
+    solar_os_app_state_storage_t storage)
+{
+    switch (storage) {
+    case SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED:
+        return SOLAR_OS_MEMORY_EXTERNAL_PREFERRED;
+    case SOLAR_OS_APP_STATE_EXTERNAL_REQUIRED:
+        return SOLAR_OS_MEMORY_EXTERNAL_REQUIRED;
+    case SOLAR_OS_APP_STATE_INTERNAL_REQUIRED:
+        return SOLAR_OS_MEMORY_INTERNAL_CRITICAL;
+    case SOLAR_OS_APP_STATE_TRANSIENT:
+    case SOLAR_OS_APP_STATE_NONE:
+    default:
+        return SOLAR_OS_MEMORY_TRANSIENT;
+    }
+}
+
+static bool app_release_state(const solar_os_app_t *app)
+{
+    if (app == NULL || app->state_slot == NULL || *app->state_slot == NULL) {
+        return true;
+    }
+    if (app->state_release_ready != NULL && !app->state_release_ready()) {
+        return false;
+    }
+    if (app->state_release_cleanup != NULL) {
+        app->state_release_cleanup();
+    }
+    solar_os_memory_free(*app->state_slot);
+    *app->state_slot = NULL;
+    return true;
+}
+
+esp_err_t solar_os_app_start(const solar_os_app_t *app,
+                             solar_os_context_t *ctx)
+{
+    if (app == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if ((app->state_size == 0U) != (app->state_slot == NULL) ||
+        (app->state_size > 0U &&
+         app->state_storage == SOLAR_OS_APP_STATE_NONE) ||
+        (app->state_release_ready != NULL && app->state_size == 0U) ||
+        (app->state_release_cleanup != NULL && app->state_size == 0U)) {
+        SOLAR_OS_LOGE(TAG, "%s has an invalid cold-state descriptor",
+                      app->name != NULL ? app->name : "?");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (app->state_size > 0U) {
+        if (app->state_slot == NULL) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (*app->state_slot != NULL && !app_release_state(app)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        *app->state_slot = solar_os_memory_calloc(
+            1U,
+            app->state_size,
+            app_state_memory_class(app->state_storage),
+            app->name);
+        if (*app->state_slot == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    const esp_err_t err = app->start != NULL ? app->start(ctx) : ESP_OK;
+    if (err != ESP_OK && !app_release_state(app)) {
+        SOLAR_OS_LOGW(TAG, "%s retained cold state after failed start",
+                      app->name != NULL ? app->name : "?");
+    }
+    return err;
+}
+
+void solar_os_app_stop(const solar_os_app_t *app, solar_os_context_t *ctx)
+{
+    if (app == NULL) {
+        return;
+    }
+    if (app->stop != NULL) {
+        app->stop(ctx);
+    }
+    if (!app_release_state(app)) {
+        SOLAR_OS_LOGW(TAG, "%s retained cold state while worker stops",
+                      app->name != NULL ? app->name : "?");
+    }
+}
 
 void solar_os_context_init(solar_os_context_t *ctx,
                            solar_os_terminal_t *terminal,

@@ -90,7 +90,8 @@ typedef struct {
     char message[FILES_MESSAGE_MAX];
 } files_state_t;
 
-static EXT_RAM_BSS_ATTR files_state_t files;
+static void *files_state;
+#define files (*(files_state_t *)files_state)
 
 static void files_set_message(const char *message);
 
@@ -1848,5 +1849,8 @@ const solar_os_app_t solar_os_files_app = {
     .resume = files_resume,
     .stop = files_stop,
     .event = files_event,
+    .state_slot = &files_state,
+    .state_size = sizeof(files_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = FILES_ZIP_TASK_STACK,
 };

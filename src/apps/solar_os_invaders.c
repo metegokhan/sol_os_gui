@@ -101,9 +101,17 @@ typedef struct {
 #endif
 
 static const char *TAG = "solar_os_invaders";
-static invaders_state_t invaders;
+typedef struct {
+    invaders_state_t app;
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-static invaders_audio_t invaders_audio;
+    invaders_audio_t audio;
+#endif
+} invaders_cold_state_t;
+
+static void *invaders_state;
+#define invaders (((invaders_cold_state_t *)invaders_state)->app)
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+#define invaders_audio (((invaders_cold_state_t *)invaders_state)->audio)
 
 static void invaders_sound_task(void *arg)
 {
@@ -803,6 +811,25 @@ static void invaders_stop(solar_os_context_t *ctx)
     solar_os_context_set_graphics_active(ctx, false);
 }
 
+static bool invaders_state_release_ready(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    return invaders_audio.task == NULL || invaders_audio.task_done;
+#else
+    return true;
+#endif
+}
+
+static void invaders_state_release_cleanup(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    if (invaders_audio.queue != NULL) {
+        solar_os_queue_delete_internal(invaders_audio.queue);
+    }
+    memset(&invaders_audio, 0, sizeof(invaders_audio));
+#endif
+}
+
 static bool invaders_handle_char(solar_os_context_t *ctx, uint8_t ch)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -886,6 +913,11 @@ const solar_os_app_t solar_os_invaders_app = {
     .start = invaders_start,
     .stop = invaders_stop,
     .event = invaders_event,
+    .state_slot = &invaders_state,
+    .state_size = sizeof(invaders_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
+    .state_release_ready = invaders_state_release_ready,
+    .state_release_cleanup = invaders_state_release_cleanup,
     .worker_stack_bytes = INVADERS_SOUND_STACK,
     .tick_interval_ms = INVADERS_UPDATE_MS,
     .tick_deadline_ms = 25U,

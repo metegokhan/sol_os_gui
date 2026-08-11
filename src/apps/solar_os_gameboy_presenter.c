@@ -7,6 +7,7 @@
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "solar_os.h"
 #include "solar_os_display.h"
 #include "solar_os_gameboy_video.h"
 #include "solar_os_log.h"
@@ -34,7 +35,9 @@ typedef struct {
 } gameboy_presenter_state_t;
 
 static const char *TAG = "solar_os_gameboy_presenter";
-static gameboy_presenter_state_t presenter;
+static gameboy_presenter_state_t *presenter_state;
+#define presenter (*presenter_state)
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("present worker spinlock")
 static portMUX_TYPE presenter_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static esp_err_t gameboy_present_frame(void) {
@@ -81,8 +84,8 @@ static void gameboy_presenter_worker(void *arg) {
 }
 
 esp_err_t solar_os_gameboy_presenter_resume(void) {
-  if (presenter.gfx == NULL || presenter.bitmap == NULL ||
-      presenter.requested == NULL) {
+  if (presenter_state == NULL || presenter.gfx == NULL ||
+      presenter.bitmap == NULL || presenter.requested == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
   if (presenter.task != NULL) {
@@ -127,7 +130,18 @@ esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx) {
       solar_os_gfx_height(gfx) < SOLAR_OS_GAMEBOY_BITMAP_HEIGHT) {
     return ESP_ERR_INVALID_ARG;
   }
-  memset(&presenter, 0, sizeof(presenter));
+  if (presenter_state != NULL) {
+    solar_os_gameboy_presenter_deinit();
+    if (presenter_state != NULL) {
+      return ESP_ERR_INVALID_STATE;
+    }
+  }
+  presenter_state = solar_os_memory_calloc(
+      1U, sizeof(*presenter_state), SOLAR_OS_MEMORY_INTERNAL_CRITICAL,
+      "gameboy.presenter");
+  if (presenter_state == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
   presenter.gfx = gfx;
   presenter.x =
       ((int)solar_os_gfx_width(gfx) - (int)SOLAR_OS_GAMEBOY_BITMAP_WIDTH) / 2;
@@ -137,6 +151,8 @@ esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx) {
       SOLAR_OS_GAMEBOY_BITMAP_BYTES, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
       "gameboy.present");
   if (presenter.bitmap == NULL) {
+    solar_os_memory_free(presenter_state);
+    presenter_state = NULL;
     return ESP_ERR_NO_MEM;
   }
   memset(presenter.bitmap, 0, SOLAR_OS_GAMEBOY_BITMAP_BYTES);
@@ -144,13 +160,17 @@ esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx) {
       xSemaphoreCreateBinaryStatic(&presenter.requested_storage);
   if (presenter.requested == NULL) {
     solar_os_memory_free(presenter.bitmap);
-    presenter.bitmap = NULL;
+    solar_os_memory_free(presenter_state);
+    presenter_state = NULL;
     return ESP_ERR_NO_MEM;
   }
   return solar_os_gameboy_presenter_resume();
 }
 
 void solar_os_gameboy_presenter_suspend(void) {
+  if (presenter_state == NULL) {
+    return;
+  }
   TaskHandle_t task = presenter.task;
   if (task != NULL) {
     portENTER_CRITICAL(&presenter_lock);
@@ -177,6 +197,9 @@ void solar_os_gameboy_presenter_suspend(void) {
 }
 
 void solar_os_gameboy_presenter_deinit(void) {
+  if (presenter_state == NULL) {
+    return;
+  }
   solar_os_gameboy_presenter_suspend();
   if (presenter.task != NULL) {
     return;
@@ -185,11 +208,13 @@ void solar_os_gameboy_presenter_deinit(void) {
     vSemaphoreDelete(presenter.requested);
   }
   solar_os_memory_free(presenter.bitmap);
-  memset(&presenter, 0, sizeof(presenter));
+  solar_os_memory_free(presenter_state);
+  presenter_state = NULL;
 }
 
 bool solar_os_gameboy_presenter_queue(const uint8_t *bitmap) {
-  if (bitmap == NULL || presenter.bitmap == NULL || presenter.task == NULL) {
+  if (presenter_state == NULL || bitmap == NULL || presenter.bitmap == NULL ||
+      presenter.task == NULL) {
     return false;
   }
   portENTER_CRITICAL(&presenter_lock);
@@ -209,6 +234,10 @@ bool solar_os_gameboy_presenter_queue(const uint8_t *bitmap) {
 void solar_os_gameboy_presenter_take_stats(
     solar_os_gameboy_presenter_stats_t *stats) {
   if (stats == NULL) {
+    return;
+  }
+  if (presenter_state == NULL) {
+    memset(stats, 0, sizeof(*stats));
     return;
   }
   portENTER_CRITICAL(&presenter_lock);

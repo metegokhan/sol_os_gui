@@ -37,7 +37,8 @@ typedef struct {
     uint32_t generation;
 } contacts_app_state_t;
 
-static EXT_RAM_BSS_ATTR contacts_app_state_t contacts_app;
+static void *contacts_app_state;
+#define contacts_app (*(contacts_app_state_t *)contacts_app_state)
 
 static size_t contacts_app_utf8_char_len(const char *text)
 {
@@ -626,4 +627,7 @@ const solar_os_app_t solar_os_contacts_app = {
     .stop = contacts_app_stop,
     .event = contacts_app_event,
     .title = contacts_app_title,
+    .state_slot = &contacts_app_state,
+    .state_size = sizeof(contacts_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
 };

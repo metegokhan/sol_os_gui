@@ -86,10 +86,11 @@ typedef struct calc_state {
     bool trace;
     double trace_x;
     char message[80];
+    solar_os_shell_io_t fallback_io;
 } calc_state_t;
 
 static calc_state_t *calc;
-static solar_os_shell_io_t calc_fallback_io;
+#define calc_fallback_io (calc->fallback_io)
 
 static void calc_format(double value, char *buffer, size_t buffer_len)
 {

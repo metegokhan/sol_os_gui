@@ -659,6 +659,24 @@ Controls:
 - File operations refresh both panes after completion.
 - App-exit key exits.
 
+## flash
+
+Download verified SolarOS factory artifacts to SD and program another supported
+ESP board over UART. The browser refreshes the signed catalog on request and
+shows which board, flavor, and version artifacts are already cached. The shell
+form accepts a named UART plus optional boot and reset GPIO pins.
+
+```text
+flash
+flash refresh
+flash list
+flash download BOARD FLAVOR [VERSION]
+flash BOARD FLAVOR [version=VERSION] [port=uart0] [boot=PIN] [reset=PIN] [baud=RATE]
+```
+
+See [Flash another ESP board](flash.md) for wiring, target-selection, security,
+storage, and verification details.
+
 ## contacts
 
 Provider-neutral address book for gateway and MeshCore identities. Contacts can

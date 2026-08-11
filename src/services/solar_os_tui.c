@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "solar_os_memory.h"
@@ -1056,4 +1057,285 @@ esp_err_t solar_os_tui_fill(solar_os_tui_t *tui,
     }
     tui_restore_attr(tui, bold, italic, underline, inverse);
     return write_err;
+}
+
+static size_t tui_wrapped_line_count(const char *text, size_t width)
+{
+    if (text == NULL || text[0] == '\0' || width == 0U) {
+        return 1U;
+    }
+    size_t lines = 1U;
+    size_t col = 0U;
+    const char *cursor = text;
+    while (*cursor != '\0') {
+        if (*cursor == '\n') {
+            lines++;
+            col = 0U;
+            cursor++;
+            continue;
+        }
+        while (*cursor == ' ') {
+            if (col > 0U && col < width) {
+                col++;
+            }
+            cursor++;
+        }
+        const char *word = cursor;
+        while (*cursor != '\0' && *cursor != ' ' && *cursor != '\n') {
+            cursor++;
+        }
+        size_t word_len = (size_t)(cursor - word);
+        while (word_len > 0U) {
+            if (col > 0U && col + word_len > width) {
+                lines++;
+                col = 0U;
+            }
+            const size_t available = width - col;
+            const size_t take = word_len < available ? word_len : available;
+            col += take;
+            word += take;
+            word_len -= take;
+            if (word_len > 0U) {
+                lines++;
+                col = 0U;
+            }
+        }
+    }
+    return lines;
+}
+
+static void tui_draw_wrapped_text(solar_os_tui_t *tui,
+                                  size_t row,
+                                  size_t col,
+                                  size_t height,
+                                  size_t width,
+                                  const char *text)
+{
+    if (tui == NULL || text == NULL || height == 0U || width == 0U) {
+        return;
+    }
+    char line[SOLAR_OS_TERMINAL_MAX_COLS + 1U];
+    const size_t line_width = width < SOLAR_OS_TERMINAL_MAX_COLS ?
+        width : SOLAR_OS_TERMINAL_MAX_COLS;
+    size_t line_len = 0U;
+    size_t output_row = 0U;
+    const char *cursor = text;
+    while (output_row < height) {
+        while (*cursor == ' ') {
+            cursor++;
+        }
+        if (*cursor == '\0') {
+            if (line_len > 0U || output_row == 0U) {
+                line[line_len] = '\0';
+                (void)solar_os_tui_addstr(tui, row + output_row, col, line,
+                                          SOLAR_OS_TUI_ATTR_NORMAL);
+            }
+            break;
+        }
+        if (*cursor == '\n') {
+            line[line_len] = '\0';
+            (void)solar_os_tui_addstr(tui, row + output_row, col, line,
+                                      SOLAR_OS_TUI_ATTR_NORMAL);
+            output_row++;
+            line_len = 0U;
+            cursor++;
+            continue;
+        }
+
+        const char *word = cursor;
+        while (*cursor != '\0' && *cursor != ' ' && *cursor != '\n') {
+            cursor++;
+        }
+        size_t word_len = (size_t)(cursor - word);
+        if (line_len > 0U && line_len + 1U + word_len > line_width) {
+            line[line_len] = '\0';
+            (void)solar_os_tui_addstr(tui, row + output_row, col, line,
+                                      SOLAR_OS_TUI_ATTR_NORMAL);
+            output_row++;
+            line_len = 0U;
+            if (output_row >= height) {
+                break;
+            }
+        }
+        if (line_len > 0U && line_len < line_width) {
+            line[line_len++] = ' ';
+        }
+        while (word_len > 0U && output_row < height) {
+            const size_t available = line_width - line_len;
+            const size_t take = word_len < available ? word_len : available;
+            memcpy(line + line_len, word, take);
+            line_len += take;
+            word += take;
+            word_len -= take;
+            if (word_len > 0U) {
+                line[line_len] = '\0';
+                (void)solar_os_tui_addstr(tui, row + output_row, col, line,
+                                          SOLAR_OS_TUI_ATTR_NORMAL);
+                output_row++;
+                line_len = 0U;
+            }
+        }
+    }
+}
+
+esp_err_t solar_os_tui_text_popup(solar_os_tui_t *tui,
+                                  const solar_os_tui_rect_t *bounds,
+                                  const char *title,
+                                  const char *text,
+                                  solar_os_tui_rect_t *popup)
+{
+    if (!tui_valid(tui) || title == NULL || text == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_tui_rect_t area = bounds != NULL ? *bounds :
+        (solar_os_tui_rect_t) {
+            .row = 0U,
+            .col = 0U,
+            .height = tui_rows(tui),
+            .width = tui_cols(tui),
+        };
+    const size_t rows = tui_rows(tui);
+    const size_t cols = tui_cols(tui);
+    if (area.row >= rows || area.col >= cols) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (area.height > rows - area.row) {
+        area.height = rows - area.row;
+    }
+    if (area.width > cols - area.col) {
+        area.width = cols - area.col;
+    }
+    if (area.height < 3U || area.width < 6U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    size_t width = area.width > 6U ? area.width - 4U : area.width;
+    if (width > 64U) {
+        width = 64U;
+    }
+    if (width < 24U && area.width >= 24U) {
+        width = 24U;
+    }
+    if (width > area.width) {
+        width = area.width;
+    }
+    const size_t inner_width = width > 4U ? width - 4U : 1U;
+    size_t text_rows = tui_wrapped_line_count(text, inner_width);
+    size_t height = text_rows + 2U;
+    if (height > area.height) {
+        height = area.height;
+        text_rows = height > 2U ? height - 2U : 0U;
+    }
+    solar_os_tui_rect_t box = {
+        .row = area.row + (area.height - height) / 2U,
+        .col = area.col + (area.width - width) / 2U,
+        .height = height,
+        .width = width,
+    };
+    (void)solar_os_tui_fill(tui, box.row, box.col, box.height, box.width, ' ',
+                            SOLAR_OS_TUI_ATTR_NORMAL);
+    (void)solar_os_tui_box(tui, box.row, box.col, box.height, box.width,
+                           SOLAR_OS_TUI_ATTR_NORMAL);
+    if (box.width > 4U) {
+        char heading[SOLAR_OS_TERMINAL_MAX_COLS + 1U];
+        size_t heading_len = strlen(title);
+        const size_t heading_width = box.width - 4U;
+        if (heading_len > heading_width) {
+            heading_len = heading_width;
+        }
+        memcpy(heading, title, heading_len);
+        heading[heading_len] = '\0';
+        (void)solar_os_tui_addstr(tui, box.row, box.col + 2U, heading,
+                                  SOLAR_OS_TUI_ATTR_BOLD);
+    }
+    if (text_rows > 0U && box.width > 4U) {
+        tui_draw_wrapped_text(tui, box.row + 1U, box.col + 2U, text_rows,
+                              box.width - 4U, text);
+    }
+    if (popup != NULL) {
+        *popup = box;
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_tui_progress_bar(solar_os_tui_t *tui,
+                                    size_t row,
+                                    size_t col,
+                                    size_t width,
+                                    const char *label,
+                                    uint64_t value,
+                                    uint64_t total,
+                                    bool total_known)
+{
+    if (!tui_valid(tui) || label == NULL || width == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t rows = tui_rows(tui);
+    const size_t cols = tui_cols(tui);
+    if (row >= rows || col >= cols) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (col + width > cols) {
+        width = cols - col;
+    }
+    (void)solar_os_tui_fill(tui, row, col, 1U, width, ' ',
+                            SOLAR_OS_TUI_ATTR_NORMAL);
+    if (width < 8U) {
+        char clipped[8];
+        size_t label_len = strlen(label);
+        if (label_len > width) {
+            label_len = width;
+        }
+        memcpy(clipped, label, label_len);
+        clipped[label_len] = '\0';
+        return solar_os_tui_addstr(tui, row, col, clipped,
+                                   SOLAR_OS_TUI_ATTR_BOLD);
+    }
+
+    uint8_t percent = 0U;
+    if (total_known) {
+        percent = total > 0U ?
+            (uint8_t)((value >= total ? 100U : (value * 100U) / total)) : 100U;
+    }
+    const size_t suffix_width = total_known ? 5U : 4U;
+    size_t label_width = strlen(label);
+    const size_t max_label = width / 3U;
+    if (label_width > max_label) {
+        label_width = max_label;
+    }
+    size_t bar_width = width - label_width - suffix_width;
+    if (label_width > 0U) {
+        bar_width--;
+    }
+    if (bar_width < 3U) {
+        label_width = 0U;
+        bar_width = width - suffix_width;
+    }
+    if (label_width > 0U) {
+        char clipped[SOLAR_OS_TERMINAL_MAX_COLS + 1U];
+        memcpy(clipped, label, label_width);
+        clipped[label_width] = '\0';
+        (void)solar_os_tui_addstr(tui, row, col, clipped,
+                                  SOLAR_OS_TUI_ATTR_BOLD);
+    }
+    const size_t bar_col = col + label_width + (label_width > 0U ? 1U : 0U);
+    (void)solar_os_tui_putch(tui, row, bar_col, '[', SOLAR_OS_TUI_ATTR_NORMAL);
+    const size_t cells = bar_width > 2U ? bar_width - 2U : 0U;
+    const size_t filled = total_known ? (percent * cells) / 100U : 0U;
+    for (size_t i = 0U; i < cells; i++) {
+        (void)solar_os_tui_putch(tui, row, bar_col + 1U + i,
+                                 i < filled ? '#' : '-',
+                                 i < filled ? SOLAR_OS_TUI_ATTR_INVERSE :
+                                              SOLAR_OS_TUI_ATTR_NORMAL);
+    }
+    (void)solar_os_tui_putch(tui, row, bar_col + bar_width - 1U, ']',
+                             SOLAR_OS_TUI_ATTR_NORMAL);
+    char suffix[8];
+    if (total_known) {
+        snprintf(suffix, sizeof(suffix), " %3u%%", (unsigned)percent);
+    } else {
+        strlcpy(suffix, " ...", sizeof(suffix));
+    }
+    return solar_os_tui_addstr(tui, row, bar_col + bar_width, suffix,
+                               SOLAR_OS_TUI_ATTR_NORMAL);
 }

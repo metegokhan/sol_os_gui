@@ -48,7 +48,8 @@ typedef struct {
     const solar_os_manual_page_t *page;
 } docs_node_t;
 
-static docs_app_state_t docs_app;
+static void *docs_app_state;
+#define docs_app (*(docs_app_state_t *)docs_app_state)
 
 static void docs_app_write_cell(size_t row,
                                 size_t col,
@@ -587,4 +588,7 @@ const solar_os_app_t solar_os_docs_app = {
     .stop = docs_app_stop,
     .event = docs_app_event,
     .title = docs_app_title,
+    .state_slot = &docs_app_state,
+    .state_size = sizeof(docs_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
 };

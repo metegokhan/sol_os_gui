@@ -88,8 +88,14 @@ typedef struct {
 } curl_app_state_t;
 
 static const char *TAG = "solar_os_curl";
-static EXT_RAM_BSS_ATTR curl_app_state_t curl_app;
-static solar_os_shell_io_t curl_fallback_io;
+typedef struct {
+    curl_app_state_t app;
+    solar_os_shell_io_t fallback_io;
+} curl_app_cold_state_t;
+
+static void *curl_app_state;
+#define curl_app (((curl_app_cold_state_t *)curl_app_state)->app)
+#define curl_fallback_io (((curl_app_cold_state_t *)curl_app_state)->fallback_io)
 
 static solar_os_shell_io_t *curl_io(solar_os_context_t *ctx)
 {
@@ -613,6 +619,11 @@ static void curl_stop(solar_os_context_t *ctx)
     curl_cleanup_resources();
 }
 
+static bool curl_state_release_ready(void)
+{
+    return curl_app.task == NULL || curl_app.task_done;
+}
+
 static bool curl_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) {
@@ -660,5 +671,10 @@ const solar_os_app_t solar_os_curl_app = {
     .start = curl_start,
     .stop = curl_stop,
     .event = curl_event,
+    .state_slot = &curl_app_state,
+    .state_size = sizeof(curl_app_cold_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
+    .state_release_ready = curl_state_release_ready,
+    .state_release_cleanup = curl_cleanup_resources,
     .worker_stack_bytes = CURL_TASK_STACK,
 };

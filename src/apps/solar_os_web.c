@@ -198,7 +198,7 @@ typedef struct {
 
 static const char *TAG = "solar_os_web";
 static web_state_t *web_state;
-static StaticSemaphore_t web_request_lock_storage;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("cold request-lock handle")
 static SemaphoreHandle_t web_request_lock;
 #define web (*web_state)
 
@@ -220,13 +220,20 @@ static void *web_calloc(size_t count, size_t size, const char *tag)
 
 static web_state_t *web_alloc_state(void)
 {
+    bool lock_created = false;
     if (web_request_lock == NULL) {
-        web_request_lock = xSemaphoreCreateMutexStatic(&web_request_lock_storage);
+        web_request_lock = xSemaphoreCreateMutex();
         if (web_request_lock == NULL) {
             return NULL;
         }
+        lock_created = true;
     }
-    return web_calloc(1, sizeof(web_state_t), "web.state");
+    web_state_t *state = web_calloc(1, sizeof(web_state_t), "web.state");
+    if (state == NULL && lock_created) {
+        vSemaphoreDelete(web_request_lock);
+        web_request_lock = NULL;
+    }
+    return state;
 }
 
 static void web_publish_request(solar_os_http_request_t *request)
@@ -263,6 +270,10 @@ static void web_free_state(void)
 {
     solar_os_memory_free(web_state);
     web_state = NULL;
+    if (web_request_lock != NULL) {
+        vSemaphoreDelete(web_request_lock);
+        web_request_lock = NULL;
+    }
 }
 
 static void web_free_image_data(web_image_t *image)
@@ -3146,6 +3157,9 @@ static void web_stop(solar_os_context_t *ctx)
     if (!solar_os_task_wait_done(web.task, &web.task_done, SOLAR_OS_TASK_STOP_WAIT_MS)) {
         SOLAR_OS_LOGW(TAG, "web task did not stop within %u ms",
                       (unsigned)SOLAR_OS_TASK_STOP_WAIT_MS);
+        while (!web.task_done) {
+            vTaskDelay(pdMS_TO_TICKS(25));
+        }
     }
     web_free_buffers();
     web_free_state();

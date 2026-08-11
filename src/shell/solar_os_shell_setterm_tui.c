@@ -67,7 +67,8 @@ typedef struct {
     char status[64];
 } setterm_tui_state_t;
 
-static setterm_tui_state_t setterm_tui;
+static void *setterm_tui_state;
+#define setterm_tui (*(setterm_tui_state_t *)setterm_tui_state)
 
 static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_ORIENTATION] = {.label = "orientation"},
@@ -678,6 +679,9 @@ static const solar_os_app_t setterm_tui_app = {
     .start = setterm_tui_start,
     .stop = setterm_tui_stop,
     .event = setterm_tui_event,
+    .state_slot = &setterm_tui_state,
+    .state_size = sizeof(setterm_tui_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
 };
 
 esp_err_t solar_os_shell_launch_setterm_tui(solar_os_context_t *ctx)

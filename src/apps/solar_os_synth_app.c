@@ -186,7 +186,8 @@ typedef struct {
   bool parameter_dirty;
 } synth_app_state_t;
 
-static EXT_RAM_BSS_ATTR synth_app_state_t synth_app;
+static void *synth_app_state;
+#define synth_app (*(synth_app_state_t *)synth_app_state)
 
 static void synth_release_all(bool stop);
 
@@ -3290,6 +3291,9 @@ const solar_os_app_t solar_os_synth_app = {
     .resume = synth_resume,
     .stop = synth_stop,
     .event = synth_event,
+    .state_slot = &synth_app_state,
+    .state_size = sizeof(synth_app_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .tick_interval_ms = 5U,
     .tick_deadline_ms = 10U,
 };
