@@ -3388,9 +3388,6 @@ static bool synth_handle_mode_control(uint8_t key) {
 
 static void synth_select_tab(synth_tab_t tab) {
   synth_app.tab = tab;
-  if (synth_app.tab == SYNTH_TAB_WAVE) {
-    synth_wavetable_commit();
-  }
 }
 
 static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {

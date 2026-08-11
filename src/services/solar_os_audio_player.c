@@ -16,6 +16,7 @@
 #define AUDIO_PLAYER_TASK_PRIORITY (tskIDLE_PRIORITY + 3U)
 #define AUDIO_PLAYER_BLOCK_BYTES 4096U
 #define AUDIO_PLAYER_POLL_MS 20U
+#define AUDIO_PLAYER_SINK_TIMEOUT_MS 1000U
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(AUDIO_PLAYER_TASK_STACK);
 
 struct solar_os_audio_player {
@@ -184,7 +185,7 @@ static void audio_player_close(solar_os_audio_player_t *player, bool silence)
         (void)solar_os_stream_write(&player->stream,
                                     player->sink,
                                     AUDIO_PLAYER_BLOCK_BYTES,
-                                    0U,
+                                    AUDIO_PLAYER_SINK_TIMEOUT_MS,
                                     &written);
     }
     solar_os_stream_close(&player->stream);
@@ -245,7 +246,8 @@ static void audio_player_task(void *arg)
                     const size_t played_bytes = filled;
                     size_t written = 0U;
                     err = solar_os_stream_write(
-                        &player->stream, player->sink, write_len, 0U, &written);
+                        &player->stream, player->sink, write_len,
+                        AUDIO_PLAYER_SINK_TIMEOUT_MS, &written);
                     if (err != ESP_OK || written != write_len) {
                         player->error = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
                     } else if (player->options.samples != NULL) {
@@ -269,7 +271,7 @@ static void audio_player_task(void *arg)
             err = solar_os_stream_write(&player->stream,
                                         player->sink,
                                         AUDIO_PLAYER_BLOCK_BYTES,
-                                        0U,
+                                        AUDIO_PLAYER_SINK_TIMEOUT_MS,
                                         &written);
             if (err != ESP_OK || written != AUDIO_PLAYER_BLOCK_BYTES) {
                 player->error = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
@@ -431,7 +433,7 @@ esp_err_t solar_os_audio_player_write(solar_os_audio_player_t *player,
         audio_player_set_playing(player, true);
         size_t written = 0U;
         const esp_err_t err = solar_os_stream_write(
-            &player->stream, data, len, 0U, &written);
+            &player->stream, data, len, AUDIO_PLAYER_SINK_TIMEOUT_MS, &written);
         if (err != ESP_OK || written != len) {
             player->error = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
             return player->error;

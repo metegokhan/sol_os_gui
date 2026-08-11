@@ -9,6 +9,7 @@
 #define PCM5102_DMA_DESC_NUM 4U
 #define PCM5102_DMA_FRAME_NUM PCM5102_FRAMES_PER_BLOCK
 #define PCM5102_WRITE_FRAMES 128U
+#define PCM5102_WRITE_TIMEOUT_MAX_MS 1000U
 
 typedef struct {
   bool active;
@@ -108,6 +109,10 @@ esp_err_t pcm5102_write_s16(const int16_t *samples, size_t frames,
   }
 
   int32_t stereo[PCM5102_WRITE_FRAMES * 2U];
+  const uint32_t write_timeout_ms =
+      timeout_ms > PCM5102_WRITE_TIMEOUT_MAX_MS
+          ? PCM5102_WRITE_TIMEOUT_MAX_MS
+          : timeout_ms;
   while (*frames_written < frames) {
     const size_t remaining = frames - *frames_written;
     const size_t count =
@@ -133,7 +138,8 @@ esp_err_t pcm5102_write_s16(const int16_t *samples, size_t frames,
     size_t output_bytes = 0U;
     const size_t requested_bytes = count * 2U * sizeof(int32_t);
     const esp_err_t err = i2s_channel_write(
-        pcm5102.tx_handle, stereo, requested_bytes, &output_bytes, timeout_ms);
+        pcm5102.tx_handle, stereo, requested_bytes, &output_bytes,
+        write_timeout_ms);
     *frames_written += output_bytes / (2U * sizeof(int32_t));
     if (err != ESP_OK) {
       return err;
