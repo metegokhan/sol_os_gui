@@ -6,8 +6,16 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import shutil
+import sys
 
 Import("env")
+
+project_dir = Path(env.subst("$PROJECT_DIR"))
+script_dir = project_dir / "scripts"
+if str(script_dir) not in sys.path:
+    sys.path.insert(0, str(script_dir))
+
+from solaros_build_lock import acquire_project_build_lock
 
 
 def _selected_flavor() -> str:
@@ -44,11 +52,12 @@ def _remove_path(path: Path) -> None:
         path.unlink()
 
 
-project_dir = Path(env.subst("$PROJECT_DIR"))
 build_dir = Path(env.subst("$BUILD_DIR"))
 flavor = _selected_flavor()
 board = _selected_board()
 cvbs_mode = _selected_cvbs_mode()
+
+acquire_project_build_lock(project_dir, env["PIOENV"])
 
 flavor_file = project_dir / "flavors" / f"{flavor}.toml"
 if not flavor_file.exists():
@@ -69,6 +78,7 @@ tracked_files = (
     project_dir / "packages" / "solar_os_packages.toml",
     project_dir / "scripts" / "generate_flavor_config.py",
     project_dir / "scripts" / "platformio_solaros_flavor.py",
+    project_dir / "scripts" / "solaros_build_lock.py",
     project_dir / "scripts" / "validate_board_metadata.py",
     project_dir / "src" / "CMakeLists.txt",
     project_dir / "src" / "services" / "solar_os_board_caps.h",
