@@ -247,6 +247,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(python_name, "rover-python")
         self.assertEqual(lua_name, "rover-lua")
         for groups in (rover_groups, python_groups, lua_groups):
+            self.assertTrue(groups["system"])
             self.assertTrue(groups["expansions"])
             self.assertFalse(groups["maintenance_apps"])
             self.assertFalse(groups["maintenance_jobs"])
@@ -255,8 +256,12 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertFalse(groups["agent"])
             self.assertTrue(groups["net"])
             self.assertTrue(groups["media"])
-            self.assertTrue(groups["writing"])
             self.assertTrue(groups["utils"])
+        self.assertTrue(rover_groups["writing"])
+        # The effective group remains visible because app_files is an explicit
+        # writing-group trigger; the other writing packages stay disabled.
+        self.assertTrue(python_groups["writing"])
+        self.assertTrue(lua_groups["writing"])
         for packages in (rover_packages, python_packages, lua_packages):
             self.assertTrue(packages["service_expansion"])
             self.assertTrue(packages["app_files"])
@@ -269,6 +274,15 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertFalse(packages["job_sump"])
             self.assertFalse(packages["app_agent"])
             self.assertFalse(packages["app_logic"])
+            for audio_app in (
+                "app_aplay",
+                "app_arecord",
+                "app_recorder",
+                "app_player",
+                "app_synth",
+                "app_funcgen",
+            ):
+                self.assertFalse(packages[audio_app], audio_app)
 
         self.assertTrue(rover_groups["games"])
         self.assertTrue(rover_packages["app_invaders"])
@@ -303,6 +317,9 @@ class FlavorPackagesTest(unittest.TestCase):
                 "service_script_runner",
                 "app_python",
                 "app_playground",
+                "app_reader",
+                "app_writer",
+                "app_notes",
             },
         )
         self.assertEqual(
@@ -313,6 +330,9 @@ class FlavorPackagesTest(unittest.TestCase):
                 "service_script_runner",
                 "app_lua",
                 "app_playground",
+                "app_reader",
+                "app_writer",
+                "app_notes",
             },
         )
 

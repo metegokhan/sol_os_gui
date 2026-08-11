@@ -16,7 +16,7 @@ games = false
 retro = false
 python = false
 lua = true
-writing = true
+writing = false
 utils = true
 
 # The 4 MB WROVER uses one large factory slot. OTA and remote manual
