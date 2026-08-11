@@ -1,8 +1,12 @@
 #include "solar_os_webradio_catalog.h"
 
 #include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "esp_attr.h"
 #include "esp_check.h"
@@ -11,11 +15,15 @@
 #include "nvs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_storage.h"
 
 #define WEBRADIO_NVS_NAMESPACE "webradio"
 #define WEBRADIO_NVS_CATALOG_KEY "catalog"
 #define WEBRADIO_CATALOG_MAGIC 0x57524144U
 #define WEBRADIO_CATALOG_VERSION 1U
+#define WEBRADIO_CATALOG_ROOT_DIR ".solar"
+#define WEBRADIO_CATALOG_DIR ".solar/webradio"
+#define WEBRADIO_CATALOG_FILE "catalog.bin"
 
 typedef struct {
     uint32_t magic;
@@ -29,6 +37,7 @@ typedef struct {
     uint32_t generation;
     size_t count;
     solar_os_webradio_station_t stations[SOLAR_OS_WEBRADIO_STATION_MAX];
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
 } webradio_catalog_state_t;
 
 static const char *TAG = "solar_os_webradio_catalog";
@@ -84,6 +93,94 @@ static void webradio_catalog_set_defaults(void)
     }
 }
 
+static bool webradio_catalog_blob_valid(const webradio_catalog_blob_t *blob)
+{
+    if (blob == NULL || blob->magic != WEBRADIO_CATALOG_MAGIC ||
+        blob->version != WEBRADIO_CATALOG_VERSION ||
+        blob->count > SOLAR_OS_WEBRADIO_STATION_MAX) {
+        return false;
+    }
+    for (size_t i = 0U; i < blob->count; i++) {
+        if (!webradio_station_name_valid(blob->stations[i].name) ||
+            !solar_os_webradio_url_valid(blob->stations[i].url)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static esp_err_t webradio_catalog_prepare_path(void)
+{
+    if (!solar_os_storage_is_mounted()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    static const char *const directories[] = {
+        WEBRADIO_CATALOG_ROOT_DIR,
+        WEBRADIO_CATALOG_DIR,
+    };
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    for (size_t i = 0U; i < sizeof(directories) / sizeof(directories[0]); i++) {
+        esp_err_t err = solar_os_storage_default_path(
+            directories[i], path, sizeof(path));
+        if (err != ESP_OK) {
+            return err;
+        }
+        if (solar_os_storage_mkdir(path) != ESP_OK && errno != EEXIST) {
+            return ESP_FAIL;
+        }
+    }
+
+    return solar_os_storage_default_path(
+        WEBRADIO_CATALOG_DIR "/" WEBRADIO_CATALOG_FILE,
+        catalog.path,
+        sizeof(catalog.path));
+}
+
+static bool webradio_catalog_load_file(webradio_catalog_blob_t *blob)
+{
+    FILE *file = fopen(catalog.path, "rb");
+    if (file == NULL) {
+        return false;
+    }
+    const bool loaded = fread(blob, sizeof(*blob), 1U, file) == 1U &&
+        fgetc(file) == EOF && webradio_catalog_blob_valid(blob);
+    fclose(file);
+    return loaded;
+}
+
+static bool webradio_catalog_load_legacy_nvs(webradio_catalog_blob_t *blob)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(WEBRADIO_NVS_NAMESPACE, NVS_READONLY, &nvs);
+    if (err != ESP_OK) {
+        return false;
+    }
+    size_t length = sizeof(*blob);
+    err = nvs_get_blob(nvs, WEBRADIO_NVS_CATALOG_KEY, blob, &length);
+    nvs_close(nvs);
+    return err == ESP_OK && length == sizeof(*blob) &&
+        webradio_catalog_blob_valid(blob);
+}
+
+static void webradio_catalog_erase_legacy_nvs(void)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(WEBRADIO_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return;
+    }
+    err = nvs_erase_key(nvs, WEBRADIO_NVS_CATALOG_KEY);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        SOLAR_OS_LOGW(TAG, "legacy NVS catalog cleanup failed: %s",
+                      esp_err_to_name(err));
+    }
+}
+
 static esp_err_t webradio_catalog_persist(void)
 {
     webradio_catalog_blob_t *blob =
@@ -104,14 +201,52 @@ static esp_err_t webradio_catalog_persist(void)
            catalog.count * sizeof(catalog.stations[0]));
     portEXIT_CRITICAL(&catalog_lock);
 
-    nvs_handle_t nvs;
-    esp_err_t err = nvs_open(WEBRADIO_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    char temporary[SOLAR_OS_STORAGE_PATH_MAX];
+    char backup[SOLAR_OS_STORAGE_PATH_MAX];
+    if (snprintf(temporary, sizeof(temporary), "%s.tmp", catalog.path) >=
+            (int)sizeof(temporary) ||
+        snprintf(backup, sizeof(backup), "%s.bak", catalog.path) >=
+            (int)sizeof(backup)) {
+        solar_os_memory_free(blob);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    FILE *file = fopen(temporary, "wb");
+    if (file == NULL) {
+        solar_os_memory_free(blob);
+        return ESP_FAIL;
+    }
+    esp_err_t err = fwrite(blob, sizeof(*blob), 1U, file) == 1U ?
+        ESP_OK : ESP_FAIL;
+    if (err == ESP_OK && fflush(file) != 0) {
+        err = ESP_FAIL;
+    }
+    if (err == ESP_OK && fsync(fileno(file)) != 0) {
+        err = ESP_FAIL;
+    }
+    if (fclose(file) != 0 && err == ESP_OK) {
+        err = ESP_FAIL;
+    }
+
     if (err == ESP_OK) {
-        err = nvs_set_blob(nvs, WEBRADIO_NVS_CATALOG_KEY, blob, sizeof(*blob));
-        if (err == ESP_OK) {
-            err = nvs_commit(nvs);
+        struct stat info;
+        const bool had_active = stat(catalog.path, &info) == 0;
+        (void)solar_os_storage_remove(backup);
+        if (had_active) {
+            err = solar_os_storage_rename(catalog.path, backup);
         }
-        nvs_close(nvs);
+        if (err == ESP_OK) {
+            err = solar_os_storage_rename(temporary, catalog.path);
+        }
+        if (err != ESP_OK && had_active) {
+            (void)solar_os_storage_rename(backup, catalog.path);
+        }
+        if (err == ESP_OK) {
+            (void)solar_os_storage_remove(backup);
+        }
+    }
+    if (err != ESP_OK) {
+        (void)solar_os_storage_remove(temporary);
     }
     solar_os_memory_free(blob);
     return err;
@@ -126,6 +261,9 @@ esp_err_t solar_os_webradio_catalog_init(void)
         return ESP_OK;
     }
 
+    ESP_RETURN_ON_ERROR(webradio_catalog_prepare_path(), TAG,
+                        "catalog path setup failed");
+
     webradio_catalog_blob_t *blob =
         solar_os_memory_calloc(1,
                                sizeof(*blob),
@@ -135,18 +273,10 @@ esp_err_t solar_os_webradio_catalog_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    bool loaded = false;
-    nvs_handle_t nvs;
-    esp_err_t err = nvs_open(WEBRADIO_NVS_NAMESPACE, NVS_READONLY, &nvs);
-    if (err == ESP_OK) {
-        size_t length = sizeof(*blob);
-        err = nvs_get_blob(nvs, WEBRADIO_NVS_CATALOG_KEY, blob, &length);
-        nvs_close(nvs);
-        loaded = err == ESP_OK && length == sizeof(*blob) &&
-            blob->magic == WEBRADIO_CATALOG_MAGIC &&
-            blob->version == WEBRADIO_CATALOG_VERSION &&
-            blob->count <= SOLAR_OS_WEBRADIO_STATION_MAX;
-    }
+    const bool loaded_from_file = webradio_catalog_load_file(blob);
+    const bool loaded_from_nvs = !loaded_from_file &&
+        webradio_catalog_load_legacy_nvs(blob);
+    const bool loaded = loaded_from_file || loaded_from_nvs;
 
     portENTER_CRITICAL(&catalog_lock);
     if (loaded) {
@@ -168,12 +298,16 @@ esp_err_t solar_os_webradio_catalog_init(void)
     portEXIT_CRITICAL(&catalog_lock);
     solar_os_memory_free(blob);
 
-    if (!loaded) {
-        err = webradio_catalog_persist();
+    if (!loaded_from_file) {
+        const esp_err_t err = webradio_catalog_persist();
         if (err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "default catalog persistence failed: %s",
+            SOLAR_OS_LOGW(TAG, "catalog file persistence failed: %s",
                           esp_err_to_name(err));
+        } else {
+            webradio_catalog_erase_legacy_nvs();
         }
+    } else {
+        webradio_catalog_erase_legacy_nvs();
     }
     return ESP_OK;
 }

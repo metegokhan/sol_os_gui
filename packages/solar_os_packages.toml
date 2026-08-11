@@ -539,6 +539,7 @@ requires = ["minimp3"]
 [packages.service_webradio]
 label = "service.webradio"
 sources = ["services/solar_os_webradio_catalog.c"]
+# Kept temporarily for one-time migration and cleanup of legacy NVS catalogs.
 requires = ["nvs_flash"]
 
 [packages.service_synth]

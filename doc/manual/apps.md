@@ -476,9 +476,11 @@ Stream a direct MP3 URL through the default registered audio output. On a
 graphical display shell, WebRadio opens a two-tab media-player GUI. On UART,
 USB CDC, Telnet, SSH, and other text shells, it opens a station-list TUI.
 
-The catalog is stored in NVS and starts with the Nightride, Chillsynth,
-Datawave, Spacesynth, Darksynth, Horrorsynth, EBSM, and Rekt streams. Catalog
-changes survive reboot. `reset` restores this initial list.
+The catalog is stored as `.solar/webradio/catalog.bin` on the current storage
+root and starts with the Nightride, Chillsynth, Datawave, Spacesynth, Darksynth,
+Horrorsynth, EBSM, and Rekt streams. Catalog changes survive reboot. On first
+use after an upgrade, WebRadio moves an older NVS catalog to this file and
+removes the large NVS blob. `reset` restores the initial list.
 
 Usage:
 
