@@ -2719,6 +2719,7 @@ static bool synth_midi_note_on(uint8_t channel, uint8_t note,
       .source = SOLAR_OS_INPUT_SOURCE_INVALID,
       .physical_key = SOLAR_OS_INPUT_PHYSICAL_NONE,
       .frequency_hz = frequency,
+      .semitone = note % 12U,
       .midi_channel = channel,
       .midi_note = note,
   };
