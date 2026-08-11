@@ -104,6 +104,16 @@ tab expands its knobs, graphs, panels, or preset list into the freed space.
 `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
 Number keys `1` through `6` select them in that order.
 
+Display targets smaller than 240 pixels wide or 200 pixels high automatically
+use the Synth parameter HUD instead of the full editor. It shows the selected
+control as a large value and level bar, gives waveforms and the wavetable their
+own graph, and shows one preset slot at a time. Targets smaller than 112 by 56
+pixels drop the footer to preserve the control and graph area. Physical note
+keys and MIDI remain active in both compact layouts. A successful change
+through the shared parameter/control service temporarily focuses the changed
+parameter until the next local navigation action, so an appliance knob provides
+immediate visual feedback without changing the current tab.
+
 The app also accepts note input from the shared MIDI service. MIDI Note On and
 Note Off preserve channel and velocity, controller 64 provides sustain, and
 controllers 120 and 123 release the notes on their channel. Start the MIDI job

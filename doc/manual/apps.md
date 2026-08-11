@@ -1256,6 +1256,16 @@ playback and portamento. The display also reports active voices, output sample
 rate, and audio errors. The volume button changes the shared SolarOS speaker
 volume.
 
+On display targets smaller than 240 pixels wide or 200 pixels high, Synth
+automatically replaces the full editor with a parameter HUD. The selected
+control gets a large value and level bar; waveform controls and the Wave tab
+retain compact graphs; Presets shows one slot at a time. Targets smaller than
+112 by 56 pixels use a footer-free micro layout. Physical note keys and MIDI
+remain active. External parameter/control changes focus the changed parameter
+until the next local navigation action, which makes a 128-by-64 SH1106 or
+SSD1306 useful as a synthesizer appliance display. After attaching it as
+`oled0`, open Synth on that target with `session create synth oled0`.
+
 Controls:
 
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
