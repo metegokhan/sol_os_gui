@@ -12,6 +12,7 @@
 #define SOLAR_OS_OTA_LABEL_MAX 17
 #define SOLAR_OS_OTA_VERSION_MAX 32
 #define SOLAR_OS_OTA_FLAVOR_MAX 32
+#define SOLAR_OS_OTA_AVAILABLE_FLAVOR_MAX 32
 #define SOLAR_OS_OTA_BOARD_MAX 64
 #define SOLAR_OS_OTA_PROJECT_MAX 32
 #define SOLAR_OS_OTA_STATE_MAX 16
@@ -88,6 +89,9 @@ void solar_os_ota_get_url(char *url, size_t len);
 esp_err_t solar_os_ota_set_url(const char *url);
 void solar_os_ota_get_flavor(char *flavor, size_t len);
 esp_err_t solar_os_ota_set_flavor(const char *flavor);
+bool solar_os_ota_available_flavors_checked(void);
+size_t solar_os_ota_available_flavor_count(void);
+bool solar_os_ota_get_available_flavor(size_t index, char *flavor, size_t len);
 esp_err_t solar_os_ota_get_index_url(char *index_url, size_t index_url_len);
 esp_err_t solar_os_ota_get_status(solar_os_ota_status_t *status);
 esp_err_t solar_os_ota_set_boot_slot(uint8_t slot);

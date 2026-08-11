@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test parameters_test controls_test dsp_test stream_test audio_codec_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test parameters_test controls_test dsp_test stream_test audio_codec_test webradio_catalog_test
 
 .PHONY: all test clean
 
@@ -91,6 +91,10 @@ audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c
 		$(ROOT)/src/services/solar_os_audio_pcm.c \
 		$(ROOT)/components/minimp3/minimp3_impl.c -o $@
 
+webradio_catalog_test: webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c $(ROOT)/src/services/solar_os_webradio_catalog.h esp_attr.h esp_check.h esp_err.h nvs.h freertos/FreeRTOS.h freertos/portmacro.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -110,6 +114,7 @@ test: $(TARGETS)
 	./dsp_test
 	./stream_test
 	./audio_codec_test
+	./webradio_catalog_test
 
 clean:
 	$(RM) $(TARGETS)

@@ -104,7 +104,8 @@ end-to-end deadline.
 Callers continue to own their worker task and response consumer; see
 [HTTP Client Service](../http_client.md) for the native API and lifecycle.
 
-`service.webradio` owns the NVS-backed user station catalog. `app.webradio`
+`service.webradio` owns the disk-backed user station catalog on the current
+storage root. `app.webradio`
 combines that catalog with the shared HTTP client, MP3 codec, generic audio
 output service, and `service.signal-widgets`. The signal-widget package owns
 reusable signed-16-bit oscilloscope and DSP spectrum components; it depends on

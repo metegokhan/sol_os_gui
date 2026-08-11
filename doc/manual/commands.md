@@ -571,7 +571,12 @@ netscan wintermute 22
 
 OTA resolves the artifact for the compiled board and target flavor from the
 configured release index, verifies the signed index, verifies firmware SHA-256,
-and writes the inactive ESP-IDF OTA partition.
+and writes the inactive ESP-IDF OTA partition. A signed `ota check` also caches
+the flavors present for the compiled board in RAM. `ota flavor` completion uses
+that verified list. Before a check, completion asks you to run `ota check`;
+changing the OTA URL or rebooting clears the list. If the selected flavor is
+not present in the checked release, `ota check` lists the flavors that are
+available for the compiled board.
 
 ## Hardware And Time
 
