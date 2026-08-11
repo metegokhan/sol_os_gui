@@ -80,12 +80,12 @@ physical-key piano. Its Wave tab draws the custom wavetable at full width and
 supports selectable 16, 32, and 64-point resolution, starting at 16; square,
 triangle, saw, Supersaw, sine, and flat starting shapes; cursor and brush
 editing; smoothing; normalization; reset; and undo. `Enter` cycles the resolution and
-resamples the current shape into the new point count. The piano remains active
+resamples the current shape into the new point count. Note input remains active
 while editing, the graph includes the cyclic last-to-first interval, and table
 changes reshape held notes immediately.
 The Filter tab pairs a live low-pass response graph with the independent filter
 envelope. Cutoff, resonance, envelope amount, and filter ADSR are editable while
-the piano remains active.
+note input remains active.
 The Oscillator 2 tab shows both sources and provides waveform, octave from -2
 through +2, fine detune from -100 through +100 cents, and mix from 0 through
 100 percent. Both oscillators use the same custom wavetable when selected.
@@ -98,9 +98,11 @@ Glide tab selects polyphonic or monophonic last-note playback and glide from 0
 through 2500 ms. User slots are stored as versioned,
 checksummed files below `.solar/synth/presets` on the preferred persistent
 volume, with internal flash used when no SD card is mounted.
-All six tabs use the same compact piano. `Tab` cycles through Play, Filter,
-Wave, Oscillator 2, Glide, and Presets. Number keys `1` through `6` select them
-in that order.
+All six tabs use the same compact on-screen piano. `X` hides or shows it while
+physical note keys and MIDI input remain active. When the piano is hidden, each
+tab expands its knobs, graphs, panels, or preset list into the freed space.
+`Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
+Number keys `1` through `6` select them in that order.
 
 The app also accepts note input from the shared MIDI service. MIDI Note On and
 Note Off preserve channel and velocity, controller 64 provides sustain, and

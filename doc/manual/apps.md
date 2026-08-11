@@ -1259,10 +1259,13 @@ volume.
 Controls:
 
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
-  physical, so the `Y` position is the `Z` key on a German keyboard. The piano
+  physical, so the `Y` position is the `Z` key on a German keyboard. Note input
   remains active on all tabs.
 - `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
   Number keys `1` through `6` select those tabs in that order.
+- `X` hides or shows the on-screen piano keyboard on every tab. When it is
+  hidden, the tab's knobs, graphs, panels, or preset list use the freed space;
+  the physical note keys and MIDI input remain active.
 - On Play, `Left`/`Right` selects the waveform, global volume, or an ADSR knob;
   `Up`/`Down` changes it, and `+`/`-` changes note velocity.
 - On Wave, `Left`/`Right` moves the edit cursor and `Up`/`Down` changes the
