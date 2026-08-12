@@ -23,7 +23,6 @@
 #include "solar_os_queue.h"
 #include "solar_os_task.h"
 
-#define CHAT_DEFAULT_USER "user"
 #define CHAT_DEFAULT_TCP_PORT 7777
 #define CHAT_DEFAULT_TLS_PORT 7778
 #define CHAT_CONNECT_TIMEOUT_MS 10000
@@ -957,7 +956,8 @@ static esp_err_t solar_os_chat_gateway_init(void)
     }
 
     chat_state.initialized = true;
-    strlcpy(chat_state.user, CHAT_DEFAULT_USER, sizeof(chat_state.user));
+    solar_os_identity_get_user(chat_state.user,
+                               sizeof(chat_state.user));
     solar_os_identity_get_hostname(chat_state.device,
                                    sizeof(chat_state.device));
     return ESP_OK;

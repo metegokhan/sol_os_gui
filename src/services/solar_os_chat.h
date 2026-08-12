@@ -122,12 +122,10 @@ typedef struct {
 
 esp_err_t solar_os_chat_init(void);
 esp_err_t solar_os_chat_configure(const char *url,
-                                  const char *token,
-                                  const char *user);
+                                  const char *token);
 /* Connect/disconnect set desired state; gateway-sync owns transport I/O. */
 esp_err_t solar_os_chat_connect(const char *url,
-                                const char *token,
-                                const char *user);
+                                const char *token);
 esp_err_t solar_os_chat_disconnect(void);
 esp_err_t solar_os_chat_join(const char *channel);
 esp_err_t solar_os_chat_leave(const char *channel);
