@@ -120,6 +120,14 @@ esp_err_t solar_os_storage_read_file(const char *path,
                                      void *buffer,
                                      size_t buffer_len,
                                      size_t *read_len);
+typedef void (*solar_os_storage_copy_progress_fn)(uint64_t bytes_done,
+                                                  uint64_t bytes_total,
+                                                  void *user);
+esp_err_t solar_os_storage_copy_file_progress(
+    const char *source_path,
+    const char *dest_path,
+    solar_os_storage_copy_progress_fn progress,
+    void *user);
 esp_err_t solar_os_storage_copy_file(const char *source_path, const char *dest_path);
 
 #ifdef __cplusplus

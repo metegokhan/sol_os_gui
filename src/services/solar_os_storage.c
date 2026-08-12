@@ -906,7 +906,11 @@ esp_err_t solar_os_storage_read_file(const char *path,
     return ESP_OK;
 }
 
-esp_err_t solar_os_storage_copy_file(const char *source_path, const char *dest_path)
+esp_err_t solar_os_storage_copy_file_progress(
+    const char *source_path,
+    const char *dest_path,
+    solar_os_storage_copy_progress_fn progress,
+    void *user)
 {
     if (source_path == NULL || source_path[0] == '\0' || dest_path == NULL || dest_path[0] == '\0') {
         errno = EINVAL;
@@ -922,6 +926,15 @@ esp_err_t solar_os_storage_copy_file(const char *source_path, const char *dest_p
         return ESP_FAIL;
     }
 
+    struct stat source_st;
+    if (fstat(fileno(source), &source_st) != 0 || source_st.st_size < 0) {
+        const int stat_errno = errno;
+        fclose(source);
+        errno = stat_errno;
+        return ESP_FAIL;
+    }
+    const uint64_t bytes_total = (uint64_t)source_st.st_size;
+
     FILE *dest = fopen(dest_path, "wb");
     if (dest == NULL) {
         const int open_errno = errno;
@@ -932,12 +945,21 @@ esp_err_t solar_os_storage_copy_file(const char *source_path, const char *dest_p
 
     uint8_t buffer[SOLAR_OS_STORAGE_COPY_BUFFER_SIZE];
     esp_err_t ret = ESP_OK;
+    uint64_t bytes_done = 0U;
+
+    if (progress != NULL) {
+        progress(0U, bytes_total, user);
+    }
 
     while (true) {
         const size_t bytes_read = fread(buffer, 1, sizeof(buffer), source);
         if (bytes_read > 0 && fwrite(buffer, 1, bytes_read, dest) != bytes_read) {
             ret = ESP_FAIL;
             break;
+        }
+        bytes_done += bytes_read;
+        if (bytes_read > 0U && progress != NULL) {
+            progress(bytes_done, bytes_total, user);
         }
 
         if (bytes_read < sizeof(buffer)) {
@@ -959,4 +981,13 @@ esp_err_t solar_os_storage_copy_file(const char *source_path, const char *dest_p
         errno = close_errno != 0 ? close_errno : (copy_errno != 0 ? copy_errno : EIO);
     }
     return ret;
+}
+
+esp_err_t solar_os_storage_copy_file(const char *source_path,
+                                     const char *dest_path)
+{
+    return solar_os_storage_copy_file_progress(source_path,
+                                               dest_path,
+                                               NULL,
+                                               NULL);
 }

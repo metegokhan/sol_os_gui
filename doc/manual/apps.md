@@ -660,6 +660,10 @@ Controls:
 - Arrows navigate panes.
 - `Tab` switches active pane.
 - `Enter` opens directories or launches known files.
+- `F5`, `F6`, and `F8` copy, move, and delete the current or marked entries.
+  Copy and recursive delete scan their source trees first, then show measured
+  progress with the current entry. Move shows progress across the selected
+  top-level entries.
 - File operations refresh both panes after completion.
 - App-exit key exits.
 

@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "esp_attr.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_app_file_types.h"
@@ -36,6 +37,7 @@
 #define FILES_ZIP_TASK_PRIORITY 4
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(FILES_ZIP_TASK_STACK);
 #define FILES_ZIP_WAIT_POLL_MS 20U
+#define FILES_PROGRESS_REDRAW_US 100000LL
 
 typedef struct {
     char name[FILES_NAME_MAX];
@@ -63,6 +65,23 @@ typedef enum {
     FILES_INPUT_ZIP,
 } files_input_mode_t;
 
+typedef enum {
+    FILES_TRANSACTION_NONE,
+    FILES_TRANSACTION_COPY,
+    FILES_TRANSACTION_MOVE,
+    FILES_TRANSACTION_DELETE,
+} files_transaction_kind_t;
+
+typedef struct {
+    files_transaction_kind_t kind;
+    uint64_t done;
+    uint64_t total;
+    int64_t last_redraw_us;
+    char item[FILES_NAME_MAX];
+    bool active;
+    bool total_known;
+} files_transaction_t;
+
 typedef struct {
     const char **sources;
     char (*paths)[SOLAR_OS_STORAGE_PATH_MAX];
@@ -88,12 +107,14 @@ typedef struct {
     char input[FILES_INPUT_MAX];
     size_t input_len;
     char message[FILES_MESSAGE_MAX];
+    files_transaction_t transaction;
 } files_state_t;
 
 static void *files_state;
 #define files (*(files_state_t *)files_state)
 
 static void files_set_message(const char *message);
+static void files_render(solar_os_context_t *ctx);
 
 static void *files_realloc(void *ptr, size_t size)
 {
@@ -650,6 +671,140 @@ static void files_add_clipped(size_t row,
     solar_os_tui_addstr(&files.tui, row, col, buffer, attr);
 }
 
+static const char *files_transaction_name(files_transaction_kind_t kind)
+{
+    switch (kind) {
+    case FILES_TRANSACTION_COPY:
+        return "copy";
+    case FILES_TRANSACTION_MOVE:
+        return "move";
+    case FILES_TRANSACTION_DELETE:
+        return "delete";
+    case FILES_TRANSACTION_NONE:
+    default:
+        return "files";
+    }
+}
+
+static const char *files_transaction_title(files_transaction_kind_t kind)
+{
+    switch (kind) {
+    case FILES_TRANSACTION_COPY:
+        return "Copying";
+    case FILES_TRANSACTION_MOVE:
+        return "Moving";
+    case FILES_TRANSACTION_DELETE:
+        return "Deleting";
+    case FILES_TRANSACTION_NONE:
+    default:
+        return "File transaction";
+    }
+}
+
+static void files_transaction_set_item(const char *path)
+{
+    const char *item = files_basename(path);
+    strlcpy(files.transaction.item,
+            item[0] != '\0' ? item : path != NULL ? path : "",
+            sizeof(files.transaction.item));
+}
+
+static void files_transaction_redraw(bool force)
+{
+    if (!files.transaction.active) {
+        return;
+    }
+    const int64_t now = esp_timer_get_time();
+    if (!force && files.transaction.last_redraw_us != 0 &&
+        now - files.transaction.last_redraw_us < FILES_PROGRESS_REDRAW_US) {
+        return;
+    }
+    files.transaction.last_redraw_us = now;
+    files_render(NULL);
+}
+
+static void files_transaction_begin(files_transaction_kind_t kind,
+                                    const char *item)
+{
+    memset(&files.transaction, 0, sizeof(files.transaction));
+    files.transaction.kind = kind;
+    files.transaction.active = true;
+    files_transaction_set_item(item);
+    files_transaction_redraw(true);
+}
+
+static void files_transaction_set_total(uint64_t total)
+{
+    files.transaction.done = 0U;
+    files.transaction.total = total;
+    files.transaction.total_known = true;
+    files.transaction.last_redraw_us = 0;
+    files_transaction_redraw(true);
+}
+
+static void files_transaction_set_done(uint64_t done,
+                                       const char *path,
+                                       bool force)
+{
+    if (files.transaction.total_known && done > files.transaction.total) {
+        done = files.transaction.total;
+    }
+    files.transaction.done = done;
+    files_transaction_set_item(path);
+    files_transaction_redraw(force ||
+                             (files.transaction.total_known &&
+                              done == files.transaction.total));
+}
+
+static void files_transaction_advance(uint64_t amount, const char *path)
+{
+    const uint64_t remaining = UINT64_MAX - files.transaction.done;
+    const uint64_t done = amount > remaining ? UINT64_MAX :
+                                                   files.transaction.done + amount;
+    files_transaction_set_done(done, path, false);
+}
+
+static void files_transaction_end(void)
+{
+    memset(&files.transaction, 0, sizeof(files.transaction));
+}
+
+static void files_draw_transaction(size_t rows, size_t cols)
+{
+    if (!files.transaction.active || rows < 4U || cols < 12U) {
+        return;
+    }
+    const solar_os_tui_rect_t bounds = {
+        .row = rows > 2U ? 1U : 0U,
+        .col = 0U,
+        .height = rows > 2U ? rows - 2U : rows,
+        .width = cols,
+    };
+    solar_os_tui_rect_t popup = {0};
+    char text[FILES_NAME_MAX + 32U];
+    snprintf(text,
+             sizeof(text),
+             "%s %s\n ",
+             files.transaction.total_known ? "Processing" : "Preparing",
+             files.transaction.item);
+    if (solar_os_tui_text_popup(&files.tui,
+                                &bounds,
+                                files_transaction_title(files.transaction.kind),
+                                text,
+                                &popup) != ESP_OK ||
+        popup.height <= 2U || popup.width <= 4U) {
+        return;
+    }
+    (void)solar_os_tui_progress_bar(&files.tui,
+                                    popup.row + popup.height - 2U,
+                                    popup.col + 2U,
+                                    popup.width - 4U,
+                                    files_transaction_name(files.transaction.kind),
+                                    files.transaction.done,
+                                    files.transaction.total,
+                                    files.transaction.total_known);
+}
+
 static void files_draw_entry(files_pane_t *pane,
                              size_t pane_index,
                              size_t row,
@@ -827,6 +982,7 @@ static void files_render(solar_os_context_t *ctx)
     files_draw_pane(&files.panes[0], 0, pane_row, 0, pane_height, left_width);
     files_draw_pane(&files.panes[1], 1, pane_row, left_width, pane_height, right_width);
     files_draw_bottom(rows, cols);
+    files_draw_transaction(rows, cols);
     solar_os_tui_refresh(&files.tui);
 }
 
@@ -969,6 +1125,87 @@ static void files_open_selected(solar_os_context_t *ctx)
     files_open_file(ctx, path);
 }
 
+static bool files_work_add(uint64_t *total, uint64_t amount)
+{
+    if (total == NULL || amount > UINT64_MAX - *total) {
+        errno = EOVERFLOW;
+        return false;
+    }
+    *total += amount;
+    return true;
+}
+
+static bool files_measure_tree(const char *path,
+                               bool include_file_bytes,
+                               uint64_t *total)
+{
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return false;
+    }
+    uint64_t work = 1U;
+    if (include_file_bytes && !S_ISDIR(st.st_mode)) {
+        if (st.st_size < 0 || !files_work_add(&work, (uint64_t)st.st_size)) {
+            return false;
+        }
+    }
+    if (!files_work_add(total, work)) {
+        return false;
+    }
+    files_transaction_set_item(path);
+    files_transaction_redraw(false);
+
+    if (!S_ISDIR(st.st_mode)) {
+        return true;
+    }
+    DIR *dir = opendir(path);
+    if (dir == NULL) {
+        return false;
+    }
+    bool ok = true;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char child[SOLAR_OS_STORAGE_PATH_MAX];
+        if (!files_join_path(child, sizeof(child), path, entry->d_name)) {
+            errno = ENAMETOOLONG;
+            ok = false;
+            break;
+        }
+        if (!files_measure_tree(child, include_file_bytes, total)) {
+            ok = false;
+            break;
+        }
+    }
+    const int operation_errno = ok ? 0 : errno;
+    closedir(dir);
+    if (!ok) {
+        errno = operation_errno != 0 ? operation_errno : EIO;
+    }
+    return ok;
+}
+
+typedef struct {
+    uint64_t base;
+    const char *path;
+} files_copy_progress_t;
+
+static void files_copy_progress(uint64_t bytes_done,
+                                uint64_t bytes_total,
+                                void *user)
+{
+    (void)bytes_total;
+    const files_copy_progress_t *progress = (const files_copy_progress_t *)user;
+    if (progress == NULL) {
+        return;
+    }
+    const uint64_t done = bytes_done > UINT64_MAX - progress->base ?
+        UINT64_MAX : progress->base + bytes_done;
+    files_transaction_set_done(done, progress->path, false);
+}
+
 static bool files_copy_recursive(const char *source, const char *dest)
 {
     struct stat st;
@@ -976,12 +1213,24 @@ static bool files_copy_recursive(const char *source, const char *dest)
         return false;
     }
     if (!S_ISDIR(st.st_mode)) {
-        return solar_os_storage_copy_file(source, dest) == ESP_OK;
+        files_copy_progress_t progress = {
+            .base = files.transaction.done,
+            .path = source,
+        };
+        if (solar_os_storage_copy_file_progress(source,
+                                                dest,
+                                                files_copy_progress,
+                                                &progress) != ESP_OK) {
+            return false;
+        }
+        files_transaction_advance(1U, source);
+        return true;
     }
 
     if (solar_os_storage_mkdir(dest) != ESP_OK && errno != EEXIST) {
         return false;
     }
+    files_transaction_advance(1U, source);
 
     DIR *dir = opendir(source);
     if (dir == NULL) {
@@ -998,13 +1247,21 @@ static bool files_copy_recursive(const char *source, const char *dest)
         char child_source[SOLAR_OS_STORAGE_PATH_MAX];
         char child_dest[SOLAR_OS_STORAGE_PATH_MAX];
         if (!files_join_path(child_source, sizeof(child_source), source, entry->d_name) ||
-            !files_join_path(child_dest, sizeof(child_dest), dest, entry->d_name) ||
-            !files_copy_recursive(child_source, child_dest)) {
+            !files_join_path(child_dest, sizeof(child_dest), dest, entry->d_name)) {
+            errno = ENAMETOOLONG;
+            ok = false;
+            break;
+        }
+        if (!files_copy_recursive(child_source, child_dest)) {
             ok = false;
             break;
         }
     }
+    const int operation_errno = ok ? 0 : errno;
     closedir(dir);
+    if (!ok) {
+        errno = operation_errno != 0 ? operation_errno : EIO;
+    }
     return ok;
 }
 
@@ -1015,7 +1272,11 @@ static bool files_remove_recursive(const char *path)
         return false;
     }
     if (!S_ISDIR(st.st_mode)) {
-        return solar_os_storage_remove(path) == ESP_OK;
+        if (solar_os_storage_remove(path) != ESP_OK) {
+            return false;
+        }
+        files_transaction_advance(1U, path);
+        return true;
     }
 
     DIR *dir = opendir(path);
@@ -1031,14 +1292,26 @@ static bool files_remove_recursive(const char *path)
         }
 
         char child[SOLAR_OS_STORAGE_PATH_MAX];
-        if (!files_join_path(child, sizeof(child), path, entry->d_name) ||
-            !files_remove_recursive(child)) {
+        if (!files_join_path(child, sizeof(child), path, entry->d_name)) {
+            errno = ENAMETOOLONG;
+            ok = false;
+            break;
+        }
+        if (!files_remove_recursive(child)) {
             ok = false;
             break;
         }
     }
+    const int operation_errno = ok ? 0 : errno;
     closedir(dir);
-    return ok && solar_os_storage_rmdir(path) == ESP_OK;
+    if (!ok) {
+        errno = operation_errno != 0 ? operation_errno : EIO;
+    }
+    if (!ok || solar_os_storage_rmdir(path) != ESP_OK) {
+        return false;
+    }
+    files_transaction_advance(1U, path);
+    return true;
 }
 
 static bool files_source_list_alloc(files_source_list_t *list, size_t capacity)
@@ -1191,6 +1464,59 @@ static esp_err_t files_run_zip_task(files_zip_request_t *request)
     return request->result;
 }
 
+static bool files_measure_selection(files_pane_t *pane,
+                                    bool include_file_bytes,
+                                    const char *operation,
+                                    uint64_t *total)
+{
+    if (pane == NULL || total == NULL) {
+        errno = EINVAL;
+        return false;
+    }
+    *total = 0U;
+    const size_t selected = files_selection_count(pane);
+    if (selected == 0U) {
+        files_entry_t *entry = files_selected_entry(pane);
+        char path[SOLAR_OS_STORAGE_PATH_MAX];
+        if (entry == NULL || entry->parent) {
+            char message[FILES_MESSAGE_MAX];
+            snprintf(message, sizeof(message), "%s: no file selected", operation);
+            files_set_message(message);
+            return false;
+        }
+        if (!files_entry_path(pane, entry, path, sizeof(path))) {
+            char message[FILES_MESSAGE_MAX];
+            snprintf(message, sizeof(message), "%s: path too long", operation);
+            files_set_message(message);
+            return false;
+        }
+        if (!files_measure_tree(path, include_file_bytes, total)) {
+            files_set_error(operation, path);
+            return false;
+        }
+        return true;
+    }
+
+    for (size_t i = 0U; i < pane->count; i++) {
+        files_entry_t *entry = &pane->entries[i];
+        char path[SOLAR_OS_STORAGE_PATH_MAX];
+        if (!entry->selected || entry->parent) {
+            continue;
+        }
+        if (!files_entry_path(pane, entry, path, sizeof(path))) {
+            char message[FILES_MESSAGE_MAX];
+            snprintf(message, sizeof(message), "%s: path too long", operation);
+            files_set_message(message);
+            return false;
+        }
+        if (!files_measure_tree(path, include_file_bytes, total)) {
+            files_set_error(operation, path);
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool files_copy_entry(files_pane_t *source_pane,
                              files_pane_t *dest_pane,
                              const files_entry_t *entry)
@@ -1234,6 +1560,20 @@ static void files_copy_selected(void)
     }
 
     const size_t selected = files_selection_count(source_pane);
+    files_entry_t *first = selected > 0U ?
+        files_first_selected_entry(source_pane) : files_selected_entry(source_pane);
+    if (first == NULL || first->parent) {
+        files_set_message("copy: no file selected");
+        return;
+    }
+    files_transaction_begin(FILES_TRANSACTION_COPY, first->name);
+    uint64_t total = 0U;
+    if (!files_measure_selection(source_pane, true, "copy", &total)) {
+        files_transaction_end();
+        return;
+    }
+    files_transaction_set_total(total);
+
     size_t copied = 0;
     bool ok = true;
 
@@ -1253,6 +1593,8 @@ static void files_copy_selected(void)
             copied++;
         }
     }
+
+    files_transaction_end();
 
     if (ok) {
         char message[FILES_MESSAGE_MAX];
@@ -1295,6 +1637,7 @@ static bool files_move_entry(files_pane_t *source_pane,
         files_set_error("move", source);
         return false;
     }
+    files_transaction_advance(1U, source);
     return true;
 }
 
@@ -1309,6 +1652,15 @@ static void files_move_selected(void)
     }
 
     const size_t selected = files_selection_count(source_pane);
+    files_entry_t *first = selected > 0U ?
+        files_first_selected_entry(source_pane) : files_selected_entry(source_pane);
+    if (first == NULL || first->parent) {
+        files_set_message("move: no file selected");
+        return;
+    }
+    files_transaction_begin(FILES_TRANSACTION_MOVE, first->name);
+    files_transaction_set_total(selected > 0U ? selected : 1U);
+
     size_t moved = 0;
     bool ok = true;
 
@@ -1328,6 +1680,8 @@ static void files_move_selected(void)
             moved++;
         }
     }
+
+    files_transaction_end();
 
     if (ok) {
         char message[FILES_MESSAGE_MAX];
@@ -1387,6 +1741,18 @@ static void files_delete_confirmed(void)
         return;
     }
 
+    files_entry_t *first = selected > 0U ?
+        files_first_selected_entry(pane) : files_selected_entry(pane);
+    files_transaction_begin(FILES_TRANSACTION_DELETE,
+                            first != NULL ? first->name : path);
+    uint64_t total = 0U;
+    if (!files_measure_selection(pane, false, "delete", &total)) {
+        files_transaction_end();
+        files.input_mode = FILES_INPUT_NONE;
+        return;
+    }
+    files_transaction_set_total(total);
+
     bool ok = true;
     size_t deleted = 0;
     if (selected == 0) {
@@ -1415,6 +1781,8 @@ static void files_delete_confirmed(void)
             deleted++;
         }
     }
+
+    files_transaction_end();
 
     if (ok) {
         char message[FILES_MESSAGE_MAX];
