@@ -192,6 +192,27 @@ esp_err_t i2c_bus_stop_config(const i2c_bus_config_t *config,
     return ESP_OK;
 }
 
+esp_err_t i2c_bus_set_speed(i2c_master_bus_handle_t handle,
+                            uint32_t speed_hz)
+{
+    if (handle == NULL || speed_hz == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = i2c_bus_ensure_mutex();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    /* ESP-IDF applies the clock to each device transaction. Keep the board
+     * bus compatibility path in sync without invalidating the master handle. */
+    xSemaphoreTake(bus_mutex, portMAX_DELAY);
+    if (handle == bus_handle) {
+        active_config.speed_hz = speed_hz;
+    }
+    xSemaphoreGive(bus_mutex);
+    return ESP_OK;
+}
+
 i2c_master_bus_handle_t i2c_bus_get_handle(void)
 {
     return bus_handle;

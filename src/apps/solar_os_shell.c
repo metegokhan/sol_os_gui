@@ -731,6 +731,7 @@ static const char * const i2c_subcommands[] = {
 static const char * const i2c_addr_values[] = {"0x18", "0x3c", "0x68", "0x76"};
 static const char * const i2c_reg_values[] = {"0x00", "0x01", "0x10"};
 static const char * const i2c_len_values[] = {"1", "2", "4", "16"};
+static const char * const i2c_speed_values[] = {"100000", "400000", "1000000"};
 static const char * const byte_values[] = {"0x00", "0x01", "0xff"};
 
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
@@ -5624,9 +5625,21 @@ static void shell_completion_emit_i2c_arguments(shell_completion_match_t *state,
     }
 
     const char *operation = tokens[1];
-    if (strcmp(operation, "status") == 0 ||
-        strcmp(operation, "speed") == 0 ||
-        strcmp(operation, "scan") == 0) {
+    if (strcmp(operation, "speed") == 0) {
+        if (token_count == 2) {
+            shell_completion_emit_i2c_buses(state);
+            shell_completion_emit_i2c_values(state,
+                                              i2c_speed_values,
+                                              SHELL_ARRAY_COUNT(i2c_speed_values));
+        } else if (token_count == 3 &&
+                   shell_completion_i2c_named(tokens, token_count)) {
+            shell_completion_emit_i2c_values(state,
+                                              i2c_speed_values,
+                                              SHELL_ARRAY_COUNT(i2c_speed_values));
+        }
+        return;
+    }
+    if (strcmp(operation, "status") == 0 || strcmp(operation, "scan") == 0) {
         if (token_count == 2) {
             shell_completion_emit_i2c_buses(state);
         }

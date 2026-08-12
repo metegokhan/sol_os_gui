@@ -816,6 +816,8 @@ Controls:
   permits it. Their `Autostart` action idempotently appends the matching
   `expansion bus create ...` command to `/.shell/startup`. Direct GPIO and PWM
   assignments can be created and released from the Pins or Layout view.
+- A selected I2C bus has a `Set I2C speed` action with 100 kHz, 400 kHz, and
+  1 MHz choices. The change applies at runtime even while devices lease the bus.
 - `r` refreshes; `q`, `Esc`, or the app-exit key exits.
 
 ## invaders
