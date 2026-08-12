@@ -123,6 +123,13 @@ esp_err_t solar_os_storage_read_file(const char *path,
 typedef void (*solar_os_storage_copy_progress_fn)(uint64_t bytes_done,
                                                   uint64_t bytes_total,
                                                   void *user);
+typedef bool (*solar_os_storage_cancel_fn)(void *user);
+esp_err_t solar_os_storage_copy_file_progress_cancel(
+    const char *source_path,
+    const char *dest_path,
+    solar_os_storage_copy_progress_fn progress,
+    solar_os_storage_cancel_fn should_cancel,
+    void *user);
 esp_err_t solar_os_storage_copy_file_progress(
     const char *source_path,
     const char *dest_path,

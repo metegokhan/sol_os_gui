@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -159,6 +160,41 @@ static void assert_copy_progress(void)
     assert(remove(dest) == 0);
 }
 
+static bool cancel_copy_after_progress(void *user)
+{
+    const copy_progress_t *progress = (const copy_progress_t *)user;
+    return progress != NULL && progress->calls >= 2U;
+}
+
+static void assert_copy_cancel(void)
+{
+    char source[] = "/tmp/solaros-storage-cancel-source-XXXXXX";
+    char dest[] = "/tmp/solaros-storage-cancel-dest-XXXXXX";
+    const int source_fd = mkstemp(source);
+    const int dest_fd = mkstemp(dest);
+    assert(source_fd >= 0);
+    assert(dest_fd >= 0);
+
+    uint8_t payload[8193];
+    memset(payload, 0x5a, sizeof(payload));
+    assert(write(source_fd, payload, sizeof(payload)) == (ssize_t)sizeof(payload));
+    assert(close(source_fd) == 0);
+    assert(close(dest_fd) == 0);
+
+    copy_progress_t progress = {0};
+    errno = 0;
+    assert(solar_os_storage_copy_file_progress_cancel(source,
+                                                      dest,
+                                                      copy_progress,
+                                                      cancel_copy_after_progress,
+                                                      &progress) ==
+           ESP_ERR_INVALID_STATE);
+    assert(errno == ECANCELED);
+    assert(progress.calls >= 2U);
+    assert(access(dest, F_OK) != 0);
+    assert(remove(source) == 0);
+}
+
 int main(void)
 {
     assert(solar_os_storage_block_count() == 3);
@@ -175,6 +211,7 @@ int main(void)
     assert(strcmp(path, "/sdcard/.player") == 0);
 
     assert_copy_progress();
+    assert_copy_cancel();
 
     puts("storage mount tests: ok");
     return 0;

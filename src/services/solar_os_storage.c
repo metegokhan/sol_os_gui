@@ -906,10 +906,11 @@ esp_err_t solar_os_storage_read_file(const char *path,
     return ESP_OK;
 }
 
-esp_err_t solar_os_storage_copy_file_progress(
+esp_err_t solar_os_storage_copy_file_progress_cancel(
     const char *source_path,
     const char *dest_path,
     solar_os_storage_copy_progress_fn progress,
+    solar_os_storage_cancel_fn should_cancel,
     void *user)
 {
     if (source_path == NULL || source_path[0] == '\0' || dest_path == NULL || dest_path[0] == '\0') {
@@ -952,6 +953,11 @@ esp_err_t solar_os_storage_copy_file_progress(
     }
 
     while (true) {
+        if (should_cancel != NULL && should_cancel(user)) {
+            errno = ECANCELED;
+            ret = ESP_ERR_INVALID_STATE;
+            break;
+        }
         const size_t bytes_read = fread(buffer, 1, sizeof(buffer), source);
         if (bytes_read > 0 && fwrite(buffer, 1, bytes_read, dest) != bytes_read) {
             ret = ESP_FAIL;
@@ -978,9 +984,25 @@ esp_err_t solar_os_storage_copy_file_progress(
     fclose(source);
 
     if (ret != ESP_OK) {
-        errno = close_errno != 0 ? close_errno : (copy_errno != 0 ? copy_errno : EIO);
+        const int failure_errno = close_errno != 0 ?
+            close_errno : (copy_errno != 0 ? copy_errno : EIO);
+        (void)remove(dest_path);
+        errno = failure_errno;
     }
     return ret;
+}
+
+esp_err_t solar_os_storage_copy_file_progress(
+    const char *source_path,
+    const char *dest_path,
+    solar_os_storage_copy_progress_fn progress,
+    void *user)
+{
+    return solar_os_storage_copy_file_progress_cancel(source_path,
+                                                      dest_path,
+                                                      progress,
+                                                      NULL,
+                                                      user);
 }
 
 esp_err_t solar_os_storage_copy_file(const char *source_path,
