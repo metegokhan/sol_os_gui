@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test parameters_test controls_test dsp_test stream_test audio_codec_test webradio_catalog_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test hid_keyboard_report_test ps2_keyboard_test midi_codec_test parameters_test controls_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test
 
 .PHONY: all test clean
 
@@ -95,6 +95,10 @@ webradio_catalog_test: webradio_catalog_test.c $(ROOT)/src/services/solar_os_web
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c -o $@
 
+nvs_backup_test: nvs_backup_test.c $(ROOT)/src/services/solar_os_nvs_backup.c $(ROOT)/src/services/solar_os_nvs_backup.h esp_partition.h nvs_flash.h esp_err.h freertos/FreeRTOS.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		nvs_backup_test.c $(ROOT)/src/services/solar_os_nvs_backup.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -115,6 +119,7 @@ test: $(TARGETS)
 	./stream_test
 	./audio_codec_test
 	./webradio_catalog_test
+	./nvs_backup_test
 
 clean:
 	$(RM) $(TARGETS)

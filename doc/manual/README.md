@@ -68,7 +68,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [neopixel command](commands.md) — List attached WS2812/NeoPixel strips.
 - [netscan command](commands.md) — Scan TCP ports on one host or a capped IPv4 range.
 - [ntp command](commands.md) — Sync the wall clock from NTP.
-- [nvs command](commands.md) — Show the default NVS partition size, entry usage, and namespace count.
+- [nvs command](commands.md) — Inspect, back up, restore, or clear the default NVS partition.
 - [onewire command](commands.md) — Show every registered named 1-Wire bus, or one selected bus.
 - [ota command](commands.md) — Show running and configured OTA state.
 - [outbox command](commands.md) — List pending outbound messages. Sent and failed messages remain in conversation history, not Outbox.

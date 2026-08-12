@@ -3,7 +3,8 @@
 ## 4.x
 
 - **4.8.3** — 2026-08-12 — Gateway Chat now uses the global SolarOS user and
-  hostname identity instead of a separate saved username.
+  hostname identity instead of a separate saved username. Added CRC-verified
+  NVS backup and restore to disk with `/.solar/nvs.bin` as the default file.
 - **4.8.2** — 2026-08-12 — Synth now adapts to compact OLED and LCD targets
   with a parameter HUD, large values, level bars, live waveform and
   wavetable graphs, single-slot preset browsing, and immediate feedback from

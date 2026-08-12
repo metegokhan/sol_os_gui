@@ -244,6 +244,7 @@ sources = [
   "services/solar_os_manual.c",
   "services/solar_os_memory.c",
   "services/solar_os_messaging_types.c",
+  "services/solar_os_nvs_backup.c",
   "services/solar_os_port.c",
   "services/solar_os_port_shell.c",
   "services/solar_os_parameters.c",

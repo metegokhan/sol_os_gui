@@ -27,10 +27,14 @@
 #include "solar_os_memory.h"
 #include "solar_os_power.h"
 #include "solar_os_ramfs.h"
+#include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
+#include "solar_os_nvs_backup.h"
 
 static const char * const power_commands[] = {"status", "profile", "idle", "key", "sleep"};
-static const char * const nvs_commands[] = {"status", "clear"};
+static const char * const nvs_commands[] = {
+    "status", "backup", "restore", "clear",
+};
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_commands[] = {"status", "list", "reset"};
 #endif
@@ -811,24 +815,26 @@ void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc != 2 ||
-        (strcmp(argv[1], "status") != 0 &&
-         strcmp(argv[1], "clear") != 0)) {
-        if (argc > 2) {
-            solar_os_shell_diag_unexpected(term, "nvs", argv[2], "nvs status|clear");
-        } else {
-            solar_os_shell_diag_subcommand(term,
-                                           "nvs",
-                                           argc,
-                                           argv,
-                                           "nvs status|clear",
-                                           nvs_commands,
-                                           sizeof(nvs_commands) / sizeof(nvs_commands[0]));
-        }
+    if (argc < 2) {
+        solar_os_shell_diag_subcommand(
+            term,
+            "nvs",
+            argc,
+            argv,
+            "nvs status|backup [file]|restore [file]|clear",
+            nvs_commands,
+            sizeof(nvs_commands) / sizeof(nvs_commands[0]));
         return;
     }
 
     if (strcmp(argv[1], "status") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term,
+                                           "nvs status",
+                                           argv[2],
+                                           "nvs status");
+            return;
+        }
         nvs_stats_t stats;
         const esp_err_t error = nvs_get_stats(NULL, &stats);
         if (error != ESP_OK) {
@@ -856,6 +862,106 @@ void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
             (unsigned)stats.total_entries);
         solar_os_shell_io_printf(
             term, "Namespaces: %u\n", (unsigned)stats.namespace_count);
+        return;
+    }
+
+    if (strcmp(argv[1], "backup") == 0 ||
+        strcmp(argv[1], "restore") == 0) {
+        const bool restore = strcmp(argv[1], "restore") == 0;
+        const char *operation = restore ? "nvs restore" : "nvs backup";
+        if (argc > 3) {
+            solar_os_shell_diag_unexpected(
+                term,
+                operation,
+                argv[3],
+                restore ? "nvs restore [file]" : "nvs backup [file]");
+            return;
+        }
+
+        const char *path_arg = argc == 3 ?
+            argv[2] : SOLAR_OS_NVS_BACKUP_DEFAULT_PATH;
+        char path[SOLAR_OS_STORAGE_PATH_MAX];
+        if (!solar_os_shell_resolve_path_for_command(ctx,
+                                                     term,
+                                                     operation,
+                                                     path_arg,
+                                                     path,
+                                                     sizeof(path))) {
+            return;
+        }
+        if (!restore && argc == 2) {
+            char directory[SOLAR_OS_STORAGE_PATH_MAX];
+            if (!solar_os_shell_resolve_path_for_command(ctx,
+                                                         term,
+                                                         operation,
+                                                         "/.solar",
+                                                         directory,
+                                                         sizeof(directory))) {
+                return;
+            }
+            if (solar_os_storage_mkdir(directory) != ESP_OK &&
+                errno != EEXIST) {
+                solar_os_shell_io_printf(term,
+                                         "nvs backup: %s: cannot create directory\n",
+                                         directory);
+                return;
+            }
+        }
+
+        solar_os_nvs_backup_result_t result;
+        const esp_err_t error = restore ?
+            solar_os_nvs_backup_restore(path, &result) :
+            solar_os_nvs_backup_create(path, &result);
+        if (error == ESP_OK) {
+            solar_os_shell_io_printf(
+                term,
+                restore ?
+                    "NVS restored from %s (%u bytes, CRC32 %08" PRIx32 "); rebooting\n" :
+                    "NVS backed up to %s (%u bytes, CRC32 %08" PRIx32 ")\n",
+                path,
+                (unsigned)result.partition_size,
+                result.crc32);
+            if (!restore) {
+                solar_os_shell_io_writeln(
+                    term,
+                    "Warning: the backup contains unencrypted credentials and settings");
+            }
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "%s: %s: %s\n",
+                                     operation,
+                                     path,
+                                     solar_os_shell_error_text(error));
+        }
+        if (result.reboot_required) {
+            solar_os_shell_io_flush(term);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            solar_os_context_reboot(ctx,
+                                    error == ESP_OK ?
+                                        "NVS restored" :
+                                        (restore ?
+                                             "NVS restore recovery" :
+                                             "NVS backup recovery"));
+        }
+        return;
+    }
+
+    if (strcmp(argv[1], "clear") != 0) {
+        solar_os_shell_diag_subcommand(
+            term,
+            "nvs",
+            argc,
+            argv,
+            "nvs status|backup [file]|restore [file]|clear",
+            nvs_commands,
+            sizeof(nvs_commands) / sizeof(nvs_commands[0]));
+        return;
+    }
+    if (argc != 2) {
+        solar_os_shell_diag_unexpected(term,
+                                       "nvs clear",
+                                       argv[2],
+                                       "nvs clear");
         return;
     }
 
