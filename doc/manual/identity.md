@@ -10,8 +10,8 @@ packages_any = []
 # Device identity
 
 The device user and hostname are stored in NVS, so they do not depend on an SD
-card. The shell prompt uses both values, and network services use the hostname
-when advertising the device.
+card. The shell prompt uses both values. Gateway Chat uses both values when it
+connects, and network services use the hostname when advertising the device.
 
 ## Inspect and change identity
 
@@ -34,6 +34,9 @@ solaros.identity.set_hostname("solarterm")
 
 If Wi-Fi is already initialized, reboot before expecting every advertisement or
 DHCP hostname to use a changed value.
+
+If Gateway Chat is already connected, run `gateway connect` to reconnect with
+the changed identity.
 
 ## Quick reference
 

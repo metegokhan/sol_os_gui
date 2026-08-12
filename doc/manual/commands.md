@@ -81,6 +81,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `exit` | `exit` | Close the current UART, USB CDC, or telnet shell when another interactive shell remains. |
 | `reboot` | `reboot` | Restart the board. |
 | `nvs` | `nvs status` | Show the default NVS partition size, entry usage, and namespace count. |
+| `nvs` | `nvs backup [file]` | Back up the complete NVS partition to disk. The default is `/.solar/nvs.bin`. |
+| `nvs` | `nvs restore [file]` | Validate and restore a complete NVS backup, then reboot. The default is `/.solar/nvs.bin`. |
 | `nvs` | `nvs clear` | Erase all NVS-backed settings and reboot immediately. |
 | `sessions` | `sessions` | List display app sessions, display shell sessions, and port shell sessions. |
 | `fg` | `fg [session-id]` | Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app. |
@@ -114,8 +116,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `outbox` | `outbox [list]` | List pending outbound messages. Sent and failed messages remain in conversation history, not Outbox. |
 | `outbox` | `outbox cancel <message-id>` | Cancel one pending message by hexadecimal ID. |
 | `gateway` | `gateway status` | Show gateway configuration, connection state, and traffic counters. |
-| `gateway` | `gateway configure <url> [user] [token]` | Save gateway connection settings. |
-| `gateway` | `gateway connect [url] [user] [token]` | Enable gateway synchronization, optionally updating settings. |
+| `gateway` | `gateway configure <url> [token]` | Save gateway connection settings. The gateway uses the global SolarOS user identity. |
+| `gateway` | `gateway connect [url] [token]` | Enable gateway synchronization, optionally updating settings. |
 | `gateway` | `gateway disconnect` | Disable gateway synchronization. |
 | `gateway` | `gateway rooms` | List known and joined gateway rooms. |
 | `gateway` | `gateway join\|leave\|delete <room>` | Queue a gateway-specific room operation. |
@@ -128,10 +130,15 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 
 `nvs status` distinguishes raw free entries from entries currently available
-for new data; use the available count when diagnosing a failed NVS write. `nvs
-clear` erases the complete default NVS partition, including identity, Wi-Fi and
-BLE state, credentials, service settings, and radio profiles, then reboots.
-Files on SD or the internal FAT filesystem are not affected.
+for new data; use the available count when diagnosing a failed NVS write.
+`nvs backup` writes a versioned, CRC-protected image of the complete default NVS
+partition. The file contains unencrypted credentials and settings, so protect
+it like a password. `nvs restore` accepts only a complete backup for the current
+NVS partition address and size, verifies its CRC before changing flash, verifies
+the written partition again, and reboots. `nvs clear` erases the complete
+default NVS partition, including identity, Wi-Fi and BLE state, credentials,
+service settings, and radio profiles, then reboots. Files on SD or the internal
+FAT filesystem are not affected.
 
 Sessions are foreground application state plus shell instances attached to a
 display target or byte-stream port. Background services such as log followers,

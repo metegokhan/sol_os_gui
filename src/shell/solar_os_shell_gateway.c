@@ -17,8 +17,8 @@ static void gateway_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  gateway status");
     solar_os_shell_io_writeln(
-        io, "  gateway configure <url> [user] [token]");
-    solar_os_shell_io_writeln(io, "  gateway connect [url] [user] [token]");
+        io, "  gateway configure <url> [token]");
+    solar_os_shell_io_writeln(io, "  gateway connect [url] [token]");
     solar_os_shell_io_writeln(io, "  gateway disconnect");
     solar_os_shell_io_writeln(io, "  gateway rooms");
     solar_os_shell_io_writeln(io, "  gateway join <room>");
@@ -86,21 +86,19 @@ void solar_os_shell_cmd_gateway(solar_os_context_t *ctx,
         gateway_status(io);
         return;
     }
-    if (argc >= 3 && argc <= 5 && strcmp(argv[1], "configure") == 0) {
-        const char *user = argc >= 4 ? argv[3] : NULL;
-        const char *token = argc >= 5 ? argv[4] : NULL;
-        const esp_err_t error = solar_os_chat_configure(argv[2], token, user);
+    if (argc >= 3 && argc <= 4 && strcmp(argv[1], "configure") == 0) {
+        const char *token = argc >= 4 ? argv[3] : NULL;
+        const esp_err_t error = solar_os_chat_configure(argv[2], token);
         solar_os_shell_io_printf(io,
                                  "gateway: %s\n",
                                  error == ESP_OK ? "configured" :
                                      solar_os_shell_error_text(error));
         return;
     }
-    if (argc >= 2 && argc <= 5 && strcmp(argv[1], "connect") == 0) {
+    if (argc >= 2 && argc <= 4 && strcmp(argv[1], "connect") == 0) {
         const char *url = argc >= 3 ? argv[2] : NULL;
-        const char *user = argc >= 4 ? argv[3] : NULL;
-        const char *token = argc >= 5 ? argv[4] : NULL;
-        const esp_err_t error = solar_os_chat_connect(url, token, user);
+        const char *token = argc >= 4 ? argv[3] : NULL;
+        const esp_err_t error = solar_os_chat_connect(url, token);
         solar_os_shell_io_printf(io,
                                  "gateway: %s\n",
                                  error == ESP_OK ? "connection requested" :

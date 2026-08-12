@@ -279,8 +279,8 @@ projection. Replayed transport messages are
 deduplicated by the shared stable producer identity before another notification
 is published.
 
-The gateway hello uses the SolarOS `identity hostname` value as its device
-identity; Chat does not maintain a separate device-name setting.
+The gateway hello uses the SolarOS `identity user` and `identity hostname`
+values. Chat does not maintain separate user-name or device-name settings.
 
 Stopping or closing `app.chat` has no effect on this job. Its worker performs
 transport startup, polling, and retry work outside the cooperative session/job
