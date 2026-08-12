@@ -1267,6 +1267,8 @@ remain active. External parameter/control changes focus the changed parameter
 until the next local navigation action, which makes a 128-by-64 SH1106 or
 SSD1306 useful as a synthesizer appliance display. After attaching it as
 `oled0`, open Synth on that target with `session create synth oled0`.
+During active playing, compact displays defer visualization until note input is
+quiet so synchronous display transfers cannot take priority over new notes.
 
 Controls:
 

@@ -21,6 +21,7 @@
 #define SYNTH_APP_OWNER "app:synth"
 #define SYNTH_APP_PULSE_MS 220U
 #define SYNTH_APP_STATUS_POLL_MS 250U
+#define SYNTH_APP_COMPACT_VISUAL_QUIET_MS 250U
 #define SYNTH_APP_HELD_MAX 16U
 #define SYNTH_APP_OCTAVE_MIN 2
 #define SYNTH_APP_OCTAVE_MAX 6
@@ -188,6 +189,8 @@ typedef struct {
   bool headless;
   bool suspended;
   bool parameter_dirty;
+  bool visual_dirty;
+  uint32_t last_performance_ms;
   synth_parameter_t compact_parameter;
   bool compact_parameter_valid;
 } synth_app_state_t;
@@ -2427,6 +2430,7 @@ static void synth_render(solar_os_context_t *ctx) {
 
   const int width = (int)solar_os_gfx_width(gfx);
   const int height = (int)solar_os_gfx_height(gfx);
+  synth_app.visual_dirty = false;
   solar_os_synth_voice_status_t status;
   solar_os_synth_voice_get_status(&status);
   solar_os_audio_status_t audio_status;
@@ -2567,6 +2571,31 @@ static void synth_render(solar_os_context_t *ctx) {
   solar_os_gfx_present(gfx);
 
   synth_remember_rendered_status(&status);
+}
+
+static void synth_render_changed(solar_os_context_t *ctx, bool changed,
+                                 bool performance_activity,
+                                 uint32_t now_ms) {
+  if (performance_activity) {
+    synth_app.last_performance_ms = now_ms;
+  }
+  if (!changed && !synth_app.visual_dirty) {
+    return;
+  }
+
+  solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+  if (synth_app.headless || gfx == NULL || synth_app.suspended) {
+    return;
+  }
+  const bool compact = synth_use_compact_layout(
+      (int)solar_os_gfx_width(gfx), (int)solar_os_gfx_height(gfx));
+  if (compact &&
+      (uint32_t)(now_ms - synth_app.last_performance_ms) <
+          SYNTH_APP_COMPACT_VISUAL_QUIET_MS) {
+    synth_app.visual_dirty = true;
+    return;
+  }
+  synth_render(ctx);
 }
 
 static synth_held_note_t *synth_find_held(const solar_os_input_key_event_t *key,
@@ -3573,10 +3602,13 @@ static bool synth_event(solar_os_context_t *ctx,
     const solar_os_input_key_event_t *key = &event->data.key;
     const int semitone = synth_semitone_for_key(key);
     bool changed = false;
+    bool performance_activity = false;
     if (semitone >= 0) {
       if (key->action == SOLAR_OS_INPUT_KEY_PRESS) {
+        performance_activity = true;
         changed = synth_note_on(key, semitone);
       } else if (key->action == SOLAR_OS_INPUT_KEY_RELEASE) {
+        performance_activity = true;
         changed = synth_note_off(key, semitone);
       }
     } else if (key->action == SOLAR_OS_INPUT_KEY_REPEAT &&
@@ -3585,9 +3617,7 @@ static bool synth_event(solar_os_context_t *ctx,
     } else if (key->action != SOLAR_OS_INPUT_KEY_RELEASE) {
       changed = synth_handle_control(ctx, key->key);
     }
-    if (changed) {
-      synth_render(ctx);
-    }
+    synth_render_changed(ctx, changed, performance_activity, synth_now_ms());
     return true;
   }
 
@@ -3599,19 +3629,19 @@ static bool synth_event(solar_os_context_t *ctx,
     const int semitone = synth_semitone_for_key(&key);
     const bool changed = semitone >= 0 ? synth_note_on(&key, semitone)
                                        : synth_handle_control(ctx, key.key);
-    if (changed) {
-      synth_render(ctx);
-    }
+    synth_render_changed(ctx, changed, semitone >= 0, synth_now_ms());
     return true;
   }
 
   if (event->type == SOLAR_OS_EVENT_TICK) {
     bool changed = synth_app.parameter_dirty;
+    bool performance_activity = false;
     synth_app.parameter_dirty = false;
     if (synth_app.midi_subscribed) {
       solar_os_midi_message_t message;
       while (solar_os_midi_receive(&synth_app.midi_subscription, &message) ==
              ESP_OK) {
+        performance_activity = true;
         changed |= synth_handle_midi_message(&message);
       }
     }
@@ -3619,7 +3649,9 @@ static bool synth_event(solar_os_context_t *ctx,
       synth_held_note_t *held = &synth_app.held[i];
       if (held->active && held->release_at_ms != 0 &&
           (int32_t)(event->data.tick_ms - held->release_at_ms) >= 0) {
-        changed |= synth_release_held(held);
+        const bool released = synth_release_held(held);
+        changed |= released;
+        performance_activity |= released;
       }
     }
 
@@ -3636,9 +3668,8 @@ static bool synth_event(solar_os_context_t *ctx,
         changed = true;
       }
     }
-    if (changed) {
-      synth_render(ctx);
-    }
+    synth_render_changed(ctx, changed, performance_activity,
+                         event->data.tick_ms);
     return true;
   }
 
