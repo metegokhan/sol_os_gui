@@ -1,6 +1,7 @@
 #pragma once
 
 #include "driver/gpio.h"
+#include "driver/i2s_types.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "solar_os_bus_types.h"
@@ -15,6 +16,7 @@
 #define SOLAR_OS_BOARD_PIN_UART_TX GPIO_NUM_1
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_3
 #define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
+#define SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK (1U << I2S_NUM_1)
 
 #define SOLAR_OS_BOARD_PIN_KEY GPIO_NUM_0
 #define SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL 0

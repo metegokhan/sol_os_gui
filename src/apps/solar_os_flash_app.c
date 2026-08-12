@@ -59,6 +59,7 @@ typedef enum {
   FLASH_APP_MODAL_NONE,
   FLASH_APP_MODAL_DOWNLOAD,
   FLASH_APP_MODAL_PROGRAM,
+  FLASH_APP_MODAL_DELETE,
   FLASH_APP_MODAL_RESULT,
   FLASH_APP_MODAL_EDIT_BOOT,
   FLASH_APP_MODAL_EDIT_RESET,
@@ -71,6 +72,14 @@ typedef struct {
   uint8_t depth;
   bool expanded;
 } flash_app_node_t;
+
+typedef struct {
+  flash_app_node_kind_t kind;
+  char board_id[SOLAR_OS_FLASH_BOARD_ID_MAX];
+  char flavor[SOLAR_OS_FLASH_FLAVOR_MAX];
+  char version[SOLAR_OS_FLASH_VERSION_MAX];
+  bool valid;
+} flash_app_node_key_t;
 
 typedef struct {
   flash_app_event_type_t type;
@@ -182,6 +191,76 @@ static bool flash_app_artifact_first_flavor(
   return true;
 }
 
+static void flash_app_node_key(const solar_os_flash_catalog_t *catalog,
+                               const flash_app_node_t *node,
+                               flash_app_node_key_t *key) {
+  if (key == NULL)
+    return;
+  memset(key, 0, sizeof(*key));
+  if (catalog == NULL || node == NULL ||
+      node->artifact_index >= catalog->count) {
+    return;
+  }
+  const solar_os_flash_artifact_t *artifact =
+      &catalog->artifacts[node->artifact_index];
+  key->kind = node->kind;
+  strlcpy(key->board_id, artifact->board_id, sizeof(key->board_id));
+  if (node->kind >= FLASH_APP_NODE_FLAVOR)
+    strlcpy(key->flavor, artifact->flavor, sizeof(key->flavor));
+  if (node->kind == FLASH_APP_NODE_ARTIFACT)
+    strlcpy(key->version, artifact->version, sizeof(key->version));
+  key->valid = true;
+}
+
+static bool flash_app_node_matches_key(
+    const solar_os_flash_catalog_t *catalog, const flash_app_node_t *node,
+    const flash_app_node_key_t *key) {
+  if (catalog == NULL || node == NULL || key == NULL || !key->valid ||
+      node->kind != key->kind || node->artifact_index >= catalog->count) {
+    return false;
+  }
+  const solar_os_flash_artifact_t *artifact =
+      &catalog->artifacts[node->artifact_index];
+  return strcmp(artifact->board_id, key->board_id) == 0 &&
+         (node->kind == FLASH_APP_NODE_BOARD ||
+          strcmp(artifact->flavor, key->flavor) == 0) &&
+         (node->kind != FLASH_APP_NODE_ARTIFACT ||
+          strcmp(artifact->version, key->version) == 0);
+}
+
+static bool flash_app_find_node(const solar_os_flash_catalog_t *catalog,
+                                const flash_app_node_t *nodes,
+                                size_t node_count,
+                                const flash_app_node_key_t *key,
+                                size_t *node_index) {
+  for (size_t i = 0U; i < node_count; i++) {
+    if (!flash_app_node_matches_key(catalog, &nodes[i], key))
+      continue;
+    if (node_index != NULL)
+      *node_index = i;
+    return true;
+  }
+  return false;
+}
+
+static bool flash_app_previous_expanded(
+    const flash_app_state_t *previous, flash_app_node_kind_t kind,
+    const solar_os_flash_artifact_t *artifact) {
+  if (previous == NULL || previous->catalog == NULL || artifact == NULL)
+    return false;
+  flash_app_node_key_t key = {
+      .kind = kind,
+      .valid = true,
+  };
+  strlcpy(key.board_id, artifact->board_id, sizeof(key.board_id));
+  if (kind == FLASH_APP_NODE_FLAVOR)
+    strlcpy(key.flavor, artifact->flavor, sizeof(key.flavor));
+  size_t node_index = 0U;
+  return flash_app_find_node(previous->catalog, previous->nodes,
+                             previous->node_count, &key, &node_index) &&
+         previous->nodes[node_index].expanded;
+}
+
 static void flash_app_free_tree(flash_app_state_t *state) {
   if (state == NULL)
     return;
@@ -192,51 +271,58 @@ static void flash_app_free_tree(flash_app_state_t *state) {
   state->top = 0U;
 }
 
-static void flash_app_build_tree(flash_app_state_t *state) {
-  flash_app_free_tree(state);
-  if (state == NULL || state->catalog == NULL || state->catalog->count == 0U)
-    return;
-  const size_t capacity = state->catalog->count * 3U;
-  state->nodes = solar_os_memory_calloc(capacity, sizeof(state->nodes[0]),
-                                        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                        "flash.tree");
-  if (state->nodes == NULL)
-    return;
+static flash_app_node_t *
+flash_app_build_tree(const solar_os_flash_catalog_t *catalog,
+                     const flash_app_state_t *previous, size_t *node_count) {
+  if (node_count == NULL)
+    return NULL;
+  *node_count = 0U;
+  if (catalog == NULL || catalog->count == 0U)
+    return NULL;
+  const size_t capacity = catalog->count * 3U;
+  flash_app_node_t *nodes = solar_os_memory_calloc(
+      capacity, sizeof(nodes[0]), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+      "flash.tree");
+  if (nodes == NULL)
+    return NULL;
 
-  for (size_t board = 0U; board < state->catalog->count; board++) {
-    if (!flash_app_artifact_first_board(state->catalog, board))
+  for (size_t board = 0U; board < catalog->count; board++) {
+    if (!flash_app_artifact_first_board(catalog, board))
       continue;
-    const size_t board_node = state->node_count++;
-    state->nodes[board_node] = (flash_app_node_t){
+    const solar_os_flash_artifact_t *board_artifact =
+        &catalog->artifacts[board];
+    const size_t board_node = (*node_count)++;
+    nodes[board_node] = (flash_app_node_t){
         .kind = FLASH_APP_NODE_BOARD,
         .artifact_index = board,
         .parent = SIZE_MAX,
         .depth = 0U,
-        .expanded = board_node == 0U,
+        .expanded = flash_app_previous_expanded(
+            previous, FLASH_APP_NODE_BOARD, board_artifact),
     };
-    for (size_t flavor = 0U; flavor < state->catalog->count; flavor++) {
+    for (size_t flavor = 0U; flavor < catalog->count; flavor++) {
       const solar_os_flash_artifact_t *flavor_artifact =
-          &state->catalog->artifacts[flavor];
+          &catalog->artifacts[flavor];
       if (strcmp(flavor_artifact->board_id,
-                 state->catalog->artifacts[board].board_id) != 0 ||
-          !flash_app_artifact_first_flavor(state->catalog, flavor)) {
+                 board_artifact->board_id) != 0 ||
+          !flash_app_artifact_first_flavor(catalog, flavor)) {
         continue;
       }
-      const size_t flavor_node = state->node_count++;
-      state->nodes[flavor_node] = (flash_app_node_t){
+      const size_t flavor_node = (*node_count)++;
+      nodes[flavor_node] = (flash_app_node_t){
           .kind = FLASH_APP_NODE_FLAVOR,
           .artifact_index = flavor,
           .parent = board_node,
           .depth = 1U,
-          .expanded = true,
+          .expanded = flash_app_previous_expanded(
+              previous, FLASH_APP_NODE_FLAVOR, flavor_artifact),
       };
-      for (size_t artifact = 0U; artifact < state->catalog->count;
-           artifact++) {
+      for (size_t artifact = 0U; artifact < catalog->count; artifact++) {
         const solar_os_flash_artifact_t *candidate =
-            &state->catalog->artifacts[artifact];
+            &catalog->artifacts[artifact];
         if (strcmp(candidate->board_id, flavor_artifact->board_id) == 0 &&
             strcmp(candidate->flavor, flavor_artifact->flavor) == 0) {
-          state->nodes[state->node_count++] = (flash_app_node_t){
+          nodes[(*node_count)++] = (flash_app_node_t){
               .kind = FLASH_APP_NODE_ARTIFACT,
               .artifact_index = artifact,
               .parent = flavor_node,
@@ -246,6 +332,7 @@ static void flash_app_build_tree(flash_app_state_t *state) {
       }
     }
   }
+  return nodes;
 }
 
 static bool flash_app_node_visible(const flash_app_state_t *state,
@@ -493,6 +580,7 @@ static void flash_app_footer(const flash_app_state_t *state, size_t cols,
       break;
     case FLASH_APP_MODAL_DOWNLOAD:
     case FLASH_APP_MODAL_PROGRAM:
+    case FLASH_APP_MODAL_DELETE:
       full = compact = "Enter:continue  Esc:cancel";
       break;
     case FLASH_APP_MODAL_RESULT:
@@ -501,8 +589,8 @@ static void flash_app_footer(const flash_app_state_t *state, size_t cols,
     case FLASH_APP_MODAL_NONE:
     default:
       if (state->tab == FLASH_APP_TAB_CATALOG) {
-        full = "Tab settings  Up/Down select  Left/Right tree  Enter action  r refresh  q exit";
-        compact = "Arrows  Enter:action  Tab:settings  r:refresh  q:exit";
+        full = "Tab settings  Up/Down select  Left/Right tree  Enter action  Del delete  r refresh  q exit";
+        compact = "Arrows  Enter:action  Del:delete  r:refresh  q:exit";
       } else {
         full = "Tab catalog  Up/Down select  Left/Right port  Enter edit  Del clear  q exit";
         compact = "Arrows  Enter:edit  Del:clear  Tab:catalog  q:exit";
@@ -600,6 +688,13 @@ static void flash_app_render_modal(flash_app_state_t *state, size_t rows,
                state->program.reset_pin);
     }
     (void)solar_os_tui_text_popup(&state->tui, &bounds, "Ready to flash",
+                                  text, NULL);
+    break;
+  case FLASH_APP_MODAL_DELETE:
+    snprintf(text, sizeof(text),
+             "Delete %s / %s / %s from the SD card? The catalog entry remains available for download.",
+             artifact->board_id, artifact->flavor, artifact->version);
+    (void)solar_os_tui_text_popup(&state->tui, &bounds, "Delete artifact",
                                   text, NULL);
     break;
   case FLASH_APP_MODAL_RESULT:
@@ -758,11 +853,46 @@ flash_app_print_progress(flash_app_state_t *state,
 }
 
 static void flash_app_reload_catalog(flash_app_state_t *state) {
+  flash_app_node_key_t selected_key = {0};
+  flash_app_node_key_t top_key = {0};
+  size_t node_index = 0U;
+  if (flash_app_visible_node_at(state, state->cursor, &node_index))
+    flash_app_node_key(state->catalog, &state->nodes[node_index],
+                       &selected_key);
+  if (flash_app_visible_node_at(state, state->top, &node_index))
+    flash_app_node_key(state->catalog, &state->nodes[node_index], &top_key);
+
   solar_os_flash_catalog_t *catalog = NULL;
   const esp_err_t err = solar_os_flash_catalog_load(&catalog);
+  if (err != ESP_OK) {
+    solar_os_flash_catalog_free(catalog);
+    return;
+  }
+  size_t node_count = 0U;
+  flash_app_node_t *nodes = flash_app_build_tree(catalog, state, &node_count);
+  if (catalog->count > 0U && nodes == NULL) {
+    solar_os_flash_catalog_free(catalog);
+    return;
+  }
+
   solar_os_flash_catalog_free(state->catalog);
-  state->catalog = err == ESP_OK ? catalog : NULL;
-  flash_app_build_tree(state);
+  solar_os_memory_free(state->nodes);
+  state->catalog = catalog;
+  state->nodes = nodes;
+  state->node_count = node_count;
+  state->cursor = 0U;
+  state->top = 0U;
+
+  if (flash_app_find_node(state->catalog, state->nodes, state->node_count,
+                          &selected_key, &node_index) &&
+      flash_app_node_visible(state, node_index)) {
+    state->cursor = flash_app_visible_index_of(state, node_index);
+  }
+  if (flash_app_find_node(state->catalog, state->nodes, state->node_count,
+                          &top_key, &node_index) &&
+      flash_app_node_visible(state, node_index)) {
+    state->top = flash_app_visible_index_of(state, node_index);
+  }
 }
 
 static void flash_app_drain_events(flash_app_state_t *state) {
@@ -941,6 +1071,21 @@ static void flash_app_open_selected(flash_app_state_t *state,
   }
 }
 
+static void flash_app_delete_selected(flash_app_state_t *state) {
+  const solar_os_flash_artifact_t *artifact =
+      flash_app_selected_artifact(state, NULL);
+  if (artifact == NULL)
+    return;
+  if (!artifact->cached) {
+    strlcpy(state->message, "artifact is not cached",
+            sizeof(state->message));
+    state->modal = FLASH_APP_MODAL_RESULT;
+    return;
+  }
+  state->artifact = *artifact;
+  state->modal = FLASH_APP_MODAL_DELETE;
+}
+
 static void flash_app_cycle_port(flash_app_state_t *state, int delta) {
   const size_t count =
       solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART);
@@ -1030,6 +1175,20 @@ static bool flash_app_handle_modal(flash_app_state_t *state, uint8_t ch) {
   }
   if (ch != '\r' && ch != '\n')
     return true;
+  if (state->modal == FLASH_APP_MODAL_DELETE) {
+    const esp_err_t err = solar_os_flash_artifact_delete(&state->artifact);
+    if (err == ESP_OK) {
+      strlcpy(state->message, "artifact delete succeeded",
+              sizeof(state->message));
+      flash_app_reload_catalog(state);
+    } else {
+      snprintf(state->message, sizeof(state->message),
+               "artifact delete failed: %s (0x%x)", esp_err_to_name(err),
+               (unsigned)err);
+    }
+    state->modal = FLASH_APP_MODAL_RESULT;
+    return true;
+  }
   const flash_app_operation_t operation =
       state->modal == FLASH_APP_MODAL_DOWNLOAD ? FLASH_APP_OPERATION_DOWNLOAD
                                                 : FLASH_APP_OPERATION_PROGRAM;
@@ -1303,6 +1462,12 @@ static bool flash_app_event(solar_os_context_t *ctx,
     case 'f':
     case 'F':
       flash_app_open_selected(flash_app, false, true);
+      break;
+    case SOLAR_OS_KEY_DELETE:
+    case 0x7fU:
+    case 'x':
+    case 'X':
+      flash_app_delete_selected(flash_app);
       break;
     case 'r':
     case 'R':

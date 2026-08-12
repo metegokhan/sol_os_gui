@@ -1,6 +1,7 @@
 #pragma once
 
 #include "driver/gpio.h"
+#include "driver/i2s_types.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "solar_os_buttons.h"
@@ -18,6 +19,7 @@
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_44
 #define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
 #define SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK (1U << SPI3_HOST)
+#define SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK (1U << I2S_NUM_1)
 #define SOLAR_OS_BOARD_BUSES { \
     { \
         .name = "uart0", \

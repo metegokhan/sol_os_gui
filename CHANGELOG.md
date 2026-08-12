@@ -2,6 +2,20 @@
 
 ## 4.x
 
+- **4.8.2** — 2026-08-12 — Synth now adapts to compact OLED and LCD targets
+  with a parameter HUD, large values, level bars, live waveform and
+  wavetable graphs, single-slot preset browsing, and immediate feedback from
+  external control bindings. Added a runtime PCM5102A I2S expansion that
+  registers a stereo audio device and exclusive playback stream. Runtime audio
+  outputs now follow shared global volume, and bounded sink writes improve PCM
+  playback reliability. Synth correctly highlights MIDI notes, prioritizes
+  note input over compact-display refreshes, and no longer rewrites the custom
+  wavetable when switching tabs. Named I2C buses can change speed at
+  runtime from the `i2c` command or IO. Help and Flash trees start folded and
+  retain their navigation state; Flash can delete cached artifacts. Files shows
+  measured transaction progress, restores the directory just exited, and lets
+  `Esc` cancel copy, move, or recursive delete without closing the app. Port
+  shells coalesce line redraws so typing over Telnet keeps a stable cursor.
 - **4.7.6** — 2026-08-10 — Added `funcgen`, an audio function generator with
   GUI/TUI interfaces, a live oscilloscope, selectable runtime playback streams,
   six waveform shapes, amplitude and pulse-width controls, and repeating

@@ -38,6 +38,7 @@ esp_err_t solar_os_bus_release(const char *name,
                                const char *owner);
 size_t solar_os_bus_release_owner(const char *owner);
 
+esp_err_t solar_os_bus_i2c_set_speed(const char *name, uint32_t speed_hz);
 esp_err_t solar_os_bus_i2c_probe(const char *name, uint8_t address);
 esp_err_t solar_os_bus_i2c_read_reg(const char *name,
                                     uint8_t address,

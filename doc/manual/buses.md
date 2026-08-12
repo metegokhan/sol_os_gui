@@ -26,6 +26,18 @@ Reuse a suitable registered bus instead of creating a duplicate on the same
 pins. Use `attach` and `detach` for leases, and remove only a runtime bus that
 has no users.
 
+Change the clock of a board-defined or runtime-created named I2C bus without
+recreating its descriptor:
+
+```text
+i2c speed i2c0 400000
+i2c status i2c0
+```
+
+The change is serialized with transfers and applies to subsequent transactions,
+including when attached devices retain shared leases. The `io` app exposes the
+same operation as `Set I2C speed` on a selected I2C bus.
+
 ## Transfer through the registry
 
 Use the family matching the descriptor: `i2c_scan`, `spi_xfer`, `uart_read`, or

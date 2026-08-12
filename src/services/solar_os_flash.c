@@ -177,7 +177,8 @@ solar_os_flash_progress_stage_name(solar_os_flash_progress_stage_t stage) {
 }
 
 static bool flash_name_valid(const char *value) {
-  if (value == NULL || value[0] == '\0') {
+  if (value == NULL || value[0] == '\0' || strcmp(value, ".") == 0 ||
+      strcmp(value, "..") == 0) {
     return false;
   }
   for (const unsigned char *p = (const unsigned char *)value; *p != '\0'; p++) {
@@ -1295,6 +1296,42 @@ static esp_err_t flash_factory_path(const solar_os_flash_artifact_t *artifact,
     err = ESP_ERR_INVALID_SIZE;
   }
   return err == ESP_OK ? flash_join(root, relative, path, path_len) : err;
+}
+
+esp_err_t
+solar_os_flash_artifact_delete(const solar_os_flash_artifact_t *artifact) {
+  if (artifact == NULL || !flash_name_valid(artifact->board_id) ||
+      !flash_name_valid(artifact->flavor) ||
+      !flash_name_valid(artifact->version)) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  char root[SOLAR_OS_STORAGE_PATH_MAX];
+  char board[SOLAR_OS_STORAGE_PATH_MAX];
+  char flavor[SOLAR_OS_STORAGE_PATH_MAX];
+  char version[SOLAR_OS_STORAGE_PATH_MAX];
+  esp_err_t err = flash_root(root, sizeof(root));
+  if (err == ESP_OK)
+    err = flash_join(root, artifact->board_id, board, sizeof(board));
+  if (err == ESP_OK)
+    err = flash_join(board, artifact->flavor, flavor, sizeof(flavor));
+  if (err == ESP_OK)
+    err = flash_join(flavor, artifact->version, version, sizeof(version));
+  if (err != ESP_OK)
+    return err;
+
+  struct stat st;
+  if (stat(version, &st) != 0)
+    return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+  if (!S_ISDIR(st.st_mode))
+    return ESP_ERR_INVALID_STATE;
+
+  err = flash_remove_tree(version);
+  if (err == ESP_OK) {
+    (void)rmdir(flavor);
+    (void)rmdir(board);
+  }
+  return err;
 }
 
 esp_err_t

@@ -691,7 +691,7 @@ available for the compiled board.
 | `pwm` | `pwm set <pin> <freq-hz> <duty-percent>` | Start LEDC PWM on a runtime pin. |
 | `pwm` | `pwm off <pin>` | Stop PWM on a pin. |
 | `i2c` | `i2c [status [bus]]` | Show every named I2C bus, or one selected bus. |
-| `i2c` | `i2c speed [bus]` | Show named-bus configuration; retained as a status alias. |
+| `i2c` | `i2c speed [bus] [hz]` | Show or change a named bus clock; defaults to `i2c0` and accepts 1 through 1000000 Hz. |
 | `i2c` | `i2c scan [bus]` | Scan a named bus; defaults to `i2c0`. |
 | `i2c` | `i2c probe [bus] <addr>` | Probe one address; defaults to `i2c0`. |
 | `i2c` | `i2c read [bus] <addr> <reg> [len]` | Read register bytes; defaults to `i2c0`. |

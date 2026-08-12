@@ -420,7 +420,8 @@ static bool definition_valid(const solar_os_bus_definition_t *definition)
             definition->config.i2c.sda_pin >= 0 &&
             definition->config.i2c.scl_pin >= 0 &&
             definition->config.i2c.sda_pin != definition->config.i2c.scl_pin &&
-            definition->config.i2c.speed_hz > 0;
+            definition->config.i2c.speed_hz > 0 &&
+            definition->config.i2c.speed_hz <= SOLAR_OS_BUS_I2C_MAX_SPEED_HZ;
         break;
     case SOLAR_OS_BUS_PROTOCOL_SPI:
         config_valid = definition->config.spi.host >= 0 &&
@@ -1337,6 +1338,29 @@ static esp_err_t pin_ready_bus_owned(const char *name,
     xSemaphoreGive(buses_mutex);
 
     xSemaphoreTake(pin->mutex, portMAX_DELAY);
+
+    /* A speed change can complete while an operation waits for this mutex.
+     * Refresh its snapshot after serialization so it uses the new rate. */
+    xSemaphoreTake(buses_mutex, portMAX_DELAY);
+    if (pin->index >= SOLAR_OS_BUS_MAX ||
+        !buses[pin->index].active ||
+        buses[pin->index].protocol != protocol ||
+        !buses[pin->index].ready ||
+        lease_count_locked(pin->index) == 0U) {
+        if (pin->index < SOLAR_OS_BUS_MAX && bus_refs[pin->index] > 0U) {
+            bus_refs[pin->index]--;
+        }
+        xSemaphoreGive(buses_mutex);
+        xSemaphoreGive(pin->mutex);
+        memset(pin, 0, sizeof(*pin));
+        return ESP_ERR_INVALID_STATE;
+    }
+    pin->generation = bus_generations[pin->index];
+    pin->info = buses[pin->index];
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+    pin->i2c_handle = buses_i2c_handles[pin->index];
+#endif
+    xSemaphoreGive(buses_mutex);
     return ESP_OK;
 }
 
@@ -1361,6 +1385,57 @@ static void unpin_bus(solar_os_bus_ref_t *pin)
     }
     xSemaphoreGive(buses_mutex);
     memset(pin, 0, sizeof(*pin));
+}
+
+esp_err_t solar_os_bus_i2c_set_speed(const char *name, uint32_t speed_hz)
+{
+    if (!name_valid(name) || speed_hz == 0U ||
+        speed_hz > SOLAR_OS_BUS_I2C_MAX_SPEED_HZ) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(buses_mutex, portMAX_DELAY);
+    const int found = find_bus_index_locked(name);
+    if (found < 0 || buses[found].protocol != SOLAR_OS_BUS_PROTOCOL_I2C) {
+        xSemaphoreGive(buses_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+    const size_t bus_index = (size_t)found;
+    if (buses[bus_index].config.i2c.speed_hz == speed_hz) {
+        xSemaphoreGive(buses_mutex);
+        return ESP_OK;
+    }
+    SemaphoreHandle_t bus_mutex = bus_mutexes[bus_index];
+    bus_refs[bus_index]++;
+    xSemaphoreGive(buses_mutex);
+
+    xSemaphoreTake(bus_mutex, portMAX_DELAY);
+    xSemaphoreTake(buses_mutex, portMAX_DELAY);
+    if (!buses[bus_index].active ||
+        buses[bus_index].protocol != SOLAR_OS_BUS_PROTOCOL_I2C) {
+        ret = ESP_ERR_INVALID_STATE;
+    } else {
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+        if (buses[bus_index].ready) {
+            ret = i2c_bus_set_speed(buses_i2c_handles[bus_index], speed_hz);
+        }
+#else
+        ret = ESP_ERR_NOT_SUPPORTED;
+#endif
+        if (ret == ESP_OK) {
+            buses[bus_index].config.i2c.speed_hz = speed_hz;
+        }
+    }
+    if (bus_refs[bus_index] > 0U) {
+        bus_refs[bus_index]--;
+    }
+    xSemaphoreGive(buses_mutex);
+    xSemaphoreGive(bus_mutex);
+    return ret;
 }
 
 esp_err_t solar_os_bus_i2c_probe(const char *name, uint8_t address)

@@ -18,6 +18,7 @@ typedef enum {
     SOLAR_OS_RESOURCE_I2C_ADDRESS,
     SOLAR_OS_RESOURCE_SPI_CS,
     SOLAR_OS_RESOURCE_UART_PORT,
+    SOLAR_OS_RESOURCE_I2S_PORT,
 } solar_os_resource_kind_t;
 
 typedef struct {

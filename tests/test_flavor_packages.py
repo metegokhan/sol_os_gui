@@ -127,6 +127,14 @@ class FlavorPackagesTest(unittest.TestCase):
             ("expansion_pwm",),
         )
         self.assertEqual(
+            self.catalog.package_defs["expansion_pcm5102"].depends,
+            ("service_audio", "service_expansion"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["expansion_pcm5102"].capabilities,
+            ("expansion_i2s",),
+        )
+        self.assertEqual(
             self.catalog.package_defs["service_espnow"].depends,
             ("service_wifi",),
         )
@@ -237,6 +245,39 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertTrue(pruned[package], package)
         self.assertFalse(pruned["service_audio_board"])
+
+    def test_pcm5102_expansion_survives_without_builtin_audio(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_i2s"},
+        )
+
+        for package in (
+            "service_audio",
+            "service_synth",
+            "service_expansion",
+            "expansion_pcm5102",
+            "app_aplay",
+            "app_player",
+            "app_synth",
+            "app_funcgen",
+        ):
+            self.assertTrue(pruned[package], package)
+        self.assertFalse(pruned["service_audio_board"])
+
+    def test_pcm5102_expansion_is_pruned_without_i2s_capability(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_gpio"},
+        )
+
+        self.assertFalse(pruned["expansion_pcm5102"])
 
     def test_rover_flavors_share_an_expansion_capable_baseline(self):
         rover_name, _, rover_groups, rover_packages = self.resolve("rover")

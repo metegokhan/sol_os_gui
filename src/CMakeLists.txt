@@ -54,6 +54,7 @@ set(SOLAR_OS_BOARD_CAPABILITY_NAMES
     EXPANSION_UART
     EXPANSION_ADC
     EXPANSION_PWM
+    EXPANSION_I2S
     KEY
     BUTTONS
     JOYSTICK
@@ -101,6 +102,8 @@ solar_os_require_capability(DISPLAY_BRIGHTNESS DISPLAY)
 solar_os_require_capability(EXPANSION_I2C I2C)
 solar_os_require_capability(EXPANSION_SPI SPI)
 solar_os_require_capability(EXPANSION_UART UART)
+solar_os_require_capability(EXPANSION_I2S GPIO)
+solar_os_require_capability(EXPANSION_I2S EXPANSION_GPIO)
 
 if(NOT DEFINED SOLAR_OS_BOARD_PSRAM_BYTES OR
         "${SOLAR_OS_BOARD_PSRAM_BYTES}" STREQUAL "")

@@ -74,6 +74,10 @@ and screen-control behavior. Port shells use `--charset utf8` by default; add
 symbols are rendered with ASCII fallbacks. The setting does not change
 framebuffer display sessions.
 
+Cursor-addressable port shells echo ordinary end-of-line typing directly and
+send required line edits as one redraw. This keeps the cursor stable on UART,
+USB CDC, and network-backed terminals such as Telnet.
+
 ## Start an app on a display
 
 An app can be launched onto a named display from any shell:

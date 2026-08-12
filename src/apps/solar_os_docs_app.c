@@ -448,9 +448,6 @@ static esp_err_t docs_app_start(solar_os_context_t *ctx)
     (void)solar_os_tui_enable_diff(&docs_app.tui, true);
 
     docs_app.collapsed_sections = UINT64_MAX;
-    if (docs_section_count() > 0U) {
-        docs_set_section_collapsed(0U, false);
-    }
 
     const char *requested = solar_os_context_argc(ctx) >= 2 ?
         solar_os_context_argv(ctx, 1) : NULL;

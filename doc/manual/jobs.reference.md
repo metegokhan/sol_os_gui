@@ -599,6 +599,8 @@ Notes:
   response and are disconnected.
 - Telnet terminal-type and window-size negotiation select the terminal profile
   and update the shell dimensions.
+- Interactive line edits use the shared port shell's coalesced redraws, so the
+  cursor does not visibly jump to the prompt while typing.
 - Disconnecting closes the child shell session and releases any foreground app
   or resource it owns.
 - Remote sessions do not run `/.shell/startup`.

@@ -52,6 +52,7 @@ typedef enum {
     IO_MODE_ACTIONS,
     IO_MODE_PROTOCOL,
     IO_MODE_FORM,
+    IO_MODE_I2C_SPEED,
     IO_MODE_CONFIRM,
 } io_mode_t;
 
@@ -66,6 +67,7 @@ typedef enum {
     IO_ACTION_ADC_READ,
     IO_ACTION_BUS_ATTACH,
     IO_ACTION_BUS_DETACH,
+    IO_ACTION_BUS_I2C_SPEED,
     IO_ACTION_BUS_AUTOSTART,
     IO_ACTION_BUS_REMOVE,
     IO_ACTION_NEW_BUS,
@@ -105,6 +107,7 @@ typedef struct {
     char selected_bus[SOLAR_OS_BUS_NAME_MAX];
     char message[IO_MESSAGE_MAX];
     io_form_t form;
+    size_t i2c_rate_selected;
 } io_state_t;
 
 static void *io_state;
@@ -1206,6 +1209,9 @@ static void io_build_bus_actions(const solar_os_bus_info_t *bus)
         io_action_add(IO_ACTION_BUS_DETACH,
                       bus->lease_count == 0 ? "Detach bus" : "Detach bus (busy)");
     }
+    if (bus->protocol == SOLAR_OS_BUS_PROTOCOL_I2C) {
+        io_action_add(IO_ACTION_BUS_I2C_SPEED, "Set I2C speed");
+    }
     if (bus->origin == SOLAR_OS_BUS_ORIGIN_RUNTIME) {
         io_action_add(IO_ACTION_BUS_AUTOSTART, "Autostart");
         io_action_add(IO_ACTION_BUS_REMOVE,
@@ -1952,6 +1958,34 @@ static void io_render(void)
     case IO_MODE_FORM:
         io_render_form();
         break;
+    case IO_MODE_I2C_SPEED: {
+        const size_t rows = solar_os_tui_rows(&io.tui);
+        const size_t cols = solar_os_tui_cols(&io.tui);
+        solar_os_tui_clear(&io.tui);
+        solar_os_tui_set_cursor_visible(&io.tui, false);
+        char heading[64];
+        snprintf(heading, sizeof(heading), " I2C speed - %s", io.selected_bus);
+        io_write_row(0, heading,
+                     SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+        for (size_t i = 0; i < sizeof(i2c_rates) / sizeof(i2c_rates[0]) &&
+                           2U + i + 1U < rows; i++) {
+            char line[40];
+            snprintf(line, sizeof(line), " %c %" PRIu32 " Hz",
+                     i == io.i2c_rate_selected ? '>' : ' ', i2c_rates[i]);
+            io_write_row(2U + i, line,
+                         i == io.i2c_rate_selected ? SOLAR_OS_TUI_ATTR_INVERSE :
+                                                    SOLAR_OS_TUI_ATTR_NORMAL);
+        }
+        if (rows > 0U) {
+            solar_os_tui_fill(&io.tui, rows - 1U, 0, 1, cols, ' ',
+                              SOLAR_OS_TUI_ATTR_INVERSE);
+            io_add_clipped(rows - 1U, 0, cols,
+                           " arrows select  Enter apply  Esc back",
+                           SOLAR_OS_TUI_ATTR_INVERSE);
+        }
+        solar_os_tui_refresh(&io.tui);
+        break;
+    }
     case IO_MODE_CONFIRM:
         io_render_confirm();
         break;
@@ -2020,6 +2054,27 @@ static void io_execute_action(io_action_kind_t action)
     case IO_ACTION_BUS_DETACH:
         err = solar_os_bus_detach(io.selected_bus);
         break;
+    case IO_ACTION_BUS_I2C_SPEED: {
+        solar_os_bus_info_t bus;
+        if (!solar_os_bus_find(io.selected_bus, SOLAR_OS_BUS_PROTOCOL_I2C, &bus)) {
+            err = ESP_ERR_NOT_FOUND;
+            break;
+        }
+        io.i2c_rate_selected = 0U;
+        uint32_t best_distance = UINT32_MAX;
+        for (size_t i = 0; i < sizeof(i2c_rates) / sizeof(i2c_rates[0]); i++) {
+            const uint32_t distance = i2c_rates[i] > bus.config.i2c.speed_hz
+                ? i2c_rates[i] - bus.config.i2c.speed_hz
+                : bus.config.i2c.speed_hz - i2c_rates[i];
+            if (distance < best_distance) {
+                best_distance = distance;
+                io.i2c_rate_selected = i;
+            }
+        }
+        io.mode = IO_MODE_I2C_SPEED;
+        io_render();
+        return;
+    }
     case IO_ACTION_BUS_AUTOSTART: {
         bool added = false;
         err = io_autostart_bus(io.selected_bus, &added);
@@ -2272,6 +2327,32 @@ static void io_handle_form_key(uint8_t key)
     io_render();
 }
 
+static void io_handle_i2c_speed_key(uint8_t key)
+{
+    const size_t count = sizeof(i2c_rates) / sizeof(i2c_rates[0]);
+    if (key == SOLAR_OS_KEY_ESCAPE) {
+        io.mode = IO_MODE_ACTIONS;
+    } else if ((key == SOLAR_OS_KEY_UP || key == SOLAR_OS_KEY_LEFT) &&
+               io.i2c_rate_selected > 0U) {
+        io.i2c_rate_selected--;
+    } else if ((key == SOLAR_OS_KEY_DOWN || key == SOLAR_OS_KEY_RIGHT) &&
+               io.i2c_rate_selected + 1U < count) {
+        io.i2c_rate_selected++;
+    } else if (key == '\r' || key == '\n') {
+        const uint32_t speed_hz = i2c_rates[io.i2c_rate_selected];
+        const esp_err_t err = solar_os_bus_i2c_set_speed(io.selected_bus,
+                                                         speed_hz);
+        io.mode = IO_MODE_BROWSE;
+        if (err == ESP_OK) {
+            snprintf(io.message, sizeof(io.message), "%s speed set to %" PRIu32 " Hz",
+                     io.selected_bus, speed_hz);
+        } else {
+            io_set_error("I2C speed", err);
+        }
+    }
+    io_render();
+}
+
 static void io_handle_confirm_key(uint8_t key)
 {
     if (key == 'y' || key == 'Y') {
@@ -2370,6 +2451,9 @@ static bool io_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case IO_MODE_FORM:
         io_handle_form_key(key);
+        break;
+    case IO_MODE_I2C_SPEED:
+        io_handle_i2c_speed_key(key);
         break;
     case IO_MODE_CONFIRM:
         io_handle_confirm_key(key);

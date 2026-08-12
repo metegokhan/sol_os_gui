@@ -177,6 +177,7 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
 #endif
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_ADC, "adc");
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_PWM, "pwm");
+    print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_I2S, "i2s");
     if (!solar_os_expansion_available()) {
         solar_os_shell_io_write(term, " none");
     }
@@ -812,6 +813,9 @@ static bool parse_binding_token(const char *arg,
         return binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_PWM, "pwm", "", pin, -1);
     }
     if (strcmp(key, "gpio") == 0 ||
+        strcmp(key, "bck") == 0 ||
+        strcmp(key, "din") == 0 ||
+        strcmp(key, "rck") == 0 ||
         strcmp(key, "irq") == 0 ||
         strcmp(key, "reset") == 0 ||
         strcmp(key, "rst") == 0 ||

@@ -39,6 +39,7 @@
 #define AUDIO_TONE_WORKER_STACK 4096U
 #define AUDIO_TONE_WORKER_PRIORITY (tskIDLE_PRIORITY + 1U)
 #define AUDIO_TONE_CANCEL_POLL_MS 10U
+#define AUDIO_GLOBAL_DEFAULT_VOLUME 50U
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 #define AUDIO_MP3_INPUT_BUFFER_BYTES 16384U
 #define AUDIO_MP3_PROBE_SCAN_BYTES 65536U
@@ -57,6 +58,8 @@ typedef struct {
 static audio_device_entry_t audio_devices[SOLAR_OS_AUDIO_DEVICE_MAX];
 static portMUX_TYPE audio_devices_lock = portMUX_INITIALIZER_UNLOCKED;
 static char audio_default_output[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
+static uint8_t audio_global_volume = AUDIO_GLOBAL_DEFAULT_VOLUME;
+static uint8_t audio_mute_restore_volume = AUDIO_GLOBAL_DEFAULT_VOLUME;
 
 static bool audio_volume_arg_valid(uint8_t volume)
 {
@@ -64,9 +67,6 @@ static bool audio_volume_arg_valid(uint8_t volume)
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
-static uint8_t audio_global_volume = SOLAR_OS_BOARD_AUDIO_DEFAULT_VOLUME;
-static uint8_t audio_mute_restore_volume = SOLAR_OS_BOARD_AUDIO_DEFAULT_VOLUME;
-
 typedef struct {
     uint32_t id;
     size_t step_count;
@@ -127,14 +127,14 @@ static void audio_tone_cancel_all(void);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
-static uint8_t clamp_percent_u32(uint32_t value)
-{
-    return value > 100U ? 100U : (uint8_t)value;
-}
-
 static uint8_t audio_resolve_playback_volume(uint8_t volume)
 {
     return volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL ? audio_global_volume : volume;
+}
+
+static uint8_t clamp_percent_u32(uint32_t value)
+{
+    return value > 100U ? 100U : (uint8_t)value;
 }
 
 static esp_err_t audio_ensure_mutexes(void)
@@ -784,6 +784,13 @@ esp_err_t solar_os_audio_set_default_output(const char *id)
         device.playback_stream[0] == '\0') {
         return ESP_ERR_NOT_SUPPORTED;
     }
+    if ((device.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME) != 0U) {
+        const esp_err_t volume_err = solar_os_audio_set_device_volume(
+            device.id, audio_global_volume);
+        if (volume_err != ESP_OK) {
+            return volume_err;
+        }
+    }
     portENTER_CRITICAL(&audio_devices_lock);
     strlcpy(audio_default_output, id, sizeof(audio_default_output));
     portEXIT_CRITICAL(&audio_devices_lock);
@@ -800,6 +807,34 @@ bool solar_os_audio_get_default_output(char *id, size_t id_len)
     const bool selected = audio_default_output[0] != '\0';
     portEXIT_CRITICAL(&audio_devices_lock);
     return selected;
+}
+
+static esp_err_t audio_set_selected_output_volume(uint8_t volume)
+{
+    char preferred_id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
+    if (solar_os_audio_get_default_output(preferred_id, sizeof(preferred_id))) {
+        solar_os_audio_device_info_t preferred;
+        if (solar_os_audio_device_get_info(preferred_id, &preferred) == ESP_OK &&
+            (preferred.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) != 0U &&
+            preferred.playback_stream[0] != '\0') {
+            return (preferred.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME) != 0U ?
+                solar_os_audio_set_device_volume(preferred.id, volume) :
+                ESP_ERR_NOT_SUPPORTED;
+        }
+    }
+
+    for (size_t index = 0; index < solar_os_audio_device_count(); index++) {
+        solar_os_audio_device_info_t candidate;
+        if (!solar_os_audio_device_get(index, &candidate) ||
+            (candidate.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) == 0U ||
+            candidate.playback_stream[0] == '\0') {
+            continue;
+        }
+        return (candidate.capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME) != 0U ?
+            solar_os_audio_set_device_volume(candidate.id, volume) :
+            ESP_ERR_NOT_SUPPORTED;
+    }
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 static esp_err_t audio_open_candidate(
@@ -822,8 +857,16 @@ static esp_err_t audio_open_candidate(
     if (endpoint[0] == '\0') {
         return ESP_ERR_NOT_SUPPORTED;
     }
-    const esp_err_t err = solar_os_stream_open_ex(
+    esp_err_t err = solar_os_stream_open_ex(
         endpoint, owner, requested, stream);
+    if (err == ESP_OK && direction == SOLAR_OS_STREAM_DIRECTION_SINK &&
+        (candidate->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME) != 0U) {
+        err = solar_os_audio_set_device_volume(candidate->id,
+                                               audio_global_volume);
+        if (err != ESP_OK) {
+            solar_os_stream_close(stream);
+        }
+    }
     if (err == ESP_OK && device != NULL) {
         *device = *candidate;
     }
@@ -1000,11 +1043,10 @@ void solar_os_audio_deinit(void)
 
 esp_err_t solar_os_audio_set_volume(uint8_t volume)
 {
-#if !SOLAR_OS_BOARD_HAS_AUDIO
-    (void)volume;
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    esp_err_t ret = solar_os_board_audio_set_volume(volume);
+    if (volume > 100U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t ret = audio_set_selected_output_volume(volume);
     if (ret == ESP_OK) {
         audio_global_volume = volume;
         if (volume > 0) {
@@ -1012,7 +1054,6 @@ esp_err_t solar_os_audio_set_volume(uint8_t volume)
         }
     }
     return ret;
-#endif
 }
 
 static esp_err_t audio_apply_playback_volume(uint8_t volume)
@@ -1027,32 +1068,19 @@ static esp_err_t audio_apply_playback_volume(uint8_t volume)
 
 esp_err_t solar_os_audio_toggle_mute(uint8_t *volume_after)
 {
-#if !SOLAR_OS_BOARD_HAS_AUDIO
-    if (volume_after != NULL) {
-        *volume_after = 0;
-    }
-    return ESP_ERR_NOT_SUPPORTED;
-#else
     uint8_t target = audio_mute_restore_volume;
     if (audio_global_volume > 0) {
         audio_mute_restore_volume = audio_global_volume;
         target = 0;
     } else if (target == 0 || target > 100) {
-        target = SOLAR_OS_BOARD_AUDIO_DEFAULT_VOLUME;
+        target = AUDIO_GLOBAL_DEFAULT_VOLUME;
     }
 
-    const esp_err_t ret = solar_os_board_audio_set_volume(target);
-    if (ret == ESP_OK) {
-        audio_global_volume = target;
-        if (target > 0) {
-            audio_mute_restore_volume = target;
-        }
-        if (volume_after != NULL) {
-            *volume_after = target;
-        }
+    const esp_err_t ret = solar_os_audio_set_volume(target);
+    if (volume_after != NULL) {
+        *volume_after = ret == ESP_OK ? target : audio_global_volume;
     }
     return ret;
-#endif
 }
 
 esp_err_t solar_os_audio_set_mic_gain(float gain_db)
@@ -2122,16 +2150,34 @@ void solar_os_audio_deinit(void)
 
 esp_err_t solar_os_audio_set_volume(uint8_t volume)
 {
-    (void)volume;
-    return ESP_ERR_NOT_SUPPORTED;
+    if (volume > 100U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t ret = audio_set_selected_output_volume(volume);
+    if (ret == ESP_OK) {
+        audio_global_volume = volume;
+        if (volume > 0U) {
+            audio_mute_restore_volume = volume;
+        }
+    }
+    return ret;
 }
 
 esp_err_t solar_os_audio_toggle_mute(uint8_t *volume_after)
 {
-    if (volume_after != NULL) {
-        *volume_after = 0U;
+    uint8_t target = audio_mute_restore_volume;
+    if (audio_global_volume > 0U) {
+        audio_mute_restore_volume = audio_global_volume;
+        target = 0U;
+    } else if (target == 0U || target > 100U) {
+        target = AUDIO_GLOBAL_DEFAULT_VOLUME;
     }
-    return ESP_ERR_NOT_SUPPORTED;
+
+    const esp_err_t ret = solar_os_audio_set_volume(target);
+    if (volume_after != NULL) {
+        *volume_after = ret == ESP_OK ? target : audio_global_volume;
+    }
+    return ret;
 }
 
 esp_err_t solar_os_audio_set_mic_gain(float gain_db)
@@ -3323,7 +3369,7 @@ void solar_os_audio_get_status(solar_os_audio_status_t *status)
         .sample_rate = 0U,
         .channels = 0U,
         .bits_per_sample = 0U,
-        .volume = 0,
+        .volume = audio_global_volume,
         .mic_gain_db = 0.0f,
         .i2s_port = -1,
         .mclk_pin = -1,

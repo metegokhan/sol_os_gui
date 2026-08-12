@@ -789,13 +789,9 @@ static esp_err_t player_start(solar_os_context_t *ctx)
     }
     player.task_done = true;
     player.active_index = SIZE_MAX;
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
     solar_os_audio_status_t audio_status;
     solar_os_audio_get_status(&audio_status);
     player.volume = audio_status.volume <= 100U ? audio_status.volume : 50U;
-#else
-    player.volume = 50U;
-#endif
     player.visualizer = PLAYER_VISUALIZER_CASSETTE;
     esp_err_t err = solar_os_player_playlist_init();
     if (err != ESP_OK) return err;

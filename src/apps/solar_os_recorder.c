@@ -1632,13 +1632,10 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
     recorder.sample_rate = 16000U;
     recorder.channels = 2U;
     recorder.bits_per_sample = 16U;
-    recorder.volume = 50U;
-    recorder.visualizer = RECORDER_VISUALIZER_CASSETTE;
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
     solar_os_audio_status_t status;
     solar_os_audio_get_status(&status);
-    if (status.volume <= 100U) recorder.volume = status.volume;
-#endif
+    recorder.volume = status.volume <= 100U ? status.volume : 50U;
+    recorder.visualizer = RECORDER_VISUALIZER_CASSETTE;
     const bool settings_loaded = recorder_load_settings();
     esp_err_t err = recorder_set_initial_path(path_arg);
     if (err != ESP_OK) goto fail_state;

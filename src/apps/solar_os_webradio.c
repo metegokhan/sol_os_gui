@@ -1704,14 +1704,9 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
     }
     webradio.mode = !force_tui && webradio_graphical_session(ctx) ?
         WEBRADIO_MODE_GRAPHICS : WEBRADIO_MODE_TUI;
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
     solar_os_audio_status_t audio_status;
     solar_os_audio_get_status(&audio_status);
     webradio.volume = audio_status.volume <= 100U ? audio_status.volume : 50U;
-#else
-    /* A hot-attached device has no board-global volume to report yet. */
-    webradio.volume = 50U;
-#endif
     webradio.tab = WEBRADIO_TAB_PLAYER;
     webradio.visualizer = WEBRADIO_VISUALIZER_SCOPE;
     if (webradio.mode == WEBRADIO_MODE_TUI) {

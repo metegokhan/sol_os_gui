@@ -731,6 +731,7 @@ static const char * const i2c_subcommands[] = {
 static const char * const i2c_addr_values[] = {"0x18", "0x3c", "0x68", "0x76"};
 static const char * const i2c_reg_values[] = {"0x00", "0x01", "0x10"};
 static const char * const i2c_len_values[] = {"1", "2", "4", "16"};
+static const char * const i2c_speed_values[] = {"100000", "400000", "1000000"};
 static const char * const byte_values[] = {"0x00", "0x01", "0xff"};
 
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
@@ -3209,7 +3210,6 @@ static void shell_render_input(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = shell_io(ctx);
     const size_t visible_cols = shell_visible_input_cols(ctx);
-    size_t written = 0;
 
     if (!shell_can_redraw_input(ctx)) {
         return;
@@ -3220,14 +3220,14 @@ static void shell_render_input(solar_os_context_t *ctx)
     if (cursor_col >= visible_cols) {
         cursor_col = visible_cols - 1;
     }
-    solar_os_shell_io_clear_line_from(io, shell_session(ctx)->input_row, shell_session(ctx)->input_col);
-    solar_os_shell_io_set_cursor(io, shell_session(ctx)->input_row, shell_session(ctx)->input_col);
-    for (size_t i = shell_session(ctx)->input_view_offset;
-         i < shell_session(ctx)->input_len && written < visible_cols;
-         i++, written++) {
-        solar_os_shell_io_put_char(io, shell_session(ctx)->input[i]);
-    }
-    solar_os_shell_io_set_cursor(io, shell_session(ctx)->input_row, shell_session(ctx)->input_col + cursor_col);
+    const size_t remaining = shell_session(ctx)->input_len - shell_session(ctx)->input_view_offset;
+    const size_t visible_len = remaining < visible_cols ? remaining : visible_cols;
+    (void)solar_os_shell_io_redraw_line(io,
+                                        shell_session(ctx)->input_row,
+                                        shell_session(ctx)->input_col,
+                                        shell_session(ctx)->input + shell_session(ctx)->input_view_offset,
+                                        visible_len,
+                                        cursor_col);
 }
 
 static void shell_replace_input(solar_os_context_t *ctx, const char *text)
@@ -3376,11 +3376,20 @@ static void shell_insert_char(solar_os_context_t *ctx, char ch)
         return;
     }
 
+    const bool append = shell_session(ctx)->input_cursor == shell_session(ctx)->input_len;
+    const size_t previous_view_offset = shell_session(ctx)->input_view_offset;
     memmove(&shell_session(ctx)->input[shell_session(ctx)->input_cursor + 1],
             &shell_session(ctx)->input[shell_session(ctx)->input_cursor],
             shell_session(ctx)->input_len - shell_session(ctx)->input_cursor + 1);
     shell_session(ctx)->input[shell_session(ctx)->input_cursor++] = ch;
     shell_session(ctx)->input_len++;
+    if (append) {
+        shell_ensure_cursor_visible(ctx);
+        if (shell_session(ctx)->input_view_offset == previous_view_offset) {
+            (void)solar_os_shell_io_put_char(shell_io(ctx), ch);
+            return;
+        }
+    }
     shell_render_input(ctx);
 }
 
@@ -5624,9 +5633,21 @@ static void shell_completion_emit_i2c_arguments(shell_completion_match_t *state,
     }
 
     const char *operation = tokens[1];
-    if (strcmp(operation, "status") == 0 ||
-        strcmp(operation, "speed") == 0 ||
-        strcmp(operation, "scan") == 0) {
+    if (strcmp(operation, "speed") == 0) {
+        if (token_count == 2) {
+            shell_completion_emit_i2c_buses(state);
+            shell_completion_emit_i2c_values(state,
+                                              i2c_speed_values,
+                                              SHELL_ARRAY_COUNT(i2c_speed_values));
+        } else if (token_count == 3 &&
+                   shell_completion_i2c_named(tokens, token_count)) {
+            shell_completion_emit_i2c_values(state,
+                                              i2c_speed_values,
+                                              SHELL_ARRAY_COUNT(i2c_speed_values));
+        }
+        return;
+    }
+    if (strcmp(operation, "status") == 0 || strcmp(operation, "scan") == 0) {
         if (token_count == 2) {
             shell_completion_emit_i2c_buses(state);
         }

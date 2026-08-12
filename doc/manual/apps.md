@@ -552,7 +552,9 @@ applications retain ownership of their audio streams.
 
 Foreground browser for the package-aware SolarOS manual. The foldable tree
 groups the topics compiled for the current firmware and shows whether it is
-using the embedded copy or a verified downloaded revision.
+using the embedded copy or a verified downloaded revision. All groups start
+folded. The selection, scroll position, and fold state remain unchanged after a
+topic closes.
 
 Usage:
 
@@ -658,6 +660,15 @@ Controls:
 - Arrows navigate panes.
 - `Tab` switches active pane.
 - `Enter` opens directories or launches known files.
+- Returning to a parent directory restores the cursor to the directory that
+  was just exited.
+- `F5`, `F6`, and `F8` copy, move, and delete the current or marked entries.
+  Copy and recursive delete scan their source trees first, then show measured
+  progress with the current entry. Move shows progress across the selected
+  top-level entries.
+- `Esc` cancels an active copy, move, or delete operation and keeps Files open.
+  A partial current-file copy is removed; top-level items completed before the
+  cancellation remain copied, moved, or deleted.
 - File operations refresh both panes after completion.
 - App-exit key exits.
 
@@ -665,8 +676,10 @@ Controls:
 
 Download verified SolarOS factory artifacts to SD and program another supported
 ESP board over UART. The browser refreshes the signed catalog on request and
-shows which board, flavor, and version artifacts are already cached. The shell
-form accepts a named UART plus optional boot and reset GPIO pins.
+shows which board, flavor, and version artifacts are already cached. Its tree
+starts folded and retains its selection and fold state after operations. Delete
+removes a selected cached artifact after confirmation. The shell form accepts a
+named UART plus optional boot and reset GPIO pins.
 
 ```text
 flash
@@ -816,6 +829,8 @@ Controls:
   permits it. Their `Autostart` action idempotently appends the matching
   `expansion bus create ...` command to `/.shell/startup`. Direct GPIO and PWM
   assignments can be created and released from the Pins or Layout view.
+- A selected I2C bus has a `Set I2C speed` action with 100 kHz, 400 kHz, and
+  1 MHz choices. The change applies at runtime even while devices lease the bus.
 - `r` refreshes; `q`, `Esc`, or the app-exit key exits.
 
 ## invaders
@@ -1244,7 +1259,8 @@ from a port shell on a headless board after a playback device such as the LEDC
 PWM audio expansion has been attached. Its Play tab contains the waveform,
 envelope, volume, ADSR, and piano controls. The Wave tab is a graphical
 wavetable editor with selectable 16, 32, or 64-point resolution;
-edits reshape held notes immediately while the piano remains playable. The
+edits reshape held notes immediately while the piano remains playable, and
+switching tabs does not rewrite the custom wavetable. The
 Filter tab adds a resonant low-pass response graph, cutoff, resonance, envelope
 amount, and an independent graphical ADSR filter envelope. The Oscillator 2 tab
 adds a second per-note source with waveform, octave, fine detune, and unity-safe
@@ -1256,13 +1272,30 @@ playback and portamento. The display also reports active voices, output sample
 rate, and audio errors. The volume button changes the shared SolarOS speaker
 volume.
 
+On display targets smaller than 240 pixels wide or 200 pixels high, Synth
+automatically replaces the full editor with a parameter HUD. The selected
+control gets a large value and level bar; waveform controls and the Wave tab
+retain compact graphs; Presets shows one slot at a time. Targets smaller than
+112 by 56 pixels use a footer-free micro layout. Physical note keys and MIDI
+remain active. External parameter/control changes focus the changed parameter
+until the next local navigation action, which makes a 128-by-64 SH1106 or
+SSD1306 useful as a synthesizer appliance display. After attaching it as
+`oled0`, open Synth on that target with `session create synth oled0`.
+During active playing, compact displays defer visualization until note input is
+quiet so synchronous display transfers cannot take priority over new notes.
+MIDI notes highlight the matching pitch class on the on-screen piano just like
+physical note keys.
+
 Controls:
 
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
-  physical, so the `Y` position is the `Z` key on a German keyboard. The piano
+  physical, so the `Y` position is the `Z` key on a German keyboard. Note input
   remains active on all tabs.
 - `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
   Number keys `1` through `6` select those tabs in that order.
+- `X` hides or shows the on-screen piano keyboard on every tab. When it is
+  hidden, the tab's knobs, graphs, panels, or preset list use the freed space;
+  the physical note keys and MIDI input remain active.
 - On Play, `Left`/`Right` selects the waveform, global volume, or an ADSR knob;
   `Up`/`Down` changes it, and `+`/`-` changes note velocity.
 - On Wave, `Left`/`Right` moves the edit cursor and `Up`/`Down` changes the

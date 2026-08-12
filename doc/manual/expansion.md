@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "audio-pwm", "ledc-audio", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral audio pwm ledc radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral audio pwm ledc pcm5102 i2s dac radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -97,6 +97,27 @@ It is a signal output, not a speaker driver. Put a reconstruction low-pass
 filter, DC-blocking/coupling stage, and suitable amplifier between the GPIO and
 a speaker. A bare speaker can overload and damage the GPIO. Only one LEDC PWM
 audio device can be attached at a time.
+
+A PCM5102A module uses three runtime-safe GPIOs and appears as a normal stereo
+playback device:
+
+```text
+expansion attach pcm5102 dac0 bck=gpio1 din=gpio2 rck=gpio3
+audio devices
+audio default dac0
+aplay /audio/example.mp3
+audio default auto
+expansion detach dac0
+```
+
+The example pins are valid on the Waveshare board. Connect the module's SCK pin
+to ground; the driver emits 64 BCK cycles per stereo frame so the PCM5102A can
+derive its system clock with the internal PLL. The driver registers
+`dac0.playback` as an exclusive 16 kHz, 16-bit PCM sink. Mono input is
+duplicated to both channels and device volume is applied in software. Current
+dual-I2S boards use I2S1, leaving onboard audio or composite video on I2S0.
+PCM5102A modules provide line-level output; connect an amplifier or powered
+input rather than a passive speaker.
 
 ## Quick reference
 

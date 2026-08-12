@@ -250,6 +250,7 @@ The current capability flags are:
 | `EXPANSION_UART` | Expansion hardware may use a static or runtime-created named UART bus. Requires `UART`. |
 | `EXPANSION_ADC` | Expansion connector has ADC-capable runtime pins. |
 | `EXPANSION_PWM` | Expansion connector has PWM-capable runtime pins. |
+| `EXPANSION_I2S` | Board has a spare I2S controller and at least three runtime-safe output GPIOs for an external three-wire I2S device. |
 | `KEY` | Built-in board key for sleep/pairing control. |
 | `BUTTONS` | Built-in digital buttons are available for keyboard/app input. |
 | `JOYSTICK` | Built-in analog joystick axes are available for keyboard/app input. |
@@ -271,6 +272,8 @@ runtime-routed bus may accept either `expansion_spi` or `expansion_gpio`; a
 driver that also requires independent control pins must still require
 `expansion_gpio`. Do not gate these packages on plain `spi` and `gpio`, because
 those capabilities can refer only to internal display or storage hardware.
+Use `expansion_i2s` for external I2S packages; it is intentionally stricter
+than `expansion_gpio` and prevents unusable drivers from entering a board build.
 The user-facing connector tables and attachment workflow live in
 [Expansion Ports](expansion.md).
 
@@ -423,7 +426,9 @@ buses. Expansion capability flags authorize that runtime-facing path, while
 the runtime controller masks and pin policy constrain the instances that may
 be created. Configuration checks reject expansion capabilities without their
 base protocol and non-empty SPI/UART runtime masks without matching base and
-expansion capabilities.
+expansion capabilities. `SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK` similarly names
+the controller reserved for attachable I2S hardware and must accompany
+`EXPANSION_I2S`.
 
 The registry distinguishes immutable board descriptors from runtime-created
 buses. Board buses cannot be unregistered. Every protocol uses the same named

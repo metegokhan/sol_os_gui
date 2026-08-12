@@ -18,7 +18,9 @@
 #include "solar_os_app_file_types.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_keys.h"
+#include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_queue.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_launch.h"
 #include "solar_os_storage.h"
@@ -36,6 +38,9 @@
 #define FILES_ZIP_TASK_PRIORITY 4
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(FILES_ZIP_TASK_STACK);
 #define FILES_ZIP_WAIT_POLL_MS 20U
+#define FILES_WORKER_EVENT_QUEUE_LEN 1U
+
+static const char *TAG = "solar_os_files";
 
 typedef struct {
     char name[FILES_NAME_MAX];
@@ -63,12 +68,54 @@ typedef enum {
     FILES_INPUT_ZIP,
 } files_input_mode_t;
 
+typedef enum {
+    FILES_TRANSACTION_NONE,
+    FILES_TRANSACTION_COPY,
+    FILES_TRANSACTION_MOVE,
+    FILES_TRANSACTION_DELETE,
+} files_transaction_kind_t;
+
+typedef struct {
+    files_transaction_kind_t kind;
+    uint64_t done;
+    uint64_t total;
+    char item[FILES_NAME_MAX];
+    bool active;
+    bool total_known;
+    bool cancelling;
+} files_transaction_t;
+
 typedef struct {
     const char **sources;
     char (*paths)[SOLAR_OS_STORAGE_PATH_MAX];
     size_t count;
     size_t capacity;
 } files_source_list_t;
+
+typedef struct {
+    uint64_t done;
+    uint64_t total;
+    bool total_known;
+    char item[FILES_NAME_MAX];
+} files_worker_event_t;
+
+typedef struct {
+    QueueHandle_t events;
+    TaskHandle_t task;
+    files_source_list_t sources;
+    files_transaction_kind_t kind;
+    char destination[SOLAR_OS_STORAGE_PATH_MAX];
+    volatile bool cancel_requested;
+    volatile bool task_done;
+    bool running;
+    bool success;
+    bool cancelled;
+    size_t completed;
+    uint64_t done;
+    uint64_t total;
+    int error_no;
+    char error_path[SOLAR_OS_STORAGE_PATH_MAX];
+} files_worker_t;
 
 typedef struct {
     const char *archive;
@@ -88,12 +135,15 @@ typedef struct {
     char input[FILES_INPUT_MAX];
     size_t input_len;
     char message[FILES_MESSAGE_MAX];
+    files_transaction_t transaction;
+    files_worker_t worker;
 } files_state_t;
 
 static void *files_state;
 #define files (*(files_state_t *)files_state)
 
 static void files_set_message(const char *message);
+static void files_render(solar_os_context_t *ctx);
 
 static void *files_realloc(void *ptr, size_t size)
 {
@@ -650,6 +700,96 @@ static void files_add_clipped(size_t row,
     solar_os_tui_addstr(&files.tui, row, col, buffer, attr);
 }
 
+static const char *files_transaction_name(files_transaction_kind_t kind)
+{
+    switch (kind) {
+    case FILES_TRANSACTION_COPY:
+        return "copy";
+    case FILES_TRANSACTION_MOVE:
+        return "move";
+    case FILES_TRANSACTION_DELETE:
+        return "delete";
+    case FILES_TRANSACTION_NONE:
+    default:
+        return "files";
+    }
+}
+
+static const char *files_transaction_title(files_transaction_kind_t kind)
+{
+    switch (kind) {
+    case FILES_TRANSACTION_COPY:
+        return "Copying";
+    case FILES_TRANSACTION_MOVE:
+        return "Moving";
+    case FILES_TRANSACTION_DELETE:
+        return "Deleting";
+    case FILES_TRANSACTION_NONE:
+    default:
+        return "File transaction";
+    }
+}
+
+static void files_transaction_set_item(const char *path)
+{
+    const char *item = files_basename(path);
+    strlcpy(files.transaction.item,
+            item[0] != '\0' ? item : path != NULL ? path : "",
+            sizeof(files.transaction.item));
+}
+
+static void files_transaction_begin(files_transaction_kind_t kind,
+                                    const char *item)
+{
+    memset(&files.transaction, 0, sizeof(files.transaction));
+    files.transaction.kind = kind;
+    files.transaction.active = true;
+    files_transaction_set_item(item);
+    files_render(NULL);
+}
+
+static void files_transaction_end(void)
+{
+    memset(&files.transaction, 0, sizeof(files.transaction));
+}
+
+static void files_draw_transaction(size_t rows, size_t cols)
+{
+    if (!files.transaction.active || rows < 4U || cols < 12U) {
+        return;
+    }
+    const solar_os_tui_rect_t bounds = {
+        .row = rows > 2U ? 1U : 0U,
+        .col = 0U,
+        .height = rows > 2U ? rows - 2U : rows,
+        .width = cols,
+    };
+    solar_os_tui_rect_t popup = {0};
+    char text[FILES_NAME_MAX + 32U];
+    snprintf(text,
+             sizeof(text),
+             "%s %s\nEsc cancel",
+             files.transaction.cancelling ? "Cancelling" :
+             files.transaction.total_known ? "Processing" : "Preparing",
+             files.transaction.item);
+    if (solar_os_tui_text_popup(&files.tui,
+                                &bounds,
+                                files_transaction_title(files.transaction.kind),
+                                text,
+                                &popup) != ESP_OK ||
+        popup.height <= 2U || popup.width <= 4U) {
+        return;
+    }
+    (void)solar_os_tui_progress_bar(&files.tui,
+                                    popup.row + popup.height - 2U,
+                                    popup.col + 2U,
+                                    popup.width - 4U,
+                                    files_transaction_name(files.transaction.kind),
+                                    files.transaction.done,
+                                    files.transaction.total,
+                                    files.transaction.total_known);
+}
+
 static void files_draw_entry(files_pane_t *pane,
                              size_t pane_index,
                              size_t row,
@@ -827,6 +967,7 @@ static void files_render(solar_os_context_t *ctx)
     files_draw_pane(&files.panes[0], 0, pane_row, 0, pane_height, left_width);
     files_draw_pane(&files.panes[1], 1, pane_row, left_width, pane_height, right_width);
     files_draw_bottom(rows, cols);
+    files_draw_transaction(rows, cols);
     solar_os_tui_refresh(&files.tui);
 }
 
@@ -874,12 +1015,47 @@ static void files_page(files_pane_t *pane, bool down)
     files_move_cursor(pane, down ? (int)page : -(int)page);
 }
 
+static void files_select_child_path(files_pane_t *pane, const char *child_path)
+{
+    if (pane == NULL || child_path == NULL) {
+        return;
+    }
+
+    for (size_t i = 0; i < pane->count; i++) {
+        const files_entry_t *entry = &pane->entries[i];
+        char entry_path[SOLAR_OS_STORAGE_PATH_MAX];
+        if (entry->parent || !entry->is_dir ||
+            !files_join_path(entry_path, sizeof(entry_path), pane->path, entry->name)) {
+            continue;
+        }
+        if (files_paths_equal(entry_path, child_path)) {
+            pane->cursor = i;
+            return;
+        }
+    }
+}
+
 static bool files_change_dir(files_pane_t *pane, const char *path)
 {
+    if (pane == NULL || path == NULL) {
+        return false;
+    }
+
+    char previous_path[SOLAR_OS_STORAGE_PATH_MAX];
+    char previous_parent[SOLAR_OS_STORAGE_PATH_MAX];
+    strlcpy(previous_path, pane->path, sizeof(previous_path));
+    const bool moving_to_parent =
+        files_parent_path(previous_path, previous_parent, sizeof(previous_parent)) &&
+        files_paths_equal(previous_parent, path) &&
+        !files_paths_equal(previous_path, path);
+
     esp_err_t err = files_pane_load(pane, path);
     if (err != ESP_OK) {
         files_set_error("open", path);
         return false;
+    }
+    if (moving_to_parent) {
+        files_select_child_path(pane, previous_path);
     }
     files_set_message("");
     return true;
@@ -969,19 +1145,136 @@ static void files_open_selected(solar_os_context_t *ctx)
     files_open_file(ctx, path);
 }
 
-static bool files_copy_recursive(const char *source, const char *dest)
+static bool files_work_add(uint64_t *total, uint64_t amount)
 {
+    if (total == NULL || amount > UINT64_MAX - *total) {
+        errno = EOVERFLOW;
+        return false;
+    }
+    *total += amount;
+    return true;
+}
+
+static bool files_worker_should_cancel(void *user)
+{
+    (void)user;
+    return files.worker.cancel_requested;
+}
+
+static void files_worker_publish(const char *path,
+                                 uint64_t done,
+                                 bool total_known)
+{
+    if (files.worker.events == NULL) {
+        return;
+    }
+
+    files_worker_event_t event = {
+        .done = done,
+        .total = files.worker.total,
+        .total_known = total_known,
+    };
+    const char *item = files_basename(path);
+    strlcpy(event.item,
+            item[0] != '\0' ? item : path != NULL ? path : "",
+            sizeof(event.item));
+    (void)xQueueOverwrite(files.worker.events, &event);
+}
+
+static bool files_worker_measure_tree(const char *path,
+                                      bool include_file_bytes)
+{
+    if (files_worker_should_cancel(NULL)) {
+        errno = ECANCELED;
+        return false;
+    }
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return false;
+    }
+    uint64_t work = 1U;
+    if (include_file_bytes && !S_ISDIR(st.st_mode)) {
+        if (st.st_size < 0 || !files_work_add(&work, (uint64_t)st.st_size)) {
+            return false;
+        }
+    }
+    if (!files_work_add(&files.worker.total, work)) {
+        return false;
+    }
+    files_worker_publish(path, 0U, false);
+
+    if (!S_ISDIR(st.st_mode)) {
+        return true;
+    }
+    DIR *dir = opendir(path);
+    if (dir == NULL) {
+        return false;
+    }
+    bool ok = true;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char child[SOLAR_OS_STORAGE_PATH_MAX];
+        if (!files_join_path(child, sizeof(child), path, entry->d_name)) {
+            errno = ENAMETOOLONG;
+            ok = false;
+            break;
+        }
+        if (!files_worker_measure_tree(child, include_file_bytes)) {
+            ok = false;
+            break;
+        }
+    }
+    const int operation_errno = ok ? 0 : errno;
+    closedir(dir);
+    if (!ok) {
+        errno = operation_errno != 0 ? operation_errno : EIO;
+    }
+    return ok;
+}
+
+static void files_copy_progress(uint64_t bytes_done,
+                                uint64_t bytes_total,
+                                void *user)
+{
+    (void)bytes_total;
+    const char *path = (const char *)user;
+    const uint64_t done = bytes_done > UINT64_MAX - files.worker.done ?
+        UINT64_MAX : files.worker.done + bytes_done;
+    files_worker_publish(path, done, true);
+}
+
+static bool files_worker_copy_recursive(const char *source, const char *dest)
+{
+    if (files_worker_should_cancel(NULL)) {
+        errno = ECANCELED;
+        return false;
+    }
     struct stat st;
     if (stat(source, &st) != 0) {
         return false;
     }
     if (!S_ISDIR(st.st_mode)) {
-        return solar_os_storage_copy_file(source, dest) == ESP_OK;
+        const uint64_t size = st.st_size >= 0 ? (uint64_t)st.st_size : 0U;
+        if (solar_os_storage_copy_file_progress_cancel(source,
+                                                       dest,
+                                                       files_copy_progress,
+                                                       files_worker_should_cancel,
+                                                       (void *)source) != ESP_OK) {
+            return false;
+        }
+        files.worker.done += size + 1U;
+        files_worker_publish(source, files.worker.done, true);
+        return true;
     }
 
     if (solar_os_storage_mkdir(dest) != ESP_OK && errno != EEXIST) {
         return false;
     }
+    files.worker.done++;
+    files_worker_publish(source, files.worker.done, true);
 
     DIR *dir = opendir(source);
     if (dir == NULL) {
@@ -998,24 +1291,41 @@ static bool files_copy_recursive(const char *source, const char *dest)
         char child_source[SOLAR_OS_STORAGE_PATH_MAX];
         char child_dest[SOLAR_OS_STORAGE_PATH_MAX];
         if (!files_join_path(child_source, sizeof(child_source), source, entry->d_name) ||
-            !files_join_path(child_dest, sizeof(child_dest), dest, entry->d_name) ||
-            !files_copy_recursive(child_source, child_dest)) {
+            !files_join_path(child_dest, sizeof(child_dest), dest, entry->d_name)) {
+            errno = ENAMETOOLONG;
+            ok = false;
+            break;
+        }
+        if (!files_worker_copy_recursive(child_source, child_dest)) {
             ok = false;
             break;
         }
     }
+    const int operation_errno = ok ? 0 : errno;
     closedir(dir);
+    if (!ok) {
+        errno = operation_errno != 0 ? operation_errno : EIO;
+    }
     return ok;
 }
 
-static bool files_remove_recursive(const char *path)
+static bool files_worker_remove_recursive(const char *path)
 {
+    if (files_worker_should_cancel(NULL)) {
+        errno = ECANCELED;
+        return false;
+    }
     struct stat st;
     if (stat(path, &st) != 0) {
         return false;
     }
     if (!S_ISDIR(st.st_mode)) {
-        return solar_os_storage_remove(path) == ESP_OK;
+        if (solar_os_storage_remove(path) != ESP_OK) {
+            return false;
+        }
+        files.worker.done++;
+        files_worker_publish(path, files.worker.done, true);
+        return true;
     }
 
     DIR *dir = opendir(path);
@@ -1031,14 +1341,27 @@ static bool files_remove_recursive(const char *path)
         }
 
         char child[SOLAR_OS_STORAGE_PATH_MAX];
-        if (!files_join_path(child, sizeof(child), path, entry->d_name) ||
-            !files_remove_recursive(child)) {
+        if (!files_join_path(child, sizeof(child), path, entry->d_name)) {
+            errno = ENAMETOOLONG;
+            ok = false;
+            break;
+        }
+        if (!files_worker_remove_recursive(child)) {
             ok = false;
             break;
         }
     }
+    const int operation_errno = ok ? 0 : errno;
     closedir(dir);
-    return ok && solar_os_storage_rmdir(path) == ESP_OK;
+    if (!ok) {
+        errno = operation_errno != 0 ? operation_errno : EIO;
+    }
+    if (!ok || solar_os_storage_rmdir(path) != ESP_OK) {
+        return false;
+    }
+    files.worker.done++;
+    files_worker_publish(path, files.worker.done, true);
+    return true;
 }
 
 static bool files_source_list_alloc(files_source_list_t *list, size_t capacity)
@@ -1048,11 +1371,11 @@ static bool files_source_list_alloc(files_source_list_t *list, size_t capacity)
     list->sources = solar_os_memory_calloc(list->capacity,
                                            sizeof(*list->sources),
                                            SOLAR_OS_MEMORY_TRANSIENT,
-                                           "files.zip-src");
+                                           "files.sources");
     list->paths = solar_os_memory_calloc(list->capacity,
                                          sizeof(*list->paths),
                                          SOLAR_OS_MEMORY_TRANSIENT,
-                                         "files.zip-path");
+                                         "files.paths");
 
     if (list->sources == NULL || list->paths == NULL) {
         solar_os_memory_free(list->sources);
@@ -1087,12 +1410,17 @@ static bool files_source_list_add(files_source_list_t *list, const char *path)
     return true;
 }
 
-static bool files_collect_sources(files_pane_t *pane, files_source_list_t *list)
+static bool files_collect_sources(files_pane_t *pane,
+                                  files_source_list_t *list,
+                                  const char *operation)
 {
+    const char *name = operation != NULL ? operation : "files";
     const size_t selected = files_selection_count(pane);
     const size_t capacity = selected > 0 ? selected : 1U;
     if (!files_source_list_alloc(list, capacity)) {
-        files_set_message("zip: no memory");
+        char message[FILES_MESSAGE_MAX];
+        snprintf(message, sizeof(message), "%s: no memory", name);
+        files_set_message(message);
         return false;
     }
 
@@ -1102,7 +1430,9 @@ static bool files_collect_sources(files_pane_t *pane, files_source_list_t *list)
         if (entry == NULL || entry->parent ||
             !files_entry_path(pane, entry, path, sizeof(path)) ||
             !files_source_list_add(list, path)) {
-            files_set_message("zip: no file selected");
+            char message[FILES_MESSAGE_MAX];
+            snprintf(message, sizeof(message), "%s: no file selected", name);
+            files_set_message(message);
             files_source_list_free(list);
             return false;
         }
@@ -1117,7 +1447,9 @@ static bool files_collect_sources(files_pane_t *pane, files_source_list_t *list)
         }
         if (!files_entry_path(pane, entry, path, sizeof(path)) ||
             !files_source_list_add(list, path)) {
-            files_set_message("zip: path too long");
+            char message[FILES_MESSAGE_MAX];
+            snprintf(message, sizeof(message), "%s: path too long", name);
+            files_set_message(message);
             files_source_list_free(list);
             return false;
         }
@@ -1191,154 +1523,284 @@ static esp_err_t files_run_zip_task(files_zip_request_t *request)
     return request->result;
 }
 
-static bool files_copy_entry(files_pane_t *source_pane,
-                             files_pane_t *dest_pane,
-                             const files_entry_t *entry)
+static bool files_worker_destination(const char *source,
+                                     char *destination,
+                                     size_t destination_len)
 {
-    char source[SOLAR_OS_STORAGE_PATH_MAX];
-    char dest[SOLAR_OS_STORAGE_PATH_MAX];
+    return files_join_path(destination,
+                           destination_len,
+                           files.worker.destination,
+                           files_basename(source));
+}
 
-    if (entry == NULL || entry->parent) {
-        files_set_message("copy: no file selected");
+static void files_worker_record_error(const char *path)
+{
+    files.worker.error_no = errno != 0 ? errno : EIO;
+    strlcpy(files.worker.error_path,
+            path != NULL ? path : "",
+            sizeof(files.worker.error_path));
+}
+
+static bool files_worker_measure_sources(bool include_file_bytes)
+{
+    files.worker.total = 0U;
+    for (size_t i = 0; i < files.worker.sources.count; i++) {
+        if (!files_worker_measure_tree(files.worker.sources.sources[i],
+                                       include_file_bytes)) {
+            if (!files_worker_should_cancel(NULL)) {
+                files_worker_record_error(files.worker.sources.sources[i]);
+            }
+            return false;
+        }
+    }
+    files_worker_publish(files.worker.sources.sources[0], 0U, true);
+    return true;
+}
+
+static void files_worker_task(void *arg)
+{
+    (void)arg;
+    bool ok = true;
+
+    if (files.worker.kind == FILES_TRANSACTION_COPY) {
+        ok = files_worker_measure_sources(true);
+    } else if (files.worker.kind == FILES_TRANSACTION_DELETE) {
+        ok = files_worker_measure_sources(false);
+    } else {
+        files.worker.total = files.worker.sources.count;
+        files_worker_publish(files.worker.sources.sources[0], 0U, true);
+    }
+
+    for (size_t i = 0; ok && i < files.worker.sources.count; i++) {
+        const char *source = files.worker.sources.sources[i];
+        if (files_worker_should_cancel(NULL)) {
+            errno = ECANCELED;
+            ok = false;
+            break;
+        }
+
+        if (files.worker.kind == FILES_TRANSACTION_COPY) {
+            char destination[SOLAR_OS_STORAGE_PATH_MAX];
+            if (!files_worker_destination(source, destination, sizeof(destination))) {
+                errno = ENAMETOOLONG;
+                ok = false;
+            } else {
+                ok = files_worker_copy_recursive(source, destination);
+            }
+        } else if (files.worker.kind == FILES_TRANSACTION_MOVE) {
+            char destination[SOLAR_OS_STORAGE_PATH_MAX];
+            if (!files_worker_destination(source, destination, sizeof(destination))) {
+                errno = ENAMETOOLONG;
+                ok = false;
+            } else {
+                ok = solar_os_storage_rename(source, destination) == ESP_OK;
+                if (ok) {
+                    files.worker.done++;
+                    files_worker_publish(source, files.worker.done, true);
+                }
+            }
+        } else if (files.worker.kind == FILES_TRANSACTION_DELETE) {
+            ok = files_worker_remove_recursive(source);
+        }
+
+        if (ok) {
+            files.worker.completed++;
+        } else if (!files_worker_should_cancel(NULL)) {
+            files_worker_record_error(source);
+        }
+    }
+
+    files.worker.cancelled = files_worker_should_cancel(NULL);
+    files.worker.success = ok && !files.worker.cancelled;
+    files.worker.task_done = true;
+    solar_os_task_delete_internal(NULL);
+}
+
+static void files_worker_cleanup(void)
+{
+    if (files.worker.events != NULL) {
+        solar_os_queue_delete(files.worker.events);
+    }
+    files_source_list_free(&files.worker.sources);
+    memset(&files.worker, 0, sizeof(files.worker));
+}
+
+static bool files_worker_validate_destinations(files_transaction_kind_t kind,
+                                               const files_source_list_t *sources,
+                                               const char *destination_dir)
+{
+    if (kind == FILES_TRANSACTION_DELETE) {
+        return true;
+    }
+    for (size_t i = 0; i < sources->count; i++) {
+        const char *source = sources->sources[i];
+        char destination[SOLAR_OS_STORAGE_PATH_MAX];
+        if (!files_join_path(destination,
+                             sizeof(destination),
+                             destination_dir,
+                             files_basename(source))) {
+            files_set_message(kind == FILES_TRANSACTION_COPY ?
+                                  "copy: path too long" : "move: path too long");
+            return false;
+        }
+        if (files_paths_equal(source, destination)) {
+            files_set_message(kind == FILES_TRANSACTION_COPY ?
+                                  "copy: source and destination are the same" :
+                                  "move: source and destination are the same");
+            return false;
+        }
+        struct stat st;
+        if (stat(source, &st) == 0 && S_ISDIR(st.st_mode) &&
+            files_path_inside(source, destination)) {
+            files_set_message(kind == FILES_TRANSACTION_COPY ?
+                                  "copy: destination is inside source" :
+                                  "move: destination is inside source");
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool files_worker_start(files_transaction_kind_t kind,
+                               files_pane_t *source_pane,
+                               const char *destination_dir)
+{
+    const char *operation = files_transaction_name(kind);
+    files_source_list_t sources;
+    if (files.worker.running ||
+        !files_collect_sources(source_pane, &sources, operation)) {
         return false;
     }
-    if (!files_entry_path(source_pane, entry, source, sizeof(source)) ||
-        !files_join_path(dest, sizeof(dest), dest_pane->path, entry->name)) {
-        files_set_message("copy: path too long");
-        return false;
-    }
-    if (files_paths_equal(source, dest)) {
-        files_set_message("copy: source and destination are the same");
-        return false;
-    }
-    if (entry->is_dir && files_path_inside(source, dest)) {
-        files_set_message("copy: destination is inside source");
+    if (!files_worker_validate_destinations(kind, &sources, destination_dir)) {
+        files_source_list_free(&sources);
         return false;
     }
 
-    if (!files_copy_recursive(source, dest)) {
-        files_set_error("copy", source);
+    memset(&files.worker, 0, sizeof(files.worker));
+    files.worker.sources = sources;
+    files.worker.kind = kind;
+    files.worker.events = solar_os_queue_create(FILES_WORKER_EVENT_QUEUE_LEN,
+                                                 sizeof(files_worker_event_t));
+    if (destination_dir != NULL) {
+        strlcpy(files.worker.destination,
+                destination_dir,
+                sizeof(files.worker.destination));
+    }
+    if (files.worker.events == NULL) {
+        files_set_message("files: no memory");
+        files_worker_cleanup();
+        return false;
+    }
+
+    files.worker.running = true;
+    files_transaction_begin(kind, files_basename(sources.sources[0]));
+    const BaseType_t created = solar_os_task_create_pinned_internal(
+        files_worker_task,
+        "files_worker",
+        FILES_ZIP_TASK_STACK,
+        NULL,
+        FILES_ZIP_TASK_PRIORITY,
+        &files.worker.task,
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
+    if (created != pdPASS) {
+        files_set_message("files: task create failed");
+        files_transaction_end();
+        files_worker_cleanup();
         return false;
     }
     return true;
+}
+
+static void files_worker_apply_progress(void)
+{
+    if (files.worker.events == NULL) {
+        return;
+    }
+    files_worker_event_t event;
+    if (xQueueReceive(files.worker.events, &event, 0) != pdPASS) {
+        return;
+    }
+    files.transaction.done = event.done;
+    files.transaction.total = event.total;
+    files.transaction.total_known = event.total_known;
+    strlcpy(files.transaction.item, event.item, sizeof(files.transaction.item));
+}
+
+static void files_worker_finish(void)
+{
+    const files_transaction_kind_t kind = files.worker.kind;
+    const bool cancelled = files.worker.cancelled;
+    const bool success = files.worker.success;
+    const size_t completed = files.worker.completed;
+    const int error_no = files.worker.error_no;
+    char error_path[SOLAR_OS_STORAGE_PATH_MAX];
+    strlcpy(error_path, files.worker.error_path, sizeof(error_path));
+
+    files_worker_cleanup();
+    files_transaction_end();
+    if (cancelled) {
+        char message[FILES_MESSAGE_MAX];
+        snprintf(message,
+                 sizeof(message),
+                 "%s cancelled",
+                 files_transaction_name(kind));
+        files_set_message(message);
+    } else if (!success) {
+        errno = error_no != 0 ? error_no : EIO;
+        files_set_error(files_transaction_name(kind), error_path);
+    } else {
+        char message[FILES_MESSAGE_MAX];
+        const char *past = kind == FILES_TRANSACTION_COPY ? "copied" :
+                           kind == FILES_TRANSACTION_MOVE ? "moved" : "deleted";
+        if (completed == 1U) {
+            strlcpy(message, past, sizeof(message));
+        } else {
+            snprintf(message, sizeof(message), "%u %s", (unsigned)completed, past);
+        }
+        files_set_message(message);
+    }
+    files_refresh_all();
+}
+
+static void files_worker_poll(solar_os_context_t *ctx)
+{
+    if (!files.worker.running) {
+        return;
+    }
+    files_worker_apply_progress();
+    if (files.worker.task_done) {
+        files_worker_finish();
+    }
+    files_render(ctx);
 }
 
 static void files_copy_selected(void)
 {
     files_pane_t *source_pane = files_active_pane();
     files_pane_t *dest_pane = files_other_pane();
-
-    if (files_virtual_root_path(source_pane->path) || files_virtual_root_path(dest_pane->path)) {
+    if (files_virtual_root_path(source_pane->path) ||
+        files_virtual_root_path(dest_pane->path)) {
         files_set_message("copy: open a mount first");
         return;
     }
-
-    const size_t selected = files_selection_count(source_pane);
-    size_t copied = 0;
-    bool ok = true;
-
-    if (selected == 0) {
-        ok = files_copy_entry(source_pane, dest_pane, files_selected_entry(source_pane));
-        copied = ok ? 1U : 0U;
-    } else {
-        for (size_t i = 0; i < source_pane->count; i++) {
-            files_entry_t *entry = &source_pane->entries[i];
-            if (!entry->selected || entry->parent) {
-                continue;
-            }
-            if (!files_copy_entry(source_pane, dest_pane, entry)) {
-                ok = false;
-                break;
-            }
-            copied++;
-        }
-    }
-
-    if (ok) {
-        char message[FILES_MESSAGE_MAX];
-        if (copied == 1U) {
-            strlcpy(message, "copied", sizeof(message));
-        } else {
-            snprintf(message, sizeof(message), "%u copied", (unsigned)copied);
-        }
-        files_set_message(message);
-    }
-    files_refresh_all();
-}
-
-static bool files_move_entry(files_pane_t *source_pane,
-                             files_pane_t *dest_pane,
-                             const files_entry_t *entry)
-{
-    char source[SOLAR_OS_STORAGE_PATH_MAX];
-    char dest[SOLAR_OS_STORAGE_PATH_MAX];
-
-    if (entry == NULL || entry->parent) {
-        files_set_message("move: no file selected");
-        return false;
-    }
-    if (!files_entry_path(source_pane, entry, source, sizeof(source)) ||
-        !files_join_path(dest, sizeof(dest), dest_pane->path, entry->name)) {
-        files_set_message("move: path too long");
-        return false;
-    }
-    if (files_paths_equal(source, dest)) {
-        files_set_message("move: source and destination are the same");
-        return false;
-    }
-    if (entry->is_dir && files_path_inside(source, dest)) {
-        files_set_message("move: destination is inside source");
-        return false;
-    }
-
-    if (solar_os_storage_rename(source, dest) != ESP_OK) {
-        files_set_error("move", source);
-        return false;
-    }
-    return true;
+    (void)files_worker_start(FILES_TRANSACTION_COPY,
+                             source_pane,
+                             dest_pane->path);
 }
 
 static void files_move_selected(void)
 {
     files_pane_t *source_pane = files_active_pane();
     files_pane_t *dest_pane = files_other_pane();
-
-    if (files_virtual_root_path(source_pane->path) || files_virtual_root_path(dest_pane->path)) {
+    if (files_virtual_root_path(source_pane->path) ||
+        files_virtual_root_path(dest_pane->path)) {
         files_set_message("move: open a mount first");
         return;
     }
-
-    const size_t selected = files_selection_count(source_pane);
-    size_t moved = 0;
-    bool ok = true;
-
-    if (selected == 0) {
-        ok = files_move_entry(source_pane, dest_pane, files_selected_entry(source_pane));
-        moved = ok ? 1U : 0U;
-    } else {
-        for (size_t i = 0; i < source_pane->count; i++) {
-            files_entry_t *entry = &source_pane->entries[i];
-            if (!entry->selected || entry->parent) {
-                continue;
-            }
-            if (!files_move_entry(source_pane, dest_pane, entry)) {
-                ok = false;
-                break;
-            }
-            moved++;
-        }
-    }
-
-    if (ok) {
-        char message[FILES_MESSAGE_MAX];
-        if (moved == 1U) {
-            strlcpy(message, "moved", sizeof(message));
-        } else {
-            snprintf(message, sizeof(message), "%u moved", (unsigned)moved);
-        }
-        files_set_message(message);
-    }
-    files_refresh_all();
+    (void)files_worker_start(FILES_TRANSACTION_MOVE,
+                             source_pane,
+                             dest_pane->path);
 }
 
 static void files_begin_mkdir(void)
@@ -1378,55 +1840,8 @@ static void files_begin_delete(void)
 static void files_delete_confirmed(void)
 {
     files_pane_t *pane = files_active_pane();
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-    const size_t selected = files_selection_count(pane);
-
-    if (selected == 0 && !files_selected_path(pane, path, sizeof(path))) {
-        files_set_message("delete: no file selected");
-        files.input_mode = FILES_INPUT_NONE;
-        return;
-    }
-
-    bool ok = true;
-    size_t deleted = 0;
-    if (selected == 0) {
-        if (!files_remove_recursive(path)) {
-            files_set_error("delete", path);
-            ok = false;
-        } else {
-            deleted = 1;
-        }
-    } else {
-        for (size_t i = 0; i < pane->count; i++) {
-            files_entry_t *entry = &pane->entries[i];
-            if (!entry->selected || entry->parent) {
-                continue;
-            }
-            if (!files_entry_path(pane, entry, path, sizeof(path))) {
-                files_set_message("delete: path too long");
-                ok = false;
-                break;
-            }
-            if (!files_remove_recursive(path)) {
-                files_set_error("delete", path);
-                ok = false;
-                break;
-            }
-            deleted++;
-        }
-    }
-
-    if (ok) {
-        char message[FILES_MESSAGE_MAX];
-        if (deleted == 1U) {
-            strlcpy(message, "deleted", sizeof(message));
-        } else {
-            snprintf(message, sizeof(message), "%u deleted", (unsigned)deleted);
-        }
-        files_set_message(message);
-    }
     files.input_mode = FILES_INPUT_NONE;
-    files_refresh_all();
+    (void)files_worker_start(FILES_TRANSACTION_DELETE, pane, NULL);
 }
 
 static void files_create_directory(void)
@@ -1518,7 +1933,7 @@ static void files_create_zip(solar_os_context_t *ctx)
         files_set_message("zip: invalid archive path");
         return;
     }
-    if (!files_collect_sources(source_pane, &sources)) {
+    if (!files_collect_sources(source_pane, &sources, "zip")) {
         files.input_mode = FILES_INPUT_NONE;
         return;
     }
@@ -1681,6 +2096,19 @@ static esp_err_t files_start(solar_os_context_t *ctx)
 static void files_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
+    if (files.worker.running) {
+        files.worker.cancel_requested = true;
+        if (!solar_os_task_wait_done(files.worker.task,
+                                     &files.worker.task_done,
+                                     SOLAR_OS_TASK_STOP_WAIT_MS)) {
+            SOLAR_OS_LOGW(TAG,
+                          "files worker did not stop within %u ms",
+                          (unsigned)SOLAR_OS_TASK_STOP_WAIT_MS);
+            return;
+        }
+        files_worker_cleanup();
+        files_transaction_end();
+    }
     solar_os_tui_set_cursor_visible(&files.tui, true);
     solar_os_tui_refresh(&files.tui);
     solar_os_tui_end(&files.tui);
@@ -1698,12 +2126,30 @@ static void files_resume(solar_os_context_t *ctx)
 
 static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
-    if (event == NULL || event->type != SOLAR_OS_EVENT_CHAR) {
+    if (event == NULL) {
+        return true;
+    }
+    if (event->type == SOLAR_OS_EVENT_TICK) {
+        files_worker_poll(ctx);
+        return true;
+    }
+    if (event->type != SOLAR_OS_EVENT_CHAR) {
         return true;
     }
 
     const uint8_t ch = (uint8_t)event->data.ch;
     files_pane_t *pane = files_active_pane();
+
+    if (files.worker.running) {
+        if (ch == SOLAR_OS_KEY_ESCAPE) {
+            files.worker.cancel_requested = true;
+            files.transaction.cancelling = true;
+            files_render(ctx);
+        } else if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_F10) {
+            solar_os_context_request_exit(ctx);
+        }
+        return true;
+    }
 
     if (files_input_event(ctx, ch)) {
         files_render(ctx);
@@ -1841,6 +2287,24 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     return true;
 }
 
+static bool files_state_release_ready(void)
+{
+    return files_state == NULL || !files.worker.running || files.worker.task_done;
+}
+
+static void files_state_release_cleanup(void)
+{
+    if (files_state == NULL) {
+        return;
+    }
+    if (files.worker.task_done || !files.worker.running) {
+        files_worker_cleanup();
+    }
+    solar_os_tui_end(&files.tui);
+    files_pane_clear(&files.panes[0]);
+    files_pane_clear(&files.panes[1]);
+}
+
 const solar_os_app_t solar_os_files_app = {
     .name = "files",
     .summary = "file manager and launcher",
@@ -1852,5 +2316,7 @@ const solar_os_app_t solar_os_files_app = {
     .state_slot = &files_state,
     .state_size = sizeof(files_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
+    .state_release_ready = files_state_release_ready,
+    .state_release_cleanup = files_state_release_cleanup,
     .worker_stack_bytes = FILES_ZIP_TASK_STACK,
 };

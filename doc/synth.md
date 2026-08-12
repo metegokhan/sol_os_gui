@@ -80,12 +80,13 @@ physical-key piano. Its Wave tab draws the custom wavetable at full width and
 supports selectable 16, 32, and 64-point resolution, starting at 16; square,
 triangle, saw, Supersaw, sine, and flat starting shapes; cursor and brush
 editing; smoothing; normalization; reset; and undo. `Enter` cycles the resolution and
-resamples the current shape into the new point count. The piano remains active
+resamples the current shape into the new point count. Note input remains active
 while editing, the graph includes the cyclic last-to-first interval, and table
-changes reshape held notes immediately.
+changes reshape held notes immediately. Switching tabs does not rewrite the
+custom wavetable.
 The Filter tab pairs a live low-pass response graph with the independent filter
 envelope. Cutoff, resonance, envelope amount, and filter ADSR are editable while
-the piano remains active.
+note input remains active.
 The Oscillator 2 tab shows both sources and provides waveform, octave from -2
 through +2, fine detune from -100 through +100 cents, and mix from 0 through
 100 percent. Both oscillators use the same custom wavetable when selected.
@@ -98,14 +99,30 @@ Glide tab selects polyphonic or monophonic last-note playback and glide from 0
 through 2500 ms. User slots are stored as versioned,
 checksummed files below `.solar/synth/presets` on the preferred persistent
 volume, with internal flash used when no SD card is mounted.
-All six tabs use the same compact piano. `Tab` cycles through Play, Filter,
-Wave, Oscillator 2, Glide, and Presets. Number keys `1` through `6` select them
-in that order.
+All six tabs use the same compact on-screen piano. `X` hides or shows it while
+physical note keys and MIDI input remain active. When the piano is hidden, each
+tab expands its knobs, graphs, panels, or preset list into the freed space.
+`Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
+Number keys `1` through `6` select them in that order.
+
+Display targets smaller than 240 pixels wide or 200 pixels high automatically
+use the Synth parameter HUD instead of the full editor. It shows the selected
+control as a large value and level bar, gives waveforms and the wavetable their
+own graph, and shows one preset slot at a time. Targets smaller than 112 by 56
+pixels drop the footer to preserve the control and graph area. Physical note
+keys and MIDI remain active in both compact layouts. A successful change
+through the shared parameter/control service temporarily focuses the changed
+parameter until the next local navigation action, so an appliance knob provides
+immediate visual feedback without changing the current tab.
+During active playing, compact displays defer visualization until note input is
+quiet so synchronous display transfers cannot take priority over note-on and
+note-off handling.
 
 The app also accepts note input from the shared MIDI service. MIDI Note On and
 Note Off preserve channel and velocity, controller 64 provides sustain, and
 controllers 120 and 123 release the notes on their channel. Start the MIDI job
-on a named MIDI bus before opening the app:
+on a named MIDI bus before opening the app. MIDI notes highlight the matching
+pitch class on the on-screen piano just like physical note keys:
 
 ```text
 expansion bus create midi midi0 tx=gpio1 rx=gpio2

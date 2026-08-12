@@ -3552,10 +3552,66 @@ static void i2c_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  i2c [status [bus]]");
+    solar_os_shell_io_writeln(term, "  i2c speed [bus] [hz]");
     solar_os_shell_io_writeln(term, "  i2c scan [bus]");
     solar_os_shell_io_writeln(term, "  i2c probe [bus] <addr>");
     solar_os_shell_io_writeln(term, "  i2c read [bus] <addr> <reg> [len]");
     solar_os_shell_io_writeln(term, "  i2c write [bus] <addr> <reg> <byte...>");
+}
+
+static void i2c_cmd_speed(solar_os_shell_io_t *term, int argc, char **argv)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const char *bus = SOLAR_OS_I2C_DEFAULT_BUS;
+    int value_arg = 2;
+    solar_os_bus_info_t info;
+
+    if (argc >= 3 &&
+        solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_I2C, &info)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
+    if (argc == value_arg) {
+        if (!solar_os_bus_find(bus, SOLAR_OS_BUS_PROTOCOL_I2C, &info)) {
+            solar_os_shell_io_printf(term, "i2c speed: bus '%s' not found\n", bus);
+            return;
+        }
+        solar_os_shell_io_printf(term, "%s speed: %" PRIu32 " Hz\n",
+                                 bus, info.config.i2c.speed_hz);
+        solar_os_shell_io_printf(term, "range: 1..%u Hz\n",
+                                 (unsigned)SOLAR_OS_BUS_I2C_MAX_SPEED_HZ);
+        return;
+    }
+    if (argc != value_arg + 1) {
+        solar_os_shell_diag_unexpected(term, "i2c speed",
+                                       argc > value_arg + 1 ? argv[value_arg + 1] : NULL,
+                                       "i2c speed [bus] [hz]");
+        return;
+    }
+
+    size_t speed_hz = 0U;
+    if (!parse_size_arg(argv[value_arg], 1U,
+                        SOLAR_OS_BUS_I2C_MAX_SPEED_HZ, &speed_hz)) {
+        solar_os_shell_diag_invalid(term, "i2c speed", "hz", argv[value_arg],
+                                    "an integer from 1 to 1000000",
+                                    "i2c speed [bus] [hz]", false);
+        return;
+    }
+    const esp_err_t err = solar_os_bus_i2c_set_speed(bus, (uint32_t)speed_hz);
+    if (err == ESP_OK) {
+        solar_os_shell_io_printf(term, "%s speed: %u Hz\n",
+                                 bus, (unsigned)speed_hz);
+    } else if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(term, "i2c speed: bus '%s' not found\n", bus);
+    } else {
+        solar_os_shell_io_printf(term, "i2c speed failed on %s: %s\n",
+                                 bus, solar_os_shell_error_text(err));
+    }
+#else
+    (void)argc;
+    (void)argv;
+    solar_os_shell_io_writeln(term, "i2c speed: named buses are unavailable");
+#endif
 }
 
 static void i2c_cmd_scan(solar_os_shell_io_t *term, int argc, char **argv)
@@ -3735,16 +3791,18 @@ void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc == 1 || strcmp(argv[1], "status") == 0 || strcmp(argv[1], "speed") == 0) {
+    if (argc == 1 || strcmp(argv[1], "status") == 0) {
         if (argc > 3) {
-            solar_os_shell_diag_unexpected(term, "i2c status", argv[3], "i2c [status|speed] [bus]");
+            solar_os_shell_diag_unexpected(term, "i2c status", argv[3], "i2c [status [bus]]");
             return;
         }
         i2c_print_status(term, argc == 3 ? argv[2] : NULL);
         return;
     }
 
-    if (strcmp(argv[1], "scan") == 0) {
+    if (strcmp(argv[1], "speed") == 0) {
+        i2c_cmd_speed(term, argc, argv);
+    } else if (strcmp(argv[1], "scan") == 0) {
         i2c_cmd_scan(term, argc, argv);
     } else if (strcmp(argv[1], "probe") == 0) {
         i2c_cmd_probe(term, argc, argv);
