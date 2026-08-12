@@ -22,11 +22,16 @@ flash
 
 The browser reads only the verified catalog saved on SD. It does not access the
 network when it opens. Its Catalog tab presents the available board, flavor,
-and version entries as a foldable tree. Use Up and Down to select an entry,
-Left and Right to fold or unfold a group, and Enter to act on a version. An
-asterisk marks an artifact that is cached on SD. Enter offers to download a
+and version entries as a foldable tree. All groups are initially folded. Use Up
+and Down to select an entry, Left and Right to fold or unfold a group, and
+Enter to act on a version. The browser retains the selected entry, scroll
+position, and folded groups after catalog refreshes and artifact operations.
+An asterisk marks an artifact that is cached on SD. Enter offers to download a
 remote artifact or program a cached artifact. `d` always offers a download,
-`f` always offers programming, and `r` refreshes the signed catalog.
+`f` always offers programming, and `r` refreshes the signed catalog. Delete or
+`x` asks for confirmation before it removes the selected cached artifact from
+SD. The verified catalog entry stays available, so the artifact can be
+downloaded again.
 
 Press Tab to open Settings. Select the UART port with Left and Right. Select
 BOOT pin or RESET pin and press Enter to enter a GPIO number from 0 to 63. An

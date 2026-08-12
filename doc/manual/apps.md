@@ -552,7 +552,9 @@ applications retain ownership of their audio streams.
 
 Foreground browser for the package-aware SolarOS manual. The foldable tree
 groups the topics compiled for the current firmware and shows whether it is
-using the embedded copy or a verified downloaded revision.
+using the embedded copy or a verified downloaded revision. All groups start
+folded. The selection, scroll position, and fold state remain unchanged after a
+topic closes.
 
 Usage:
 
@@ -665,8 +667,10 @@ Controls:
 
 Download verified SolarOS factory artifacts to SD and program another supported
 ESP board over UART. The browser refreshes the signed catalog on request and
-shows which board, flavor, and version artifacts are already cached. The shell
-form accepts a named UART plus optional boot and reset GPIO pins.
+shows which board, flavor, and version artifacts are already cached. Its tree
+starts folded and retains its selection and fold state after operations. Delete
+removes a selected cached artifact after confirmation. The shell form accepts a
+named UART plus optional boot and reset GPIO pins.
 
 ```text
 flash

@@ -88,6 +88,9 @@ solar_os_flash_artifact_download(const solar_os_flash_catalog_t *catalog,
                                  void *user);
 
 esp_err_t
+solar_os_flash_artifact_delete(const solar_os_flash_artifact_t *artifact);
+
+esp_err_t
 solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
                                 const solar_os_flash_program_options_t *options,
                                 solar_os_flash_progress_fn progress,

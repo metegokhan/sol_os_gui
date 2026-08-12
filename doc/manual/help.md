@@ -13,10 +13,12 @@ SolarOS always carries a manual in firmware, so `man` and the agent reference
 tool work without a network connection.
 
 Run `help` to open the foreground documentation browser. Topics are grouped in
-a tree. Use Left and Right or Enter on a group to fold and unfold it, then
-select a topic and press Enter to read it. On a graphic display the topic opens
-in `reader`; text shells use `less`. Both consume the same `man:TOPIC` source,
-so TOML frontmatter is never shown as document content.
+a tree with all groups initially folded. Use Left and Right or Enter on a group
+to fold and unfold it, then select a topic and press Enter to read it. The tree
+retains its selection, scroll position, and folded groups when the topic closes.
+On a graphic display the topic opens in `reader`; text shells use `less`. Both
+consume the same `man:TOPIC` source, so TOML frontmatter is never shown as
+document content.
 
 ## Refresh from solar-os.eu
 
