@@ -8,6 +8,7 @@
 #define SHELL_IO_DEFAULT_COLS 80
 #define SHELL_IO_DEFAULT_ROWS 24
 #define SHELL_IO_FOOTER_MAX 160
+#define SHELL_IO_REDRAW_TEXT_MAX 256
 
 static uint16_t shell_io_nonzero_or_default(uint16_t value, uint16_t fallback)
 {
@@ -810,6 +811,79 @@ esp_err_t solar_os_shell_io_clear_line_from(solar_os_shell_io_t *io, size_t row,
     }
 
     return ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t solar_os_shell_io_redraw_line(solar_os_shell_io_t *io,
+                                        size_t row,
+                                        size_t col,
+                                        const char *text,
+                                        size_t text_len,
+                                        size_t cursor_offset)
+{
+    if (io == NULL || (text == NULL && text_len > 0) || cursor_offset > text_len) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (io->kind == SOLAR_OS_SHELL_IO_KIND_TERMINAL) {
+        esp_err_t err = solar_os_shell_io_clear_line_from(io, row, col);
+        if (err == ESP_OK) {
+            err = solar_os_shell_io_set_cursor(io, row, col);
+        }
+        if (err == ESP_OK && text_len > 0) {
+            err = solar_os_shell_io_write_len(io, text, text_len);
+        }
+        if (err == ESP_OK) {
+            err = solar_os_shell_io_set_cursor(io, row, col + cursor_offset);
+        }
+        return err;
+    }
+
+    if (io->kind != SOLAR_OS_SHELL_IO_KIND_PORT) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!shell_io_port_supports_ansi_controls(io)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (text_len > SHELL_IO_REDRAW_TEXT_MAX) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    /*
+     * Keep the complete redraw in one port write.  Network-backed terminals
+     * otherwise render the intermediate jump to the prompt before the final
+     * cursor-position sequence arrives.
+     */
+    char sequence[SHELL_IO_REDRAW_TEXT_MAX + 67U];
+    const int prefix_len = snprintf(sequence,
+                                    sizeof(sequence),
+                                    "\x1b[%u;%uH\x1b[K",
+                                    (unsigned)(row + 1U),
+                                    (unsigned)(col + 1U));
+    if (prefix_len <= 0 || (size_t)prefix_len >= sizeof(sequence)) {
+        return ESP_FAIL;
+    }
+
+    size_t length = (size_t)prefix_len;
+    if (text_len > 0) {
+        memcpy(sequence + length, text, text_len);
+        length += text_len;
+    }
+    const int suffix_len = snprintf(sequence + length,
+                                    sizeof(sequence) - length,
+                                    "\x1b[%u;%uH",
+                                    (unsigned)(row + 1U),
+                                    (unsigned)(col + cursor_offset + 1U));
+    if (suffix_len <= 0 || (size_t)suffix_len >= sizeof(sequence) - length) {
+        return ESP_FAIL;
+    }
+    length += (size_t)suffix_len;
+
+    const esp_err_t err = shell_io_port_write_bytes(io, sequence, length);
+    if (err == ESP_OK) {
+        io->cursor_row = row;
+        io->cursor_col = col + cursor_offset;
+    }
+    return err;
 }
 
 static esp_err_t shell_io_port_draw_footer(solar_os_shell_io_t *io,

@@ -94,6 +94,12 @@ esp_err_t solar_os_shell_io_set_cursor_visible(solar_os_shell_io_t *io, bool vis
 bool solar_os_shell_io_cursor_visible(const solar_os_shell_io_t *io);
 uint32_t solar_os_shell_io_screen_generation(const solar_os_shell_io_t *io);
 esp_err_t solar_os_shell_io_clear_line_from(solar_os_shell_io_t *io, size_t row, size_t col);
+esp_err_t solar_os_shell_io_redraw_line(solar_os_shell_io_t *io,
+                                        size_t row,
+                                        size_t col,
+                                        const char *text,
+                                        size_t text_len,
+                                        size_t cursor_offset);
 esp_err_t solar_os_shell_io_set_footer(solar_os_shell_io_t *io,
                                        const char *text);
 esp_err_t solar_os_shell_io_clear_footer(solar_os_shell_io_t *io);

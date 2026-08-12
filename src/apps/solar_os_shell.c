@@ -3210,7 +3210,6 @@ static void shell_render_input(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = shell_io(ctx);
     const size_t visible_cols = shell_visible_input_cols(ctx);
-    size_t written = 0;
 
     if (!shell_can_redraw_input(ctx)) {
         return;
@@ -3221,14 +3220,14 @@ static void shell_render_input(solar_os_context_t *ctx)
     if (cursor_col >= visible_cols) {
         cursor_col = visible_cols - 1;
     }
-    solar_os_shell_io_clear_line_from(io, shell_session(ctx)->input_row, shell_session(ctx)->input_col);
-    solar_os_shell_io_set_cursor(io, shell_session(ctx)->input_row, shell_session(ctx)->input_col);
-    for (size_t i = shell_session(ctx)->input_view_offset;
-         i < shell_session(ctx)->input_len && written < visible_cols;
-         i++, written++) {
-        solar_os_shell_io_put_char(io, shell_session(ctx)->input[i]);
-    }
-    solar_os_shell_io_set_cursor(io, shell_session(ctx)->input_row, shell_session(ctx)->input_col + cursor_col);
+    const size_t remaining = shell_session(ctx)->input_len - shell_session(ctx)->input_view_offset;
+    const size_t visible_len = remaining < visible_cols ? remaining : visible_cols;
+    (void)solar_os_shell_io_redraw_line(io,
+                                        shell_session(ctx)->input_row,
+                                        shell_session(ctx)->input_col,
+                                        shell_session(ctx)->input + shell_session(ctx)->input_view_offset,
+                                        visible_len,
+                                        cursor_col);
 }
 
 static void shell_replace_input(solar_os_context_t *ctx, const char *text)
@@ -3377,11 +3376,20 @@ static void shell_insert_char(solar_os_context_t *ctx, char ch)
         return;
     }
 
+    const bool append = shell_session(ctx)->input_cursor == shell_session(ctx)->input_len;
+    const size_t previous_view_offset = shell_session(ctx)->input_view_offset;
     memmove(&shell_session(ctx)->input[shell_session(ctx)->input_cursor + 1],
             &shell_session(ctx)->input[shell_session(ctx)->input_cursor],
             shell_session(ctx)->input_len - shell_session(ctx)->input_cursor + 1);
     shell_session(ctx)->input[shell_session(ctx)->input_cursor++] = ch;
     shell_session(ctx)->input_len++;
+    if (append) {
+        shell_ensure_cursor_visible(ctx);
+        if (shell_session(ctx)->input_view_offset == previous_view_offset) {
+            (void)solar_os_shell_io_put_char(shell_io(ctx), ch);
+            return;
+        }
+    }
     shell_render_input(ctx);
 }
 
