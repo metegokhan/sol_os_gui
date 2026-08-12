@@ -82,7 +82,8 @@ triangle, saw, Supersaw, sine, and flat starting shapes; cursor and brush
 editing; smoothing; normalization; reset; and undo. `Enter` cycles the resolution and
 resamples the current shape into the new point count. Note input remains active
 while editing, the graph includes the cyclic last-to-first interval, and table
-changes reshape held notes immediately.
+changes reshape held notes immediately. Switching tabs does not rewrite the
+custom wavetable.
 The Filter tab pairs a live low-pass response graph with the independent filter
 envelope. Cutoff, resonance, envelope amount, and filter ADSR are editable while
 note input remains active.
@@ -113,11 +114,15 @@ keys and MIDI remain active in both compact layouts. A successful change
 through the shared parameter/control service temporarily focuses the changed
 parameter until the next local navigation action, so an appliance knob provides
 immediate visual feedback without changing the current tab.
+During active playing, compact displays defer visualization until note input is
+quiet so synchronous display transfers cannot take priority over note-on and
+note-off handling.
 
 The app also accepts note input from the shared MIDI service. MIDI Note On and
 Note Off preserve channel and velocity, controller 64 provides sustain, and
 controllers 120 and 123 release the notes on their channel. Start the MIDI job
-on a named MIDI bus before opening the app:
+on a named MIDI bus before opening the app. MIDI notes highlight the matching
+pitch class on the on-screen piano just like physical note keys:
 
 ```text
 expansion bus create midi midi0 tx=gpio1 rx=gpio2

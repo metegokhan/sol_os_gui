@@ -51,6 +51,11 @@ Use global volume unless a diagnostic or playback command explicitly needs an
 override. Call `deinit()` or `off()` when a script owns output that should not
 remain active.
 
+Global volume follows the selected playback device, including runtime-attached
+outputs on boards without built-in audio. Selecting or opening a volume-capable
+output applies the current global value, and Player, WebRadio, Recorder, and
+Synth initialize their volume controls from that shared state.
+
 Recording and playback require enough internal/DMA memory even on boards with
 PSRAM. If an audio application reports no memory, stop unnecessary internal
 stack jobs and inspect `mem`.

@@ -667,6 +667,8 @@ Controls:
   progress with the current entry. Move shows progress across the selected
   top-level entries.
 - `Esc` cancels an active copy, move, or delete operation and keeps Files open.
+  A partial current-file copy is removed; top-level items completed before the
+  cancellation remain copied, moved, or deleted.
 - File operations refresh both panes after completion.
 - App-exit key exits.
 
@@ -1257,7 +1259,8 @@ from a port shell on a headless board after a playback device such as the LEDC
 PWM audio expansion has been attached. Its Play tab contains the waveform,
 envelope, volume, ADSR, and piano controls. The Wave tab is a graphical
 wavetable editor with selectable 16, 32, or 64-point resolution;
-edits reshape held notes immediately while the piano remains playable. The
+edits reshape held notes immediately while the piano remains playable, and
+switching tabs does not rewrite the custom wavetable. The
 Filter tab adds a resonant low-pass response graph, cutoff, resonance, envelope
 amount, and an independent graphical ADSR filter envelope. The Oscillator 2 tab
 adds a second per-note source with waveform, octave, fine detune, and unity-safe
@@ -1280,6 +1283,8 @@ SSD1306 useful as a synthesizer appliance display. After attaching it as
 `oled0`, open Synth on that target with `session create synth oled0`.
 During active playing, compact displays defer visualization until note input is
 quiet so synchronous display transfers cannot take priority over new notes.
+MIDI notes highlight the matching pitch class on the on-screen piano just like
+physical note keys.
 
 Controls:
 
