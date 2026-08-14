@@ -10,7 +10,7 @@
 #include "solar_os_task.h"
 
 #define HTTP_SERVER_ROUTE_MAX 10
-#define HTTP_SERVER_STACK_SIZE 6144
+#define HTTP_SERVER_STACK_SIZE 16384
 #define HTTP_SERVER_STOP_WAIT_MS 3000U
 
 static const char *TAG = "http_server";
@@ -209,8 +209,10 @@ static esp_err_t start_server(void)
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.stack_size = HTTP_SERVER_STACK_SIZE;
+    config.stack_size = 8192;
     config.max_open_sockets = 4;
+    config.max_req_hdr_len = 1024;
+    config.max_uri_len = 1024;
     config.lru_purge_enable = true;
     config.uri_match_fn = httpd_uri_match_wildcard;
 

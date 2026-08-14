@@ -4,10 +4,21 @@
 from __future__ import annotations
 
 import builtins
-import fcntl
 import os
 from pathlib import Path
 from typing import TextIO
+
+try:
+    import fcntl
+    HAS_FCNTL = True
+except ImportError:
+    HAS_FCNTL = False
+
+try:
+    import msvcrt
+    HAS_MSVCRT = True
+except ImportError:
+    HAS_MSVCRT = False
 
 
 _REGISTRY_NAME = "_solaros_platformio_build_locks"
@@ -31,20 +42,33 @@ def acquire_project_build_lock(project_dir: Path, build_environment: str) -> Non
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = lock_path.open("a+", encoding="utf-8")
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock_file.seek(0)
-        owner = lock_file.read().strip() or "unknown build"
-        print(
-            "SolarOS build lock busy "
-            f"({owner}); waiting to protect shared ESP-IDF component state"
-        )
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        print("SolarOS build lock acquired")
+    
+    if HAS_FCNTL:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.seek(0)
+            owner = lock_file.read().strip() or "unknown build"
+            print(
+                "SolarOS build lock busy "
+                f"({owner}); waiting to protect shared ESP-IDF component state"
+            )
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            print("SolarOS build lock acquired")
+    elif HAS_MSVCRT:
+        try:
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            print("SolarOS build lock busy; waiting...")
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            except OSError:
+                pass
+            print("SolarOS build lock acquired")
 
     lock_file.seek(0)
     lock_file.truncate()
     lock_file.write(f"pid={os.getpid()} env={build_environment}\n")
     lock_file.flush()
     registry[lock_key] = lock_file
+

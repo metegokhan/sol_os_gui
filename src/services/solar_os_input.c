@@ -59,6 +59,7 @@ static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static const char *const input_keyboard_layout_names[] = {
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US] = "us",
+    [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_TR] = "tr",
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE] = "de",
 };
 
@@ -700,6 +701,63 @@ static uint8_t input_usage_to_de(uint16_t usage,
     }
 }
 
+static uint8_t input_usage_to_tr(uint16_t usage,
+                                  uint8_t modifiers,
+                                  bool caps_lock)
+{
+    const bool shift = (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0;
+    const bool altgr = (modifiers & SOLAR_OS_INPUT_MOD_RIGHT_ALT) != 0;
+    const bool upper = shift ^ caps_lock;
+
+    if (altgr) {
+        switch (usage) {
+        case 0x14: return '@';
+        case 0x08: return 'e';
+        case 0x17: return 't';
+        case 0x24: return '{';
+        case 0x25: return '[';
+        case 0x26: return ']';
+        case 0x27: return '}';
+        case 0x2d: return '\\';
+        case 0x2e: return '|';
+        case 0x35: return '<';
+        default: return 0;
+        }
+    }
+
+    if (usage >= 0x04U && usage <= 0x1dU) {
+        uint8_t base = (uint8_t)('a' + usage - 0x04U);
+        return upper ? (uint8_t)toupper(base) : base;
+    }
+
+    if (usage >= 0x1eU && usage <= 0x27U) {
+        static const uint8_t shifted[] = {'!', '"', '^', '+', '%', '&', '/', '(', ')', '='};
+        return shift ? shifted[usage - 0x1eU] : input_unshifted_digit(usage);
+    }
+
+    switch (usage) {
+    case 0x28: return '\n';
+    case 0x29: return SOLAR_OS_KEY_ESCAPE;
+    case 0x2a: return '\b';
+    case 0x2b: return '\t';
+    case 0x2c: return ' ';
+    case 0x2d: return shift ? '_' : '-';
+    case 0x2e: return shift ? '*' : '-';
+    case 0x2f: return upper ? 'G' : 'g';
+    case 0x30: return upper ? 'U' : 'u';
+    case 0x31: return shift ? '~' : ',';
+    case 0x32: return shift ? '|' : '\\';
+    case 0x33: return upper ? 'S' : 's';
+    case 0x34: return upper ? 'I' : 'i';
+    case 0x35: return shift ? 'e' : '"';
+    case 0x36: return upper ? 'O' : 'o';
+    case 0x37: return upper ? 'C' : 'c';
+    case 0x38: return shift ? ':' : '.';
+    case 0x64: return shift ? '>' : '<';
+    default: return 0;
+    }
+}
+
 static uint8_t input_usage_to_function_key(uint16_t usage)
 {
     if (usage >= 0x3aU && usage <= 0x45U) {
@@ -794,6 +852,9 @@ uint8_t solar_os_input_translate_hid_usage(uint16_t usage,
     }
     if (key != 0) {
         return key;
+    }
+    if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_TR) {
+        return input_usage_to_tr(usage, modifiers, caps_lock);
     }
     if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) {
         return input_usage_to_de(usage, modifiers, caps_lock);

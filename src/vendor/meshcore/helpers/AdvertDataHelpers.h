@@ -2,7 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <Mesh.h>
+#include "../Mesh.h"
 
 #define ADV_TYPE_NONE         0
 #define ADV_TYPE_CHAT         1

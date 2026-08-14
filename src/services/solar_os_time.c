@@ -35,10 +35,22 @@ static const timezone_alias_t timezone_aliases[] = {
     {"UTC", "UTC", "UTC0"},
     {"utc", "UTC", "UTC0"},
     {"Etc/UTC", "UTC", "UTC0"},
+    {"Europe/Istanbul", "Europe/Istanbul", "<+03>-3"},
+    {"europe/istanbul", "Europe/Istanbul", "<+03>-3"},
+    {"Istanbul", "Europe/Istanbul", "<+03>-3"},
+    {"istanbul", "Europe/Istanbul", "<+03>-3"},
     {"Europe/Berlin", "Europe/Berlin", "CET-1CEST,M3.5.0/2,M10.5.0/3"},
     {"europe/berlin", "Europe/Berlin", "CET-1CEST,M3.5.0/2,M10.5.0/3"},
     {"Berlin", "Europe/Berlin", "CET-1CEST,M3.5.0/2,M10.5.0/3"},
     {"berlin", "Europe/Berlin", "CET-1CEST,M3.5.0/2,M10.5.0/3"},
+    {"Europe/London", "Europe/London", "GMT0BST,M3.5.0/1,M10.5.0/2"},
+    {"London", "Europe/London", "GMT0BST,M3.5.0/1,M10.5.0/2"},
+    {"America/New_York", "America/New_York", "EST5EDT,M3.2.0,M11.1.0"},
+    {"New York", "America/New_York", "EST5EDT,M3.2.0,M11.1.0"},
+    {"Asia/Tokyo", "Asia/Tokyo", "JST-9"},
+    {"Tokyo", "Asia/Tokyo", "JST-9"},
+    {"Europe/Paris", "Europe/Paris", "CET-1CEST,M3.5.0/2,M10.5.0/3"},
+    {"Paris", "Europe/Paris", "CET-1CEST,M3.5.0/2,M10.5.0/3"},
 };
 
 static char timezone_name[SOLAR_OS_TIMEZONE_NAME_MAX] = "UTC";

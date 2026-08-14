@@ -119,6 +119,20 @@
 #if SOLAR_OS_PACKAGE_APP_VIEW
 #include "solar_os_view.h"
 #endif
+#include "solar_os_calendar.h"
+#include "solar_os_chess.h"
+#include "solar_os_file_server.h"
+#include "solar_os_go.h"
+#include "solar_os_launcher.h"
+#include "solar_os_photo_frame.h"
+#include "solar_os_pomodoro.h"
+#include "solar_os_settings_gui.h"
+#include "solar_os_stopwatch.h"
+#include "solar_os_sudoku.h"
+#include "solar_os_thermometer.h"
+#include "solar_os_timer.h"
+#include "solar_os_weather.h"
+#include "solar_os_wifi_setup.h"
 
 #define APP_ENTRY(app_name, app_summary, app_ptr, app_caps, app_usage, app_min, app_max) \
     {.name = app_name, .summary = app_summary, .app = app_ptr, .capabilities = app_caps, \
@@ -244,6 +258,20 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #if SOLAR_OS_PACKAGE_APP_VIEW
     APP_FILE_ENTRY("view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "view [-fit|-actual] <image>", 2, 3, ".png .jpg .jpeg .gif .webp .bmp .pnm .pbm .pgm .ppm"),
 #endif
+    APP_ENTRY("launcher", "graphical application launcher", &solar_os_launcher_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "launcher", 1, 1),
+    APP_ENTRY("thermometer", "hardware temperature monitor", &solar_os_thermometer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "thermometer", 1, 1),
+    APP_ENTRY("weather", "graphical weather forecast", &solar_os_weather_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "weather", 1, 1),
+    APP_ENTRY("pomodoro", "visual pomodoro focus timer", &solar_os_pomodoro_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "pomodoro", 1, 1),
+    APP_FILE_ENTRY("photos", "photo frame slideshow", &solar_os_photo_frame_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "photos [folder]", 1, 2, ".bmp .raw .xbm .pbm .png .jpg"),
+    APP_ENTRY("calendar", "monthly calendar and live clock", &solar_os_calendar_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "calendar", 1, 1),
+    APP_ENTRY("wifi_setup", "graphical Wi-Fi network connection tool", &solar_os_wifi_setup_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "wifi_setup", 1, 1),
+    APP_ENTRY("settings_gui", "system settings and control panel", &solar_os_settings_gui_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "settings_gui", 1, 1),
+    APP_ENTRY("web_files", "Wi-Fi SD card HTTP file server", &solar_os_file_server_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "web_files", 1, 1),
+    APP_ENTRY("chess", "classic 8x8 solar chess game", &solar_os_chess_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "chess", 1, 1),
+    APP_ENTRY("go", "classic 9x9 board game of Go", &solar_os_go_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "go", 1, 1),
+    APP_ENTRY("sudoku", "classic 9x9 Sudoku number puzzle", &solar_os_sudoku_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "sudoku", 1, 1),
+    APP_ENTRY("stopwatch", "precision stopwatch with lap recorder", &solar_os_stopwatch_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "stopwatch", 1, 1),
+    APP_ENTRY("timer", "countdown timer with audible alarm", &solar_os_timer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "timer", 1, 1),
     {0},
 };
 

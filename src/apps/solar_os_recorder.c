@@ -2,10 +2,12 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -65,6 +67,7 @@ typedef enum {
     RECORDER_VISUALIZER_CASSETTE,
     RECORDER_VISUALIZER_SCOPE,
     RECORDER_VISUALIZER_SPECTRUM,
+    RECORDER_VISUALIZER_VUMETER,
     RECORDER_VISUALIZER_COUNT,
 } recorder_visualizer_t;
 typedef enum {
@@ -146,6 +149,8 @@ typedef struct {
     uint32_t elapsed_ms;
     uint32_t data_bytes;
     uint32_t last_visualizer_ms;
+    float vu_l;
+    float vu_r;
     uint32_t last_input_refresh_ms;
     uint32_t internal_free_before;
     float saved_input_gain_db;
@@ -586,6 +591,25 @@ static void recorder_samples_callback(const int16_t *samples,
         (void)solar_os_spectrum_widget_submit_s16(
             recorder.spectrum, samples, frames, channels);
     }
+
+    int32_t max_l = 0;
+    int32_t max_r = 0;
+    for (size_t i = 0; i < frames; i++) {
+        int32_t l = abs((int32_t)samples[i * channels]);
+        int32_t r = (channels > 1U) ? abs((int32_t)samples[i * channels + 1U]) : l;
+        if (l > max_l) max_l = l;
+        if (r > max_r) max_r = r;
+    }
+    float peak_l = (float)max_l / 32768.0f;
+    float peak_r = (float)max_r / 32768.0f;
+
+    portENTER_CRITICAL(&recorder_lock);
+    if (peak_l > recorder.vu_l) recorder.vu_l = recorder.vu_l * 0.2f + peak_l * 0.8f;
+    else recorder.vu_l = recorder.vu_l * 0.88f + peak_l * 0.12f;
+
+    if (peak_r > recorder.vu_r) recorder.vu_r = recorder.vu_r * 0.2f + peak_r * 0.8f;
+    else recorder.vu_r = recorder.vu_r * 0.88f + peak_r * 0.12f;
+    portEXIT_CRITICAL(&recorder_lock);
 }
 
 static void recorder_device_callback(
@@ -1268,6 +1292,107 @@ static void recorder_draw_header(solar_os_gfx_t *gfx, int width)
         width - (int)solar_os_gfx_text_width(gfx, text) - 7, 18, text);
 }
 
+static void draw_single_vu_dial(solar_os_gfx_t *gfx, int pivot_x, int pivot_y, int radius, float level, const char *label)
+{
+    const float min_angle = -0.62f;
+    const float max_angle =  0.62f;
+    const float zero_db_angle = 0.20f;
+
+    const int r_outer = radius;
+    const int r_inner = radius - 10;
+
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+
+    /* Draw curved double arc scale */
+    for (float a = min_angle; a <= max_angle; a += 0.02f) {
+        int x_out = pivot_x + (int)((float)r_outer * sinf(a));
+        int y_out = pivot_y - (int)((float)r_outer * cosf(a));
+        int x_in  = pivot_x + (int)((float)r_inner * sinf(a));
+        int y_in  = pivot_y - (int)((float)r_inner * cosf(a));
+        solar_os_gfx_line(gfx, x_out, y_out, x_out, y_out);
+        solar_os_gfx_line(gfx, x_in, y_in, x_in, y_in);
+    }
+
+    /* Red / Overload Zone */
+    for (float a = zero_db_angle; a <= max_angle; a += 0.04f) {
+        int x_out = pivot_x + (int)((float)r_outer * sinf(a));
+        int y_out = pivot_y - (int)((float)r_outer * cosf(a));
+        int x_in  = pivot_x + (int)((float)r_inner * sinf(a));
+        int y_in  = pivot_y - (int)((float)r_inner * cosf(a));
+        solar_os_gfx_line(gfx, x_out, y_out, x_in, y_in);
+    }
+
+    /* Ticks & Labels: -20, -10, -5, 0, +3, +6 */
+    struct {
+        float angle;
+        const char *txt;
+        bool is_major;
+    } ticks[] = {
+        {-0.60f, "-20", true},
+        {-0.44f, "",    false},
+        {-0.28f, "-10", true},
+        {-0.14f, "",    false},
+        {-0.02f, "-5",  true},
+        { 0.08f, "",    false},
+        { 0.20f, "0",   true},
+        { 0.38f, "+3",  true},
+        { 0.58f, "+6",  true},
+    };
+
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    for (size_t i = 0; i < sizeof(ticks)/sizeof(ticks[0]); i++) {
+        float a = ticks[i].angle;
+        int t_len = ticks[i].is_major ? 7 : 4;
+        int x0 = pivot_x + (int)((float)(r_outer + 2) * sinf(a));
+        int y0 = pivot_y - (int)((float)(r_outer + 2) * cosf(a));
+        int x1 = pivot_x + (int)((float)(r_outer + 2 + t_len) * sinf(a));
+        int y1 = pivot_y - (int)((float)(r_outer + 2 + t_len) * cosf(a));
+        solar_os_gfx_line(gfx, x0, y0, x1, y1);
+
+        if (ticks[i].txt[0] != '\0') {
+            int tx = pivot_x + (int)((float)(r_outer + 15) * sinf(a)) - 8;
+            int ty = pivot_y - (int)((float)(r_outer + 15) * cosf(a)) + 4;
+            solar_os_gfx_text(gfx, tx, ty, ticks[i].txt);
+        }
+    }
+
+    /* Reactive needle */
+    float norm = sqrtf(level);
+    if (norm > 1.0f) norm = 1.0f;
+    float needle_angle = min_angle + norm * (max_angle - min_angle);
+
+    int nx = pivot_x + (int)((float)(r_outer + 4) * sinf(needle_angle));
+    int ny = pivot_y - (int)((float)(r_outer + 4) * cosf(needle_angle));
+
+    solar_os_gfx_line(gfx, pivot_x, pivot_y, nx, ny);
+    solar_os_gfx_line(gfx, pivot_x + 1, pivot_y, nx + 1, ny);
+
+    solar_os_gfx_fill_circle(gfx, pivot_x, pivot_y, 4);
+    solar_os_gfx_circle(gfx, pivot_x, pivot_y, 6);
+
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
+    solar_os_gfx_text(gfx, pivot_x + (strcmp(label, "L") == 0 ? -radius + 8 : radius - 16),
+                      pivot_y - 8, label);
+}
+
+static void recorder_draw_vu_meter(solar_os_gfx_t *gfx, int x, int y, int width, int height)
+{
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_rect(gfx, x, y, width, height);
+    solar_os_gfx_rect(gfx, x + 1, y + 1, width - 2, height - 2);
+
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
+    solar_os_gfx_text(gfx, x + width / 2 - 12, y + height / 2 + 10, "VU");
+
+    int dial_radius = height - 28;
+    int pivot_y = y + height - 6;
+    int left_pivot_x = x + width / 4 + 10;
+    int right_pivot_x = x + 3 * width / 4 - 10;
+
+    draw_single_vu_dial(gfx, left_pivot_x, pivot_y, dial_radius, recorder.vu_l, "L");
+    draw_single_vu_dial(gfx, right_pivot_x, pivot_y, dial_radius, recorder.vu_r, "R");
+}
+
 static void recorder_render_record_graphics(solar_os_gfx_t *gfx,
                                             int width, int height)
 {
@@ -1280,15 +1405,17 @@ static void recorder_render_record_graphics(solar_os_gfx_t *gfx,
     } else if (recorder.visualizer == RECORDER_VISUALIZER_SCOPE) {
         solar_os_oscilloscope_widget_draw(recorder.scope, gfx, 5, visual_y,
                                           width - 10, visual_height);
-    } else {
+    } else if (recorder.visualizer == RECORDER_VISUALIZER_SPECTRUM) {
         solar_os_spectrum_widget_draw(recorder.spectrum, gfx, 5, visual_y,
                                       width - 10, visual_height);
+    } else {
+        recorder_draw_vu_meter(gfx, 5, visual_y, width - 10, visual_height);
     }
     static const char *labels[] = {
-        "CASSETTE  V", "SCOPE  V", "SPECTRUM  V",
+        "CASSETTE  V", "SCOPE  V", "SPECTRUM  V", "VU METER  V",
     };
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 9, visual_y + 4, 86, 15);
+    solar_os_gfx_fill_rect(gfx, 9, visual_y + 4, 90, 15);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_text(gfx, 13, visual_y + 15, labels[recorder.visualizer]);

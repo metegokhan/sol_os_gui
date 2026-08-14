@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
-#include <Mesh.h>
+#include "../Arduino.h"
+#include "../Mesh.h"
 
 #define OUT_PATH_UNKNOWN   0xFF
 

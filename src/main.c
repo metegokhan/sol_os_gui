@@ -1355,7 +1355,12 @@ static void init_peripherals(void)
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
         const esp_err_t ble_err = solar_os_ble_keyboard_init();
-        if (ble_err == ESP_ERR_NOT_ALLOWED) {
+        if (ble_err == ESP_OK) {
+            if (solar_os_ble_keyboard_remembered_count() == 0) {
+                SOLAR_OS_LOGI(TAG, "No BLE keyboard remembered; starting pairing scan...");
+                solar_os_ble_keyboard_start_pairing();
+            }
+        } else if (ble_err == ESP_ERR_NOT_ALLOWED) {
             SOLAR_OS_LOGI(TAG, "BLE disabled by saved boot setting");
         } else if (ble_err != ESP_OK) {
             SOLAR_OS_LOGE(TAG, "BLE keyboard init failed: %s", esp_err_to_name(ble_err));
@@ -1392,6 +1397,18 @@ static void maybe_enter_idle_sleep(void)
 
 static void start_headless_shell_if_needed(void)
 {
+    if (board_has(SOLAR_OS_BOARD_CAP_CDC)) {
+        uint8_t cdc_session_id = 0;
+        const esp_err_t cdc_err =
+            solar_os_port_shell_start(&os_ctx, SOLAR_OS_CDC_PORT_NAME, false, &cdc_session_id);
+        if (cdc_err == ESP_OK) {
+            SOLAR_OS_LOGI(TAG,
+                          "USB CDC shell session %u started on %s",
+                          (unsigned)cdc_session_id,
+                          SOLAR_OS_CDC_PORT_NAME);
+        }
+    }
+
     if (terminal != NULL) {
         return;
     }
@@ -1457,8 +1474,7 @@ void app_main(void)
     print_boot_summary();
     key_button_init();
 
-    const bool reserve_port_shell =
-        !board_has(SOLAR_OS_BOARD_CAP_DISPLAY);
+    const bool reserve_port_shell = true;
     const esp_err_t port_shell_err =
         solar_os_port_shell_init(reserve_port_shell);
     if (port_shell_err != ESP_OK) {

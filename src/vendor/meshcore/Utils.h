@@ -1,7 +1,7 @@
 #pragma once
 
-#include <MeshCore.h>
-#include <Stream.h>
+#include "MeshCore.h"
+#include "Stream.h"
 #include <string.h>
 
 namespace mesh {

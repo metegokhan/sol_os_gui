@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Dispatcher.h>
+#include "../Dispatcher.h"
 
 class PacketQueue {
   mesh::Packet** _table;

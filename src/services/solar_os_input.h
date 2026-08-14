@@ -36,6 +36,7 @@ typedef uint8_t solar_os_input_source_t;
 
 typedef enum {
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US,
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_TR,
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE,
 } solar_os_input_keyboard_layout_t;
 

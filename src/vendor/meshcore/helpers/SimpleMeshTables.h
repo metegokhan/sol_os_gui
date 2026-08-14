@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Mesh.h>
+#include "../Mesh.h"
 
 #if defined(ESP32) && !defined(MESHCORE_SOLAROS)
   #include <FS.h>

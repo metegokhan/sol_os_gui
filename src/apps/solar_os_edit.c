@@ -1421,14 +1421,7 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
     (void)solar_os_tui_enable_diff(&editor.tui, true);
     editor_capture_text_size();
 
-    if (argc != 2) {
-        editor.error_only = true;
-        char usage[sizeof(editor.message)];
-        snprintf(usage, sizeof(usage), "usage: %s <file>", editor_app_name());
-        editor_set_message(usage);
-        editor_render(ctx);
-        return ESP_OK;
-    }
+    const char *arg = (argc == 2) ? solar_os_context_argv(ctx, 1) : "/sdcard/scripts/default.py";
 
     if (!solar_os_storage_is_mounted()) {
         editor.error_only = true;
@@ -1437,7 +1430,6 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
         return ESP_OK;
     }
 
-    const char *arg = solar_os_context_argv(ctx, 1);
     const esp_err_t path_err = solar_os_storage_resolve_path(arg,
                                                              editor.path,
                                                              sizeof(editor.path));

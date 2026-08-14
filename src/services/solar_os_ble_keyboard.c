@@ -332,6 +332,7 @@ static esp_ble_scan_params_t scan_params = {
 
 static const char *keyboard_layout_names[] = {
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_US] = "us",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_TR] = "tr",
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE] = "de",
 };
 
@@ -2131,10 +2132,16 @@ static void gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *p
         esp_ble_confirm_reply(param->ble_security.key_notif.bd_addr, true);
         break;
 
-    case ESP_GAP_BLE_PASSKEY_REQ_EVT:
-        SOLAR_OS_LOGW(TAG, "peer requested a passkey; no numeric input is available");
-        set_status(BLE_KEYBOARD_FAILED, "passkey input needed");
+    case ESP_GAP_BLE_PASSKEY_REQ_EVT: {
+        uint32_t passkey = 123456;
+        SOLAR_OS_LOGI(TAG, "passkey requested by peer; replying with passkey %06" PRIu32 ". Type %06" PRIu32 " on keyboard and Enter",
+                      passkey, passkey);
+        esp_ble_passkey_reply(param->ble_security.ble_req.bd_addr, true, passkey);
+        set_status(BLE_KEYBOARD_PASSKEY,
+                   "type %06" PRIu32 " Enter",
+                   passkey);
         break;
+    }
 
     case ESP_GAP_BLE_KEY_EVT:
         SOLAR_OS_LOGI(TAG, "key exchanged: %s", key_type_name(param->ble_security.ble_key.key_type));
@@ -2563,9 +2570,10 @@ static esp_err_t init_security(void)
     ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(
                             ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(init_key)),
                         TAG, "set init key failed");
+    uint32_t passkey = 123456;
     ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(
-                            ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(rsp_key)),
-                        TAG, "set rsp key failed");
+                            ESP_BLE_SM_SET_STATIC_PASSKEY, &passkey, sizeof(passkey)),
+                        TAG, "set static passkey failed");
 
     return ESP_OK;
 }

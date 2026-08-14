@@ -8430,8 +8430,15 @@ esp_err_t solar_os_shell_session_start(solar_os_context_t *ctx,
 
     solar_os_shell_io_clear(io);
     solar_os_shell_io_write_bold(io, "Welcome to SolarOS");
-    solar_os_shell_io_newline(io);
-    if (!run_startup || shell_run_startup_script(ctx)) {
+    if (run_startup) {
+        (void)shell_run_startup_script(ctx);
+        const solar_os_app_registry_entry_t *launcher_entry = solar_os_app_registry_find("launcher");
+        if (launcher_entry != NULL && launcher_entry->app != NULL) {
+            (void)solar_os_context_request_launch_ex(ctx, launcher_entry->app, 0, NULL, SOLAR_OS_LAUNCH_CHILD_RETURN);
+        } else {
+            shell_prompt(ctx);
+        }
+    } else {
         shell_prompt(ctx);
     }
     return ESP_OK;

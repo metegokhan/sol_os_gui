@@ -15,6 +15,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "nvs.h"
 #include "sdkconfig.h"
 #include "solar_os_gfx.h"
 #include "solar_os_http_client.h"
@@ -3112,10 +3113,29 @@ static bool web_parse_args(solar_os_context_t *ctx, const char **url)
 {
     const int argc = solar_os_context_argc(ctx);
     *url = NULL;
-    if (argc != 2) {
-        return false;
+    if (argc == 2) {
+        *url = solar_os_context_argv(ctx, 1);
+        return web_url_supported(*url);
     }
-    *url = solar_os_context_argv(ctx, 1);
+
+    /* When launched without arguments, load configured homepage or default */
+    static char s_home_buf[WEB_URL_MAX];
+    s_home_buf[0] = '\0';
+
+    nvs_handle_t nvs;
+    if (nvs_open("web", NVS_READONLY, &nvs) == ESP_OK) {
+        size_t len = sizeof(s_home_buf);
+        if (nvs_get_str(nvs, "homepage", s_home_buf, &len) == ESP_OK && len > 0) {
+            s_home_buf[sizeof(s_home_buf) - 1] = '\0';
+        }
+        nvs_close(nvs);
+    }
+
+    if (s_home_buf[0] == '\0') {
+        strlcpy(s_home_buf, "https://lite.duckduckgo.com", sizeof(s_home_buf));
+    }
+
+    *url = s_home_buf;
     return web_url_supported(*url);
 }
 

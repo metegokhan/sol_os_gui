@@ -913,15 +913,8 @@ static esp_err_t sheet_start(solar_os_context_t *ctx)
     (void)solar_os_tui_enable_diff(&sheet.tui, true);
 
     const int argc = solar_os_context_argc(ctx);
-    if (argc != 2) {
-        sheet.error_only = true;
-        sheet_set_message("usage: sheet <file.csv>");
-        sheet_render(ctx);
-        return ESP_OK;
-    }
-
-    const char *arg = solar_os_context_argv(ctx, 1);
-    strlcpy(sheet.display_name, arg != NULL ? arg : "", sizeof(sheet.display_name));
+    const char *arg = (argc == 2) ? solar_os_context_argv(ctx, 1) : "/sdcard/doc/default.csv";
+    strlcpy(sheet.display_name, arg != NULL ? arg : "default.csv", sizeof(sheet.display_name));
 
     err = solar_os_storage_resolve_path(arg, sheet.path, sizeof(sheet.path));
     if (err != ESP_OK) {
@@ -929,6 +922,17 @@ static esp_err_t sheet_start(solar_os_context_t *ctx)
         sheet_set_message(err == ESP_ERR_INVALID_SIZE ? "path too long" : "invalid path");
         sheet_render(ctx);
         return ESP_OK;
+    }
+
+    FILE *chk = fopen(sheet.path, "r");
+    if (chk == NULL) {
+        chk = fopen(sheet.path, "w");
+        if (chk != NULL) {
+            fputs("Item,Quantity,Unit_Price,Total\nApples,10,1.50,15.00\nOranges,8,2.00,16.00\nBananas,12,0.80,9.60\n", chk);
+            fclose(chk);
+        }
+    } else {
+        fclose(chk);
     }
 
     err = sheet_index_file();
