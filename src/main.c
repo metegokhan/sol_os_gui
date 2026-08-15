@@ -942,49 +942,6 @@ static void dispatch_input_chars(const char *chars, size_t count)
             continue;
         }
 
-        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_VOLUME_UP ||
-            (uint8_t)ch == SOLAR_OS_KEY_F11 ||
-            (uint8_t)ch == SOLAR_OS_KEY_CTRL_UP ||
-            (uint8_t)ch == SOLAR_OS_KEY_CTRL_PLUS) {
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-            step_system_volume(+5);
-#endif
-            continue;
-        }
-
-        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN ||
-            (uint8_t)ch == SOLAR_OS_KEY_F10 ||
-            (uint8_t)ch == SOLAR_OS_KEY_CTRL_DOWN ||
-            (uint8_t)ch == SOLAR_OS_KEY_CTRL_MINUS) {
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-            step_system_volume(-5);
-#endif
-            continue;
-        }
-
-        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE ||
-            (uint8_t)ch == SOLAR_OS_KEY_F9) {
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-            uint8_t volume = 0;
-            const esp_err_t err = solar_os_audio_toggle_mute(&volume);
-            if (err == ESP_OK) {
-                char msg[64];
-                if (volume == 0) {
-                    snprintf(msg, sizeof(msg), "Volume: Muted");
-                } else {
-                    snprintf(msg, sizeof(msg), "Volume: %u%%", (unsigned)volume);
-                }
-                session_overlay_requested(msg, NULL);
-                last_status_update_ms = 0;
-                update_status();
-                draw_terminal_if_needed();
-            } else if (err != ESP_ERR_NOT_SUPPORTED) {
-                SOLAR_OS_LOGW(TAG, "audio mute toggle failed: %s", esp_err_to_name(err));
-            }
-#endif
-            continue;
-        }
-
         if ((uint8_t)ch == SOLAR_OS_KEY_ALT_PREFIX) {
             if (alt_prefix_pending) {
                 dispatch_char_to_input_focus((char)SOLAR_OS_KEY_ALT_PREFIX);
@@ -1101,7 +1058,7 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         event->usage == 0x7f ||
         event->usage == 0xe2 ||
         event->usage == 0x4000) {
-        if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
+        if (event->action == SOLAR_OS_INPUT_KEY_PRESS) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
             uint8_t volume = 0;
             const esp_err_t err = solar_os_audio_toggle_mute(&volume);

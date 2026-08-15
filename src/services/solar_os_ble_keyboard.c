@@ -2090,6 +2090,9 @@ static void handle_keyboard_report(uint8_t map_index,
     previous_modifiers = modifiers;
 }
 
+static uint16_t previous_consumer_usage = 0;
+static uint8_t previous_consumer_key = 0;
+
 static void handle_consumer_report(uint16_t report_id, const uint8_t *data, uint16_t length)
 {
     if (data == NULL || length == 0) {
@@ -2111,7 +2114,16 @@ static void handle_consumer_report(uint16_t report_id, const uint8_t *data, uint
         }
     }
     if (all_zero) {
-        /* Release packet - all consumer keys released */
+        if (previous_consumer_usage != 0) {
+            (void)solar_os_input_write_key(input_source,
+                                           previous_consumer_usage,
+                                           previous_consumer_usage,
+                                           previous_consumer_key,
+                                           0,
+                                           SOLAR_OS_INPUT_KEY_RELEASE);
+            previous_consumer_usage = 0;
+            previous_consumer_key = 0;
+        }
         return;
     }
 
@@ -2175,11 +2187,35 @@ static void handle_consumer_report(uint16_t report_id, const uint8_t *data, uint
         if (key == 0) {
             key = (usage >= 32 && usage <= 126) ? (uint8_t)usage : (uint8_t)'\0';
         }
-        (void)solar_os_input_write_key(input_source, usage, usage, key, 0, SOLAR_OS_INPUT_KEY_PRESS);
-        if (key != 0) {
-            (void)solar_os_input_write_char(input_source, (char)key);
+
+        if (previous_consumer_usage == usage) {
+            (void)solar_os_input_write_key(input_source,
+                                           usage,
+                                           usage,
+                                           key,
+                                           0,
+                                           SOLAR_OS_INPUT_KEY_REPEAT);
+        } else {
+            if (previous_consumer_usage != 0) {
+                (void)solar_os_input_write_key(input_source,
+                                               previous_consumer_usage,
+                                               previous_consumer_usage,
+                                               previous_consumer_key,
+                                               0,
+                                               SOLAR_OS_INPUT_KEY_RELEASE);
+            }
+            (void)solar_os_input_write_key(input_source,
+                                           usage,
+                                           usage,
+                                           key,
+                                           0,
+                                           SOLAR_OS_INPUT_KEY_PRESS);
+            if (key >= 32 && key <= 126) {
+                (void)solar_os_input_write_char(input_source, (char)key);
+            }
+            previous_consumer_usage = usage;
+            previous_consumer_key = key;
         }
-        (void)solar_os_input_write_key(input_source, usage, usage, key, 0, SOLAR_OS_INPUT_KEY_RELEASE);
     }
 }
 
