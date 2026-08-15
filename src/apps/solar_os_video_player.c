@@ -258,47 +258,60 @@ static esp_err_t video_read_next_mjpeg_frame(void)
 {
     if (vplay.stream_file == NULL || vplay.stream_buf == NULL) return ESP_FAIL;
 
-    /* Fast chunked scan for JPEG SOI (0xFF 0xD8) to EOI (0xFF 0xD9) */
     size_t jpeg_len = 0;
-    bool found_soi = false;
-    uint8_t read_chunk[1024];
+    int state = 0; /* 0: search 0xFF, 1: search 0xD8 (SOI), 2: reading payload, 3: saw 0xFF in payload */
+    uint8_t chunk[2048];
+    size_t loop_count = 0;
 
-    while (1) {
-        size_t n = fread(read_chunk, 1, sizeof(read_chunk), vplay.stream_file);
+    while (loop_count++ < 200) {
+        size_t n = fread(chunk, 1, sizeof(chunk), vplay.stream_file);
         if (n == 0) {
-            /* End of file reached */
             video_handle_playback_end();
             return ESP_OK;
         }
 
         for (size_t i = 0; i < n; i++) {
-            uint8_t b = read_chunk[i];
-            if (!found_soi) {
-                if (b == 0xFF && i + 1 < n && read_chunk[i + 1] == 0xD8) {
-                    found_soi = true;
+            uint8_t b = chunk[i];
+            
+            if (state == 0) {
+                if (b == 0xFF) state = 1;
+            } else if (state == 1) {
+                if (b == 0xD8) {
+                    /* SOI found! */
                     vplay.stream_buf[0] = 0xFF;
                     vplay.stream_buf[1] = 0xD8;
                     jpeg_len = 2;
-                    i++;
+                    state = 2;
+                } else if (b != 0xFF) {
+                    state = 0;
                 }
-            } else {
+            } else if (state == 2) {
                 if (jpeg_len < vplay.stream_buf_size) {
                     vplay.stream_buf[jpeg_len++] = b;
                 }
-                if (b == 0xD9 && jpeg_len > 3 && vplay.stream_buf[jpeg_len - 2] == 0xFF) {
-                    /* Found complete JPEG frame! Seek back unread portion */
+                if (b == 0xFF) {
+                    state = 3;
+                }
+            } else if (state == 3) {
+                if (jpeg_len < vplay.stream_buf_size) {
+                    vplay.stream_buf[jpeg_len++] = b;
+                }
+                if (b == 0xD9) {
+                    /* EOI found! Frame is complete */
                     long unread = (long)(n - 1 - i);
                     if (unread > 0) {
                         fseek(vplay.stream_file, -unread, SEEK_CUR);
                     }
                     goto decode_frame;
+                } else if (b != 0xFF) {
+                    state = 2;
                 }
             }
         }
     }
 
 decode_frame:
-    if (jpeg_len > 4) {
+    if (jpeg_len > 4 && vplay.stream_buf[0] == 0xFF && vplay.stream_buf[1] == 0xD8) {
         uint8_t *decoded_gray = NULL;
         uint32_t dw = 0, dh = 0;
         esp_err_t err = solar_os_stb_jpeg_decode_gray(vplay.stream_buf, jpeg_len,
@@ -529,12 +542,21 @@ static void video_refresh_file_list(void)
     vplay.file_count = 0;
     vplay.selected_file = 0;
 
-    video_scan_folder("/sdcard/videos");
-    video_scan_folder("/sdcard/gifs");
-    video_scan_folder("/sdcard/photos");
-    video_scan_folder("/sdcard");
-    video_scan_folder("/flash/videos");
-    video_scan_folder("/flash/gifs");
+    const char *sd = solar_os_storage_sd_is_mounted() ? solar_os_storage_sd_mount_point() : "/sdcard";
+    const char *flash = solar_os_storage_flash_is_mounted() ? solar_os_storage_flash_mount_point() : "/flash";
+
+    char p[128];
+    if (sd != NULL) {
+        snprintf(p, sizeof(p), "%s/videos", sd); video_scan_folder(p);
+        snprintf(p, sizeof(p), "%s/gifs", sd); video_scan_folder(p);
+        snprintf(p, sizeof(p), "%s/photos", sd); video_scan_folder(p);
+        video_scan_folder(sd);
+    }
+    if (flash != NULL) {
+        snprintf(p, sizeof(p), "%s/videos", flash); video_scan_folder(p);
+        snprintf(p, sizeof(p), "%s/gifs", flash); video_scan_folder(p);
+        video_scan_folder(flash);
+    }
 }
 
 static void video_draw_frame(solar_os_gfx_t *gfx, int screen_w, int screen_h)

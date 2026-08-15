@@ -861,19 +861,20 @@ static void launcher_open_file_picker_for_app(const char *app_name)
     } else if (strcmp(app_name, "video_player") == 0) {
         strlcpy(launcher.picker_title, "CINEMA PLAYER - SELECT VIDEO / GIF", sizeof(launcher.picker_title));
         launcher.picker_icon = ICON_TYPE_PLAYER;
-        const char *exts[] = {".gif", ".mjpeg", ".vid", ".bmp", ".png", ".jpg"};
+        const char *exts[] = {".slv", ".flv", ".mjpeg", ".mjpg", ".vid", ".gif", ".bmp", ".png", ".jpg"};
+        const size_t num_exts = sizeof(exts) / sizeof(exts[0]);
         if (sd) {
             char path[64];
-            snprintf(path, sizeof(path), "%s/gifs", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
-            snprintf(path, sizeof(path), "%s/videos", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
-            snprintf(path, sizeof(path), "%s/photos", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
-            scan_dir_for_extensions(sd, exts, 6, ICON_TYPE_PLAYER);
+            snprintf(path, sizeof(path), "%s/videos", sd); scan_dir_for_extensions(path, exts, num_exts, ICON_TYPE_PLAYER);
+            snprintf(path, sizeof(path), "%s/gifs", sd); scan_dir_for_extensions(path, exts, num_exts, ICON_TYPE_PLAYER);
+            snprintf(path, sizeof(path), "%s/photos", sd); scan_dir_for_extensions(path, exts, num_exts, ICON_TYPE_PLAYER);
+            scan_dir_for_extensions(sd, exts, num_exts, ICON_TYPE_PLAYER);
         }
         if (flash) {
             char path[64];
-            snprintf(path, sizeof(path), "%s/gifs", flash); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
-            snprintf(path, sizeof(path), "%s/videos", flash); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
-            scan_dir_for_extensions(flash, exts, 6, ICON_TYPE_PLAYER);
+            snprintf(path, sizeof(path), "%s/videos", flash); scan_dir_for_extensions(path, exts, num_exts, ICON_TYPE_PLAYER);
+            snprintf(path, sizeof(path), "%s/gifs", flash); scan_dir_for_extensions(path, exts, num_exts, ICON_TYPE_PLAYER);
+            scan_dir_for_extensions(flash, exts, num_exts, ICON_TYPE_PLAYER);
         }
     }
 
