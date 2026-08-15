@@ -155,6 +155,9 @@ static uint32_t last_status_update_ms;
 static void process_app_requests(void);
 static void maybe_enter_idle_sleep(void);
 static void update_status(void);
+static void dispatch_char_to_input_focus(char ch);
+static bool input_focus_accepts_key_events(void);
+static void dispatch_key_to_input_focus(const solar_os_input_key_event_t *key);
 
 static uint32_t millis_u32(void)
 {
@@ -695,20 +698,20 @@ static void enter_light_sleep(const char *reason)
 
 static void handle_key_short_press(void)
 {
-    solar_os_power_status_t power_status;
-    solar_os_power_get_status(&power_status);
+    SOLAR_OS_LOGI(TAG, "KEY button pressed (GPIO %d) -> Universal ESC", (int)SOLAR_OS_BOARD_PIN_KEY);
+    solar_os_power_note_activity(millis_u32());
 
-    switch (power_status.key_action) {
-    case SOLAR_OS_POWER_KEY_ACTION_OFF:
-        SOLAR_OS_LOGI(TAG, "KEY short press: sleep disabled");
-        break;
-    case SOLAR_OS_POWER_KEY_ACTION_LIGHT:
-        enter_light_sleep("KEY short press");
-        break;
-    default:
-        SOLAR_OS_LOGW(TAG, "KEY short press: unknown power action");
-        break;
+    const solar_os_input_key_event_t event = {
+        .key = SOLAR_OS_KEY_ESCAPE,
+        .action = SOLAR_OS_INPUT_KEY_PRESS,
+        .modifiers = 0,
+    };
+    if (input_focus_accepts_key_events()) {
+        dispatch_key_to_input_focus(&event);
+    } else {
+        dispatch_char_to_input_focus((char)SOLAR_OS_KEY_ESCAPE);
     }
+    process_app_requests();
 }
 
 static void key_button_init(void)

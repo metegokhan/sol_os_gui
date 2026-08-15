@@ -3354,12 +3354,26 @@ static void reconnect_task(void *arg)
         (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(delay_ms));
     }
 
-    while (initialized && remembered_peer_count() > 0 && !connected) {
+    uint32_t direct_fail_count = 0;
+
+    while (initialized && !connected) {
         portENTER_CRITICAL(&reconnect_task_lock);
         const bool stop_requested = reconnect_stop_requested;
         portEXIT_CRITICAL(&reconnect_task_lock);
         if (stop_requested) {
             break;
+        }
+
+        if (remembered_peer_count() == 0) {
+            if (scan_task_handle == NULL &&
+                state != BLE_KEYBOARD_SCANNING &&
+                state != BLE_KEYBOARD_CONNECTING &&
+                state != BLE_KEYBOARD_PASSKEY) {
+                SOLAR_OS_LOGI(TAG, "no remembered keyboard, starting background pairing scan...");
+                (void)start_pairing_scan_now();
+            }
+            vTaskDelay(pdMS_TO_TICKS(4000));
+            continue;
         }
 
         if (pending_open_timed_out()) {
@@ -3368,12 +3382,22 @@ static void reconnect_task(void *arg)
             if (!connected && state == BLE_KEYBOARD_CONNECTING) {
                 set_status(BLE_KEYBOARD_FAILED, "open timeout");
             }
+            direct_fail_count++;
         }
 
         if (scan_task_handle == NULL &&
             state != BLE_KEYBOARD_SCANNING &&
             state != BLE_KEYBOARD_CONNECTING &&
             state != BLE_KEYBOARD_PASSKEY) {
+
+            if (direct_fail_count >= 3) {
+                SOLAR_OS_LOGI(TAG, "direct reconnect retries exceeded, scanning for keyboard...");
+                (void)start_pairing_scan_now();
+                direct_fail_count = 0;
+                vTaskDelay(pdMS_TO_TICKS(4000));
+                continue;
+            }
+
             const ble_keyboard_peer_t *peer = primary_remembered_peer();
             if (peer == NULL) {
                 break;
@@ -3405,6 +3429,8 @@ static void reconnect_task(void *arg)
             portEXIT_CRITICAL(&reconnect_task_lock);
             if (ret == ESP_OK) {
                 SOLAR_OS_LOGI(TAG, "reconnect attempt started");
+            } else {
+                direct_fail_count++;
             }
             if (stop_after_open) {
                 break;
@@ -3437,7 +3463,7 @@ static void reconnect_task(void *arg)
 
 static void schedule_reconnect(uint32_t delay_ms)
 {
-    if (!initialized || connected || remembered_peer_count() == 0 || reconnect_is_suppressed()) {
+    if (!initialized || connected || reconnect_is_suppressed()) {
         return;
     }
     portENTER_CRITICAL(&reconnect_task_lock);
