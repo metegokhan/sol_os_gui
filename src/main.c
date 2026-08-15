@@ -545,25 +545,21 @@ static bool wait_key_rtc_released_stable(uint32_t stable_ms, uint32_t timeout_ms
 
 static void enter_light_sleep(const char *reason)
 {
-    if (!board_has(SOLAR_OS_BOARD_CAP_KEY)) {
-        SOLAR_OS_LOGW(TAG, "%s: light sleep needs a KEY wake source", reason);
-        return;
-    }
+    SOLAR_OS_LOGI(TAG, "%s: preparing to enter light sleep", reason);
 
-    if (!wait_key_released_stable(KEY_RELEASE_STABLE_MS, KEY_RELEASE_STABLE_TIMEOUT_MS)) {
-        SOLAR_OS_LOGW(TAG, "%s: sleep cancelled, key release was not stable", reason);
-        key_pressed = key_button_is_pressed();
-        key_long_press_fired = false;
-        key_pressed_ms = millis_u32();
-        solar_os_power_note_activity(key_pressed_ms);
-        return;
+    /* Wait for KEY and BOOT buttons to be completely released so they don't immediately wake the system */
+    while (key_button_is_pressed() || boot_button_is_pressed()) {
+        vTaskDelay(pdMS_TO_TICKS(30));
+    }
+    vTaskDelay(pdMS_TO_TICKS(150)); /* Debounce release */
+
+    /* Turn off display */
+    if (display_u8g2 != NULL) {
+        u8g2_SetPowerSave(display_u8g2, 1);
     }
 
     update_status();
-    draw_terminal_if_needed();
     key_irq_pending = false;
-
-    SOLAR_OS_LOGI(TAG, "%s: entering light sleep", reason);
 
     esp_err_t err = solar_os_power_begin_explicit_sleep();
     if (err != ESP_OK) {
@@ -579,25 +575,26 @@ static void enter_light_sleep(const char *reason)
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "KEY RTC wake GPIO setup failed: %s", esp_err_to_name(err));
         key_restore_gpio_after_rtc();
+        if (display_u8g2 != NULL) {
+            u8g2_SetPowerSave(display_u8g2, 0);
+        }
         (void)solar_os_power_end_explicit_sleep();
         return;
     }
 
-    if (!wait_key_rtc_released_stable(KEY_RELEASE_STABLE_MS, KEY_RELEASE_STABLE_TIMEOUT_MS)) {
-        SOLAR_OS_LOGW(TAG, "%s: sleep cancelled, RTC key release was not stable", reason);
-        key_restore_gpio_after_rtc();
-        (void)solar_os_power_end_explicit_sleep();
-        key_pressed = key_button_is_pressed();
-        key_long_press_fired = false;
-        key_pressed_ms = millis_u32();
-        solar_os_power_note_activity(key_pressed_ms);
-        return;
+    /* Wait until RTC sees button released */
+    while (key_rtc_is_pressed()) {
+        vTaskDelay(pdMS_TO_TICKS(30));
     }
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     err = esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "KEY sleep RTC power setup failed: %s", esp_err_to_name(err));
         key_restore_gpio_after_rtc();
+        if (display_u8g2 != NULL) {
+            u8g2_SetPowerSave(display_u8g2, 0);
+        }
         (void)solar_os_power_end_explicit_sleep();
         return;
     }
@@ -607,6 +604,9 @@ static void enter_light_sleep(const char *reason)
         SOLAR_OS_LOGW(TAG, "KEY sleep source setup failed: %s", esp_err_to_name(err));
         (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
         key_restore_gpio_after_rtc();
+        if (display_u8g2 != NULL) {
+            u8g2_SetPowerSave(display_u8g2, 0);
+        }
         (void)solar_os_power_end_explicit_sleep();
         return;
     }
@@ -652,6 +652,11 @@ static void enter_light_sleep(const char *reason)
     (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
     key_restore_gpio_after_rtc();
 
+    /* Turn display back on */
+    if (display_u8g2 != NULL) {
+        u8g2_SetPowerSave(display_u8g2, 0);
+    }
+
     const uint32_t now_ms = millis_u32();
     last_app_tick_ms = now_ms;
     last_status_update_ms = 0;
@@ -659,6 +664,9 @@ static void enter_light_sleep(const char *reason)
     key_pressed = false;
     key_long_press_fired = false;
     key_ignore_until_released = key_button_is_pressed();
+
+    boot_pressed = false;
+    boot_long_press_fired = false;
 
     if (err == ESP_OK) {
         SOLAR_OS_LOGI(TAG,
