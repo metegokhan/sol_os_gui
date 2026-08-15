@@ -1071,7 +1071,8 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         event->key == SOLAR_OS_KEY_CTRL_UP ||
         event->key == SOLAR_OS_KEY_CTRL_PLUS ||
         event->usage == 0x80 ||
-        event->usage == 0xe9) {
+        event->usage == 0xe9 ||
+        event->usage == 0x0001) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
             step_system_volume(+5);
@@ -1085,7 +1086,8 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         event->key == SOLAR_OS_KEY_CTRL_DOWN ||
         event->key == SOLAR_OS_KEY_CTRL_MINUS ||
         event->usage == 0x81 ||
-        event->usage == 0xea) {
+        event->usage == 0xea ||
+        event->usage == 0x8000) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
             step_system_volume(-5);
@@ -1097,7 +1099,8 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     if (event->key == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE ||
         event->key == SOLAR_OS_KEY_F9 ||
         event->usage == 0x7f ||
-        event->usage == 0xe2) {
+        event->usage == 0xe2 ||
+        event->usage == 0x4000) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
             uint8_t volume = 0;

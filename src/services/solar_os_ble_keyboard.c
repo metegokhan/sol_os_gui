@@ -2124,9 +2124,12 @@ static void handle_consumer_report(uint16_t report_id, const uint8_t *data, uint
         if (u16 == 0) continue;
         usage = u16;
         switch (u16) {
-        case 0x00E9: key = SOLAR_OS_KEY_AUDIO_VOLUME_UP; break;
-        case 0x00EA: key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN; break;
-        case 0x00E2: key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE; break;
+        case 0x0001:
+        case 0x00E9: key = SOLAR_OS_KEY_AUDIO_VOLUME_UP; usage = 0x00E9; break;
+        case 0x8000:
+        case 0x00EA: key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN; usage = 0x00EA; break;
+        case 0x4000:
+        case 0x00E2: key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE; usage = 0x00E2; break;
         case 0x00CD: key = ' '; break;                    /* Play / Pause */
         case 0x00B5: key = SOLAR_OS_KEY_RIGHT; break;     /* Scan Next Track */
         case 0x00B6: key = SOLAR_OS_KEY_LEFT; break;      /* Scan Prev Track */

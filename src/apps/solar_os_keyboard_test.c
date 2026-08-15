@@ -53,15 +53,15 @@ static void keytest_get_key_label(const solar_os_input_key_event_t *ev, char *bu
         return;
     }
 
-    if (ev->key == SOLAR_OS_KEY_AUDIO_VOLUME_UP || ev->usage == 0x00E9 || ev->usage == 0x80) {
+    if (ev->key == SOLAR_OS_KEY_AUDIO_VOLUME_UP || ev->usage == 0x00E9 || ev->usage == 0x80 || ev->usage == 0x0001) {
         strlcpy(buf, "VOL_UP", buf_len);
         return;
     }
-    if (ev->key == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN || ev->usage == 0x00EA || ev->usage == 0x81) {
+    if (ev->key == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN || ev->usage == 0x00EA || ev->usage == 0x81 || ev->usage == 0x8000) {
         strlcpy(buf, "VOL_DOWN", buf_len);
         return;
     }
-    if (ev->key == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE || ev->usage == 0x00E2 || ev->usage == 0x7F) {
+    if (ev->key == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE || ev->usage == 0x00E2 || ev->usage == 0x7F || ev->usage == 0x4000) {
         strlcpy(buf, "MUTE", buf_len);
         return;
     }
