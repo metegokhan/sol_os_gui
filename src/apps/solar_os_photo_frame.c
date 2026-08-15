@@ -70,28 +70,14 @@ static void pframe_refresh_photos(void)
     if (solar_os_storage_sd_is_mounted()) {
         const char *sd_root = solar_os_storage_sd_mount_point();
         char path[64];
-        snprintf(path, sizeof(path), "%s/screencapture", sd_root);
-        scan_photos_in_dir(path);
-        snprintf(path, sizeof(path), "%s/screenshots", sd_root);
-        scan_photos_in_dir(path);
-        snprintf(path, sizeof(path), "%s/screenshot", sd_root);
-        scan_photos_in_dir(path);
         snprintf(path, sizeof(path), "%s/photos", sd_root);
         scan_photos_in_dir(path);
-        snprintf(path, sizeof(path), "%s/images", sd_root);
-        scan_photos_in_dir(path);
-        scan_photos_in_dir(sd_root);
     }
     if (solar_os_storage_flash_is_mounted()) {
         const char *flash_root = solar_os_storage_flash_mount_point();
         char path[64];
-        snprintf(path, sizeof(path), "%s/screencapture", flash_root);
-        scan_photos_in_dir(path);
         snprintf(path, sizeof(path), "%s/photos", flash_root);
         scan_photos_in_dir(path);
-        snprintf(path, sizeof(path), "%s/images", flash_root);
-        scan_photos_in_dir(path);
-        scan_photos_in_dir(flash_root);
     }
 }
 

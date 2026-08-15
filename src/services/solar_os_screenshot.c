@@ -10,15 +10,69 @@
 
 static const char *TAG = "screenshot";
 
-static uint8_t u8x8_get_pixel_1(uint16_t x, uint16_t y, uint8_t *dest_ptr, uint8_t tile_width)
+/* External U8g2 rotation callbacks to test active rotation */
+extern const u8g2_cb_t u8g2_cb_r0;
+extern const u8g2_cb_t u8g2_cb_r1;
+extern const u8g2_cb_t u8g2_cb_r2;
+extern const u8g2_cb_t u8g2_cb_r3;
+
+static uint8_t u8g2_extract_logical_pixel(u8g2_t *u8g2, uint16_t x, uint16_t y)
 {
-    dest_ptr += (y / 8) * tile_width * 8;
-    y &= 7;
-    dest_ptr += x;
-    if ((*dest_ptr & (1 << y)) == 0) {
+    if (u8g2 == NULL) {
         return 0;
     }
-    return 1;
+    uint8_t *buf = u8g2_GetBufferPtr(u8g2);
+    if (buf == NULL) {
+        return 0;
+    }
+
+    const u8x8_display_info_t *info = u8g2_GetU8x8(u8g2)->display_info;
+    if (info == NULL) {
+        return 0;
+    }
+
+    const uint8_t tile_width = info->tile_width;
+    const uint16_t native_w = info->pixel_width;
+    const uint16_t native_h = info->pixel_height;
+
+    uint16_t nx = x;
+    uint16_t ny = y;
+
+    /* Transform logical (x, y) coordinates to native buffer (nx, ny) coordinates */
+    if (u8g2->cb == &u8g2_cb_r1) {
+        /* R1 (90 deg clockwise): logical_w = native_h, logical_h = native_w */
+        if (y < native_w && x < native_h) {
+            nx = (uint16_t)((native_w - 1) - y);
+            ny = x;
+        } else {
+            return 0;
+        }
+    } else if (u8g2->cb == &u8g2_cb_r2) {
+        /* R2 (180 deg) */
+        if (x < native_w && y < native_h) {
+            nx = (uint16_t)((native_w - 1) - x);
+            ny = (uint16_t)((native_h - 1) - y);
+        } else {
+            return 0;
+        }
+    } else if (u8g2->cb == &u8g2_cb_r3) {
+        /* R3 (270 deg clockwise) */
+        if (y < native_h && x < native_w) {
+            nx = y;
+            ny = (uint16_t)((native_h - 1) - x);
+        } else {
+            return 0;
+        }
+    } else {
+        /* R0 (0 deg) */
+        if (x >= native_w || y >= native_h) {
+            return 0;
+        }
+    }
+
+    /* Vertical top LSB tile layout */
+    const size_t byte_idx = (size_t)(ny / 8) * (tile_width * 8) + (size_t)(nx / 8) * 8 + (nx & 7);
+    return (buf[byte_idx] >> (ny & 7)) & 1;
 }
 
 esp_err_t solar_os_screenshot_capture(u8g2_t *u8g2, char *saved_filename, size_t filename_size)
@@ -35,9 +89,8 @@ esp_err_t solar_os_screenshot_capture(u8g2_t *u8g2, char *saved_filename, size_t
 
     const uint16_t width = u8g2_GetDisplayWidth(u8g2);
     const uint16_t height = u8g2_GetDisplayHeight(u8g2);
-    const uint8_t tile_width = u8g2_GetBufferTileWidth(u8g2);
 
-    if (width == 0 || height == 0 || tile_width == 0) {
+    if (width == 0 || height == 0) {
         SOLAR_OS_LOGE(TAG, "Invalid display dimensions: %ux%u", width, height);
         return ESP_ERR_INVALID_STATE;
     }
@@ -112,7 +165,7 @@ esp_err_t solar_os_screenshot_capture(u8g2_t *u8g2, char *saved_filename, size_t
         return ESP_FAIL;
     }
 
-    /* Color Palette (8 bytes: Palette 0 = White, Palette 1 = Black) */
+    /* Color Palette (8 bytes: Palette 0 = White (Background), Palette 1 = Black (Foreground)) */
     const uint8_t palette[8] = {
         0xFF, 0xFF, 0xFF, 0x00, /* Color 0: White */
         0x00, 0x00, 0x00, 0x00  /* Color 1: Black */
@@ -132,7 +185,7 @@ esp_err_t solar_os_screenshot_capture(u8g2_t *u8g2, char *saved_filename, size_t
     for (int y = (int)height - 1; y >= 0; y--) {
         memset(row_buf, 0, row_size);
         for (uint16_t x = 0; x < width; x++) {
-            if (u8x8_get_pixel_1(x, (uint16_t)y, buf, tile_width)) {
+            if (u8g2_extract_logical_pixel(u8g2, x, (uint16_t)y)) {
                 row_buf[x / 8] |= (uint8_t)(1 << (7 - (x % 8)));
             }
         }

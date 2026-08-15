@@ -165,7 +165,7 @@ typedef struct {
     char picker_app_name[24];
     char picker_title[48];
     launcher_icon_type_t picker_icon;
-    launcher_picker_entry_t picker_items[32];
+    launcher_picker_entry_t picker_items[64];
     size_t picker_count;
     size_t selected_picker_item;
 
@@ -695,7 +695,7 @@ static void scan_dir_for_extensions(const char *dir_path, const char *const *ext
 
         for (size_t i = 0; i < ext_count; i++) {
             if (strcasecmp(dot, exts[i]) == 0) {
-                if (launcher.picker_count < 32) {
+                if (launcher.picker_count < 64) {
                     launcher_picker_entry_t *p = &launcher.picker_items[launcher.picker_count];
                     snprintf(p->path, sizeof(p->path), "%s/%s", dir_path, entry->d_name);
                     truncate_filename(entry->d_name, p->name, 28);
@@ -826,13 +826,23 @@ static void launcher_open_file_picker_for_app(const char *app_name)
     } else if (strcmp(app_name, "view") == 0) {
         strlcpy(launcher.picker_title, "PHOTO GALLERY - SELECT IMAGE", sizeof(launcher.picker_title));
         launcher.picker_icon = ICON_TYPE_VIEW;
-        const char *exts[] = {".png", ".jpg", ".bmp", ".webp"};
+        const char *exts[] = {".bmp", ".png", ".jpg", ".jpeg", ".webp", ".pbm"};
         if (sd) {
             char path[64];
-            snprintf(path, sizeof(path), "%s/photos", sd); scan_dir_for_extensions(path, exts, 4, ICON_TYPE_VIEW);
-            scan_dir_for_extensions(sd, exts, 4, ICON_TYPE_VIEW);
+            snprintf(path, sizeof(path), "%s/screencapture", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
+            snprintf(path, sizeof(path), "%s/screenshots", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
+            snprintf(path, sizeof(path), "%s/screenshot", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
+            snprintf(path, sizeof(path), "%s/photos", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
+            snprintf(path, sizeof(path), "%s/images", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
+            scan_dir_for_extensions(sd, exts, 6, ICON_TYPE_VIEW);
         }
-        if (flash) scan_dir_for_extensions(flash, exts, 4, ICON_TYPE_VIEW);
+        if (flash) {
+            char path[64];
+            snprintf(path, sizeof(path), "%s/screencapture", flash); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
+            snprintf(path, sizeof(path), "%s/photos", flash); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
+            snprintf(path, sizeof(path), "%s/images", flash); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
+            scan_dir_for_extensions(flash, exts, 6, ICON_TYPE_VIEW);
+        }
     }
 
     launcher.view_mode = VIEW_ROM_PICKER;
