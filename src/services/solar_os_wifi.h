@@ -99,3 +99,8 @@ esp_err_t solar_os_wifi_connectionless_release(const char *owner);
 void solar_os_wifi_get_status(solar_os_wifi_status_t *status);
 void solar_os_wifi_get_status_text(char *buffer, size_t len);
 const char *solar_os_wifi_state_name(solar_os_wifi_state_t state);
+esp_err_t solar_os_wifi_sync_sd_file(void);
+esp_err_t solar_os_wifi_save_to_sd_file(void);
+esp_err_t solar_os_wifi_auto_connect(void);
+
+

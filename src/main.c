@@ -1186,6 +1186,8 @@ static void init_peripherals(void)
             SOLAR_OS_LOGI(TAG, "Wi-Fi disabled by saved boot setting");
         } else if (wifi_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "Wi-Fi unavailable: %s", esp_err_to_name(wifi_err));
+        } else {
+            (void)solar_os_wifi_auto_connect();
         }
     }
 #endif

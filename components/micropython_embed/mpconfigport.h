@@ -31,3 +31,6 @@
 void solar_os_micropython_vm_hook(void);
 
 #define MICROPY_VM_HOOK_LOOP                    solar_os_micropython_vm_hook();
+
+
+

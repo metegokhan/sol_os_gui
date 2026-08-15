@@ -16,6 +16,7 @@
 #include "nvs.h"
 #include "solar_os_identity.h"
 #include "solar_os_log.h"
+#include "solar_os_storage.h"
 
 static const char *TAG = "solar_os_wifi";
 
@@ -587,6 +588,127 @@ static esp_err_t wifi_upsert_profile(const char *ssid, const char *password)
     wifi_unlock();
 
     return wifi_save_profiles();
+}
+
+esp_err_t solar_os_wifi_save_to_sd_file(void)
+{
+    const char *mount = solar_os_storage_sd_is_mounted() ? solar_os_storage_sd_mount_point() :
+        (solar_os_storage_flash_is_mounted() ? solar_os_storage_flash_mount_point() : "/sdcard");
+    if (mount == NULL) return ESP_ERR_NOT_FOUND;
+
+    char file_path[128];
+    snprintf(file_path, sizeof(file_path), "%s/saved.wifi", mount);
+
+    wifi_profile_t profiles[SOLAR_OS_WIFI_PROFILE_MAX];
+    size_t count = 0;
+
+    wifi_lock();
+    count = wifi_profile_count;
+    memcpy(profiles, wifi_profiles, sizeof(profiles));
+    wifi_unlock();
+
+    if (count == 0) return ESP_OK;
+
+    FILE *f = fopen(file_path, "w");
+    if (f == NULL) return ESP_FAIL;
+
+    fputs("# SolarOS Saved Wi-Fi Networks\n", f);
+    fputs("# Format: SSID,Password\n\n", f);
+    for (size_t i = 0; i < count; i++) {
+        if (profiles[i].ssid[0] != '\0') {
+            fprintf(f, "%s,%s\n", profiles[i].ssid, profiles[i].password);
+        }
+    }
+    fclose(f);
+    SOLAR_OS_LOGI(TAG, "saved %u Wi-Fi profile(s) to %s", (unsigned)count, file_path);
+    return ESP_OK;
+}
+
+esp_err_t solar_os_wifi_sync_sd_file(void)
+{
+    const char *mount = solar_os_storage_sd_is_mounted() ? solar_os_storage_sd_mount_point() :
+        (solar_os_storage_flash_is_mounted() ? solar_os_storage_flash_mount_point() : "/sdcard");
+    if (mount == NULL) return ESP_ERR_NOT_FOUND;
+
+    char file_path[128];
+    snprintf(file_path, sizeof(file_path), "%s/saved.wifi", mount);
+
+    FILE *f = fopen(file_path, "r");
+    if (f == NULL) {
+        snprintf(file_path, sizeof(file_path), "%s/wifi.conf", mount);
+        f = fopen(file_path, "r");
+    }
+
+    if (f != NULL) {
+        char line[160];
+        size_t loaded = 0;
+        while (fgets(line, sizeof(line), f) != NULL) {
+            char *p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == '#' || *p == '\r' || *p == '\n' || *p == '\0') continue;
+
+            char *end = p + strlen(p) - 1;
+            while (end >= p && (*end == '\r' || *end == '\n' || *end == ' ' || *end == '\t')) {
+                *end = '\0';
+                end--;
+            }
+            if (*p == '\0') continue;
+
+            char *sep = strchr(p, ',');
+            if (sep == NULL) sep = strchr(p, ':');
+            if (sep == NULL) sep = strchr(p, '=');
+
+            char ssid[SOLAR_OS_WIFI_SSID_MAX + 1] = {0};
+            char pass[SOLAR_OS_WIFI_PASSWORD_MAX] = {0};
+
+            if (sep != NULL) {
+                *sep = '\0';
+                strlcpy(ssid, p, sizeof(ssid));
+                strlcpy(pass, sep + 1, sizeof(pass));
+            } else {
+                strlcpy(ssid, p, sizeof(ssid));
+                pass[0] = '\0';
+            }
+
+            if (ssid[0] != '\0' && wifi_validate_station_settings(ssid, pass) == ESP_OK) {
+                wifi_upsert_profile(ssid, pass);
+                loaded++;
+            }
+        }
+        fclose(f);
+        if (loaded > 0) {
+            SOLAR_OS_LOGI(TAG, "loaded %u Wi-Fi profile(s) from %s", (unsigned)loaded, file_path);
+        }
+    } else {
+        solar_os_wifi_save_to_sd_file();
+    }
+    return ESP_OK;
+}
+
+static void wifi_auto_connect_task(void *arg)
+{
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    solar_os_wifi_sync_sd_file();
+
+    wifi_lock();
+    bool has_saved = wifi_has_saved_config && (wifi_profile_count > 0);
+    wifi_unlock();
+
+    if (has_saved) {
+        SOLAR_OS_LOGI(TAG, "auto-connecting to best available saved Wi-Fi network...");
+        solar_os_wifi_start();
+        solar_os_wifi_connect_saved();
+    }
+
+    vTaskDelete(NULL);
+}
+
+esp_err_t solar_os_wifi_auto_connect(void)
+{
+    xTaskCreate(wifi_auto_connect_task, "wifi_autoconn", 4096, NULL, tskIDLE_PRIORITY + 1, NULL);
+    return ESP_OK;
 }
 
 static esp_err_t wifi_select_saved_profile(wifi_profile_t *selected)
@@ -1184,7 +1306,12 @@ static void wifi_event_handler(void *arg,
                 wifi_copy_ssid(wifi_ssid, sizeof(wifi_ssid), event->ssid, event->ssid_len);
             }
             wifi_state = wifi_started ? SOLAR_OS_WIFI_STATE_DISCONNECTED : SOLAR_OS_WIFI_STATE_OFF;
+            const bool should_reconnect = wifi_started && wifi_sta_enabled && !wifi_suspended && wifi_has_saved_config;
             wifi_unlock();
+
+            if (should_reconnect) {
+                (void)esp_wifi_connect();
+            }
             break;
         }
         default:
@@ -1582,6 +1709,7 @@ esp_err_t solar_os_wifi_connect(const char *ssid, const char *password)
     if (ret != ESP_OK) {
         return ret;
     }
+    (void)solar_os_wifi_save_to_sd_file();
 
     wifi_lock();
     strlcpy(wifi_ssid, ssid, sizeof(wifi_ssid));
@@ -1732,6 +1860,7 @@ esp_err_t solar_os_wifi_forget_ssid(const char *ssid)
     if (ret != ESP_OK) {
         return ret;
     }
+    (void)solar_os_wifi_save_to_sd_file();
 
     if (removed_current) {
         (void)esp_wifi_disconnect();
@@ -1777,6 +1906,7 @@ esp_err_t solar_os_wifi_forget_all(void)
     if (ret != ESP_OK) {
         return ret;
     }
+    (void)solar_os_wifi_save_to_sd_file();
 
     return wifi_program_station_config(NULL);
 }

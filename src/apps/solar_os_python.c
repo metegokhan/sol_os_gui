@@ -6696,9 +6696,13 @@ static void python_drain_events(solar_os_context_t *ctx)
                     const char *status =
                         python_app.interrupted ? "python: stopped" : "python: failed";
                     solar_os_shell_io_writeln(io, status);
+                } else {
+                    solar_os_shell_io_writeln(io, "python: finished");
                 }
+                solar_os_shell_io_newline(io);
+                solar_os_shell_io_write_bold(io, "[ Press ESC to return ]");
+                solar_os_shell_io_newline(io);
                 python_flush_io(ctx, io);
-                python_return_to_shell(ctx);
                 break;
             }
             if (event.success && python_app.repl_exit_requested) {
@@ -6743,6 +6747,14 @@ static bool python_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     const uint8_t ch = (uint8_t)event->data.ch;
+    if (python_app.mode == PYTHON_MODE_SCRIPT && python_app.done) {
+        if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE ||
+            ch == '\r' || ch == '\n' || ch == 'q' || ch == 'Q') {
+            python_return_to_shell(ctx);
+            return true;
+        }
+        return true;
+    }
     if (ch == SOLAR_OS_KEY_APP_EXIT) {
         SOLAR_OS_LOGI(TAG,
                  "app-exit key: mode=%s task=%p running=%d interrupted=%d task_done=%d vm_active=%d",
@@ -6776,6 +6788,13 @@ static bool python_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         return true;
     }
     if (python_app.mode == PYTHON_MODE_SCRIPT) {
+        if (ch == SOLAR_OS_KEY_ESCAPE) {
+            if (python_app.running && !python_app.interrupted) {
+                python_interrupt();
+            }
+            python_return_to_shell(ctx);
+            return true;
+        }
         python_queue_script_key((char)ch);
         return true;
     }
