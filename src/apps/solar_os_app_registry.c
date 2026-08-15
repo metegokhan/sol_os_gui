@@ -133,6 +133,7 @@
 #include "solar_os_timer.h"
 #include "solar_os_weather.h"
 #include "solar_os_wifi_setup.h"
+#include "solar_os_keyboard_test.h"
 
 #define APP_ENTRY(app_name, app_summary, app_ptr, app_caps, app_usage, app_min, app_max) \
     {.name = app_name, .summary = app_summary, .app = app_ptr, .capabilities = app_caps, \
@@ -272,6 +273,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("sudoku", "classic 9x9 Sudoku number puzzle", &solar_os_sudoku_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "sudoku", 1, 1),
     APP_ENTRY("stopwatch", "precision stopwatch with lap recorder", &solar_os_stopwatch_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "stopwatch", 1, 1),
     APP_ENTRY("timer", "countdown timer with audible alarm", &solar_os_timer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "timer", 1, 1),
+    APP_ENTRY("keytest", "live keyboard tester and input inspector", &solar_os_keyboard_test_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "keytest", 1, 1),
     {0},
 };
 

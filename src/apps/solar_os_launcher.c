@@ -492,6 +492,20 @@ static void draw_app_icon(solar_os_gfx_t *gfx, int cx, int cy, launcher_icon_typ
         solar_os_gfx_fill_circle(gfx, cx, cy + 5, 3);
         break;
 
+    case ICON_TYPE_KEYBOARD_LAYOUT:
+        /* Keyboard icon: rectangular frame with key grid */
+        solar_os_gfx_rect(gfx, cx - 13, cy - 8, 26, 17);
+        solar_os_gfx_fill_rect(gfx, cx - 10, cy - 5, 4, 3);
+        solar_os_gfx_fill_rect(gfx, cx - 4, cy - 5, 4, 3);
+        solar_os_gfx_fill_rect(gfx, cx + 2, cy - 5, 4, 3);
+        solar_os_gfx_fill_rect(gfx, cx + 8, cy - 5, 4, 3);
+        solar_os_gfx_fill_rect(gfx, cx - 10, cy, 4, 3);
+        solar_os_gfx_fill_rect(gfx, cx - 4, cy, 4, 3);
+        solar_os_gfx_fill_rect(gfx, cx + 2, cy, 4, 3);
+        solar_os_gfx_fill_rect(gfx, cx + 8, cy, 4, 3);
+        solar_os_gfx_fill_rect(gfx, cx - 6, cy + 4, 12, 3);
+        break;
+
     default:
         solar_os_gfx_rect(gfx, cx - 10, cy - 10, 20, 20);
         solar_os_gfx_fill_circle(gfx, cx, cy, 3);
@@ -897,6 +911,7 @@ static void launcher_refresh_items(void)
     add_folder_item(0, ITEM_KIND_BUILTIN, "clock", "World Clock", "Clock and multi-timezone viewer", ICON_TYPE_CLOCK);
     add_folder_item(0, ITEM_KIND_BUILTIN, "stopwatch", "Stopwatch", "Precision stopwatch with lap splits", ICON_TYPE_STOPWATCH);
     add_folder_item(0, ITEM_KIND_BUILTIN, "timer", "Timer", "Countdown timer with audible alarm", ICON_TYPE_TIMER);
+    add_folder_item(0, ITEM_KIND_BUILTIN, "keytest", "Key Test", "Real-time key inspector & layout tester", ICON_TYPE_KEYBOARD_LAYOUT);
 
     /* Folder 1: Text & Reading */
     strlcpy(launcher.folders[1].title, "Text & Reading", sizeof(launcher.folders[1].title));
