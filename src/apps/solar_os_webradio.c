@@ -42,12 +42,12 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WEBRADIO_TASK_STACK);
 #define WEBRADIO_HTTP_TIMEOUT_MS 10000U
 #define WEBRADIO_HTTP_READ_POLL_MS 250U
 #define WEBRADIO_RECONNECT_DELAY_MS 2000U
-#define WEBRADIO_INPUT_BYTES 16384U
-#define WEBRADIO_PCM_BUFFER_BYTES 4096U
+#define WEBRADIO_INPUT_BYTES (64U * 1024U)
+#define WEBRADIO_PCM_BUFFER_BYTES (16U * 1024U)
 #define WEBRADIO_OUTPUT_SAMPLES (WEBRADIO_PCM_BUFFER_BYTES / sizeof(int16_t))
-#define WEBRADIO_JITTER_EXTERNAL_BYTES (128U * 1024U)
-#define WEBRADIO_JITTER_INTERNAL_BYTES (32U * 1024U)
-#define WEBRADIO_JITTER_TARGET_MS 500U
+#define WEBRADIO_JITTER_EXTERNAL_BYTES (512U * 1024U)
+#define WEBRADIO_JITTER_INTERNAL_BYTES (64U * 1024U)
+#define WEBRADIO_JITTER_TARGET_MS 2000U
 #define WEBRADIO_WORKER_POLL_MS 20U
 #define WEBRADIO_INVALID_STREAM_BYTES (64U * 1024U)
 #define WEBRADIO_GUI_HEADER_HEIGHT 28
@@ -1294,8 +1294,8 @@ static void webradio_network_task(void *arg)
             .timeout_ms = WEBRADIO_HTTP_TIMEOUT_MS,
             .read_poll_ms = WEBRADIO_HTTP_READ_POLL_MS,
             .cancel_flag = &webradio.stop_requested,
-            .receive_buffer_size = 2048U,
-            .transmit_buffer_size = 512U,
+            .receive_buffer_size = 8192U,
+            .transmit_buffer_size = 1024U,
             .event_handler = webradio_http_event,
             .user_data = &worker,
         };

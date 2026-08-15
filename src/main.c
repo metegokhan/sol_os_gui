@@ -942,21 +942,28 @@ static void dispatch_input_chars(const char *chars, size_t count)
             continue;
         }
 
-        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_VOLUME_UP) {
+        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_VOLUME_UP ||
+            (uint8_t)ch == SOLAR_OS_KEY_F11 ||
+            (uint8_t)ch == SOLAR_OS_KEY_CTRL_UP ||
+            (uint8_t)ch == SOLAR_OS_KEY_CTRL_PLUS) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
             step_system_volume(+5);
 #endif
             continue;
         }
 
-        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN) {
+        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN ||
+            (uint8_t)ch == SOLAR_OS_KEY_F10 ||
+            (uint8_t)ch == SOLAR_OS_KEY_CTRL_DOWN ||
+            (uint8_t)ch == SOLAR_OS_KEY_CTRL_MINUS) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
             step_system_volume(-5);
 #endif
             continue;
         }
 
-        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE) {
+        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE ||
+            (uint8_t)ch == SOLAR_OS_KEY_F9) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
             uint8_t volume = 0;
             const esp_err_t err = solar_os_audio_toggle_mute(&volume);
@@ -1058,6 +1065,9 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     }
 
     if (event->key == SOLAR_OS_KEY_AUDIO_VOLUME_UP ||
+        event->key == SOLAR_OS_KEY_F11 ||
+        event->key == SOLAR_OS_KEY_CTRL_UP ||
+        event->key == SOLAR_OS_KEY_CTRL_PLUS ||
         event->usage == 0x80 ||
         event->usage == 0xe9) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
@@ -1069,6 +1079,9 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     }
 
     if (event->key == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN ||
+        event->key == SOLAR_OS_KEY_F10 ||
+        event->key == SOLAR_OS_KEY_CTRL_DOWN ||
+        event->key == SOLAR_OS_KEY_CTRL_MINUS ||
         event->usage == 0x81 ||
         event->usage == 0xea) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
@@ -1080,6 +1093,7 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     }
 
     if (event->key == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE ||
+        event->key == SOLAR_OS_KEY_F9 ||
         event->usage == 0x7f ||
         event->usage == 0xe2) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {

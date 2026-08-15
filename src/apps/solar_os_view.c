@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 #include "solar_os_log.h"
 #include "esp_err.h"
@@ -31,6 +32,7 @@
 #define VIEW_GIF_MAX_STORED_PIXELS_INTERNAL (128U * 1024U)
 #define VIEW_PAN_STEP 32
 #define VIEW_TOKEN_MAX 32
+#define VIEW_FOLDER_MAX_FILES 128
 
 static const char *TAG = "solar_os_view";
 
@@ -40,13 +42,13 @@ typedef enum {
 } view_mode_t;
 
 typedef struct {
+    uint8_t *gray;
     uint32_t width;
     uint32_t height;
-    uint8_t *gray;
     uint32_t frame_count;
     uint32_t frame_index;
-    uint32_t next_frame_ms;
     uint32_t *frame_delays_ms;
+    uint32_t next_frame_ms;
 } view_image_t;
 
 typedef struct {
@@ -58,6 +60,10 @@ typedef struct {
     int pan_y;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char error_detail[96];
+    char folder[SOLAR_OS_STORAGE_PATH_MAX];
+    char filenames[VIEW_FOLDER_MAX_FILES][64];
+    size_t file_count;
+    size_t current_file_index;
 } view_state_t;
 
 static void *view_state_storage;
@@ -954,6 +960,21 @@ static void view_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     view_draw_scaled(gfx, origin_x, origin_y, draw_width, draw_height);
+
+    if (view_state.file_count > 1) {
+        char info[64];
+        snprintf(info, sizeof(info), "[%u/%u] %s",
+                 (unsigned)(view_state.current_file_index + 1),
+                 (unsigned)view_state.file_count,
+                 view_state.filenames[view_state.current_file_index]);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        const size_t tw = solar_os_gfx_text_width(gfx, info);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_fill_rect(gfx, screen_width - (int)tw - 8, screen_height - 16, (int)tw + 8, 16);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_text(gfx, screen_width - (int)tw - 4, screen_height - 4, info);
+    }
+
     solar_os_gfx_present(gfx);
 }
 
@@ -978,6 +999,111 @@ static void view_advance_animation(solar_os_context_t *ctx, uint32_t now_ms)
     image->frame_index = (image->frame_index + 1U) % image->frame_count;
     image->next_frame_ms = now_ms + view_current_frame_delay_ms(image);
     view_render(ctx);
+}
+
+static bool view_is_image_extension(const char *name)
+{
+    if (name == NULL) return false;
+    const char *dot = strrchr(name, '.');
+    if (dot == NULL) return false;
+    return (strcasecmp(dot, ".bmp") == 0 ||
+            strcasecmp(dot, ".png") == 0 ||
+            strcasecmp(dot, ".jpg") == 0 ||
+            strcasecmp(dot, ".jpeg") == 0 ||
+            strcasecmp(dot, ".pbm") == 0 ||
+            strcasecmp(dot, ".pgm") == 0 ||
+            strcasecmp(dot, ".ppm") == 0 ||
+            strcasecmp(dot, ".pnm") == 0 ||
+            strcasecmp(dot, ".gif") == 0 ||
+            strcasecmp(dot, ".webp") == 0);
+}
+
+static void view_scan_folder(const char *current_path)
+{
+    view_state.file_count = 0;
+    view_state.current_file_index = 0;
+    view_state.folder[0] = '\0';
+
+    if (current_path == NULL || current_path[0] == '\0') {
+        return;
+    }
+
+    const char *last_slash = strrchr(current_path, '/');
+    const char *base_name = last_slash != NULL ? last_slash + 1 : current_path;
+
+    if (last_slash != NULL) {
+        size_t dirlen = (size_t)(last_slash - current_path);
+        if (dirlen >= sizeof(view_state.folder)) dirlen = sizeof(view_state.folder) - 1;
+        memcpy(view_state.folder, current_path, dirlen);
+        view_state.folder[dirlen] = '\0';
+    } else {
+        strlcpy(view_state.folder, ".", sizeof(view_state.folder));
+    }
+
+    DIR *dir = opendir(view_state.folder[0] ? view_state.folder : "/");
+    if (dir == NULL) {
+        return;
+    }
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        if (view_is_image_extension(ent->d_name)) {
+            if (view_state.file_count < VIEW_FOLDER_MAX_FILES) {
+                strlcpy(view_state.filenames[view_state.file_count], ent->d_name, sizeof(view_state.filenames[0]));
+                view_state.file_count++;
+            }
+        }
+    }
+    closedir(dir);
+
+    for (size_t i = 0; i + 1 < view_state.file_count; i++) {
+        for (size_t j = i + 1; j < view_state.file_count; j++) {
+            if (strcasecmp(view_state.filenames[i], view_state.filenames[j]) > 0) {
+                char tmp[64];
+                memcpy(tmp, view_state.filenames[i], sizeof(tmp));
+                memcpy(view_state.filenames[i], view_state.filenames[j], sizeof(tmp));
+                memcpy(view_state.filenames[j], tmp, sizeof(tmp));
+            }
+        }
+    }
+
+    for (size_t i = 0; i < view_state.file_count; i++) {
+        if (strcasecmp(view_state.filenames[i], base_name) == 0) {
+            view_state.current_file_index = i;
+            break;
+        }
+    }
+}
+
+static esp_err_t view_load_file_by_index(solar_os_context_t *ctx, size_t index)
+{
+    if (index >= view_state.file_count) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char new_path[SOLAR_OS_STORAGE_PATH_MAX];
+    snprintf(new_path, sizeof(new_path), "%s/%s", view_state.folder, view_state.filenames[index]);
+
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    const uint32_t target_width = gfx != NULL ? (uint32_t)solar_os_gfx_width(gfx) : 0;
+    const uint32_t target_height = gfx != NULL ? (uint32_t)solar_os_gfx_height(gfx) : 0;
+
+    view_image_t new_image;
+    memset(&new_image, 0, sizeof(new_image));
+    esp_err_t err = view_decode_file(new_path, &new_image, target_width, target_height);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    view_free_image(&view_state.image);
+    view_state.image = new_image;
+    strlcpy(view_state.path, new_path, sizeof(view_state.path));
+    view_state.current_file_index = index;
+    view_state.loaded = true;
+    view_reset_pan(gfx);
+    view_render(ctx);
+    return ESP_OK;
 }
 
 static bool view_parse_args(solar_os_context_t *ctx, view_mode_t *mode, const char **path_arg)
@@ -1049,6 +1175,7 @@ static esp_err_t view_start(solar_os_context_t *ctx)
     view_state.loaded = true;
     view_state.suspended = false;
     view_state.mode = mode;
+    view_scan_folder(view_state.path);
     solar_os_context_set_graphics_active(ctx, true);
     view_reset_pan(solar_os_context_gfx(ctx));
     view_render(ctx);
@@ -1122,12 +1249,32 @@ static bool view_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     bool redraw = false;
     switch (ch) {
     case SOLAR_OS_KEY_LEFT:
-        view_state.pan_x += VIEW_PAN_STEP;
-        redraw = true;
+    case SOLAR_OS_KEY_PAGE_UP:
+    case 'p':
+    case 'P':
+    case '\b':
+        if (view_state.file_count > 1) {
+            size_t prev_idx = (view_state.current_file_index + view_state.file_count - 1) % view_state.file_count;
+            view_load_file_by_index(ctx, prev_idx);
+            return true;
+        } else {
+            view_state.pan_x += VIEW_PAN_STEP;
+            redraw = true;
+        }
         break;
     case SOLAR_OS_KEY_RIGHT:
-        view_state.pan_x -= VIEW_PAN_STEP;
-        redraw = true;
+    case SOLAR_OS_KEY_PAGE_DOWN:
+    case 'n':
+    case 'N':
+    case ' ':
+        if (view_state.file_count > 1) {
+            size_t next_idx = (view_state.current_file_index + 1) % view_state.file_count;
+            view_load_file_by_index(ctx, next_idx);
+            return true;
+        } else {
+            view_state.pan_x -= VIEW_PAN_STEP;
+            redraw = true;
+        }
         break;
     case SOLAR_OS_KEY_UP:
         view_state.pan_y += VIEW_PAN_STEP;

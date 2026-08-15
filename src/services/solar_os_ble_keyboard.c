@@ -2095,23 +2095,44 @@ static void handle_consumer_report(const uint8_t *data, uint16_t length)
     if (data == NULL || length == 0) {
         return;
     }
-    uint16_t usage = 0;
-    if (length >= 2) {
-        usage = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
-    } else {
-        usage = data[0];
-    }
-    if (usage == 0) {
-        return;
-    }
     uint8_t key = 0;
-    if (usage == 0x00E9 || usage == 0x0080) {
-        key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
-    } else if (usage == 0x00EA || usage == 0x0081) {
-        key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
-    } else if (usage == 0x00E2 || usage == 0x007F) {
-        key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
+    uint16_t usage = 0;
+
+    for (uint16_t i = 0; i < length; i++) {
+        if (data[i] == 0) {
+            continue;
+        }
+        const uint16_t val16 = (i + 1 < length) ?
+            ((uint16_t)data[i] | ((uint16_t)data[i + 1] << 8)) : (uint16_t)data[i];
+        const uint8_t val8 = data[i];
+
+        if (val16 == 0x00E9 || val8 == 0xE9 || val16 == 0x0080 || val8 == 0x80) {
+            key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
+            usage = val16;
+            break;
+        } else if (val16 == 0x00EA || val8 == 0xEA || val16 == 0x0081 || val8 == 0x81) {
+            key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
+            usage = val16;
+            break;
+        } else if (val16 == 0x00E2 || val8 == 0xE2 || val16 == 0x007F || val8 == 0x7F) {
+            key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
+            usage = val16;
+            break;
+        } else if ((val8 & 0x02) != 0 || (val8 & 0x10) != 0) {
+            key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
+            usage = val8;
+            break;
+        } else if ((val8 & 0x04) != 0 || (val8 & 0x20) != 0) {
+            key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
+            usage = val8;
+            break;
+        } else if ((val8 & 0x01) != 0 || (val8 & 0x40) != 0) {
+            key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
+            usage = val8;
+            break;
+        }
     }
+
     if (key != 0) {
         (void)solar_os_input_write_key(input_source, usage, usage, key, 0, SOLAR_OS_INPUT_KEY_PRESS);
         (void)solar_os_input_write_char(input_source, (char)key);
