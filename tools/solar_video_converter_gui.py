@@ -8,7 +8,7 @@ Features:
 - Convert MP4/MKV/AVI/MOV/WEBM to optimized 400x300 Animated GIF (with dithering & RAM safety limits).
 - Convert Video with Audio to SolarOS MJPEG + WAV synchronized pair for SD card streaming.
 - Convert Video to Silent SolarOS MJPEG.
-- Convert Video to Native SolarOS 2-bit Raw Stream (.vid / .slv) for 30-50 FPS playback.
+- Convert Video to Native SolarOS 2-bit Raw Stream (.slv) for 30-50 FPS playback.
 - Auto-detects ffmpeg or helps download/locate it.
 """
 
@@ -39,15 +39,14 @@ class SolarVideoConverterApp:
         self.input_file = tk.StringVar()
         self.output_dir = tk.StringVar()
         self.output_filename = tk.StringVar()
-        self.conversion_mode = tk.StringVar(value="gif")  # 'gif', 'mjpeg_audio', 'mjpeg_silent', 'slv'
-        self.resolution = tk.StringVar(value="400x300")
-        self.aspect_mode = tk.StringVar(value="fit")       # 'fit', 'crop', 'stretch'
-        self.fps = tk.StringVar(value="15")
-        self.dither = tk.StringVar(value="bayer")          # 'bayer', 'floyd_steinberg', 'none'
+        self.conversion_mode = tk.StringVar(value="mjpeg_audio")  # 'mjpeg_audio', 'mjpeg_silent', 'slv', 'gif'
+        self.resolution = tk.StringVar(value="400x300 (Full RLCD)")
+        self.aspect_mode = tk.StringVar(value="Fit (Letterbox)")
+        self.fps = tk.StringVar(value="20")
+        self.dither = tk.StringVar(value="bayer (Crisp Pattern)")
         self.trim_start = tk.StringVar(value="0")
-        self.trim_duration = tk.StringVar(value="5")       # 5 sec default for GIF
-        self.enable_trim = tk.BooleanVar(value=True)
-        self.audio_sample_rate = tk.StringVar(value="22050")
+        self.trim_duration = tk.StringVar(value="5")
+        self.enable_trim = tk.BooleanVar(value=False)
         self.ffmpeg_path = self.find_ffmpeg()
 
         self.create_widgets()
@@ -57,11 +56,9 @@ class SolarVideoConverterApp:
         found = shutil.which("ffmpeg")
         if found:
             return found
-        # Check local folder
         local_ffmpeg = os.path.join(os.path.dirname(__file__), "ffmpeg.exe")
         if os.path.exists(local_ffmpeg):
             return local_ffmpeg
-        # Check current working directory
         if os.path.exists("ffmpeg.exe"):
             return os.path.abspath("ffmpeg.exe")
         return ""
@@ -76,7 +73,7 @@ class SolarVideoConverterApp:
         lbl_sub = tk.Label(header, text="Optimized 400x300 RLCD (ST7305) & ES8311 Audio Media Processor", font=("Segoe UI", 9), fg="#a0a0b8", bg="#1a1a24")
         lbl_sub.pack(anchor=tk.W, padx=16, pady=(0, 10))
 
-        # Main Scrollable Frame or Paned
+        # Main Frame
         main_frame = ttk.Frame(self.root, padding="14")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -104,20 +101,20 @@ class SolarVideoConverterApp:
         mode_group = ttk.LabelFrame(main_frame, text=" 2. Target Output Format ", padding="10")
         mode_group.pack(fill=tk.X, pady=(0, 10))
 
-        r1 = ttk.Radiobutton(mode_group, text="🎞️ Animated GIF (RAM Loaded, max 5-10 sec, best for short clips)", 
-                             variable=self.conversion_mode, value="gif", command=self.on_mode_changed)
+        r1 = ttk.Radiobutton(mode_group, text="🔊 Cinema Video with Audio (.mjpeg + .wav streaming from SD, unlimited size)", 
+                             variable=self.conversion_mode, value="mjpeg_audio", command=self.on_mode_changed)
         r1.pack(anchor=tk.W, pady=2)
 
-        r2 = ttk.Radiobutton(mode_group, text="🔊 Cinema Video with Audio (.mjpeg + .wav streaming from SD card, unlimited duration)", 
-                             variable=self.conversion_mode, value="mjpeg_audio", command=self.on_mode_changed)
+        r2 = ttk.Radiobutton(mode_group, text="🔇 Silent Cinema Video (.mjpeg streaming from SD card, unlimited size)", 
+                             variable=self.conversion_mode, value="mjpeg_silent", command=self.on_mode_changed)
         r2.pack(anchor=tk.W, pady=2)
 
-        r3 = ttk.Radiobutton(mode_group, text="🔇 Silent Cinema Video (.mjpeg streaming from SD card, unlimited duration)", 
-                             variable=self.conversion_mode, value="mjpeg_silent", command=self.on_mode_changed)
+        r3 = ttk.Radiobutton(mode_group, text="⚡ SolarOS Ultra-Fast 2-bit Raw Stream (.slv, 30-50 FPS direct to RLCD)", 
+                             variable=self.conversion_mode, value="slv", command=self.on_mode_changed)
         r3.pack(anchor=tk.W, pady=2)
 
-        r4 = ttk.Radiobutton(mode_group, text="⚡ SolarOS Ultra-Fast Raw Stream (.slv, 30-50 FPS direct to RLCD)", 
-                             variable=self.conversion_mode, value="slv", command=self.on_mode_changed)
+        r4 = ttk.Radiobutton(mode_group, text="🎞️ Animated GIF (RAM Loaded, max 5-10 sec clips, max 4 MB)", 
+                             variable=self.conversion_mode, value="gif", command=self.on_mode_changed)
         r4.pack(anchor=tk.W, pady=2)
 
         # 3. Settings Card
@@ -154,7 +151,7 @@ class SolarVideoConverterApp:
         ttk.Label(trim_frame, text="Duration (s):").pack(side=tk.LEFT, padx=(12, 0))
         self.ent_dur = ttk.Entry(trim_frame, textvariable=self.trim_duration, width=6)
         self.ent_dur.pack(side=tk.LEFT, padx=4)
-        self.lbl_trim_hint = ttk.Label(trim_frame, text="(Recommended ≤ 5s for GIF to fit ESP32 RAM)", foreground="#777")
+        self.lbl_trim_hint = ttk.Label(trim_frame, text="(Recommended ≤ 5s for GIF)", foreground="#777")
         self.lbl_trim_hint.pack(side=tk.LEFT, padx=8)
 
         # 4. Action & Log Card
@@ -240,7 +237,6 @@ class SolarVideoConverterApp:
         self.log("Downloading standalone FFmpeg for Windows (approx 30 MB)...")
         self.progress_bar.start(10)
         try:
-            # Standalone minimal ffmpeg executable mirror
             url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
             zip_dest = os.path.join(os.path.dirname(__file__), "ffmpeg_dl.zip")
             
@@ -300,7 +296,7 @@ class SolarVideoConverterApp:
         out_n = self.output_filename.get().strip()
         mode = self.conversion_mode.get()
         fps_val = self.fps.get()
-        dither_val = self.dither.get()
+        dither_val = self.dither.get().split()[0]
 
         target_w = 400
         target_h = 300
@@ -332,7 +328,6 @@ class SolarVideoConverterApp:
         try:
             if mode == "gif":
                 out_path = os.path.join(out_d, f"{out_n}.gif")
-                # High-quality palettegen + paletteuse optimized for 4-gray or 16-gray RLCD
                 palette_filter = f"[0:v] {scale_filter},format=gray,fps={fps_val},split [a][b]; [a] palettegen=max_colors=16 [p]; [b][p] paletteuse=dither={dither_val}"
                 
                 cmd = [self.ffmpeg_path, "-y"] + trim_args + ["-i", inp, "-filter_complex", palette_filter, out_path]
@@ -344,14 +339,11 @@ class SolarVideoConverterApp:
                     return
                 
                 size_mb = os.path.getsize(out_path) / (1024 * 1024)
-                self.log(f"✅ GIF Created Successfully: {out_path} ({size_mb:.2f} MB)")
-                if size_mb > 4.0:
-                    self.log(f"⚠️ WARNING: File is {size_mb:.2f} MB. ESP32 RAM limit is ~4 MB. Consider trimming shorter or reducing FPS!")
+                self.log(f"✅ GIF Created: {out_path} ({size_mb:.2f} MB)")
                 messagebox.showinfo("Done", f"Animated GIF created!\nSaved to: {out_path}\nFile size: {size_mb:.2f} MB")
 
             elif mode in ("mjpeg_audio", "mjpeg_silent"):
                 out_mjpeg = os.path.join(out_d, f"{out_n}.mjpeg")
-                # Extract 400x300 MJPEG stream
                 vf = f"{scale_filter},format=gray,fps={fps_val}"
                 cmd = [self.ffmpeg_path, "-y"] + trim_args + ["-i", inp, "-vf", vf, "-vcodec", "mjpeg", "-q:v", "4", "-an", out_mjpeg]
                 self.log("Extracting MJPEG video: " + " ".join(cmd))
@@ -366,19 +358,15 @@ class SolarVideoConverterApp:
 
                 if mode == "mjpeg_audio":
                     out_wav = os.path.join(out_d, f"{out_n}.wav")
-                    # Extract 16-bit Mono 22050Hz PCM WAV audio
                     cmd_audio = [self.ffmpeg_path, "-y"] + trim_args + ["-i", inp, "-vn", "-acodec", "pcm_s16le", "-ac", "1", "-ar", "22050", out_wav]
                     self.log("Extracting WAV Audio: " + " ".join(cmd_audio))
                     res_a = subprocess.run(cmd_audio, capture_output=True, text=True)
                     if res_a.returncode == 0 and os.path.exists(out_wav):
                         self.log(f"✅ WAV Audio Created: {out_wav}")
-                    else:
-                        self.log("⚠️ No audio stream found or audio conversion skipped.")
 
-                messagebox.showinfo("Done", f"SolarOS Cinema Video created!\nVideo: {out_mjpeg}\n(Copy to /sdcard/videos or /sdcard/gifs)")
+                messagebox.showinfo("Done", f"SolarOS Cinema Video created!\nVideo: {out_mjpeg}\n(Copy to /sdcard/videos or upload via File Server)")
 
             elif mode == "slv":
-                # Raw 400x300 2-bit RLCD format
                 out_slv = os.path.join(out_d, f"{out_n}.slv")
                 raw_gray = os.path.join(out_d, f"{out_n}_temp.gray")
                 
@@ -409,13 +397,12 @@ class SolarVideoConverterApp:
     def pack_slv_file(self, raw_gray_path, out_slv_path, width, height, fps):
         """Packs 8-bit raw grayscale frames into 2-bit packed SolarOS video stream."""
         frame_bytes = width * height
-        packed_frame_bytes = (width * height) // 4  # 2 bits per pixel = 4 pixels per byte
+        packed_frame_bytes = (width * height) // 4
 
         total_raw_size = os.path.getsize(raw_gray_path)
         frame_count = total_raw_size // frame_bytes
 
         with open(raw_gray_path, "rb") as fin, open(out_slv_path, "wb") as fout:
-            # Header: 'SLV1' (4 bytes), Width (uint16), Height (uint16), FPS (uint8), Reserved (uint8), FrameCount (uint32)
             import struct
             header = struct.pack("<4sHHBBI", b"SLV1", width, height, fps, 0, frame_count)
             fout.write(header)
@@ -425,10 +412,9 @@ class SolarVideoConverterApp:
                 if len(raw) < frame_bytes:
                     break
                 packed = bytearray(packed_frame_bytes)
-                # 4 pixels per byte: 0=White (11), 1=Light (10), 2=Dark (01), 3=Black (00)
                 p_idx = 0
                 for i in range(0, frame_bytes, 4):
-                    b0 = raw[i] >> 6      # 0..3
+                    b0 = raw[i] >> 6
                     b1 = raw[i+1] >> 6
                     b2 = raw[i+2] >> 6
                     b3 = raw[i+3] >> 6
