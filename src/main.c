@@ -149,6 +149,10 @@ static bool key_pressed;
 static bool key_long_press_fired;
 static bool key_ignore_until_released;
 static uint32_t key_pressed_ms;
+
+static bool boot_pressed;
+static bool boot_long_press_fired;
+static uint32_t boot_pressed_ms;
 static uint32_t last_app_tick_ms;
 static uint32_t last_status_update_ms;
 
@@ -158,6 +162,7 @@ static void update_status(void);
 static void dispatch_char_to_input_focus(char ch);
 static bool input_focus_accepts_key_events(void);
 static void dispatch_key_to_input_focus(const solar_os_input_key_event_t *key);
+static void enter_light_sleep(const char *reason);
 
 static uint32_t millis_u32(void)
 {
@@ -177,6 +182,11 @@ static bool key_level_is_pressed(int level)
 static bool key_button_is_pressed(void)
 {
     return key_level_is_pressed(gpio_get_level(SOLAR_OS_BOARD_PIN_KEY));
+}
+
+static bool boot_button_is_pressed(void)
+{
+    return gpio_get_level(GPIO_NUM_0) == 0;
 }
 
 static bool key_rtc_is_pressed(void)
@@ -443,10 +453,10 @@ static void resume_display_after_sleep(uint32_t now_ms)
 static esp_err_t key_button_configure_gpio(void)
 {
     const gpio_config_t key_config = {
-        .pin_bit_mask = KEY_WAKE_MASK,
+        .pin_bit_mask = (1ULL << SOLAR_OS_BOARD_PIN_KEY) | (1ULL << GPIO_NUM_0),
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = SOLAR_OS_BOARD_KEY_PULL_UP ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
-        .pull_down_en = SOLAR_OS_BOARD_KEY_PULL_DOWN ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_ANYEDGE,
     };
 
@@ -698,7 +708,7 @@ static void enter_light_sleep(const char *reason)
 
 static void handle_key_short_press(void)
 {
-    SOLAR_OS_LOGI(TAG, "KEY button pressed (GPIO %d) -> Universal ESC", (int)SOLAR_OS_BOARD_PIN_KEY);
+    SOLAR_OS_LOGI(TAG, "KEY button short press (GPIO %d) -> Universal ESC", (int)SOLAR_OS_BOARD_PIN_KEY);
     solar_os_power_note_activity(millis_u32());
 
     const solar_os_input_key_event_t event = {
@@ -714,12 +724,50 @@ static void handle_key_short_press(void)
     process_app_requests();
 }
 
+static void handle_key_long_press(void)
+{
+    SOLAR_OS_LOGI(TAG, "KEY button long press (GPIO %d) -> Entering Sleep Mode", (int)SOLAR_OS_BOARD_PIN_KEY);
+    enter_light_sleep("KEY long press");
+}
+
+static void handle_boot_short_press(void)
+{
+    SOLAR_OS_LOGI(TAG, "BOOT button short press (GPIO 0) -> Right Arrow / Next");
+    solar_os_power_note_activity(millis_u32());
+
+    const solar_os_input_key_event_t event = {
+        .key = SOLAR_OS_KEY_RIGHT,
+        .action = SOLAR_OS_INPUT_KEY_PRESS,
+        .modifiers = 0,
+    };
+    if (input_focus_accepts_key_events()) {
+        dispatch_key_to_input_focus(&event);
+    } else {
+        dispatch_char_to_input_focus((char)SOLAR_OS_KEY_RIGHT);
+    }
+    process_app_requests();
+}
+
+static void handle_boot_long_press(void)
+{
+    SOLAR_OS_LOGI(TAG, "BOOT button long press (GPIO 0) -> Enter / Select");
+    solar_os_power_note_activity(millis_u32());
+
+    const solar_os_input_key_event_t event = {
+        .key = '\r',
+        .action = SOLAR_OS_INPUT_KEY_PRESS,
+        .modifiers = 0,
+    };
+    if (input_focus_accepts_key_events()) {
+        dispatch_key_to_input_focus(&event);
+    } else {
+        dispatch_char_to_input_focus('\r');
+    }
+    process_app_requests();
+}
+
 static void key_button_init(void)
 {
-    if (!board_has(SOLAR_OS_BOARD_CAP_KEY)) {
-        return;
-    }
-
     ESP_ERROR_CHECK(key_button_configure_gpio());
 
     esp_err_t err = gpio_install_isr_service(0);
@@ -728,10 +776,16 @@ static void key_button_init(void)
         return;
     }
 
-    err = gpio_isr_handler_add(SOLAR_OS_BOARD_PIN_KEY, key_button_isr, NULL);
+    if (board_has(SOLAR_OS_BOARD_CAP_KEY)) {
+        err = gpio_isr_handler_add(SOLAR_OS_BOARD_PIN_KEY, key_button_isr, NULL);
+        if (err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "KEY interrupt handler unavailable: %s", esp_err_to_name(err));
+        }
+    }
+
+    err = gpio_isr_handler_add(GPIO_NUM_0, key_button_isr, NULL);
     if (err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "KEY interrupt handler unavailable: %s", esp_err_to_name(err));
-        return;
+        SOLAR_OS_LOGW(TAG, "BOOT interrupt handler unavailable: %s", esp_err_to_name(err));
     }
 
     key_interrupt_ready = true;
@@ -739,72 +793,67 @@ static void key_button_init(void)
 
 static void poll_key_button(void)
 {
-    if (!board_has(SOLAR_OS_BOARD_CAP_KEY)) {
-        return;
-    }
-
-    if (key_interrupt_ready && !key_irq_pending && !key_pressed && !key_ignore_until_released) {
-        return;
-    }
-    key_irq_pending = false;
-
-    const bool down = key_button_is_pressed();
     const uint32_t now_ms = millis_u32();
 
-    if (key_ignore_until_released) {
-        if (!down) {
-            key_ignore_until_released = false;
-            key_pressed = false;
-            key_long_press_fired = false;
+    /* --- 1. KEY Button (GPIO 18) --- */
+    if (board_has(SOLAR_OS_BOARD_CAP_KEY)) {
+        const bool key_down = key_button_is_pressed();
+
+        if (key_ignore_until_released) {
+            if (!key_down) {
+                key_ignore_until_released = false;
+                key_pressed = false;
+                key_long_press_fired = false;
+            }
+        } else {
+            if (key_down && !key_pressed) {
+                key_pressed = true;
+                key_long_press_fired = false;
+                key_pressed_ms = now_ms;
+                solar_os_power_note_activity(now_ms);
+            } else if (!key_down && key_pressed) {
+                const uint32_t press_ms = now_ms - key_pressed_ms;
+                const bool short_press = !key_long_press_fired &&
+                    press_ms >= KEY_SHORT_PRESS_MIN_MS &&
+                    press_ms < KEY_LONG_PRESS_MS;
+                key_pressed = false;
+                solar_os_power_note_activity(now_ms);
+                if (short_press) {
+                    handle_key_short_press();
+                }
+            }
+
+            if (key_down && !key_long_press_fired && (now_ms - key_pressed_ms) >= KEY_LONG_PRESS_MS) {
+                key_long_press_fired = true;
+                handle_key_long_press();
+            }
         }
-        return;
     }
 
-    if (down && !key_pressed) {
-        key_pressed = true;
-        key_long_press_fired = false;
-        key_pressed_ms = now_ms;
+    /* --- 2. BOOT Button (GPIO 0) --- */
+    const bool boot_down = boot_button_is_pressed();
+
+    if (boot_down && !boot_pressed) {
+        boot_pressed = true;
+        boot_long_press_fired = false;
+        boot_pressed_ms = now_ms;
         solar_os_power_note_activity(now_ms);
-    } else if (!down && key_pressed) {
-        const uint32_t press_ms = now_ms - key_pressed_ms;
-        const bool short_press = !key_long_press_fired &&
+    } else if (!boot_down && boot_pressed) {
+        const uint32_t press_ms = now_ms - boot_pressed_ms;
+        const bool short_press = !boot_long_press_fired &&
             press_ms >= KEY_SHORT_PRESS_MIN_MS &&
             press_ms < KEY_LONG_PRESS_MS;
-        key_pressed = false;
+        boot_pressed = false;
         solar_os_power_note_activity(now_ms);
         if (short_press) {
-            handle_key_short_press();
+            handle_boot_short_press();
         }
     }
 
-    if (!down || key_long_press_fired || (now_ms - key_pressed_ms) < KEY_LONG_PRESS_MS) {
-        return;
+    if (boot_down && !boot_long_press_fired && (now_ms - boot_pressed_ms) >= KEY_LONG_PRESS_MS) {
+        boot_long_press_fired = true;
+        handle_boot_long_press();
     }
-
-    key_long_press_fired = true;
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-    if (board_has(SOLAR_OS_BOARD_CAP_BLE) &&
-        solar_os_ble_keyboard_enabled_for_current_boot()) {
-        const esp_err_t forget_err = solar_os_ble_keyboard_forget();
-        const esp_err_t pairing_err = solar_os_ble_keyboard_start_pairing();
-        last_status_update_ms = 0;
-        update_status();
-        draw_terminal_if_needed();
-        if (forget_err == ESP_OK && pairing_err == ESP_OK) {
-            SOLAR_OS_LOGI(TAG, "KEY long press: BLE keyboard forgotten, pairing started");
-        }
-        if (forget_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG,
-                          "KEY long press: BLE keyboard forget failed: %s",
-                          esp_err_to_name(forget_err));
-        }
-        if (pairing_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG,
-                          "KEY long press: BLE keyboard pairing failed: %s",
-                          esp_err_to_name(pairing_err));
-        }
-    }
-#endif
 }
 
 static void dispatch_char_to_input_focus(char ch)

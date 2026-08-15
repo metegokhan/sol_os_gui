@@ -1614,21 +1614,22 @@ static bool launcher_event(solar_os_context_t *ctx, const solar_os_event_t *even
         case 'r':
         case 'R':
         case SOLAR_OS_KEY_F5:
+        case SOLAR_OS_KEY_ESCAPE:
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
             if (!solar_os_ble_keyboard_is_connected()) {
                 (void)solar_os_ble_keyboard_start_pairing();
+                strlcpy(launcher.notice_msg, "BLE pairing started. PIN: 123456", sizeof(launcher.notice_msg));
+                launcher.notice_until_ms = (uint32_t)(esp_timer_get_time() / 1000U) + 5000U;
+            } else {
+                strlcpy(launcher.notice_msg, "BLE keyboard connected", sizeof(launcher.notice_msg));
+                launcher.notice_until_ms = (uint32_t)(esp_timer_get_time() / 1000U) + 3000U;
             }
 #endif
             launcher_refresh_items();
             launcher_draw(ctx);
             return true;
 
-        case SOLAR_OS_KEY_ESCAPE:
-        case SOLAR_OS_KEY_DELETE:
-        case 3:
-        case 29:
-        case 'q':
-        case 'Q':
+        case 3: /* Ctrl+C explicit console exit */
             solar_os_context_request_exit(ctx);
             return true;
 
