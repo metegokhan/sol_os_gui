@@ -658,9 +658,6 @@ static bool gameboy_run_frame(solar_os_context_t *ctx, int64_t now_us) {
   gameboy_log_stats(emulation_finished);
 
   gameboy.next_frame_us += GAMEBOY_FRAME_PERIOD_US;
-  if (emulation_finished - gameboy.next_frame_us > GAMEBOY_FRAME_PERIOD_US * 2) {
-    gameboy.next_frame_us = emulation_finished;
-  }
   (void)now_us;
   return true;
 }
@@ -700,10 +697,24 @@ static bool gameboy_event(solar_os_context_t *ctx,
     return true;
   }
   gameboy_refresh_inputs(now_us);
-  if (now_us < gameboy.next_frame_us) {
-    return true;
+
+  if (gameboy.next_frame_us == 0) {
+    gameboy.next_frame_us = now_us;
   }
-  return gameboy_run_frame(ctx, now_us);
+
+  int frames_run = 0;
+  while (esp_timer_get_time() >= gameboy.next_frame_us && frames_run < 3) {
+    if (!gameboy_run_frame(ctx, esp_timer_get_time())) {
+      return false;
+    }
+    frames_run++;
+  }
+
+  const int64_t current_us = esp_timer_get_time();
+  if (current_us - gameboy.next_frame_us > GAMEBOY_FRAME_PERIOD_US * 3) {
+    gameboy.next_frame_us = current_us;
+  }
+  return true;
 }
 
 static void gameboy_title(solar_os_context_t *ctx, char *buffer,

@@ -518,7 +518,7 @@ static void draw_app_icon(solar_os_gfx_t *gfx, int cx, int cy, launcher_icon_typ
 static void draw_wrapped_card_label(solar_os_gfx_t *gfx, int card_x, int card_y, int card_w, const char *label, bool is_selected)
 {
     solar_os_gfx_set_color(gfx, is_selected ? SOLAR_OS_GFX_COLOR_WHITE : SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
 
     char line1[24] = "";
     char line2[24] = "";
@@ -533,11 +533,11 @@ static void draw_wrapped_card_label(solar_os_gfx_t *gfx, int card_x, int card_y,
         const size_t w1 = solar_os_gfx_text_width(gfx, line1);
         const size_t w2 = solar_os_gfx_text_width(gfx, line2);
 
-        solar_os_gfx_text(gfx, card_x + (card_w - (int)w1) / 2, card_y + 70, line1);
+        solar_os_gfx_text(gfx, card_x + (card_w - (int)w1) / 2, card_y + 68, line1);
         solar_os_gfx_text(gfx, card_x + (card_w - (int)w2) / 2, card_y + 83, line2);
     } else {
         const size_t w = solar_os_gfx_text_width(gfx, label);
-        solar_os_gfx_text(gfx, card_x + (card_w - (int)w) / 2, card_y + 76, label);
+        solar_os_gfx_text(gfx, card_x + (card_w - (int)w) / 2, card_y + 75, label);
     }
 }
 
@@ -692,6 +692,7 @@ static bool is_file_picker_app(const char *app_name)
             strcmp(app_name, "sheet") == 0 ||
             strcmp(app_name, "player") == 0 ||
             strcmp(app_name, "view") == 0 ||
+            strcmp(app_name, "video_player") == 0 ||
             strcmp(app_name, "gameboy") == 0);
 }
 
@@ -857,6 +858,23 @@ static void launcher_open_file_picker_for_app(const char *app_name)
             snprintf(path, sizeof(path), "%s/images", flash); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_VIEW);
             scan_dir_for_extensions(flash, exts, 6, ICON_TYPE_VIEW);
         }
+    } else if (strcmp(app_name, "video_player") == 0) {
+        strlcpy(launcher.picker_title, "CINEMA PLAYER - SELECT VIDEO / GIF", sizeof(launcher.picker_title));
+        launcher.picker_icon = ICON_TYPE_PLAYER;
+        const char *exts[] = {".gif", ".mjpeg", ".vid", ".bmp", ".png", ".jpg"};
+        if (sd) {
+            char path[64];
+            snprintf(path, sizeof(path), "%s/gifs", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
+            snprintf(path, sizeof(path), "%s/videos", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
+            snprintf(path, sizeof(path), "%s/photos", sd); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
+            scan_dir_for_extensions(sd, exts, 6, ICON_TYPE_PLAYER);
+        }
+        if (flash) {
+            char path[64];
+            snprintf(path, sizeof(path), "%s/gifs", flash); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
+            snprintf(path, sizeof(path), "%s/videos", flash); scan_dir_for_extensions(path, exts, 6, ICON_TYPE_PLAYER);
+            scan_dir_for_extensions(flash, exts, 6, ICON_TYPE_PLAYER);
+        }
     }
 
     launcher.view_mode = VIEW_ROM_PICKER;
@@ -943,6 +961,7 @@ static void launcher_refresh_items(void)
     add_folder_item(2, ITEM_KIND_BUILTIN, "synth", "Synthesizer", "Polyphonic audio synthesizer", ICON_TYPE_SYNTH);
     add_folder_item(2, ITEM_KIND_BUILTIN, "webradio", "Web Radio", "Live streaming internet radio", ICON_TYPE_WEBRADIO);
     add_folder_item(2, ITEM_KIND_BUILTIN, "view", "Gallery", "Image and graphics viewer", ICON_TYPE_VIEW);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "video_player", "Video Player", "Cinema video and animated GIF player", ICON_TYPE_PLAYER);
 
     /* Folder 3: Network & Comms */
     strlcpy(launcher.folders[3].title, "Network & Comms", sizeof(launcher.folders[3].title));
