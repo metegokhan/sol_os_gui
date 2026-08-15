@@ -57,6 +57,14 @@ bool solar_os_hid_keyboard_report_update(
         return false;
     }
 
+    if (length > 8U && (data[0] == (uint8_t)report_id || data[0] <= 4)) {
+        data++;
+        length--;
+    } else if (length == 8U && report_id != 0 && data[0] == (uint8_t)report_id) {
+        data++;
+        length--;
+    }
+
     const size_t key_offset = length == 7U ? 1U : 2U;
     if (length < key_offset + SOLAR_OS_HID_KEYBOARD_REPORT_KEYS) {
         return false;

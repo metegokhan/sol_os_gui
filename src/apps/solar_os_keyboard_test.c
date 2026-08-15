@@ -65,6 +65,38 @@ static void keytest_get_key_label(const solar_os_input_key_event_t *ev, char *bu
         strlcpy(buf, "MUTE", buf_len);
         return;
     }
+    if (ev->usage == 0x00CD) {
+        strlcpy(buf, "PLAY/PAUSE", buf_len);
+        return;
+    }
+    if (ev->usage == 0x00B5) {
+        strlcpy(buf, "NEXT_TRACK", buf_len);
+        return;
+    }
+    if (ev->usage == 0x00B6) {
+        strlcpy(buf, "PREV_TRACK", buf_len);
+        return;
+    }
+    if (ev->usage == 0x0221) {
+        strlcpy(buf, "SEARCH", buf_len);
+        return;
+    }
+    if (ev->usage == 0x0224) {
+        strlcpy(buf, "AC_BACK", buf_len);
+        return;
+    }
+    if (ev->usage == 0x0225) {
+        strlcpy(buf, "AC_FORWARD", buf_len);
+        return;
+    }
+    if (ev->usage == 0x0223) {
+        strlcpy(buf, "AC_HOME", buf_len);
+        return;
+    }
+    if (ev->usage == 0x0192) {
+        strlcpy(buf, "CALCULATOR", buf_len);
+        return;
+    }
     if (ev->key == SOLAR_OS_KEY_PRINT_SCREEN || ev->usage == 0x46) {
         strlcpy(buf, "PRTSC", buf_len);
         return;

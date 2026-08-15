@@ -2119,47 +2119,63 @@ static void handle_consumer_report(uint16_t report_id, const uint8_t *data, uint
     uint16_t usage = 0;
 
     /* 1. First check 16-bit Little-Endian Consumer Usage codes */
-    for (uint16_t i = 0; i + 1 < length; i++) {
+    for (uint16_t i = 0; i + 1 < length; i += 2) {
         uint16_t u16 = (uint16_t)data[i] | ((uint16_t)data[i + 1] << 8);
-        if (u16 == 0x00E9) { key = SOLAR_OS_KEY_AUDIO_VOLUME_UP; usage = 0x00E9; break; }
-        if (u16 == 0x00EA) { key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN; usage = 0x00EA; break; }
-        if (u16 == 0x00E2) { key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE; usage = 0x00E2; break; }
+        if (u16 == 0) continue;
+        usage = u16;
+        switch (u16) {
+        case 0x00E9: key = SOLAR_OS_KEY_AUDIO_VOLUME_UP; break;
+        case 0x00EA: key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN; break;
+        case 0x00E2: key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE; break;
+        case 0x00CD: key = ' '; break;                    /* Play / Pause */
+        case 0x00B5: key = SOLAR_OS_KEY_RIGHT; break;     /* Scan Next Track */
+        case 0x00B6: key = SOLAR_OS_KEY_LEFT; break;      /* Scan Prev Track */
+        case 0x00B7: key = SOLAR_OS_KEY_ESCAPE; break;    /* Stop */
+        case 0x0221: key = 's'; break;                    /* AC Search */
+        case 0x0223: key = 'h'; break;                    /* AC Home */
+        case 0x0224: key = SOLAR_OS_KEY_LEFT; break;      /* AC Back */
+        case 0x0225: key = SOLAR_OS_KEY_RIGHT; break;     /* AC Forward */
+        case 0x0192: key = 'c'; break;                    /* AL Calculator */
+        case 0x0194: key = 'f'; break;                    /* AL Local Machine Browser / Files */
+        default:
+            key = solar_os_input_translate_hid_usage(u16, 0, false);
+            break;
+        }
+        if (usage != 0) break;
     }
 
     /* 2. Check 8-bit explicit usage codes */
-    if (key == 0) {
+    if (usage == 0) {
         for (uint16_t i = 0; i < length; i++) {
             uint8_t u8 = data[i];
-            if (u8 == 0xE9 || u8 == 0x80) { key = SOLAR_OS_KEY_AUDIO_VOLUME_UP; usage = 0x00E9; break; }
-            if (u8 == 0xEA || u8 == 0x81) { key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN; usage = 0x00EA; break; }
-            if (u8 == 0xE2 || u8 == 0x7F) { key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE; usage = 0x00E2; break; }
-        }
-    }
-
-    /* 3. Check bitmask payloads */
-    if (key == 0) {
-        for (uint16_t i = 0; i < length; i++) {
-            uint8_t bits = data[i];
-            if (bits == 0) continue;
-            if ((bits & 0x01) != 0 || (bits & 0x10) != 0) {
-                key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
-                usage = 0x00E9;
-                break;
-            } else if ((bits & 0x02) != 0 || (bits & 0x20) != 0) {
-                key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
-                usage = 0x00EA;
-                break;
-            } else if ((bits & 0x04) != 0 || (bits & 0x40) != 0) {
-                key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
-                usage = 0x00E2;
+            if (u8 == 0) continue;
+            usage = (uint16_t)u8;
+            switch (u8) {
+            case 0xE9:
+            case 0x80: key = SOLAR_OS_KEY_AUDIO_VOLUME_UP; usage = 0x00E9; break;
+            case 0xEA:
+            case 0x81: key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN; usage = 0x00EA; break;
+            case 0xE2:
+            case 0x7F: key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE; usage = 0x00E2; break;
+            case 0xCD: key = ' '; usage = 0x00CD; break;
+            case 0xB5: key = SOLAR_OS_KEY_RIGHT; usage = 0x00B5; break;
+            case 0xB6: key = SOLAR_OS_KEY_LEFT; usage = 0x00B6; break;
+            default:
+                key = solar_os_input_translate_hid_usage(usage, 0, false);
                 break;
             }
+            if (usage != 0) break;
         }
     }
 
-    if (key != 0) {
+    if (usage != 0) {
+        if (key == 0) {
+            key = (usage >= 32 && usage <= 126) ? (uint8_t)usage : (uint8_t)'\0';
+        }
         (void)solar_os_input_write_key(input_source, usage, usage, key, 0, SOLAR_OS_INPUT_KEY_PRESS);
-        (void)solar_os_input_write_char(input_source, (char)key);
+        if (key != 0) {
+            (void)solar_os_input_write_char(input_source, (char)key);
+        }
         (void)solar_os_input_write_key(input_source, usage, usage, key, 0, SOLAR_OS_INPUT_KEY_RELEASE);
     }
 }
