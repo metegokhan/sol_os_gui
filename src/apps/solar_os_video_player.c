@@ -16,6 +16,8 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "solar_os_audio.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
@@ -26,13 +28,13 @@
 #include "solar_os_storage.h"
 #include "solar_os_vector.h"
 
-#define VIDEO_STACK_SIZE 24576
+#define VIDEO_STACK_SIZE 16384
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(VIDEO_STACK_SIZE);
 
 #define VIDEO_MAX_FILES 64
-#define VIDEO_MAX_CANVAS_PIXELS (512U * 512U)
-#define VIDEO_MAX_STORED_PIXELS (4U * 1024U * 1024U)
-#define VIDEO_MJPEG_BUF_SIZE (64U * 1024U)
+#define VIDEO_MAX_CANVAS_PIXELS (400U * 300U)
+#define VIDEO_MAX_STORED_PIXELS (2U * 1024U * 1024U)
+#define VIDEO_MJPEG_BUF_SIZE (128U * 1024U)
 
 static const char *TAG = "solar_os_video_player";
 
@@ -41,7 +43,6 @@ typedef enum {
     MEDIA_TYPE_GIF,
     MEDIA_TYPE_MJPEG,
     MEDIA_TYPE_SLV,
-    MEDIA_TYPE_IMAGE,
 } video_media_type_t;
 
 typedef enum {
@@ -80,9 +81,8 @@ typedef struct {
     uint32_t frame_count;
     uint32_t frame_index;
     
-    /* GIF specific in-RAM animation */
-    uint8_t *gif_all_gray;
-    uint32_t *gif_delays_ms;
+    /* GIF animation structures */
+    solar_os_stb_gif_animation_t gif_anim;
 
     /* Timing & Playback */
     int64_t next_frame_us;
@@ -140,13 +140,9 @@ static void video_free_media(void)
         vplay.cur_frame_gray = NULL;
         vplay.cur_frame_is_stb = false;
     }
-    if (vplay.gif_all_gray != NULL) {
-        solar_os_stb_image_free(vplay.gif_all_gray);
-        vplay.gif_all_gray = NULL;
-    }
-    if (vplay.gif_delays_ms != NULL) {
-        free(vplay.gif_delays_ms);
-        vplay.gif_delays_ms = NULL;
+    if (vplay.gif_anim.gray != NULL || vplay.gif_anim.delays_ms != NULL) {
+        solar_os_stb_gif_animation_free(&vplay.gif_anim);
+        memset(&vplay.gif_anim, 0, sizeof(vplay.gif_anim));
     }
     vplay.type = MEDIA_TYPE_NONE;
     vplay.width = 0;
@@ -187,7 +183,7 @@ static esp_err_t video_load_gif(const char *path)
 
     FILE *f = fopen(path, "rb");
     if (f == NULL) {
-        snprintf(vplay.status_msg, sizeof(vplay.status_msg), "Cannot open file");
+        snprintf(vplay.status_msg, sizeof(vplay.status_msg), "Cannot open GIF");
         return ESP_FAIL;
     }
 
@@ -201,7 +197,7 @@ static esp_err_t video_load_gif(const char *path)
         return ESP_ERR_INVALID_SIZE;
     }
 
-    uint8_t *raw_buf = solar_os_memory_alloc((size_t)fsize, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "video.raw");
+    uint8_t *raw_buf = solar_os_memory_alloc((size_t)fsize, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "video.raw");
     if (raw_buf == NULL) {
         fclose(f);
         snprintf(vplay.status_msg, sizeof(vplay.status_msg), "Out of memory");
@@ -216,7 +212,8 @@ static esp_err_t video_load_gif(const char *path)
     }
     fclose(f);
 
-    solar_os_stb_gif_animation_t anim = {0};
+    video_free_media();
+
     esp_err_t err = solar_os_stb_decode_gif_gray(raw_buf,
                                                 (size_t)fsize,
                                                 VIDEO_MAX_CANVAS_PIXELS,
@@ -224,21 +221,18 @@ static esp_err_t video_load_gif(const char *path)
                                                 400,
                                                 300,
                                                 solar_os_vector_rgba_to_gray_scaled,
-                                                &anim);
+                                                &vplay.gif_anim);
     solar_os_memory_free(raw_buf);
 
-    if (err == ESP_OK && anim.gray != NULL && anim.frame_count > 0) {
-        video_free_media();
+    if (err == ESP_OK && vplay.gif_anim.gray != NULL && vplay.gif_anim.frame_count > 0) {
         vplay.type = MEDIA_TYPE_GIF;
-        vplay.width = anim.width;
-        vplay.height = anim.height;
-        vplay.frame_count = anim.frame_count;
-        vplay.gif_all_gray = anim.gray;
-        vplay.gif_delays_ms = anim.delays_ms;
+        vplay.width = vplay.gif_anim.width;
+        vplay.height = vplay.gif_anim.height;
+        vplay.frame_count = vplay.gif_anim.frame_count;
         vplay.frame_index = 0;
         vplay.playing = true;
         vplay.speed = 1.0f;
-        vplay.frame_delay_ms = (anim.delays_ms != NULL && anim.delays_ms[0] > 0) ? anim.delays_ms[0] : 66;
+        vplay.frame_delay_ms = (vplay.gif_anim.delays_ms != NULL && vplay.gif_anim.delays_ms[0] > 0) ? vplay.gif_anim.delays_ms[0] : 66;
         vplay.next_frame_us = esp_timer_get_time();
         vplay.in_picker = false;
         vplay.show_osd = true;
@@ -249,7 +243,7 @@ static esp_err_t video_load_gif(const char *path)
         return ESP_OK;
     }
 
-    solar_os_stb_gif_animation_free(&anim);
+    video_free_media();
     snprintf(vplay.status_msg, sizeof(vplay.status_msg), "GIF decode failed");
     return err;
 }
@@ -259,11 +253,11 @@ static esp_err_t video_read_next_mjpeg_frame(void)
     if (vplay.stream_file == NULL || vplay.stream_buf == NULL) return ESP_FAIL;
 
     size_t jpeg_len = 0;
-    int state = 0; /* 0: search 0xFF, 1: search 0xD8 (SOI), 2: reading payload, 3: saw 0xFF in payload */
+    int state = 0; /* 0: search 0xFF, 1: search 0xD8, 2: in payload, 3: saw 0xFF */
     uint8_t chunk[2048];
     size_t loop_count = 0;
 
-    while (loop_count++ < 200) {
+    while (loop_count++ < 100) {
         size_t n = fread(chunk, 1, sizeof(chunk), vplay.stream_file);
         if (n == 0) {
             video_handle_playback_end();
@@ -277,7 +271,6 @@ static esp_err_t video_read_next_mjpeg_frame(void)
                 if (b == 0xFF) state = 1;
             } else if (state == 1) {
                 if (b == 0xD8) {
-                    /* SOI found! */
                     vplay.stream_buf[0] = 0xFF;
                     vplay.stream_buf[1] = 0xD8;
                     jpeg_len = 2;
@@ -297,7 +290,6 @@ static esp_err_t video_read_next_mjpeg_frame(void)
                     vplay.stream_buf[jpeg_len++] = b;
                 }
                 if (b == 0xD9) {
-                    /* EOI found! Frame is complete */
                     long unread = (long)(n - 1 - i);
                     if (unread > 0) {
                         fseek(vplay.stream_file, -unread, SEEK_CUR);
@@ -348,7 +340,7 @@ static esp_err_t video_load_mjpeg(const char *path)
     video_free_media();
     vplay.stream_file = f;
     vplay.stream_buf_size = VIDEO_MJPEG_BUF_SIZE;
-    vplay.stream_buf = solar_os_memory_alloc(vplay.stream_buf_size, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "mjpeg.buf");
+    vplay.stream_buf = solar_os_memory_alloc(vplay.stream_buf_size, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "mjpeg.buf");
     if (vplay.stream_buf == NULL) {
         fclose(f);
         vplay.stream_file = NULL;
@@ -438,6 +430,12 @@ static esp_err_t video_load_slv(const char *path)
         return ESP_FAIL;
     }
 
+    if (hdr.width == 0 || hdr.height == 0 || hdr.width > 400 || hdr.height > 300) {
+        fclose(f);
+        snprintf(vplay.status_msg, sizeof(vplay.status_msg), "Invalid SLV dimensions (%ux%u)", hdr.width, hdr.height);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
     video_free_media();
     vplay.stream_file = f;
     vplay.width = hdr.width;
@@ -450,8 +448,8 @@ static esp_err_t video_load_slv(const char *path)
 
     const size_t packed_bytes = (size_t)(vplay.width * vplay.height) / 4U;
     vplay.stream_buf_size = packed_bytes;
-    vplay.stream_buf = solar_os_memory_alloc(packed_bytes, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "slv.packed");
-    vplay.cur_frame_gray = solar_os_memory_alloc((size_t)vplay.width * vplay.height, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "slv.frame");
+    vplay.stream_buf = solar_os_memory_alloc(packed_bytes, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "slv.packed");
+    vplay.cur_frame_gray = solar_os_memory_alloc((size_t)vplay.width * vplay.height, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "slv.frame");
     vplay.cur_frame_is_stb = false;
 
     if (vplay.stream_buf == NULL || vplay.cur_frame_gray == NULL) {
@@ -510,7 +508,6 @@ static void video_scan_folder(const char *dir_path)
         if (strcasecmp(dot, ".gif") == 0) t = MEDIA_TYPE_GIF;
         else if (strcasecmp(dot, ".mjpeg") == 0 || strcasecmp(dot, ".mjpg") == 0) t = MEDIA_TYPE_MJPEG;
         else if (strcasecmp(dot, ".slv") == 0 || strcasecmp(dot, ".flv") == 0 || strcasecmp(dot, ".vid") == 0) t = MEDIA_TYPE_SLV;
-        else if (strcasecmp(dot, ".bmp") == 0 || strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".png") == 0) t = MEDIA_TYPE_IMAGE;
 
         if (t != MEDIA_TYPE_NONE && vplay.file_count < VIDEO_MAX_FILES) {
             video_file_entry_t *e = &vplay.files[vplay.file_count];
@@ -549,7 +546,6 @@ static void video_refresh_file_list(void)
     if (sd != NULL) {
         snprintf(p, sizeof(p), "%s/videos", sd); video_scan_folder(p);
         snprintf(p, sizeof(p), "%s/gifs", sd); video_scan_folder(p);
-        snprintf(p, sizeof(p), "%s/photos", sd); video_scan_folder(p);
         video_scan_folder(sd);
     }
     if (flash != NULL) {
@@ -562,9 +558,9 @@ static void video_refresh_file_list(void)
 static void video_draw_frame(solar_os_gfx_t *gfx, int screen_w, int screen_h)
 {
     const uint8_t *cur_gray = NULL;
-    if (vplay.type == MEDIA_TYPE_GIF && vplay.gif_all_gray != NULL) {
+    if (vplay.type == MEDIA_TYPE_GIF && vplay.gif_anim.gray != NULL) {
         const size_t frame_bytes = (size_t)vplay.width * vplay.height;
-        cur_gray = vplay.gif_all_gray + ((size_t)vplay.frame_index * frame_bytes);
+        cur_gray = vplay.gif_anim.gray + ((size_t)vplay.frame_index * frame_bytes);
     } else if ((vplay.type == MEDIA_TYPE_MJPEG || vplay.type == MEDIA_TYPE_SLV) && vplay.cur_frame_gray != NULL) {
         cur_gray = vplay.cur_frame_gray;
     }
@@ -575,8 +571,8 @@ static void video_draw_frame(solar_os_gfx_t *gfx, int screen_w, int screen_h)
     int dw = (int)vplay.width;
     int dh = (int)vplay.height;
 
-    float aspect = (float)dw / (float)dh;
-    if (dw > screen_w || dh > screen_h || (dw < screen_w && dh < screen_h)) {
+    if (dw != screen_w || dh != screen_h) {
+        float aspect = (float)dw / (float)dh;
         dw = screen_w;
         dh = (int)((float)screen_w / aspect);
         if (dh > screen_h) {
@@ -654,11 +650,10 @@ static void video_render(solar_os_context_t *ctx)
             solar_os_gfx_text(gfx, 30, 90, "No media files found on SD Card.");
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
             solar_os_gfx_text(gfx, 30, 115, "Formats supported:");
-            solar_os_gfx_text(gfx, 40, 135, "- .mjpeg : Motion JPEG Video (streaming, unlimited duration)");
-            solar_os_gfx_text(gfx, 40, 155, "- .slv   : SolarOS Ultra-Fast 2-bit Video (30-50 FPS)");
-            solar_os_gfx_text(gfx, 40, 175, "- .gif   : Animated GIF (short clips <= 5s, <= 4 MB)");
-            solar_os_gfx_text(gfx, 40, 195, "- .wav   : Companion audio for .mjpeg (auto-detected)");
-            solar_os_gfx_text(gfx, 30, 225, "Use the PC Converter GUI in tools/ to convert any video!");
+            solar_os_gfx_text(gfx, 40, 135, "- .slv   : SolarOS Ultra-Fast 2-bit Stream (30-50 FPS)");
+            solar_os_gfx_text(gfx, 40, 155, "- .mjpeg : Motion JPEG Video (streaming from SD card)");
+            solar_os_gfx_text(gfx, 40, 175, "- .gif   : Animated GIF (short clips <= 5s)");
+            solar_os_gfx_text(gfx, 30, 215, "Use tools/solar_video_converter_gui.py on PC to convert any video!");
         } else {
             const size_t page_size = 7;
             const size_t page = vplay.selected_file / page_size;
@@ -796,27 +791,30 @@ static bool video_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event->type == SOLAR_OS_EVENT_TICK) {
         if (!vplay.in_picker && vplay.playing) {
             if (now_us >= vplay.next_frame_us) {
-                if (vplay.type == MEDIA_TYPE_GIF && vplay.gif_all_gray != NULL && vplay.frame_count > 1) {
+                if (vplay.type == MEDIA_TYPE_GIF && vplay.gif_anim.gray != NULL && vplay.frame_count > 1) {
                     vplay.frame_index = (vplay.frame_index + 1) % vplay.frame_count;
-                    uint32_t delay_ms = (vplay.gif_delays_ms != NULL && vplay.gif_delays_ms[vplay.frame_index] > 0) ?
-                                        vplay.gif_delays_ms[vplay.frame_index] : 66;
+                    uint32_t delay_ms = (vplay.gif_anim.delays_ms != NULL && vplay.gif_anim.delays_ms[vplay.frame_index] > 0) ?
+                                        vplay.gif_anim.delays_ms[vplay.frame_index] : 66;
                     delay_ms = (uint32_t)((float)delay_ms / vplay.speed);
-                    if (delay_ms < 10) delay_ms = 10;
+                    if (delay_ms < 20) delay_ms = 20;
                     vplay.next_frame_us = now_us + (int64_t)delay_ms * 1000LL;
                     video_render(ctx);
+                    vTaskDelay(pdMS_TO_TICKS(1));
                 } else if (vplay.type == MEDIA_TYPE_MJPEG && vplay.stream_file != NULL) {
                     if (video_read_next_mjpeg_frame() == ESP_OK) {
                         uint32_t delay_ms = (uint32_t)((float)vplay.frame_delay_ms / vplay.speed);
-                        if (delay_ms < 10) delay_ms = 10;
+                        if (delay_ms < 20) delay_ms = 20;
                         vplay.next_frame_us = now_us + (int64_t)delay_ms * 1000LL;
                         video_render(ctx);
+                        vTaskDelay(pdMS_TO_TICKS(1));
                     }
                 } else if (vplay.type == MEDIA_TYPE_SLV && vplay.stream_file != NULL) {
                     if (video_read_next_slv_frame() == ESP_OK) {
                         uint32_t delay_ms = (uint32_t)((float)vplay.frame_delay_ms / vplay.speed);
-                        if (delay_ms < 10) delay_ms = 10;
+                        if (delay_ms < 20) delay_ms = 20;
                         vplay.next_frame_us = now_us + (int64_t)delay_ms * 1000LL;
                         video_render(ctx);
+                        vTaskDelay(pdMS_TO_TICKS(1));
                     }
                 }
             }
@@ -941,6 +939,6 @@ const solar_os_app_t solar_os_video_player_app = {
     .state_slot = &video_state_ptr,
     .state_size = sizeof(video_player_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
-    .tick_interval_ms = 10U,
+    .tick_interval_ms = 25U,
     .worker_stack_bytes = VIDEO_STACK_SIZE,
 };
