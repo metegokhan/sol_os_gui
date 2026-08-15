@@ -25,6 +25,8 @@
 #include "solar_os_resource_limits.h"
 #include "solar_os_storage.h"
 #include "solar_os_time.h"
+#include "solar_os_terminal.h"
+#include "solar_os_sessions.h"
 #include "solar_os_wifi.h"
 
 #define SETTINGS_STACK_SIZE 8192
@@ -42,6 +44,7 @@ typedef enum {
 } settings_category_t;
 
 typedef struct {
+    solar_os_context_t *ctx;
     settings_category_t current_cat;
     size_t selected_row;
     char notice_msg[64];
@@ -155,10 +158,20 @@ static void settings_apply_changes(void)
     (void)solar_os_audio_set_volume(vol_byte);
 #endif
 
-    /* 4. Display Brightness */
+    /* 4. Display Settings (Brightness & Color Theme) */
 #if SOLAR_OS_PACKAGE_SERVICE_DISPLAY
     if (solar_os_display_brightness_supported()) {
         (void)solar_os_display_set_brightness((uint8_t)sstate.brightness);
+    }
+    const bool inverted = (sstate.color_theme == 1);
+    (void)solar_os_terminal_set_palette_preference(inverted);
+    (void)solar_os_display_set_palette_inverted(NULL, inverted);
+    (void)solar_os_display_set_controller_mode(NULL, inverted ? "inverted=on" : "inverted=off");
+    if (sstate.ctx != NULL) {
+        solar_os_terminal_t *term = solar_os_context_terminal(sstate.ctx);
+        if (term != NULL) {
+            (void)solar_os_sessions_set_terminal_palette_inverted(term, inverted);
+        }
     }
 #endif
 
@@ -546,8 +559,9 @@ static esp_err_t settings_start(solar_os_context_t *ctx)
         sstate.edit_min = 10;
     }
 
+    sstate.ctx = ctx;
     sstate.brightness = 100;
-    sstate.color_theme = 0;
+    sstate.color_theme = solar_os_terminal_palette_preference_inverted() ? 1 : 0;
     sstate.screensaver_timeout = 1;
     sstate.screensaver_mode = 0;
 
@@ -658,6 +672,7 @@ static bool settings_event(solar_os_context_t *ctx, const solar_os_event_t *even
                     settings_apply_changes();
                 } else if (sstate.selected_row == 1) {
                     sstate.color_theme = (sstate.color_theme == 0) ? 1 : 0;
+                    settings_apply_changes();
                 } else if (sstate.selected_row == 2 && sstate.screensaver_timeout > 0) {
                     sstate.screensaver_timeout--;
                 } else if (sstate.selected_row == 3 && sstate.screensaver_mode > 0) {
@@ -723,6 +738,7 @@ static bool settings_event(solar_os_context_t *ctx, const solar_os_event_t *even
                     settings_apply_changes();
                 } else if (sstate.selected_row == 1) {
                     sstate.color_theme = (sstate.color_theme == 0) ? 1 : 0;
+                    settings_apply_changes();
                 } else if (sstate.selected_row == 2 && sstate.screensaver_timeout < 4) {
                     sstate.screensaver_timeout++;
                 } else if (sstate.selected_row == 3 && sstate.screensaver_mode < 2) {

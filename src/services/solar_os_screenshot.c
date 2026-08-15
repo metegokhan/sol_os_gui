@@ -7,6 +7,7 @@
 #include "esp_err.h"
 #include "solar_os_log.h"
 #include "solar_os_storage.h"
+#include "solar_os_terminal.h"
 
 static const char *TAG = "screenshot";
 
@@ -165,11 +166,18 @@ esp_err_t solar_os_screenshot_capture(u8g2_t *u8g2, char *saved_filename, size_t
         return ESP_FAIL;
     }
 
-    /* Color Palette (8 bytes: Palette 0 = White (Background), Palette 1 = Black (Foreground)) */
-    const uint8_t palette[8] = {
-        0xFF, 0xFF, 0xFF, 0x00, /* Color 0: White */
-        0x00, 0x00, 0x00, 0x00  /* Color 1: Black */
-    };
+    /* In u8g2 ST7305 RLCD buffer: Bit 1 is White (background), Bit 0 is Black (text/lines) */
+    const bool sys_inverted = solar_os_terminal_palette_preference_inverted();
+    uint8_t palette[8];
+    if (!sys_inverted) {
+        /* Standard Light theme: Bit 0 = Black (text/lines), Bit 1 = White (background) */
+        palette[0] = 0x00; palette[1] = 0x00; palette[2] = 0x00; palette[3] = 0x00; /* Color 0: Black */
+        palette[4] = 0xFF; palette[5] = 0xFF; palette[6] = 0xFF; palette[7] = 0x00; /* Color 1: White */
+    } else {
+        /* Inverted Dark theme: Bit 0 = White (text/lines), Bit 1 = Black (background) */
+        palette[0] = 0xFF; palette[1] = 0xFF; palette[2] = 0xFF; palette[3] = 0x00; /* Color 0: White */
+        palette[4] = 0x00; palette[5] = 0x00; palette[6] = 0x00; palette[7] = 0x00; /* Color 1: Black */
+    }
     if (fwrite(palette, 1, 8, f) != 8) {
         fclose(f);
         return ESP_FAIL;

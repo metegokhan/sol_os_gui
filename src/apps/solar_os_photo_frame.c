@@ -192,7 +192,7 @@ static void pframe_render(solar_os_context_t *ctx)
     solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 24);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "PHOTO GALLERY");
+    solar_os_gfx_text(gfx, 8, 16, "PHOTO FRAME");
 
     char top_info[64];
     if (pframe.photo_count > 0) {
@@ -220,17 +220,16 @@ static void pframe_render(solar_os_context_t *ctx)
     if (pframe.photo_count == 0) {
         /* Placeholder / Instructions */
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 40, 80, "SolarOS Photo & Screenshot Gallery");
+        solar_os_gfx_text(gfx, 40, 80, "SolarOS Photo Frame Slideshow");
 
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 40, 110, "Auto-scans the following folders on SD card:");
+        solar_os_gfx_text(gfx, 40, 110, "Place your .bmp, .jpg, .png photos inside:");
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 40, 130, "/sdcard/screencapture/ (PrtSc screenshots)");
-        solar_os_gfx_text(gfx, 40, 150, "/sdcard/photos/   and   /sdcard/images/");
+        solar_os_gfx_text(gfx, 40, 135, "/sdcard/photos/");
 
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 40, 190, "Tip: Press PrtSc / F12 to take a screenshot anytime.");
-        solar_os_gfx_text(gfx, 40, 210, "Press 'R' to rescan files.");
+        solar_os_gfx_text(gfx, 40, 175, "Press 'R' to rescan photos at any time.");
+        solar_os_gfx_text(gfx, 40, 195, "Press SPACE to toggle Auto Slideshow.");
     } else {
         const char *filepath = pframe.filenames[pframe.current_index];
         const char *dot = strrchr(filepath, '.');
