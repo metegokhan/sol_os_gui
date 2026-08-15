@@ -1037,7 +1037,9 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     solar_os_power_note_activity(millis_u32());
     if (event->key == SOLAR_OS_KEY_PRINT_SCREEN ||
         event->usage == 0x46 ||
-        event->key == SOLAR_OS_KEY_F12) {
+        event->key == SOLAR_OS_KEY_F12 ||
+        (((event->modifiers & (SOLAR_OS_INPUT_MOD_LEFT_GUI | SOLAR_OS_INPUT_MOD_RIGHT_GUI)) != 0) &&
+         (event->key == 's' || event->key == 'S' || event->usage == 0x16))) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
             trigger_screenshot();
         }

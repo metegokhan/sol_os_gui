@@ -772,9 +772,12 @@ static uint8_t input_usage_to_nav_key(uint16_t usage, uint8_t modifiers)
     const bool shift = (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0;
     switch (usage) {
     case 0x46: return SOLAR_OS_KEY_PRINT_SCREEN;
-    case 0x7f: return SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
-    case 0x80: return SOLAR_OS_KEY_AUDIO_VOLUME_UP;
-    case 0x81: return SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
+    case 0x7f:
+    case 0x00e2: return SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
+    case 0x80:
+    case 0x00e9: return SOLAR_OS_KEY_AUDIO_VOLUME_UP;
+    case 0x81:
+    case 0x00ea: return SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
     case 0x4a:
         return ctrl ? (shift ? SOLAR_OS_KEY_CTRL_SHIFT_HOME : SOLAR_OS_KEY_CTRL_HOME) :
             (shift ? SOLAR_OS_KEY_SHIFT_HOME : SOLAR_OS_KEY_HOME);

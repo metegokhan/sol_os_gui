@@ -2096,10 +2096,23 @@ static void handle_consumer_report(uint16_t report_id, const uint8_t *data, uint
         return;
     }
 
-    /* If first byte is the report ID or prefix (e.g. data[0] == report_id), offset pointer */
-    if (length > 1 && (data[0] == (uint8_t)report_id || data[0] <= 4) && data[1] != 0) {
+    /* If first byte is report ID (or report ID <= 8 and length > 1) */
+    if (length > 1 && (data[0] == (uint8_t)report_id || data[0] <= 8)) {
         data++;
         length--;
+    }
+
+    /* Check if report is completely all zeros (all keys released) */
+    bool all_zero = true;
+    for (uint16_t i = 0; i < length; i++) {
+        if (data[i] != 0) {
+            all_zero = false;
+            break;
+        }
+    }
+    if (all_zero) {
+        /* Release packet - all consumer keys released */
+        return;
     }
 
     uint8_t key = 0;
