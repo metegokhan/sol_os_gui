@@ -2090,46 +2090,57 @@ static void handle_keyboard_report(uint8_t map_index,
     previous_modifiers = modifiers;
 }
 
-static void handle_consumer_report(const uint8_t *data, uint16_t length)
+static void handle_consumer_report(uint16_t report_id, const uint8_t *data, uint16_t length)
 {
     if (data == NULL || length == 0) {
         return;
     }
+
+    /* If first byte is the report ID or prefix (e.g. data[0] == report_id), offset pointer */
+    if (length > 1 && (data[0] == (uint8_t)report_id || data[0] <= 4) && data[1] != 0) {
+        data++;
+        length--;
+    }
+
     uint8_t key = 0;
     uint16_t usage = 0;
 
-    for (uint16_t i = 0; i < length; i++) {
-        if (data[i] == 0) {
-            continue;
-        }
-        const uint16_t val16 = (i + 1 < length) ?
-            ((uint16_t)data[i] | ((uint16_t)data[i + 1] << 8)) : (uint16_t)data[i];
-        const uint8_t val8 = data[i];
+    /* 1. First check 16-bit Little-Endian Consumer Usage codes */
+    for (uint16_t i = 0; i + 1 < length; i++) {
+        uint16_t u16 = (uint16_t)data[i] | ((uint16_t)data[i + 1] << 8);
+        if (u16 == 0x00E9) { key = SOLAR_OS_KEY_AUDIO_VOLUME_UP; usage = 0x00E9; break; }
+        if (u16 == 0x00EA) { key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN; usage = 0x00EA; break; }
+        if (u16 == 0x00E2) { key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE; usage = 0x00E2; break; }
+    }
 
-        if (val16 == 0x00E9 || val8 == 0xE9) {
-            key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
-            usage = 0x00E9;
-            break;
-        } else if (val16 == 0x00EA || val8 == 0xEA) {
-            key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
-            usage = 0x00EA;
-            break;
-        } else if (val16 == 0x00E2 || val8 == 0xE2) {
-            key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
-            usage = 0x00E2;
-            break;
-        } else if ((val8 & 0x01) != 0) {
-            key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
-            usage = 0x00E9;
-            break;
-        } else if ((val8 & 0x02) != 0) {
-            key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
-            usage = 0x00EA;
-            break;
-        } else if ((val8 & 0x04) != 0) {
-            key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
-            usage = 0x00E2;
-            break;
+    /* 2. Check 8-bit explicit usage codes */
+    if (key == 0) {
+        for (uint16_t i = 0; i < length; i++) {
+            uint8_t u8 = data[i];
+            if (u8 == 0xE9 || u8 == 0x80) { key = SOLAR_OS_KEY_AUDIO_VOLUME_UP; usage = 0x00E9; break; }
+            if (u8 == 0xEA || u8 == 0x81) { key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN; usage = 0x00EA; break; }
+            if (u8 == 0xE2 || u8 == 0x7F) { key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE; usage = 0x00E2; break; }
+        }
+    }
+
+    /* 3. Check bitmask payloads */
+    if (key == 0) {
+        for (uint16_t i = 0; i < length; i++) {
+            uint8_t bits = data[i];
+            if (bits == 0) continue;
+            if ((bits & 0x01) != 0 || (bits & 0x10) != 0) {
+                key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
+                usage = 0x00E9;
+                break;
+            } else if ((bits & 0x02) != 0 || (bits & 0x20) != 0) {
+                key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
+                usage = 0x00EA;
+                break;
+            } else if ((bits & 0x04) != 0 || (bits & 0x40) != 0) {
+                key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
+                usage = 0x00E2;
+                break;
+            }
         }
     }
 
@@ -2541,7 +2552,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                                    param->input.length);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
         } else {
-            handle_consumer_report(param->input.data, param->input.length);
+            handle_consumer_report(param->input.report_id, param->input.data, param->input.length);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
         }
         break;
