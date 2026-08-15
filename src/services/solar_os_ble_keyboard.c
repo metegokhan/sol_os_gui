@@ -2106,29 +2106,17 @@ static void handle_consumer_report(const uint8_t *data, uint16_t length)
             ((uint16_t)data[i] | ((uint16_t)data[i + 1] << 8)) : (uint16_t)data[i];
         const uint8_t val8 = data[i];
 
-        if (val16 == 0x00E9 || val8 == 0xE9 || val16 == 0x0080 || val8 == 0x80) {
+        if (val16 == 0x00E9 || val8 == 0xE9) {
             key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
-            usage = val16;
+            usage = 0x00E9;
             break;
-        } else if (val16 == 0x00EA || val8 == 0xEA || val16 == 0x0081 || val8 == 0x81) {
+        } else if (val16 == 0x00EA || val8 == 0xEA) {
             key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
-            usage = val16;
+            usage = 0x00EA;
             break;
-        } else if (val16 == 0x00E2 || val8 == 0xE2 || val16 == 0x007F || val8 == 0x7F) {
+        } else if (val16 == 0x00E2 || val8 == 0xE2) {
             key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
-            usage = val16;
-            break;
-        } else if ((val8 & 0x02) != 0 || (val8 & 0x10) != 0) {
-            key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
-            usage = val8;
-            break;
-        } else if ((val8 & 0x04) != 0 || (val8 & 0x20) != 0) {
-            key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
-            usage = val8;
-            break;
-        } else if ((val8 & 0x01) != 0 || (val8 & 0x40) != 0) {
-            key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
-            usage = val8;
+            usage = 0x00E2;
             break;
         }
     }
