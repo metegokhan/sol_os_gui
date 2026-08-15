@@ -2090,6 +2090,35 @@ static void handle_keyboard_report(uint8_t map_index,
     previous_modifiers = modifiers;
 }
 
+static void handle_consumer_report(const uint8_t *data, uint16_t length)
+{
+    if (data == NULL || length == 0) {
+        return;
+    }
+    uint16_t usage = 0;
+    if (length >= 2) {
+        usage = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+    } else {
+        usage = data[0];
+    }
+    if (usage == 0) {
+        return;
+    }
+    uint8_t key = 0;
+    if (usage == 0x00E9 || usage == 0x0080) {
+        key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
+    } else if (usage == 0x00EA || usage == 0x0081) {
+        key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
+    } else if (usage == 0x00E2 || usage == 0x007F) {
+        key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
+    }
+    if (key != 0) {
+        (void)solar_os_input_write_key(input_source, usage, usage, key, 0, SOLAR_OS_INPUT_KEY_PRESS);
+        (void)solar_os_input_write_char(input_source, (char)key);
+        (void)solar_os_input_write_key(input_source, usage, usage, key, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+    }
+}
+
 static void gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
     switch (event) {
@@ -2489,6 +2518,9 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                                    param->input.report_id,
                                    param->input.data,
                                    param->input.length);
+            set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
+        } else if (param->input.usage == ESP_HID_USAGE_CCONTROL) {
+            handle_consumer_report(param->input.data, param->input.length);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
         }
         break;

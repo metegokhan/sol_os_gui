@@ -901,6 +901,32 @@ static void trigger_screenshot(void)
     }
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+static void step_system_volume(int delta)
+{
+    solar_os_audio_status_t status;
+    solar_os_audio_get_status(&status);
+    int new_vol = (int)status.volume + delta;
+    if (new_vol < 0) new_vol = 0;
+    if (new_vol > 100) new_vol = 100;
+
+    esp_err_t err = solar_os_audio_set_volume((uint8_t)new_vol);
+    if (err == ESP_OK) {
+        char msg[64];
+        int bars = (new_vol + 5) / 10;
+        char bar_str[11] = "----------";
+        for (int b = 0; b < bars && b < 10; b++) {
+            bar_str[b] = '=';
+        }
+        snprintf(msg, sizeof(msg), "Volume: %d%% [%s]", new_vol, bar_str);
+        session_overlay_requested(msg, NULL);
+        last_status_update_ms = 0;
+        update_status();
+        draw_terminal_if_needed();
+    }
+}
+#endif
+
 static void dispatch_input_chars(const char *chars, size_t count)
 {
     if (chars == NULL || count == 0) {
@@ -916,12 +942,32 @@ static void dispatch_input_chars(const char *chars, size_t count)
             continue;
         }
 
+        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_VOLUME_UP) {
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+            step_system_volume(+5);
+#endif
+            continue;
+        }
+
+        if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN) {
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+            step_system_volume(-5);
+#endif
+            continue;
+        }
+
         if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
             uint8_t volume = 0;
             const esp_err_t err = solar_os_audio_toggle_mute(&volume);
             if (err == ESP_OK) {
-                SOLAR_OS_LOGI(TAG, "audio mute toggle: volume=%u", (unsigned)volume);
+                char msg[64];
+                if (volume == 0) {
+                    snprintf(msg, sizeof(msg), "Volume: Muted");
+                } else {
+                    snprintf(msg, sizeof(msg), "Volume: %u%%", (unsigned)volume);
+                }
+                session_overlay_requested(msg, NULL);
                 last_status_update_ms = 0;
                 update_status();
                 draw_terminal_if_needed();
@@ -1011,23 +1057,53 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         return;
     }
 
-    const char ch = (char)event->key;
-    if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE) {
+    if (event->key == SOLAR_OS_KEY_AUDIO_VOLUME_UP ||
+        event->usage == 0x80 ||
+        event->usage == 0xe9) {
+        if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-        uint8_t volume = 0;
-        const esp_err_t err = solar_os_audio_toggle_mute(&volume);
-        if (err == ESP_OK) {
-            SOLAR_OS_LOGI(TAG, "audio mute toggle: volume=%u", (unsigned)volume);
-            last_status_update_ms = 0;
-            update_status();
-            draw_terminal_if_needed();
-        } else if (err != ESP_ERR_NOT_SUPPORTED) {
-            SOLAR_OS_LOGW(TAG, "audio mute toggle failed: %s", esp_err_to_name(err));
-        }
+            step_system_volume(+5);
 #endif
+        }
         return;
     }
 
+    if (event->key == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN ||
+        event->usage == 0x81 ||
+        event->usage == 0xea) {
+        if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+            step_system_volume(-5);
+#endif
+        }
+        return;
+    }
+
+    if (event->key == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE ||
+        event->usage == 0x7f ||
+        event->usage == 0xe2) {
+        if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+            uint8_t volume = 0;
+            const esp_err_t err = solar_os_audio_toggle_mute(&volume);
+            if (err == ESP_OK) {
+                char msg[64];
+                if (volume == 0) {
+                    snprintf(msg, sizeof(msg), "Volume: Muted");
+                } else {
+                    snprintf(msg, sizeof(msg), "Volume: %u%%", (unsigned)volume);
+                }
+                session_overlay_requested(msg, NULL);
+                last_status_update_ms = 0;
+                update_status();
+                draw_terminal_if_needed();
+            }
+#endif
+        }
+        return;
+    }
+
+    const char ch = (char)event->key;
     if ((event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0 && ch == '\t') {
         (void)solar_os_sessions_cycle_input_focus();
         process_app_requests();

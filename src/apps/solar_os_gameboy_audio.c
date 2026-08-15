@@ -77,6 +77,14 @@ static void gameboy_audio_render(int16_t *samples, size_t frames,
   gameboy_audio_lock();
   minigb_apu_audio_callback(&gameboy_apu, samples);
   gameboy_audio_unlock();
+
+  /* Boost Game Boy audio by 4x for loud, full dynamic range */
+  for (size_t i = 0; i < frames * 2; i++) {
+    int32_t s = (int32_t)samples[i] * 4;
+    if (s > 32767) s = 32767;
+    else if (s < -32768) s = -32768;
+    samples[i] = (int16_t)s;
+  }
 }
 
 esp_err_t solar_os_gameboy_audio_resume(void) {

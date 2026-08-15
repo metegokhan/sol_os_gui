@@ -28,6 +28,7 @@
 #include "solar_os_audio_codec.h"
 #endif
 #include "solar_os_storage.h"
+#include "nvs.h"
 
 #define AUDIO_FRAME_CHUNK 256U
 #define AUDIO_LEVEL_BUFFER_SAMPLES 512U
@@ -39,7 +40,7 @@
 #define AUDIO_TONE_WORKER_STACK 4096U
 #define AUDIO_TONE_WORKER_PRIORITY (tskIDLE_PRIORITY + 1U)
 #define AUDIO_TONE_CANCEL_POLL_MS 10U
-#define AUDIO_GLOBAL_DEFAULT_VOLUME 50U
+#define AUDIO_GLOBAL_DEFAULT_VOLUME 80U
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 #define AUDIO_MP3_INPUT_BUFFER_BYTES 16384U
 #define AUDIO_MP3_PROBE_SCAN_BYTES 65536U
@@ -1012,17 +1013,46 @@ esp_err_t solar_os_audio_get_device_input_gain(const char *id, float *gain_db)
     return ESP_ERR_NOT_FOUND;
 }
 
+static void audio_load_saved_volume(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("audio", NVS_READONLY, &nvs) == ESP_OK) {
+        uint8_t vol = 0;
+        if (nvs_get_u8(nvs, "volume", &vol) == ESP_OK && vol <= 100) {
+            audio_global_volume = vol;
+            if (vol > 0) {
+                audio_mute_restore_volume = vol;
+            }
+        }
+        nvs_close(nvs);
+    }
+}
+
+static void audio_save_volume_nvs(uint8_t volume)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("audio", NVS_READWRITE, &nvs) == ESP_OK) {
+        nvs_set_u8(nvs, "volume", volume);
+        nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+}
+
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
 esp_err_t solar_os_audio_init(void)
 {
 #if !SOLAR_OS_BOARD_HAS_AUDIO
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    audio_load_saved_volume();
     esp_err_t ret = audio_operation_take(portMAX_DELAY);
     if (ret != ESP_OK) {
         return ret;
     }
     ret = solar_os_board_audio_init();
+    if (ret == ESP_OK) {
+        (void)solar_os_board_audio_set_volume(audio_global_volume);
+    }
     audio_operation_give();
     return ret;
 #endif
@@ -1052,6 +1082,7 @@ esp_err_t solar_os_audio_set_volume(uint8_t volume)
         if (volume > 0) {
             audio_mute_restore_volume = volume;
         }
+        audio_save_volume_nvs(volume);
     }
     return ret;
 }

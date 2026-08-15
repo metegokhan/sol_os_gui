@@ -154,8 +154,7 @@ static void settings_apply_changes(void)
 
     /* 3. Audio Volume */
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-    uint8_t vol_byte = (uint8_t)((sstate.master_volume * 255) / 100);
-    (void)solar_os_audio_set_volume(vol_byte);
+    (void)solar_os_audio_set_volume((uint8_t)sstate.master_volume);
 #endif
 
     /* 4. Display Settings (Brightness & Color Theme) */
@@ -572,7 +571,13 @@ static esp_err_t settings_start(solar_os_context_t *ctx)
 
     sstate.repeat_delay = 1;
     sstate.repeat_rate = 1;
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+    solar_os_audio_status_t astatus;
+    solar_os_audio_get_status(&astatus);
+    sstate.master_volume = (int)astatus.volume;
+#else
     sstate.master_volume = 80;
+#endif
     sstate.audio_beeps = 0;
 
     sstate.chat_channel = 0;
@@ -693,7 +698,7 @@ static bool settings_event(solar_os_context_t *ctx, const solar_os_event_t *even
                     sstate.master_volume -= 10;
                     settings_apply_changes();
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-                    (void)solar_os_audio_play_tone(880, 100, (uint8_t)((sstate.master_volume * 255) / 100));
+                    (void)solar_os_audio_play_tone(880, 100, (uint8_t)sstate.master_volume);
 #endif
                 } else if (sstate.selected_row == 1) {
                     sstate.audio_beeps = (sstate.audio_beeps == 0) ? 1 : 0;
@@ -758,7 +763,7 @@ static bool settings_event(solar_os_context_t *ctx, const solar_os_event_t *even
                     sstate.master_volume += 10;
                     settings_apply_changes();
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-                    (void)solar_os_audio_play_tone(880, 100, (uint8_t)((sstate.master_volume * 255) / 100));
+                    (void)solar_os_audio_play_tone(880, 100, (uint8_t)sstate.master_volume);
 #endif
                 } else if (sstate.selected_row == 1) {
                     sstate.audio_beeps = (sstate.audio_beeps == 0) ? 1 : 0;
