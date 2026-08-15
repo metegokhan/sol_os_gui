@@ -2118,6 +2118,18 @@ static void handle_consumer_report(const uint8_t *data, uint16_t length)
             key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
             usage = 0x00E2;
             break;
+        } else if ((val8 & 0x01) != 0) {
+            key = SOLAR_OS_KEY_AUDIO_VOLUME_UP;
+            usage = 0x00E9;
+            break;
+        } else if ((val8 & 0x02) != 0) {
+            key = SOLAR_OS_KEY_AUDIO_VOLUME_DOWN;
+            usage = 0x00EA;
+            break;
+        } else if ((val8 & 0x04) != 0) {
+            key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE;
+            usage = 0x00E2;
+            break;
         }
     }
 
@@ -2528,7 +2540,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                                    param->input.data,
                                    param->input.length);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
-        } else if (param->input.usage == ESP_HID_USAGE_CCONTROL) {
+        } else {
             handle_consumer_report(param->input.data, param->input.length);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
         }
