@@ -57,6 +57,8 @@ static const key_name_t key_names[] = {
     {"CTRL_MINUS", SOLAR_OS_KEY_CTRL_MINUS},
     {"CTRL", SOLAR_OS_KEY_CTRL},
     {"AUDIO_MUTE", SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE},
+    {"PRINT_SCREEN", SOLAR_OS_KEY_PRINT_SCREEN},
+    {"PRTSC", SOLAR_OS_KEY_PRINT_SCREEN},
     {"ESCAPE", SOLAR_OS_KEY_ESCAPE},
     {"ENTER", SOLAR_OS_KEY_ENTER},
     {"TAB", '\t'},

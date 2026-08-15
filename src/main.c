@@ -83,6 +83,7 @@
 #include "solar_os_time.h"
 #include "solar_os_uart.h"
 #include "solar_os_wifi.h"
+#include "solar_os_screenshot.h"
 #include "solar_os_board.h"
 
 #ifndef SOLAR_OS_BOARD_PIN_KEY
@@ -884,6 +885,22 @@ static void dispatch_char_to_input_focus(char ch)
     (void)solar_os_sessions_dispatch_input_event(&event);
 }
 
+static void trigger_screenshot(void)
+{
+    if (display_u8g2 == NULL) {
+        return;
+    }
+    char filename[64] = {0};
+    const esp_err_t err = solar_os_screenshot_capture(display_u8g2, filename, sizeof(filename));
+    if (err == ESP_OK) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "Screenshot: %s", filename);
+        session_overlay_requested(msg, NULL);
+    } else {
+        session_overlay_requested("Screenshot Failed (No SD)", NULL);
+    }
+}
+
 static void dispatch_input_chars(const char *chars, size_t count)
 {
     if (chars == NULL || count == 0) {
@@ -893,6 +910,11 @@ static void dispatch_input_chars(const char *chars, size_t count)
     solar_os_power_note_activity(millis_u32());
     for (size_t i = 0; i < count; i++) {
         const char ch = chars[i];
+
+        if ((uint8_t)ch == SOLAR_OS_KEY_PRINT_SCREEN || (uint8_t)ch == SOLAR_OS_KEY_F12) {
+            trigger_screenshot();
+            continue;
+        }
 
         if ((uint8_t)ch == SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE) {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
@@ -960,6 +982,15 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     }
 
     solar_os_power_note_activity(millis_u32());
+    if (event->key == SOLAR_OS_KEY_PRINT_SCREEN ||
+        event->usage == 0x46 ||
+        event->key == SOLAR_OS_KEY_F12) {
+        if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
+            trigger_screenshot();
+        }
+        return;
+    }
+
     if ((event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0 &&
         (event->key == SOLAR_OS_KEY_RIGHT ||
          event->key == SOLAR_OS_KEY_LEFT)) {

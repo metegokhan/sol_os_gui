@@ -264,6 +264,7 @@ sources = [
   "services/solar_os_parameters.c",
   "services/solar_os_power.c",
   "services/solar_os_ramfs.c",
+  "services/solar_os_screenshot.c",
   "services/solar_os_sessions.c",
   "services/solar_os_splash.c",
   "services/solar_os_storage.c",

@@ -771,6 +771,7 @@ static uint8_t input_usage_to_nav_key(uint16_t usage, uint8_t modifiers)
     const bool ctrl = (modifiers & SOLAR_OS_INPUT_MOD_CTRL) != 0;
     const bool shift = (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0;
     switch (usage) {
+    case 0x46: return SOLAR_OS_KEY_PRINT_SCREEN;
     case 0x4a:
         return ctrl ? (shift ? SOLAR_OS_KEY_CTRL_SHIFT_HOME : SOLAR_OS_KEY_CTRL_HOME) :
             (shift ? SOLAR_OS_KEY_SHIFT_HOME : SOLAR_OS_KEY_HOME);
