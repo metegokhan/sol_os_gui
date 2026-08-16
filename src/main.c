@@ -52,6 +52,7 @@
 #include "solar_os_i2c.h"
 #include "solar_os_identity.h"
 #include "solar_os_input.h"
+#include "solar_os_keys.h"
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
 #include "solar_os_inbox.h"
 #endif
@@ -1505,16 +1506,11 @@ static void init_peripherals(void)
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
-        const esp_err_t ble_err = solar_os_ble_keyboard_init();
-        if (ble_err == ESP_OK) {
-            if (solar_os_ble_keyboard_remembered_count() == 0) {
-                SOLAR_OS_LOGI(TAG, "No BLE keyboard remembered; starting pairing scan...");
-                solar_os_ble_keyboard_start_pairing();
-            }
-        } else if (ble_err == ESP_ERR_NOT_ALLOWED) {
+        const esp_err_t ble_err = solar_os_ble_hid_init();
+        if (ble_err == ESP_ERR_NOT_ALLOWED) {
             SOLAR_OS_LOGI(TAG, "BLE disabled by saved boot setting");
         } else if (ble_err != ESP_OK) {
-            SOLAR_OS_LOGE(TAG, "BLE keyboard init failed: %s", esp_err_to_name(ble_err));
+            SOLAR_OS_LOGE(TAG, "BLE init failed: %s", esp_err_to_name(ble_err));
         }
     }
 #endif

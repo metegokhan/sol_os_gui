@@ -431,40 +431,26 @@ static void ble_sync_device_bookmarks(void)
     }
 }
 
-/* ---------------------------------------------------------------------
- * Scan Worker Task
- * ------------------------------------------------------------------- */
+static solar_os_ble_keyboard_scan_result_t s_worker_scan_buf[BLE_SCANNER_MAX_DEVICES];
 
 static void ble_scanner_scan_worker(void *arg)
 {
     (void)arg;
     for (;;) {
         size_t found = 0U;
-        solar_os_ble_keyboard_scan_result_t *scan_buf = malloc(BLE_SCANNER_MAX_DEVICES * sizeof(solar_os_ble_keyboard_scan_result_t));
-        if (scan_buf != NULL) {
-            const esp_err_t err = solar_os_ble_keyboard_scan(scan_buf, BLE_SCANNER_MAX_DEVICES, &found);
+        const esp_err_t err = solar_os_ble_scan_start(3, s_worker_scan_buf, BLE_SCANNER_MAX_DEVICES, &found);
 
-            portENTER_CRITICAL(&ble_scanner_lock);
-            if (err == ESP_OK) {
-                memcpy(ble_state.staging_results, scan_buf, found * sizeof(ble_state.staging_results[0]));
-                ble_state.staging_count = found;
-            } else {
-                ble_state.staging_count = 0U;
-            }
-            ble_state.staging_err = err;
-            ble_state.staging_ready = true;
-            ble_state.task_done = true;
-            portEXIT_CRITICAL(&ble_scanner_lock);
-
-            free(scan_buf);
+        portENTER_CRITICAL(&ble_scanner_lock);
+        if (err == ESP_OK) {
+            memcpy(ble_state.staging_results, s_worker_scan_buf, found * sizeof(ble_state.staging_results[0]));
+            ble_state.staging_count = found;
         } else {
-            portENTER_CRITICAL(&ble_scanner_lock);
             ble_state.staging_count = 0U;
-            ble_state.staging_err = ESP_ERR_NO_MEM;
-            ble_state.staging_ready = true;
-            ble_state.task_done = true;
-            portEXIT_CRITICAL(&ble_scanner_lock);
         }
+        ble_state.staging_err = err;
+        ble_state.staging_ready = true;
+        ble_state.task_done = true;
+        portEXIT_CRITICAL(&ble_scanner_lock);
 
         vTaskSuspend(NULL);
     }
