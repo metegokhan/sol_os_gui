@@ -455,6 +455,9 @@ static void ble_start_gatt_explorer(const ble_device_item_t *dev)
 {
     if (dev == NULL) return;
 
+    /* Crucial: Stop background scan worker so radio is dedicated to GATT connect */
+    ble_scanner_stop_worker();
+
     memcpy(ble_state.connected_bda, dev->bda, 6);
     ble_state.connected_addr_type = dev->addr_type;
     ble_state.connected_rssi = dev->rssi;
@@ -499,7 +502,7 @@ static void ble_start_gatt_explorer(const ble_device_item_t *dev)
     } else {
         ble_state.gatt_connecting = false;
         ble_state.gatt_connected = false;
-        snprintf(msg, sizeof(msg), "Connection failed: %s", esp_err_to_name(err));
+        snprintf(msg, sizeof(msg), "Connect failed: %s (Beacon / Non-GATT)", esp_err_to_name(err));
         ble_scanner_set_status(msg);
     }
     ble_state.render_pending = true;
