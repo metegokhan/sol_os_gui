@@ -10,12 +10,43 @@
 #include "esp_err.h"
 #include "esp_timer.h"
 #include "solar_os.h"
+#include "solar_os_audio.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_resource_limits.h"
 
 #define CHESS_STACK_SIZE 8192
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(CHESS_STACK_SIZE);
+
+static void chess_sfx_move(void)
+{
+    solar_os_audio_play_tone(850, 18, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+}
+
+static void chess_sfx_capture(void)
+{
+    solar_os_audio_play_tone(400, 30, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+    solar_os_audio_play_tone(250, 45, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+}
+
+static void chess_sfx_check(void)
+{
+    solar_os_audio_play_tone(1200, 35, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+    solar_os_audio_play_tone(1500, 60, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+}
+
+static void chess_sfx_checkmate(void)
+{
+    solar_os_audio_play_tone(523, 60, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+    solar_os_audio_play_tone(659, 60, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+    solar_os_audio_play_tone(784, 80, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+    solar_os_audio_play_tone(1046, 140, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+}
+
+static void chess_sfx_illegal(void)
+{
+    solar_os_audio_play_tone(200, 60, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+}
 
 /* Pieces: 0=Empty, 1=P, 2=N, 3=B, 4=R, 5=Q, 6=K. Positive=White, Negative=Black */
 typedef struct {
@@ -176,9 +207,23 @@ static bool is_square_attacked(const int8_t b[8][8], int r, int c, bool by_white
             const int8_t p = b[fr][fc];
             if (p == 0) continue;
             if (by_white && p > 0) {
-                if (is_valid_pseudo_move(b, fr, fc, r, c, true)) return true;
+                if (p == 1) {
+                    /* White Pawn attacks diagonally up (fr - 1) */
+                    if (fr - 1 == r && (fc - 1 == c || fc + 1 == c)) return true;
+                } else if (p == 6) {
+                    if (abs(fr - r) <= 1 && abs(fc - c) <= 1) return true;
+                } else {
+                    if (is_valid_pseudo_move(b, fr, fc, r, c, true)) return true;
+                }
             } else if (!by_white && p < 0) {
-                if (is_valid_pseudo_move(b, fr, fc, r, c, false)) return true;
+                if (p == -1) {
+                    /* Black Pawn attacks diagonally down (fr + 1) */
+                    if (fr + 1 == r && (fc - 1 == c || fc + 1 == c)) return true;
+                } else if (p == -6) {
+                    if (abs(fr - r) <= 1 && abs(fc - c) <= 1) return true;
+                } else {
+                    if (is_valid_pseudo_move(b, fr, fc, r, c, false)) return true;
+                }
             }
         }
     }
@@ -660,7 +705,21 @@ static bool chess_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event == NULL) return false;
 
     if (event->type == SOLAR_OS_EVENT_CHAR) {
+        const uint8_t u_ch = (uint8_t)event->data.ch;
         const char ch = event->data.ch;
+
+        /* 1. If piece is selected: ESC, Backspace, Delete, C, or X cancels selection */
+        if (chess.selected) {
+            if (u_ch == SOLAR_OS_KEY_ESCAPE || u_ch == 8 || u_ch == 127 || u_ch == SOLAR_OS_KEY_DELETE ||
+                ch == 'c' || ch == 'C' || ch == 'x' || ch == 'X') {
+                chess.selected = false;
+                memset(chess.legal_targets, 0, sizeof(chess.legal_targets));
+                strlcpy(chess.status_msg, "Selection cancelled", sizeof(chess.status_msg));
+                chess_sfx_illegal();
+                chess_render(ctx);
+                return true;
+            }
+        }
 
         if (ch == SOLAR_OS_KEY_UP || ch == 'w' || ch == 'W' || ch == 'k' || ch == 'K') {
             if (chess.cursor_r > 0) chess.cursor_r--;
@@ -700,17 +759,21 @@ static bool chess_event(solar_os_context_t *ctx, const solar_os_event_t *event)
                     chess.sel_r = r;
                     chess.sel_c = c;
                     update_legal_targets();
-                    strlcpy(chess.status_msg, "Select destination square", sizeof(chess.status_msg));
+                    strlcpy(chess.status_msg, "Select destination square [ESC: Cancel]", sizeof(chess.status_msg));
+                    chess_sfx_move();
                 }
             } else {
                 if (r == chess.sel_r && c == chess.sel_c) {
                     chess.selected = false;
                     memset(chess.legal_targets, 0, sizeof(chess.legal_targets));
                     strlcpy(chess.status_msg, "Selection cancelled", sizeof(chess.status_msg));
+                    chess_sfx_illegal();
                 } else if (chess.legal_targets[r][c]) {
                     /* Execute Legal Move */
                     int8_t moving = chess.board[chess.sel_r][chess.sel_c];
                     int8_t captured = chess.board[r][c];
+                    bool was_capture = (captured != 0);
+
                     if (captured < 0 && captured >= -5) {
                         chess.captured_w[abs(captured)]++;
                     } else if (captured > 0 && captured <= 5) {
@@ -726,6 +789,12 @@ static bool chess_event(solar_os_context_t *ctx, const solar_os_event_t *event)
                     chess.selected = false;
                     memset(chess.legal_targets, 0, sizeof(chess.legal_targets));
 
+                    if (was_capture) {
+                        chess_sfx_capture();
+                    } else {
+                        chess_sfx_move();
+                    }
+
                     chess.white_turn = !chess.white_turn;
                     if (chess.white_turn) chess.move_count++;
 
@@ -736,9 +805,11 @@ static bool chess_event(solar_os_context_t *ctx, const solar_os_event_t *event)
                             chess.game_over = true;
                             snprintf(chess.status_msg, sizeof(chess.status_msg), "Checkmate! %s Wins!",
                                      chess.white_turn ? "Black" : "White");
+                            chess_sfx_checkmate();
                         } else {
                             snprintf(chess.status_msg, sizeof(chess.status_msg), "CHECK! %s King in danger",
                                      chess.white_turn ? "White" : "Black");
+                            chess_sfx_check();
                         }
                     } else if (!has_any_legal_moves(chess.board, chess.white_turn)) {
                         chess.game_over = true;
@@ -760,6 +831,7 @@ static bool chess_event(solar_os_context_t *ctx, const solar_os_event_t *event)
                     return true;
                 } else {
                     strlcpy(chess.status_msg, "Illegal move! Follow rules", sizeof(chess.status_msg));
+                    chess_sfx_illegal();
                 }
             }
             chess_render(ctx);
@@ -780,7 +852,7 @@ static bool chess_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             return true;
         }
 
-        if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
+        if (u_ch == SOLAR_OS_KEY_APP_EXIT || u_ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
             solar_os_context_request_exit(ctx);
             return true;
         }

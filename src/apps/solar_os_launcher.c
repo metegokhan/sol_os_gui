@@ -673,6 +673,21 @@ static const char *create_default_file_for_app(const char *app_name)
         } else {
             fclose(f);
         }
+    } else if (strcmp(app_name, "yazici") == 0) {
+        char dir[128];
+        snprintf(dir, sizeof(dir), "%s/doc", mount);
+        ensure_dir_exists(dir);
+        snprintf(target_path, sizeof(target_path), "%s/typewriter.txt", dir);
+        FILE *f = fopen(target_path, "r");
+        if (f == NULL) {
+            f = fopen(target_path, "w");
+            if (f != NULL) {
+                fputs("# Vintage Typewriter Document\n\n", f);
+                fclose(f);
+            }
+        } else {
+            fclose(f);
+        }
     } else {
         snprintf(target_path, sizeof(target_path), "%s/default.txt", mount);
         FILE *f = fopen(target_path, "a");
@@ -693,6 +708,7 @@ static bool is_file_picker_app(const char *app_name)
             strcmp(app_name, "player") == 0 ||
             strcmp(app_name, "view") == 0 ||
             strcmp(app_name, "video_player") == 0 ||
+            strcmp(app_name, "yazici") == 0 ||
             strcmp(app_name, "gameboy") == 0);
 }
 
@@ -876,6 +892,28 @@ static void launcher_open_file_picker_for_app(const char *app_name)
             snprintf(path, sizeof(path), "%s/gifs", flash); scan_dir_for_extensions(path, exts, num_exts, ICON_TYPE_PLAYER);
             scan_dir_for_extensions(flash, exts, num_exts, ICON_TYPE_PLAYER);
         }
+    } else if (strcmp(app_name, "yazici") == 0) {
+        strlcpy(launcher.picker_title, "TYPEWRITER - SELECT DOCUMENT", sizeof(launcher.picker_title));
+        launcher.picker_icon = ICON_TYPE_WRITER;
+        launcher_picker_entry_t *p = &launcher.picker_items[launcher.picker_count++];
+        strlcpy(p->name, "[ + Create New Document ]", sizeof(p->name));
+        p->path[0] = '\0';
+        p->icon_type = ICON_TYPE_WRITER;
+        p->is_new_file = true;
+
+        const char *exts[] = {".txt", ".md", ".note"};
+        if (sd) {
+            char path[64];
+            snprintf(path, sizeof(path), "%s/doc", sd); scan_dir_for_extensions(path, exts, 3, ICON_TYPE_WRITER);
+            snprintf(path, sizeof(path), "%s/notes", sd); scan_dir_for_extensions(path, exts, 3, ICON_TYPE_WRITER);
+            scan_dir_for_extensions(sd, exts, 3, ICON_TYPE_WRITER);
+        }
+        if (flash) {
+            char path[64];
+            snprintf(path, sizeof(path), "%s/doc", flash); scan_dir_for_extensions(path, exts, 3, ICON_TYPE_WRITER);
+            snprintf(path, sizeof(path), "%s/notes", flash); scan_dir_for_extensions(path, exts, 3, ICON_TYPE_WRITER);
+            scan_dir_for_extensions(flash, exts, 3, ICON_TYPE_WRITER);
+        }
     }
 
     launcher.view_mode = VIEW_ROM_PICKER;
@@ -931,6 +969,9 @@ static void launcher_refresh_items(void)
     add_folder_item(0, ITEM_KIND_BUILTIN, "stopwatch", "Stopwatch", "Precision stopwatch with lap splits", ICON_TYPE_STOPWATCH);
     add_folder_item(0, ITEM_KIND_BUILTIN, "timer", "Timer", "Countdown timer with audible alarm", ICON_TYPE_TIMER);
     add_folder_item(0, ITEM_KIND_BUILTIN, "keytest", "Key Test", "Real-time key inspector & layout tester", ICON_TYPE_KEYBOARD_LAYOUT);
+    add_folder_item(0, ITEM_KIND_BUILTIN, "olcum", "Measure", "Precision ruler, caliper and protractor", ICON_TYPE_LOGIC);
+    add_folder_item(0, ITEM_KIND_BUILTIN, "desibel", "Decibel Meter", "Real-time audio dB meter and spectrogram", ICON_TYPE_RECORDER);
+    add_folder_item(0, ITEM_KIND_BUILTIN, "tabela", "LED Marquee", "Customizable scrolling billboard", ICON_TYPE_VIEW);
 
     /* Folder 1: Text & Reading */
     strlcpy(launcher.folders[1].title, "Text & Reading", sizeof(launcher.folders[1].title));
@@ -938,31 +979,38 @@ static void launcher_refresh_items(void)
     launcher.folders[1].icon_type = ICON_TYPE_FOLDER_TEXT;
     launcher.folders[1].count = 0;
 
-    add_folder_item(1, ITEM_KIND_BUILTIN, "writer", "Typewriter", "Distraction-free markdown writer", ICON_TYPE_WRITER);
+    add_folder_item(1, ITEM_KIND_BUILTIN, "writer", "Doc Writer", "Distraction-free markdown writer", ICON_TYPE_WRITER);
+    add_folder_item(1, ITEM_KIND_BUILTIN, "yazici", "Typewriter", "Vintage mechanical typewriter simulator", ICON_TYPE_WRITER);
+    add_folder_item(1, ITEM_KIND_BUILTIN, "mors", "Morse Radio", "Live audio Morse decoder and transmitter", ICON_TYPE_CHAT);
     add_folder_item(1, ITEM_KIND_BUILTIN, "reader", "Book Reader", "EPUB, markdown and document reader", ICON_TYPE_READER);
     add_folder_item(1, ITEM_KIND_BUILTIN, "notes", "Quick Notes", "Rapid notepad application", ICON_TYPE_NOTES);
     add_folder_item(1, ITEM_KIND_BUILTIN, "edit", "Code Editor", "Syntax-highlighted code editor", ICON_TYPE_EDIT);
     add_folder_item(1, ITEM_KIND_BUILTIN, "docs", "SolarOS Docs", "System manual and documentation", ICON_TYPE_DOCS);
 
-    /* Folder 2: Games & Media (Multi-page with 12 items) */
+    /* Folder 2: Games & Media (Multi-page) */
     strlcpy(launcher.folders[2].title, "Games & Media", sizeof(launcher.folders[2].title));
-    strlcpy(launcher.folders[2].description, "Chess, Go, Sudoku, Game Boy, recorder, player and media", sizeof(launcher.folders[2].description));
+    strlcpy(launcher.folders[2].description, "Tavla, Pişti, Blackjack, Chess, Game Boy, Yatzy, media", sizeof(launcher.folders[2].description));
     launcher.folders[2].icon_type = ICON_TYPE_FOLDER_MEDIA;
     launcher.folders[2].count = 0;
 
+    add_folder_item(2, ITEM_KIND_BUILTIN, "tavla", "Tavla", "Classic 24-point backgammon with AI", ICON_TYPE_CHESS);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "pisti", "Pisti", "Classic Turkish card game with AI", ICON_TYPE_INVADERS);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "blackjack", "Blackjack", "Classic casino 21 card game", ICON_TYPE_SUDOKU);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "yatzy", "Yatzy", "5-dice Yatzy strategy game", ICON_TYPE_GO);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "codebreaker", "Code Breaker", "Mastermind 4-peg logic challenge", ICON_TYPE_SUDOKU);
     add_folder_item(2, ITEM_KIND_GAMEBOY_LAUNCHER, "gameboy", "Game Boy", "Game Boy emulator & ROM picker", ICON_TYPE_GAMEBOY);
     add_folder_item(2, ITEM_KIND_BUILTIN, "chess", "Chess", "Classic 8x8 chessboard game", ICON_TYPE_CHESS);
     add_folder_item(2, ITEM_KIND_BUILTIN, "go", "Go Game", "Classic 9x9 board game of Go", ICON_TYPE_GO);
     add_folder_item(2, ITEM_KIND_BUILTIN, "sudoku", "Sudoku", "9x9 number puzzle challenge", ICON_TYPE_SUDOKU);
     add_folder_item(2, ITEM_KIND_BUILTIN, "invaders", "Space Invaders", "Classic arcade space shooter", ICON_TYPE_INVADERS);
-    add_folder_item(2, ITEM_KIND_BUILTIN, "pomodoro", "Pomodoro", "Visual circular Pomodoro focus timer", ICON_TYPE_POMODORO);
-    add_folder_item(2, ITEM_KIND_BUILTIN, "player", "Audio Player", "WAV & MP3 stereo audio player", ICON_TYPE_PLAYER);
-    add_folder_item(2, ITEM_KIND_BUILTIN, "recorder", "Voice Recorder", "WAV voice recorder & VU meter", ICON_TYPE_RECORDER);
-    add_folder_item(2, ITEM_KIND_BUILTIN, "photos", "Photo Frame", "SD card photo slideshow viewer", ICON_TYPE_PHOTOS);
-    add_folder_item(2, ITEM_KIND_BUILTIN, "synth", "Synthesizer", "Polyphonic audio synthesizer", ICON_TYPE_SYNTH);
-    add_folder_item(2, ITEM_KIND_BUILTIN, "webradio", "Web Radio", "Live streaming internet radio", ICON_TYPE_WEBRADIO);
-    add_folder_item(2, ITEM_KIND_BUILTIN, "view", "Gallery", "Image and graphics viewer", ICON_TYPE_VIEW);
     add_folder_item(2, ITEM_KIND_BUILTIN, "video_player", "Video Player", "Cinema video and animated GIF player", ICON_TYPE_PLAYER);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "player", "Audio Player", "WAV & MP3 stereo audio player", ICON_TYPE_PLAYER);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "photos", "Photo Frame", "SD card photo slideshow viewer", ICON_TYPE_PHOTOS);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "view", "Gallery", "Image and graphics viewer", ICON_TYPE_VIEW);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "webradio", "Web Radio", "Live streaming internet radio", ICON_TYPE_WEBRADIO);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "recorder", "Voice Recorder", "WAV voice recorder & VU meter", ICON_TYPE_RECORDER);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "synth", "Synthesizer", "Polyphonic audio synthesizer", ICON_TYPE_SYNTH);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "pomodoro", "Pomodoro", "Visual circular Pomodoro focus timer", ICON_TYPE_POMODORO);
 
     /* Folder 3: Network & Comms */
     strlcpy(launcher.folders[3].title, "Network & Comms", sizeof(launcher.folders[3].title));
@@ -970,6 +1018,9 @@ static void launcher_refresh_items(void)
     launcher.folders[3].icon_type = ICON_TYPE_FOLDER_NETWORK;
     launcher.folders[3].count = 0;
 
+    add_folder_item(3, ITEM_KIND_BUILTIN, "wifibul", "Wi-Fi Finder", "Wi-Fi radar scanner and signal analyzer", ICON_TYPE_WIFI_SETUP);
+    add_folder_item(3, ITEM_KIND_BUILTIN, "ble", "BLE Explorer", "Bluetooth Low Energy scanner & GATT explorer", ICON_TYPE_BLE);
+    add_folder_item(3, ITEM_KIND_BUILTIN, "ag_tarayici", "Net Scanner", "LAN host and open port scanner", ICON_TYPE_FILE_SERVER);
     add_folder_item(3, ITEM_KIND_BUILTIN, "weather", "Weather", "7-day graphical online forecast", ICON_TYPE_WEATHER);
     add_folder_item(3, ITEM_KIND_BUILTIN, "web_files", "File Server", "Wi-Fi SD card HTTP web server", ICON_TYPE_FILE_SERVER);
     add_folder_item(3, ITEM_KIND_BUILTIN, "chat", "Mesh Chat", "Encrypted Link/MeshCore network chat", ICON_TYPE_CHAT);
@@ -1010,6 +1061,7 @@ static void launcher_refresh_items(void)
 
     add_folder_item(5, ITEM_KIND_BUILTIN, "settings_gui", "Control Panel", "Full system & app settings GUI", ICON_TYPE_SETTINGS_CP);
     add_folder_item(5, ITEM_KIND_BUILTIN, "wifi_setup", "Wi-Fi Setup", "Scan & connect to Wi-Fi networks", ICON_TYPE_WIFI_SETUP);
+    add_folder_item(5, ITEM_KIND_BUILTIN, "ble", "BLE Explorer", "Bluetooth Low Energy scanner & GATT explorer", ICON_TYPE_BLE);
     add_folder_item(5, ITEM_KIND_BUILTIN, "web_files", "Web Server", "Wi-Fi SD Card HTTP file manager", ICON_TYPE_FILE_SERVER);
     add_folder_item(5, ITEM_KIND_ACTION_BLE_PAIR, "ble_pair", "BLE Pairing", "Start keyboard pairing (PIN: 123456)", ICON_TYPE_BLE);
     add_folder_item(5, ITEM_KIND_ACTION_KEYBOARD_LAYOUT, "kbd_layout", "Keyboard Layout", "Switch between US, TR (Turkish Q), DE", ICON_TYPE_KEYBOARD_LAYOUT);

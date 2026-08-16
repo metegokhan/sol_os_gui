@@ -2166,6 +2166,7 @@ esp_err_t solar_os_wifi_scan(solar_os_wifi_ap_t *aps, size_t max_aps, size_t *fo
             strlcpy(aps[i].ssid, "<hidden>", sizeof(aps[i].ssid));
         }
         strlcpy(aps[i].auth, wifi_auth_name(records[i].authmode), sizeof(aps[i].auth));
+        memcpy(aps[i].bssid, records[i].bssid, 6);
         aps[i].rssi = records[i].rssi;
         aps[i].channel = records[i].primary;
     }

@@ -38,12 +38,15 @@ typedef struct {
     uint8_t bda[6];
     uint8_t addr_type;
     int8_t rssi;
+    int8_t tx_power;
     uint16_t appearance;
     bool hid_service;
     bool keyboard_like;
     bool remembered;
     bool connected;
     char name[SOLAR_OS_BLE_KEYBOARD_NAME_MAX];
+    uint8_t adv_data[62];
+    uint8_t adv_data_len;
 } solar_os_ble_keyboard_scan_result_t;
 
 typedef struct {

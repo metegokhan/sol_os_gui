@@ -26,6 +26,7 @@ typedef enum {
 typedef struct {
     char ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
     char auth[18];
+    uint8_t bssid[6];
     int8_t rssi;
     uint8_t channel;
     bool hidden;

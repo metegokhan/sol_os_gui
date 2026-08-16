@@ -19,6 +19,7 @@ import subprocess
 import threading
 import urllib.request
 import zipfile
+import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
@@ -37,9 +38,13 @@ class SolarVideoConverterApp:
             pass
 
         self.input_file = tk.StringVar()
+        self.input_files = []
+        self.input_summary = tk.StringVar()
         self.output_dir = tk.StringVar()
-        self.output_filename = tk.StringVar()
-        self.conversion_mode = tk.StringVar(value="mjpeg_audio")  # 'mjpeg_audio', 'mjpeg_silent', 'slv', 'gif'
+        self.output_mjpeg = tk.BooleanVar(value=True)
+        self.output_mjpeg_audio = tk.BooleanVar(value=True)
+        self.output_slv = tk.BooleanVar(value=False)
+        self.output_gif = tk.BooleanVar(value=False)
         self.resolution = tk.StringVar(value="400x300 (Full RLCD)")
         self.aspect_mode = tk.StringVar(value="Fit (Letterbox)")
         self.fps = tk.StringVar(value="20")
@@ -50,7 +55,7 @@ class SolarVideoConverterApp:
         self.ffmpeg_path = self.find_ffmpeg()
 
         self.create_widgets()
-        self.on_mode_changed()
+        self.on_output_changed()
 
     def find_ffmpeg(self):
         found = shutil.which("ffmpeg")
@@ -83,39 +88,30 @@ class SolarVideoConverterApp:
 
         # Input row
         ttk.Label(file_group, text="Input Video/Media:").grid(row=0, column=0, sticky=tk.W, pady=4)
-        ttk.Entry(file_group, textvariable=self.input_file, width=54).grid(row=0, column=1, sticky=tk.EW, padx=6, pady=4)
-        ttk.Button(file_group, text="Browse...", command=self.browse_input_file).grid(row=0, column=2, padx=2, pady=4)
+        ttk.Entry(file_group, textvariable=self.input_summary, width=54, state="readonly").grid(row=0, column=1, sticky=tk.EW, padx=6, pady=4)
+        input_buttons = ttk.Frame(file_group)
+        input_buttons.grid(row=0, column=2, padx=2, pady=4)
+        ttk.Button(input_buttons, text="Files...", command=self.browse_input_files).pack(side=tk.LEFT)
+        ttk.Button(input_buttons, text="Folder...", command=self.browse_input_folder).pack(side=tk.LEFT, padx=(3, 0))
 
         # Output dir row
         ttk.Label(file_group, text="Output Directory:").grid(row=1, column=0, sticky=tk.W, pady=4)
         ttk.Entry(file_group, textvariable=self.output_dir, width=54).grid(row=1, column=1, sticky=tk.EW, padx=6, pady=4)
         ttk.Button(file_group, text="Browse...", command=self.browse_output_dir).grid(row=1, column=2, padx=2, pady=4)
 
-        # Output name row
-        ttk.Label(file_group, text="Output Base Name:").grid(row=2, column=0, sticky=tk.W, pady=4)
-        ttk.Entry(file_group, textvariable=self.output_filename, width=30).grid(row=2, column=1, sticky=tk.W, padx=6, pady=4)
+        ttk.Label(file_group, text="Output names:").grid(row=2, column=0, sticky=tk.W, pady=4)
+        ttk.Label(file_group, text="Source name; non-English letters/symbols are removed.", foreground="#666").grid(row=2, column=1, sticky=tk.W, padx=6, pady=4)
 
         file_group.columnconfigure(1, weight=1)
 
         # 2. Conversion Mode Card
-        mode_group = ttk.LabelFrame(main_frame, text=" 2. Target Output Format ", padding="10")
+        mode_group = ttk.LabelFrame(main_frame, text=" 2. Target Output Formats (select one or more) ", padding="10")
         mode_group.pack(fill=tk.X, pady=(0, 10))
 
-        r1 = ttk.Radiobutton(mode_group, text="🔊 Cinema Video with Audio (.mjpeg + .wav streaming from SD, unlimited size)", 
-                             variable=self.conversion_mode, value="mjpeg_audio", command=self.on_mode_changed)
-        r1.pack(anchor=tk.W, pady=2)
-
-        r2 = ttk.Radiobutton(mode_group, text="🔇 Silent Cinema Video (.mjpeg streaming from SD card, unlimited size)", 
-                             variable=self.conversion_mode, value="mjpeg_silent", command=self.on_mode_changed)
-        r2.pack(anchor=tk.W, pady=2)
-
-        r3 = ttk.Radiobutton(mode_group, text="⚡ SolarOS Ultra-Fast 2-bit Raw Stream (.slv, 30-50 FPS direct to RLCD)", 
-                             variable=self.conversion_mode, value="slv", command=self.on_mode_changed)
-        r3.pack(anchor=tk.W, pady=2)
-
-        r4 = ttk.Radiobutton(mode_group, text="🎞️ Animated GIF (RAM Loaded, max 5-10 sec clips, max 4 MB)", 
-                             variable=self.conversion_mode, value="gif", command=self.on_mode_changed)
-        r4.pack(anchor=tk.W, pady=2)
+        ttk.Checkbutton(mode_group, text="Cinema MJPEG (.mjpeg)", variable=self.output_mjpeg, command=self.on_output_changed).pack(anchor=tk.W, pady=2)
+        ttk.Checkbutton(mode_group, text="Include WAV audio with MJPEG (.wav)", variable=self.output_mjpeg_audio).pack(anchor=tk.W, pady=2)
+        ttk.Checkbutton(mode_group, text="⚡ SolarOS Ultra-Fast 2-bit Raw Stream (.slv)", variable=self.output_slv, command=self.on_output_changed).pack(anchor=tk.W, pady=2)
+        ttk.Checkbutton(mode_group, text="🎞️ Animated GIF (.gif)", variable=self.output_gif, command=self.on_output_changed).pack(anchor=tk.W, pady=2)
 
         # 3. Settings Card
         settings_group = ttk.LabelFrame(main_frame, text=" 3. Video & Audio Settings ", padding="10")
@@ -186,37 +182,51 @@ class SolarVideoConverterApp:
         self.log_text.insert(tk.END, text + "\n")
         self.log_text.see(tk.END)
 
-    def on_mode_changed(self):
-        mode = self.conversion_mode.get()
-        if mode == "gif":
-            self.enable_trim.set(True)
-            self.trim_duration.set("5")
-            self.fps.set("15")
-            self.lbl_trim_hint.config(text="(Recommended ≤ 5s for GIF to fit ESP32 RAM)")
+    def on_output_changed(self):
+        if self.output_gif.get():
+            self.lbl_trim_hint.config(text="(GIF: recommended ≤ 5s to fit ESP32 RAM)")
         else:
-            self.enable_trim.set(False)
-            self.fps.set("20")
             self.lbl_trim_hint.config(text="(Streams from SD card, unlimited duration)")
-        self.on_trim_toggle()
 
     def on_trim_toggle(self):
         state = tk.NORMAL if self.enable_trim.get() else tk.DISABLED
         self.ent_start.config(state=state)
         self.ent_dur.config(state=state)
 
-    def browse_input_file(self):
-        fn = filedialog.askopenfilename(
-            title="Select Video / Animation File",
+    def browse_input_files(self):
+        files = filedialog.askopenfilenames(
+            title="Select Video / Animation Files",
             filetypes=[("Video & Media Files", "*.mp4 *.mkv *.avi *.mov *.webm *.gif *.flv *.wmv *.mjpeg"), ("All Files", "*.*")]
         )
-        if fn:
-            self.input_file.set(fn)
-            base_dir = os.path.dirname(fn)
-            base_name = os.path.splitext(os.path.basename(fn))[0]
+        if files:
+            self.set_input_files(list(files))
+
+    def browse_input_folder(self):
+        folder = filedialog.askdirectory(title="Select Folder Containing Media Files")
+        if folder:
+            extensions = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".gif", ".flv", ".wmv", ".mjpeg"}
+            files = [os.path.join(root, name) for root, _, names in os.walk(folder)
+                     for name in names if os.path.splitext(name)[1].lower() in extensions]
+            if files:
+                self.set_input_files(sorted(files))
+            else:
+                messagebox.showinfo("No Media Found", "No supported media files were found in this folder.")
+
+    def set_input_files(self, files):
+        self.input_files = files
+        self.input_file.set(files[0])  # Compatibility with single-file workflows.
+        self.input_summary.set(f"{len(files)} file(s) selected" if len(files) > 1 else files[0])
+        if files:
+            base_dir = os.path.dirname(files[0])
+            base_name = self.clean_output_name(os.path.splitext(os.path.basename(files[0]))[0])
             if not self.output_dir.get():
                 self.output_dir.set(base_dir)
-            if not self.output_filename.get():
-                self.output_filename.set(base_name)
+
+    @staticmethod
+    def clean_output_name(name):
+        """Keep only English letters and digits, as required by SolarOS filenames."""
+        cleaned = re.sub(r"[^A-Za-z0-9]+", "", name)
+        return cleaned or "solarvideo"
 
     def browse_output_dir(self):
         d = filedialog.askdirectory(title="Select Output Directory (e.g. SD Card)")
@@ -264,21 +274,20 @@ class SolarVideoConverterApp:
             self.progress_bar.stop()
 
     def start_conversion(self):
-        inp = self.input_file.get().strip()
+        inputs = self.input_files or ([self.input_file.get().strip()] if self.input_file.get().strip() else [])
         out_d = self.output_dir.get().strip()
-        out_n = self.output_filename.get().strip()
 
-        if not inp or not os.path.exists(inp):
-            messagebox.showerror("Error", "Please select a valid input video file.")
+        if not inputs or not all(os.path.isfile(path) for path in inputs):
+            messagebox.showerror("Error", "Please select one or more valid input media files.")
             return
 
         if not out_d:
             messagebox.showerror("Error", "Please select an output directory.")
             return
 
-        if not out_n:
-            out_n = "solar_video"
-            self.output_filename.set(out_n)
+        if not (self.output_mjpeg.get() or self.output_slv.get() or self.output_gif.get()):
+            messagebox.showerror("Error", "Select at least one output format.")
+            return
 
         self.ffmpeg_path = self.find_ffmpeg()
         if not self.ffmpeg_path:
@@ -291,10 +300,8 @@ class SolarVideoConverterApp:
         threading.Thread(target=self.run_conversion_worker, daemon=True).start()
 
     def run_conversion_worker(self):
-        inp = self.input_file.get().strip()
+        inputs = list(self.input_files) or [self.input_file.get().strip()]
         out_d = self.output_dir.get().strip()
-        out_n = self.output_filename.get().strip()
-        mode = self.conversion_mode.get()
         fps_val = self.fps.get()
         dither_val = self.dither.get().split()[0]
 
@@ -323,10 +330,30 @@ class SolarVideoConverterApp:
             except ValueError:
                 pass
 
-        self.log(f"--- Starting conversion: {os.path.basename(inp)} -> Mode: {mode.upper()} ---")
-
         try:
-            if mode == "gif":
+            completed = 0
+            used_names = set()
+            for inp in inputs:
+                base_name = self.clean_output_name(os.path.splitext(os.path.basename(inp))[0])
+                out_n = base_name
+                suffix = 2
+                while out_n.lower() in used_names:
+                    out_n = f"{base_name}{suffix}"
+                    suffix += 1
+                used_names.add(out_n.lower())
+                self.log(f"--- [{completed + 1}/{len(inputs)}] {os.path.basename(inp)} -> {out_n} ---")
+                self.convert_one(inp, out_d, out_n, scale_filter, trim_args, target_w, target_h, fps_val, dither_val)
+                completed += 1
+            messagebox.showinfo("Done", f"Converted {completed} file(s).\nSaved to: {out_d}")
+        except Exception as ex:
+            self.log(f"Unexpected Exception: {ex}")
+            messagebox.showerror("Error", str(ex))
+        finally:
+            self.progress_bar.stop()
+            self.btn_convert.config(state=tk.NORMAL)
+
+    def convert_one(self, inp, out_d, out_n, scale_filter, trim_args, target_w, target_h, fps_val, dither_val):
+        if self.output_gif.get():
                 out_path = os.path.join(out_d, f"{out_n}.gif")
                 palette_filter = f"[0:v] {scale_filter},format=gray,fps={fps_val},split [a][b]; [a] palettegen=max_colors=16 [p]; [b][p] paletteuse=dither={dither_val}"
                 
@@ -335,14 +362,11 @@ class SolarVideoConverterApp:
                 res = subprocess.run(cmd, capture_output=True, text=True)
                 if res.returncode != 0:
                     self.log(f"FFmpeg Error: {res.stderr}")
-                    messagebox.showerror("Conversion Failed", "FFmpeg encountered an error.")
-                    return
+                    raise RuntimeError(f"GIF conversion failed for {os.path.basename(inp)}")
                 
                 size_mb = os.path.getsize(out_path) / (1024 * 1024)
                 self.log(f"✅ GIF Created: {out_path} ({size_mb:.2f} MB)")
-                messagebox.showinfo("Done", f"Animated GIF created!\nSaved to: {out_path}\nFile size: {size_mb:.2f} MB")
-
-            elif mode in ("mjpeg_audio", "mjpeg_silent"):
+        if self.output_mjpeg.get():
                 out_mjpeg = os.path.join(out_d, f"{out_n}.mjpeg")
                 vf = f"{scale_filter},format=gray,fps={fps_val}"
                 cmd = [self.ffmpeg_path, "-y"] + trim_args + ["-i", inp, "-vf", vf, "-vcodec", "mjpeg", "-q:v", "4", "-an", out_mjpeg]
@@ -350,13 +374,12 @@ class SolarVideoConverterApp:
                 res = subprocess.run(cmd, capture_output=True, text=True)
                 if res.returncode != 0:
                     self.log(f"FFmpeg Error: {res.stderr}")
-                    messagebox.showerror("Conversion Failed", "FFmpeg video extraction failed.")
-                    return
+                    raise RuntimeError(f"MJPEG conversion failed for {os.path.basename(inp)}")
 
                 size_mb = os.path.getsize(out_mjpeg) / (1024 * 1024)
                 self.log(f"✅ MJPEG Video Created: {out_mjpeg} ({size_mb:.2f} MB)")
 
-                if mode == "mjpeg_audio":
+                if self.output_mjpeg_audio.get():
                     out_wav = os.path.join(out_d, f"{out_n}.wav")
                     cmd_audio = [self.ffmpeg_path, "-y"] + trim_args + ["-i", inp, "-vn", "-acodec", "pcm_s16le", "-ac", "1", "-ar", "22050", out_wav]
                     self.log("Extracting WAV Audio: " + " ".join(cmd_audio))
@@ -364,9 +387,7 @@ class SolarVideoConverterApp:
                     if res_a.returncode == 0 and os.path.exists(out_wav):
                         self.log(f"✅ WAV Audio Created: {out_wav}")
 
-                messagebox.showinfo("Done", f"SolarOS Cinema Video created!\nVideo: {out_mjpeg}\n(Copy to /sdcard/videos or upload via File Server)")
-
-            elif mode == "slv":
+        if self.output_slv.get():
                 out_slv = os.path.join(out_d, f"{out_n}.slv")
                 raw_gray = os.path.join(out_d, f"{out_n}_temp.gray")
                 
@@ -376,7 +397,7 @@ class SolarVideoConverterApp:
                 res = subprocess.run(cmd, capture_output=True, text=True)
                 if res.returncode != 0:
                     self.log(f"Error: {res.stderr}")
-                    return
+                    raise RuntimeError(f"SLV conversion failed for {os.path.basename(inp)}")
 
                 self.log("Packing into 2-bit SolarOS RLCD stream (.slv)...")
                 self.pack_slv_file(raw_gray, out_slv, target_w, target_h, int(fps_val))
@@ -385,14 +406,6 @@ class SolarVideoConverterApp:
                     
                 size_mb = os.path.getsize(out_slv) / (1024 * 1024)
                 self.log(f"✅ SolarOS Native Stream Created: {out_slv} ({size_mb:.2f} MB)")
-                messagebox.showinfo("Done", f"SolarOS Native .slv Video created!\nSaved to: {out_slv}")
-
-        except Exception as ex:
-            self.log(f"Unexpected Exception: {ex}")
-            messagebox.showerror("Error", str(ex))
-        finally:
-            self.progress_bar.stop()
-            self.btn_convert.config(state=tk.NORMAL)
 
     def pack_slv_file(self, raw_gray_path, out_slv_path, width, height, fps):
         """Packs 8-bit raw grayscale frames into 2-bit packed SolarOS video stream."""

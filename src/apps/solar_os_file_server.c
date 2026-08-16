@@ -139,22 +139,26 @@ static void render_directory_tree_node(httpd_req_t *req, const char *base_mount,
              "<div class='folder-card'>"
              "<div class='folder-header'>"
              "<div><strong>📁 %s</strong></div>"
-             "<div>"
+             "<div style='display:flex;gap:6px;align-items:center;'>"
              "<button class='btn-sub' onclick=\"newFolderIn('%s')\">+ Subfolder</button>",
              dir_esc, dir_enc);
     httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
     if (rel_dir != NULL && rel_dir[0] != '\0') {
         snprintf(buf, sizeof(buf),
-                 " <button class='btn-sub' onclick=\"renamePath('%s',true)\">Rename</button>"
-                 " <button class='btn-sub-del' onclick=\"delFile('%s',true)\">Delete Folder</button>",
-                 dir_enc, dir_enc);
+                 "<button class='btn-sub' onclick=\"movePath('%s',true)\">Move</button>"
+                 "<button class='btn-sub' onclick=\"renamePath('%s',true)\">Rename</button>"
+                 "<button class='btn-sub-del' onclick=\"delFile('%s',true)\">Delete</button>",
+                 dir_enc, dir_enc, dir_enc);
         httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
     }
 
     snprintf(buf, sizeof(buf),
              "</div></div>"
-             "<table class='file-table'><thead><tr><th>Name</th><th style='width:90px'>Size</th><th style='width:220px'>Actions</th></tr></thead><tbody>");
+             "<table class='file-table'><thead><tr>"
+             "<th style='width:32px;text-align:center;'><input type='checkbox' class='folder-chk-all' onchange='toggleFolderChecks(this)'></th>"
+             "<th>Name</th><th style='width:85px'>Size</th><th style='width:240px'>Actions</th>"
+             "</tr></thead><tbody>");
     httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
     struct dirent *ent;
@@ -190,10 +194,16 @@ static void render_directory_tree_node(httpd_req_t *req, const char *base_mount,
         char url_enc[128];
         url_encode_str(item_rel, url_enc, sizeof(url_enc));
 
-        snprintf(buf, sizeof(buf), "<tr><td>📄 %s</td><td>%u KB</td><td>", name_esc, (unsigned)(size / 1024));
+        snprintf(buf, sizeof(buf),
+                 "<tr><td style='text-align:center;'><input type='checkbox' class='file-chk' data-path='%s' data-name='%s' onchange='updateSelection()'></td>"
+                 "<td>📄 %s</td><td>%u KB</td><td>",
+                 url_enc, name_esc, name_esc, (unsigned)(size / 1024));
         httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
         snprintf(buf, sizeof(buf), "<a class='btn-dl' href='/download?file=%s'>Download</a> ", url_enc);
+        httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+
+        snprintf(buf, sizeof(buf), "<a class='btn-mov' href='#' onclick=\"movePath('%s',false)\">Move</a> ", url_enc);
         httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
         snprintf(buf, sizeof(buf), "<a class='btn-ren' href='#' onclick=\"renamePath('%s',false)\">Rename</a> ", url_enc);
@@ -205,7 +215,7 @@ static void render_directory_tree_node(httpd_req_t *req, const char *base_mount,
     closedir(d);
 
     if (items_in_folder == 0) {
-        httpd_resp_send_chunk(req, "<tr><td colspan='3'><em>(No files in this folder)</em></td></tr>", HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send_chunk(req, "<tr><td colspan='4'><em>(No files in this folder)</em></td></tr>", HTTPD_RESP_USE_STRLEN);
     }
 
     httpd_resp_send_chunk(req, "</tbody></table></div>", HTTPD_RESP_USE_STRLEN);
@@ -283,34 +293,37 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
         "<title>SolarOS Web Hub</title>"
         "<style>"
         "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#edf2f7;margin:0;padding:24px;color:#2d3748}"
-        ".card{max-width:880px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.08);padding:24px}"
+        ".card{max-width:920px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.08);padding:24px}"
         "h1{margin-top:0;display:flex;align-items:center;gap:12px;font-size:22px;color:#1a202c;border-bottom:2px solid #e2e8f0;padding-bottom:12px}"
         ".badge{background:#ebf8ff;color:#2b6cb0;padding:4px 10px;border-radius:6px;font-size:13px;font-weight:600}"
         ".tab-bar{display:flex;gap:10px;margin-bottom:20px;border-bottom:2px solid #e2e8f0;padding-bottom:12px}"
         ".tab-btn{background:#edf2f7;color:#4a5568;font-weight:600;padding:10px 20px;border-radius:8px;border:none;cursor:pointer;font-size:15px}"
         ".tab-btn.active{background:#3182ce;color:#fff}"
-        ".upload-box{border:2px dashed #4299e1;border-radius:10px;padding:20px;text-align:center;background:#f7fafc;margin:20px 0}"
+        ".upload-box{border:2px dashed #4299e1;border-radius:10px;padding:22px;text-align:center;background:#f7fafc;margin:20px 0;transition:background .2s}"
+        ".upload-box.dragover{background:#ebf8ff;border-color:#2b6cb0}"
         ".prog-bar{width:100%;height:14px;background:#e2e8f0;border-radius:7px;overflow:hidden;margin-top:12px;display:none}"
         ".prog-fill{width:0%;height:100%;background:#38a169;transition:width .2s}"
         "select,input[type=file],input[type=text],input[type=password]{padding:8px 12px;border-radius:6px;border:1px solid #cbd5e0;font-size:14px;background:#fff;box-sizing:border-box}"
         ".form-group{margin-bottom:16px}"
         ".form-group label{display:block;margin-bottom:6px;font-weight:600;color:#4a5568;font-size:14px}"
-        "button.btn-primary{background:#3182ce;color:#fff;font-weight:600;padding:10px 20px;border-radius:6px;border:none;cursor:pointer;font-size:15px}"
+        "button.btn-primary{background:#3182ce;color:#fff;font-weight:600;padding:9px 18px;border-radius:6px;border:none;cursor:pointer;font-size:14px}"
         "button.btn-primary:hover{background:#2b6cb0}"
         "button.btn-sec{background:#edf2f7;color:#2d3748;font-weight:600;padding:8px 14px;border-radius:6px;border:1px solid #cbd5e0;cursor:pointer;font-size:13px}"
         "button.btn-sec:hover{background:#e2e8f0}"
         ".folder-card{background:#fff;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04)}"
         ".folder-header{background:#edf2f7;padding:10px 14px;font-weight:700;color:#2d3748;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}"
-        ".btn-sub{background:#fff;color:#2b6cb0;border:1px solid #cbd5e0;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer}"
-        ".btn-sub-del{background:#fed7d7;color:#c53030;border:1px solid #feb2b2;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer}"
+        ".btn-sub{background:#fff;color:#2b6cb0;border:1px solid #cbd5e0;padding:4px 9px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer}"
+        ".btn-sub-del{background:#fed7d7;color:#c53030;border:1px solid #feb2b2;padding:4px 9px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer}"
         ".file-table{width:100%;border-collapse:collapse}"
         ".file-table th,.file-table td{padding:9px 12px;text-align:left;border-bottom:1px solid #edf2f7;font-size:13px}"
         ".file-table th{background:#f7fafc;color:#718096;font-weight:600;font-size:12px;text-transform:uppercase}"
         ".btn-dl{background:#edf2f7;color:#2b6cb0;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:600;font-size:12px}"
         ".btn-dl:hover{background:#e2e8f0}"
+        ".btn-mov{background:#edf2f7;color:#805ad5;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:600;font-size:12px;margin-left:4px}"
         ".btn-ren{background:#edf2f7;color:#4a5568;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:600;font-size:12px;margin-left:4px}"
         ".btn-del{background:#fed7d7;color:#c53030;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:600;font-size:12px;margin-left:4px}"
         ".btn-del:hover{background:#feb2b2}"
+        ".batch-bar{background:#2b6cb0;color:#fff;padding:12px 18px;border-radius:8px;margin-bottom:18px;box-shadow:0 3px 8px rgba(0,0,0,0.15);display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}"
         ".settings-box{background:#f7fafc;border:1px solid #e2e8f0;border-radius:10px;padding:24px;margin-top:16px}"
         "</style></head><body><div class='card'>"
         "<h1>SolarOS Web Hub <span class='badge'>Device Control</span></h1>"
@@ -319,9 +332,10 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
         "<button class='tab-btn' id='tabBtnSettings' onclick=\"switchTab('settings')\">⚙️ System & AI Settings</button>"
         "</div>"
         "<div id='tabFiles'>"
-        "<div class='upload-box'>"
-        "<h3 style='margin-top:0'>Upload File to SD Card</h3>"
-        "<div style='margin-bottom:10px;display:flex;gap:10px;justify-content:center;align-items:center;'>"
+        "<div class='upload-box' id='dropZone'>"
+        "<h3 style='margin-top:0'>Upload Multiple Files to SD Card</h3>"
+        "<p style='font-size:13px;color:#718096;margin:4px 0 14px 0'>Select multiple files or drag & drop files here</p>"
+        "<div style='margin-bottom:12px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;'>"
         "<label><strong>Target Directory:</strong></label> "
         "<select id='folderSelect' style='min-width:180px'>"
         "<option value=''>/ (SD Root)</option>";
@@ -330,21 +344,41 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
 
     const char *mount = get_storage_mount();
 
-    /* Render all dynamic folder options */
+    /* Render dynamic folder options for upload select */
     render_folder_option_tags(req, mount, "");
 
     const char *upload_mid =
         "</select> "
         "<button class='btn-sec' onclick='createNewFolder()'>➕ New Folder</button>"
         "</div>"
-        "<input type='file' id='fileInput'><br><br>"
-        "<button class='btn-primary' onclick='uploadFile()'>Upload File</button>"
+        "<input type='file' id='fileInput' multiple style='margin-bottom:10px;' onchange='handleFileSelect(this)'><br>"
+        "<button class='btn-primary' id='uploadBtn' onclick='uploadBatchFiles()'>Upload Files</button>"
         "<div class='prog-bar' id='progBar'><div class='prog-fill' id='progFill'></div></div>"
         "<div id='uploadStatus' style='margin-top:10px;font-weight:600;'></div>"
         "</div>"
-        "<h3>Hierarchical Directory Tree View</h3>";
+        "<div id='batchToolbar' class='batch-bar'>"
+        "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap;'>"
+        "<span><strong>Selected:</strong> <span id='selCount' class='badge' style='background:#fff;color:#2b6cb0;'>0 items</span></span>"
+        "<button class='btn-sub-del' style='padding:6px 12px;font-size:13px;' onclick='batchDelete()'>🗑️ Delete Selected</button>"
+        "<div style='display:flex;align-items:center;gap:6px;'>"
+        "<label style='font-size:13px;font-weight:600;'>Move to:</label>"
+        "<select id='batchMoveFolder' style='padding:4px 8px;font-size:13px;'>"
+        "<option value=''>/ (SD Root)</option>";
 
     httpd_resp_send_chunk(req, upload_mid, HTTPD_RESP_USE_STRLEN);
+
+    /* Render dynamic folder options for batch move select */
+    render_folder_option_tags(req, mount, "");
+
+    const char *batch_mid2 =
+        "</select>"
+        "<button class='btn-sub' style='padding:6px 12px;font-size:13px;' onclick='batchMove()'>📦 Move Selected</button>"
+        "</div>"
+        "<button class='btn-sec' style='padding:6px 12px;font-size:13px;' onclick='clearSelection()'>✖ Deselect</button>"
+        "</div></div>"
+        "<h3>Hierarchical Directory Tree View</h3>";
+
+    httpd_resp_send_chunk(req, batch_mid2, HTTPD_RESP_USE_STRLEN);
 
     /* 1. Root Directory */
     render_directory_tree_node(req, mount, "");
@@ -456,28 +490,124 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
         "    location.href='/rename?old='+encodeURIComponent(oldN)+'&new='+encodeURIComponent(fullNew);"
         "  }"
         "}"
+        "function movePath(p, isDir){"
+        "  var oldN=decodeURIComponent(p);"
+        "  var opts = Array.from(document.getElementById('folderSelect').options).map(function(o){return o.value;});"
+        "  var target = prompt('Enter destination folder to move '+(isDir?'folder':'file')+' into (e.g. \"videos\", \"music\", \"games\" or leave blank for root):');"
+        "  if(target!==null){"
+        "    location.href='/move?file='+encodeURIComponent(oldN)+'&to='+encodeURIComponent(target.trim());"
+        "  }"
+        "}"
         "function delFile(p, isDir){"
         "  if(confirm('Are you sure you want to delete '+(isDir?'folder':'file')+' '+decodeURIComponent(p)+'?')){"
         "    location.href='/delete?file='+p;"
         "  }"
         "}"
-        "function uploadFile(){"
+        "function getSelectedPaths(){"
+        "  var chks=document.querySelectorAll('.file-chk:checked');"
+        "  return Array.from(chks).map(function(c){return decodeURIComponent(c.getAttribute('data-path'));});"
+        "}"
+        "function updateSelection(){"
+        "  var sel=getSelectedPaths();"
+        "  var tb=document.getElementById('batchToolbar');"
+        "  var cnt=document.getElementById('selCount');"
+        "  if(sel.length>0){"
+        "    tb.style.display='flex';"
+        "    cnt.innerText=sel.length+' items';"
+        "  } else {"
+        "    tb.style.display='none';"
+        "  }"
+        "}"
+        "function toggleFolderChecks(m){"
+        "  var tbl=m.closest('table');"
+        "  var chks=tbl.querySelectorAll('.file-chk');"
+        "  chks.forEach(function(c){c.checked=m.checked;});"
+        "  updateSelection();"
+        "}"
+        "function clearSelection(){"
+        "  document.querySelectorAll('.file-chk, .folder-chk-all').forEach(function(c){c.checked=false;});"
+        "  updateSelection();"
+        "}"
+        "function batchDelete(){"
+        "  var sel=getSelectedPaths();"
+        "  if(!sel.length) return;"
+        "  if(!confirm('Are you sure you want to delete '+sel.length+' selected files?')) return;"
+        "  var xhr=new XMLHttpRequest();"
+        "  xhr.open('POST','/batch_delete',true);"
+        "  xhr.setRequestHeader('Content-Type','application/x-www-form-urlencoded');"
+        "  xhr.onload=function(){location.reload();};"
+        "  xhr.onerror=function(){alert('Batch delete failed!');};"
+        "  xhr.send('files='+encodeURIComponent(sel.join(',')));"
+        "}"
+        "function batchMove(){"
+        "  var sel=getSelectedPaths();"
+        "  if(!sel.length) return;"
+        "  var dst=document.getElementById('batchMoveFolder').value;"
+        "  var xhr=new XMLHttpRequest();"
+        "  xhr.open('POST','/batch_move',true);"
+        "  xhr.setRequestHeader('Content-Type','application/x-www-form-urlencoded');"
+        "  xhr.onload=function(){location.reload();};"
+        "  xhr.onerror=function(){alert('Batch move failed!');};"
+        "  xhr.send('dst_folder='+encodeURIComponent(dst)+'&files='+encodeURIComponent(sel.join(',')));"
+        "}"
+        "function handleFileSelect(input){"
+        "  var btn=document.getElementById('uploadBtn');"
+        "  if(input.files && input.files.length>1){"
+        "    btn.innerText='Upload '+input.files.length+' Files';"
+        "  } else {"
+        "    btn.innerText='Upload File';"
+        "  }"
+        "}"
+        "var dz=document.getElementById('dropZone');"
+        "dz.ondragover=function(e){e.preventDefault();dz.classList.add('dragover');};"
+        "dz.ondragleave=function(){dz.classList.remove('dragover');};"
+        "dz.ondrop=function(e){"
+        "  e.preventDefault();dz.classList.remove('dragover');"
+        "  if(e.dataTransfer.files && e.dataTransfer.files.length){"
+        "    document.getElementById('fileInput').files=e.dataTransfer.files;"
+        "    handleFileSelect(document.getElementById('fileInput'));"
+        "  }"
+        "};"
+        "function uploadSingleFilePromise(file, folder, onProg){"
+        "  return new Promise(function(resolve, reject){"
+        "    var xhr=new XMLHttpRequest();"
+        "    xhr.open('POST','/upload?folder='+encodeURIComponent(folder)+'&name='+encodeURIComponent(file.name),true);"
+        "    xhr.upload.onprogress=function(e){if(e.lengthComputable){onProg(e.loaded/e.total);}};"
+        "    xhr.onload=function(){if(xhr.status==200){resolve();}else{reject('HTTP '+xhr.status);}};"
+        "    xhr.onerror=function(){reject('Network Error');};"
+        "    xhr.send(file);"
+        "  });"
+        "}"
+        "async function uploadBatchFiles(){"
         "  var fi=document.getElementById('fileInput');"
-        "  if(!fi.files.length){alert('Please select a file to upload!');return;}"
-        "  var f=fi.files[0];"
+        "  if(!fi.files || !fi.files.length){alert('Please select files to upload!');return;}"
         "  var folder=document.getElementById('folderSelect').value;"
         "  var pb=document.getElementById('progBar');"
         "  var pf=document.getElementById('progFill');"
         "  var st=document.getElementById('uploadStatus');"
         "  pb.style.display='block';"
         "  pf.style.width='0%';"
-        "  st.innerText='Uploading '+f.name+'...';"
-        "  var xhr=new XMLHttpRequest();"
-        "  xhr.open('POST','/upload?folder='+encodeURIComponent(folder)+'&name='+encodeURIComponent(f.name),true);"
-        "  xhr.upload.onprogress=function(e){if(e.lengthComputable){var p=Math.round((e.loaded/e.total)*100);pf.style.width=p+'%';st.innerText='Uploading: '+p+'%';}};"
-        "  xhr.onload=function(){if(xhr.status==200){st.innerText='Upload successful!';setTimeout(function(){location.reload();},1000);}else{st.innerText='Upload failed: '+xhr.status;}};"
-        "  xhr.onerror=function(){st.innerText='Upload error occurred!';};"
-        "  xhr.send(f);"
+        "  var total=fi.files.length;"
+        "  var completed=0;"
+        "  for(var i=0;i<total;i++){"
+        "    var f=fi.files[i];"
+        "    st.innerText='['+(i+1)+'/'+total+'] Uploading '+f.name+'...';"
+        "    try{"
+        "      await uploadSingleFilePromise(f, folder, function(filePct){"
+        "        var overall = Math.round(((completed + filePct)/total)*100);"
+        "        pf.style.width=overall+'%';"
+        "      });"
+        "      completed++;"
+        "      pf.style.width=Math.round((completed/total)*100)+'%';"
+        "    }catch(err){"
+        "      st.style.color='#e53e3e';"
+        "      st.innerText='Upload failed on '+f.name+': '+err;"
+        "      return;"
+        "    }"
+        "  }"
+        "  st.style.color='#38a169';"
+        "  st.innerText='✅ All '+total+' files uploaded successfully!';"
+        "  setTimeout(function(){location.reload();},1200);"
         "}"
         "</script></body></html>";
 
@@ -515,7 +645,6 @@ static esp_err_t http_handle_download(httpd_req_t *req, void *user)
 
     httpd_resp_set_type(req, "application/octet-stream");
 
-    /* Extract clean basename for download header */
     const char *bname = strrchr(rel_path, '/');
     bname = (bname != NULL) ? bname + 1 : rel_path;
 
@@ -587,6 +716,41 @@ static esp_err_t http_handle_delete(httpd_req_t *req, void *user)
     return ESP_OK;
 }
 
+static esp_err_t http_handle_batch_delete(httpd_req_t *req, void *user)
+{
+    (void)user;
+    char buf[2048] = "";
+    int received = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (received > 0) {
+        buf[received] = '\0';
+        char files_str[2048] = "";
+        if (httpd_query_key_value(buf, "files", files_str, sizeof(files_str)) == ESP_OK) {
+            url_decode_inplace(files_str);
+            const char *mount = get_storage_mount();
+            char *token = strtok(files_str, ",");
+            while (token != NULL) {
+                while (*token == ' ') token++;
+                if (token[0] != '\0') {
+                    char full_path[256];
+                    snprintf(full_path, sizeof(full_path), "%s/%s", mount, token);
+                    struct stat st;
+                    if (stat(full_path, &st) == 0) {
+                        if (S_ISDIR(st.st_mode)) {
+                            remove_directory_recursive(full_path);
+                        } else {
+                            unlink(full_path);
+                        }
+                    }
+                }
+                token = strtok(NULL, ",");
+            }
+        }
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+    return ESP_OK;
+}
+
 static esp_err_t http_handle_mkdir(httpd_req_t *req, void *user)
 {
     (void)user;
@@ -633,6 +797,95 @@ static esp_err_t http_handle_rename(httpd_req_t *req, void *user)
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
     httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static esp_err_t http_handle_move(httpd_req_t *req, void *user)
+{
+    (void)user;
+    char query[384];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char src_p[160] = "";
+        char dst_folder[160] = "";
+        (void)httpd_query_key_value(query, "file", src_p, sizeof(src_p));
+        (void)httpd_query_key_value(query, "to", dst_folder, sizeof(dst_folder));
+
+        url_decode_inplace(src_p);
+        url_decode_inplace(dst_folder);
+
+        if (src_p[0] != '\0') {
+            const char *mount = get_storage_mount();
+            char full_src[256];
+            snprintf(full_src, sizeof(full_src), "%s/%s", mount, src_p);
+
+            const char *bname = strrchr(src_p, '/');
+            bname = (bname != NULL) ? bname + 1 : src_p;
+
+            char full_dst[256];
+            if (dst_folder[0] != '\0') {
+                char target_dir[192];
+                snprintf(target_dir, sizeof(target_dir), "%s/%s", mount, dst_folder);
+                mkdir(target_dir, 0777);
+                snprintf(full_dst, sizeof(full_dst), "%s/%s/%s", mount, dst_folder, bname);
+            } else {
+                snprintf(full_dst, sizeof(full_dst), "%s/%s", mount, bname);
+            }
+
+            rename(full_src, full_dst);
+        }
+    }
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static esp_err_t http_handle_batch_move(httpd_req_t *req, void *user)
+{
+    (void)user;
+    char buf[2048] = "";
+    int received = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (received > 0) {
+        buf[received] = '\0';
+        char dst_folder[160] = "";
+        char files_str[2048] = "";
+        (void)httpd_query_key_value(buf, "dst_folder", dst_folder, sizeof(dst_folder));
+        (void)httpd_query_key_value(buf, "files", files_str, sizeof(files_str));
+
+        url_decode_inplace(dst_folder);
+        url_decode_inplace(files_str);
+
+        const char *mount = get_storage_mount();
+        if (dst_folder[0] != '\0') {
+            char target_dir[192];
+            snprintf(target_dir, sizeof(target_dir), "%s/%s", mount, dst_folder);
+            mkdir(target_dir, 0777);
+        }
+
+        char *token = strtok(files_str, ",");
+        while (token != NULL) {
+            while (*token == ' ') token++;
+            if (token[0] != '\0') {
+                char full_src[256];
+                snprintf(full_src, sizeof(full_src), "%s/%s", mount, token);
+
+                const char *bname = strrchr(token, '/');
+                bname = (bname != NULL) ? bname + 1 : token;
+
+                char full_dst[256];
+                if (dst_folder[0] != '\0') {
+                    snprintf(full_dst, sizeof(full_dst), "%s/%s/%s", mount, dst_folder, bname);
+                } else {
+                    snprintf(full_dst, sizeof(full_dst), "%s/%s", mount, bname);
+                }
+
+                rename(full_src, full_dst);
+            }
+            token = strtok(NULL, ",");
+        }
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
     return ESP_OK;
 }
 
@@ -751,8 +1004,11 @@ static const solar_os_http_route_t routes[] = {
     {"file_server", "/", HTTP_GET, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_root, NULL},
     {"file_server", "/download", HTTP_GET, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_download, NULL},
     {"file_server", "/delete", HTTP_GET, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_delete, NULL},
+    {"file_server", "/batch_delete", HTTP_POST, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_batch_delete, NULL},
     {"file_server", "/mkdir", HTTP_GET, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_mkdir, NULL},
     {"file_server", "/rename", HTTP_GET, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_rename, NULL},
+    {"file_server", "/move", HTTP_GET, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_move, NULL},
+    {"file_server", "/batch_move", HTTP_POST, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_batch_move, NULL},
     {"file_server", "/upload", HTTP_POST, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_upload, NULL},
     {"file_server", "/save_settings", HTTP_POST, false, SOLAR_OS_HTTP_AUTH_PUBLIC, http_handle_save_settings, NULL},
 };
@@ -778,7 +1034,7 @@ static void file_server_render(solar_os_context_t *ctx)
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_text(gfx, screen_w - 95, 16, "HTTP PORT 80");
 
-    /* 2. Main Hero Box (X: 16..384, Y: 36..150) */
+    /* 2. Main Hero Box */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_rect(gfx, 16, 36, screen_w - 32, 115);
     solar_os_gfx_rect(gfx, 18, 38, screen_w - 36, 111);
@@ -792,9 +1048,9 @@ static void file_server_render(solar_os_context_t *ctx)
     solar_os_gfx_text(gfx, 40, 95, url_str);
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 30, 130, "* Upload Game Boy ROMs (.gb), Videos (.mjpeg/.slv), Music, Photos");
+    solar_os_gfx_text(gfx, 30, 130, "* Batch Upload & Delete, Folder Move, ROMs, Videos, Music");
 
-    /* 3. Stats Box (X: 16..384, Y: 162..260) */
+    /* 3. Stats Box */
     solar_os_gfx_rect(gfx, 16, 162, screen_w - 32, 100);
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);

@@ -41,7 +41,7 @@
 #define BLE_KEYBOARD_RECONNECT_RETRY_DELAY_MS 1000
 #define BLE_KEYBOARD_PAIR_SWITCH_DISCONNECT_TIMEOUT_MS 1200
 #define BLE_KEYBOARD_RESUME_RECONNECT_DELAY_MS 100
-#define BLE_KEYBOARD_OPEN_TIMEOUT_MS 10000
+#define BLE_KEYBOARD_OPEN_TIMEOUT_MS 3500
 #define BLE_KEYBOARD_STALE_CLOSE_TIMEOUT_MS 1500
 #define BLE_KEYBOARD_PEER_MAGIC 0x4b424431U
 #define BLE_KEYBOARD_MAX_REMEMBERED SOLAR_OS_BLE_KEYBOARD_MAX_REMEMBERED
@@ -1144,6 +1144,7 @@ static bool close_pending_open_attempt(const char *reason, uint32_t timeout_ms)
         SOLAR_OS_LOGI(TAG,
                       "%s: dropping pending keyboard without an active link",
                       reason != NULL ? reason : "ble");
+        (void)esp_ble_gap_disconnect(pending_bda);
         (void)esp_hidh_dev_free_inner(dev);
         if (!connected && state == BLE_KEYBOARD_CONNECTING) {
             set_status(BLE_KEYBOARD_IDLE, "%s", reason != NULL ? reason : "idle");
@@ -1481,7 +1482,9 @@ static void collect_scan_result(const uint8_t *bda,
                                 uint16_t appearance,
                                 bool hid_service,
                                 bool keyboard_like,
-                                const char *name)
+                                const char *name,
+                                const uint8_t *adv_data,
+                                uint16_t adv_len)
 {
     solar_os_ble_keyboard_scan_result_t *slot = scan_result_slot(bda);
     if (slot == NULL) {
@@ -1499,6 +1502,11 @@ static void collect_scan_result(const uint8_t *bda,
         name_matches_remembered_peer(name);
     if (name != NULL && name[0] != '\0') {
         strlcpy(slot->name, name, sizeof(slot->name));
+    }
+    if (adv_data != NULL && adv_len > 0) {
+        const size_t copy_len = adv_len < sizeof(slot->adv_data) ? adv_len : sizeof(slot->adv_data);
+        memcpy(slot->adv_data, adv_data, copy_len);
+        slot->adv_data_len = (uint8_t)copy_len;
     }
 }
 
@@ -1547,7 +1555,10 @@ static void consider_candidate(const esp_ble_gap_cb_param_t *param)
 
     adv_name(adv_data, adv_len, name, sizeof(name));
 
-    const bool keyboard_like = is_keyboard_like(appearance, name);
+    const bool is_remembered = bda_matches_remembered_peer(param->scan_rst.bda) ||
+                               name_matches_remembered_peer(name);
+    const bool keyboard_like = is_keyboard_like(appearance, name) || is_remembered;
+
     if (active_scan_mode == BLE_KEYBOARD_SCAN_DISCOVERY) {
         collect_scan_result(param->scan_rst.bda,
                             param->scan_rst.ble_addr_type,
@@ -1555,18 +1566,26 @@ static void consider_candidate(const esp_ble_gap_cb_param_t *param)
                             appearance,
                             has_hid_service,
                             keyboard_like,
-                            name);
+                            name,
+                            adv_data,
+                            adv_len);
     }
 
-    if (!has_hid_service && !keyboard_like) {
+    if (!is_remembered && !has_hid_service && !keyboard_like) {
         return;
     }
 
     if (candidate.valid) {
-        if (candidate.keyboard_like && !keyboard_like) {
+        const bool candidate_is_remembered = bda_matches_remembered_peer(candidate.bda) ||
+                                             name_matches_remembered_peer(candidate.name);
+        if (candidate_is_remembered && !is_remembered) {
             return;
         }
-        if (candidate.keyboard_like == keyboard_like &&
+        if (!candidate_is_remembered && is_remembered) {
+            /* Prioritize remembered device above everything else */
+        } else if (candidate.keyboard_like && !keyboard_like) {
+            return;
+        } else if (candidate.keyboard_like == keyboard_like &&
             param->scan_rst.rssi <= candidate.rssi) {
             return;
         }
@@ -1581,13 +1600,18 @@ static void consider_candidate(const esp_ble_gap_cb_param_t *param)
     strlcpy(candidate.name, name, sizeof(candidate.name));
 
     SOLAR_OS_LOGI(TAG,
-             "candidate " ESP_BD_ADDR_STR " rssi=%d appearance=0x%04x addr_type=%s name=%s%s",
+             "candidate " ESP_BD_ADDR_STR " rssi=%d appearance=0x%04x addr_type=%s name=%s%s%s",
              ESP_BD_ADDR_HEX(candidate.bda),
              candidate.rssi,
              candidate.appearance,
              addr_type_name(candidate.addr_type),
              candidate.name[0] ? candidate.name : "(none)",
-             candidate.keyboard_like ? " keyboard-like" : "");
+             candidate.keyboard_like ? " keyboard-like" : "",
+             is_remembered ? " [remembered]" : "");
+
+    if (is_remembered && active_scan_mode == BLE_KEYBOARD_SCAN_PAIRING) {
+        (void)esp_ble_gap_stop_scanning();
+    }
 }
 
 static const char *key_type_name(esp_ble_key_type_t key_type)
@@ -2833,10 +2857,11 @@ esp_err_t solar_os_ble_keyboard_scan(solar_os_ble_keyboard_scan_result_t *result
     if (results == NULL || max_results == 0 || found == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (reconnect_task_handle != NULL) {
+        stop_reconnect_task("discovery_scan", 50U);
+    }
     if (scan_task_handle != NULL ||
-        reconnect_task_handle != NULL ||
         state == BLE_KEYBOARD_SCANNING ||
-        state == BLE_KEYBOARD_CONNECTING ||
         state == BLE_KEYBOARD_PASSKEY) {
         return ESP_ERR_INVALID_STATE;
     }

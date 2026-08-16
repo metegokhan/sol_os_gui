@@ -135,6 +135,19 @@
 #include "solar_os_wifi_setup.h"
 #include "solar_os_keyboard_test.h"
 #include "solar_os_video_player.h"
+#include "solar_os_backgammon.h"
+#include "solar_os_pisti.h"
+#include "solar_os_blackjack.h"
+#include "solar_os_dice.h"
+#include "solar_os_mastermind.h"
+#include "solar_os_ag_tarayici.h"
+#include "solar_os_desibel.h"
+#include "solar_os_mors.h"
+#include "solar_os_olcum.h"
+#include "solar_os_tabela.h"
+#include "solar_os_wifibul.h"
+#include "solar_os_yazici.h"
+#include "solar_os_ble_scanner.h"
 
 #define APP_ENTRY(app_name, app_summary, app_ptr, app_caps, app_usage, app_min, app_max) \
     {.name = app_name, .summary = app_summary, .app = app_ptr, .capabilities = app_caps, \
@@ -249,7 +262,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("invaders", "arcade shooter", &solar_os_invaders_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "invaders", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_GAMEBOY
-    APP_FILE_ENTRY("gameboy", "original Game Boy emulator", &solar_os_gameboy_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "gameboy <file.gb>", 2, 2, ".gb"),
+    APP_FILE_ENTRY("gameboy", "original Game Boy emulator", &solar_os_gameboy_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "gameboy <file.gb>", 2, 2, ".gb .gbc"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PYTHON
     APP_FILE_ENTRY("python", "MicroPython runtime", &solar_os_python_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "python [script.py [args...]]", 1, 0, ".py .pyw .mpy"),
@@ -276,6 +289,20 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("timer", "countdown timer with audible alarm", &solar_os_timer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "timer", 1, 1),
     APP_ENTRY("keytest", "live keyboard tester and input inspector", &solar_os_keyboard_test_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "keytest", 1, 1),
     APP_FILE_ENTRY("video_player", "cinema video and animated GIF player", &solar_os_video_player_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "video_player [file.gif|file.mjpeg]", 1, 2, ".gif,.mjpeg,.vid"),
+    APP_ENTRY("tavla", "classic 24-point backgammon with AI", &solar_os_backgammon_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "tavla", 1, 1),
+    APP_ENTRY("pisti", "classic Turkish card game Pişti with AI", &solar_os_pisti_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "pisti", 1, 1),
+    APP_ENTRY("blackjack", "classic casino Blackjack 21 card game", &solar_os_blackjack_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "blackjack", 1, 1),
+    APP_ENTRY("yatzy", "classic 5-dice Yatzy strategy game", &solar_os_dice_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "yatzy", 1, 1),
+    APP_ENTRY("codebreaker", "classic 4-peg Code Breaker logic game", &solar_os_mastermind_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "codebreaker", 1, 1),
+    APP_ENTRY("ag_tarayici", "LAN IP host and open port scanner", &solar_os_ag_tarayici_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "ag_tarayici", 1, 1),
+    APP_ENTRY("wifibul", "Wi-Fi radar scanner and signal analyzer", &solar_os_wifibul_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "wifibul", 1, 1),
+    APP_ENTRY("desibel", "real-time audio dB meter and spectrogram", &solar_os_desibel_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "desibel", 1, 1),
+    APP_ENTRY("olcum", "digital screen ruler caliper and angle meter", &solar_os_olcum_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "olcum", 1, 1),
+    APP_ENTRY("tabela", "customizable full-screen LED marquee billboard", &solar_os_tabela_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "tabela", 1, 1),
+    APP_ENTRY("mors", "live audio Morse code decoder and transmitter", &solar_os_mors_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "mors", 1, 1),
+    APP_FILE_ENTRY("yazici", "vintage mechanical typewriter simulator", &solar_os_yazici_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "yazici [file.txt]", 1, 2, ".txt .md"),
+    APP_ENTRY("ble", "Bluetooth Low Energy scanner and GATT service explorer", &solar_os_ble_scanner_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "ble", 1, 1),
+    APP_ENTRY("ble_explorer", "Bluetooth Low Energy scanner and GATT service explorer", &solar_os_ble_scanner_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "ble_explorer", 1, 1),
     {0},
 };
 
