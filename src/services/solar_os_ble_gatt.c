@@ -322,7 +322,7 @@ esp_err_t solar_os_ble_gatt_init(void)
         s_gatt_op_sem = xSemaphoreCreateBinary();
     }
 
-    ret = esp_ble_gattc_register_callback(solaros_gattc_event_handler);
+    ret = solar_os_ble_register_gattc_callback(solaros_gattc_event_handler);
     if (ret != ESP_OK) return ret;
 
     ret = esp_ble_gattc_app_register(BLE_GATT_APP_ID);

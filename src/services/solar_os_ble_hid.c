@@ -307,13 +307,18 @@ esp_err_t solar_os_ble_hid_init(void)
 {
     if (s_hid_initialized) return ESP_OK;
 
+    ESP_LOGI(TAG, "solar_os_ble_hid_init calling solar_os_ble_core_init...");
     esp_err_t ret = solar_os_ble_core_init();
-    if (ret != ESP_OK) return ret;
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "solar_os_ble_core_init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
     if (s_hid_mutex == NULL) {
         s_hid_mutex = xSemaphoreCreateMutex();
     }
 
+    ESP_LOGI(TAG, "Loading remembered peers...");
     (void)load_remembered_peers();
 
     esp_hidh_config_t config = {
@@ -324,15 +329,17 @@ esp_err_t solar_os_ble_hid_init(void)
 
     static bool s_hidh_inited = false;
     if (!s_hidh_inited) {
+        ESP_LOGI(TAG, "Calling esp_hidh_init...");
         ret = esp_hidh_init(&config);
         if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-            SOLAR_OS_LOGE(TAG, "esp_hidh_init failed: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "esp_hidh_init failed: %s", esp_err_to_name(ret));
             return ret;
         }
         s_hidh_inited = true;
     }
 
     /* Initialize input devices */
+    ESP_LOGI(TAG, "Initializing keyboard, mouse, gamepad drivers...");
     (void)solar_os_ble_keyboard_init();
     (void)solar_os_mouse_init();
     (void)solar_os_gamepad_init();
@@ -345,7 +352,7 @@ esp_err_t solar_os_ble_hid_init(void)
         (void)xTaskCreate(hid_reconnect_task, "ble_reconn", 4096, NULL, tskIDLE_PRIORITY + 1, &s_reconnect_task_handle);
     }
 
-    SOLAR_OS_LOGI(TAG, "BLE HID Host initialized");
+    ESP_LOGI(TAG, "BLE HID Host initialized successfully");
     return ESP_OK;
 }
 

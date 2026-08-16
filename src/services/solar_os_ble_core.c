@@ -20,8 +20,10 @@
 #include "esp_check.h"
 #include "esp_gap_ble_api.h"
 #include "esp_gatt_common_api.h"
+#include "esp_gattc_api.h"
 #include "esp_gatt_defs.h"
 #include "esp_heap_caps.h"
+#include "esp_hidh_gattc.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -52,9 +54,11 @@ static size_t s_active_scan_max = 0;
 static size_t s_active_scan_count = 0;
 
 static solar_os_ble_gap_event_cb_t s_gap_callbacks[SOLAR_OS_BLE_MAX_GAP_CALLBACKS] = {0};
+static solar_os_ble_gattc_event_cb_t s_gattc_callbacks[SOLAR_OS_BLE_MAX_GATTC_CALLBACKS] = {0};
 
 /* Forward declarations */
 static void central_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
+static void central_gattc_callback(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
 static esp_err_t central_init_security(void);
 
 static esp_err_t init_nvs(void)
@@ -198,6 +202,48 @@ esp_err_t solar_os_ble_unregister_gap_callback(solar_os_ble_gap_event_cb_t cb)
     return ESP_ERR_NOT_FOUND;
 }
 
+esp_err_t solar_os_ble_register_gattc_callback(solar_os_ble_gattc_event_cb_t cb)
+{
+    if (cb == NULL) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < SOLAR_OS_BLE_MAX_GATTC_CALLBACKS; i++) {
+        if (s_gattc_callbacks[i] == cb) return ESP_OK;
+    }
+    for (size_t i = 0; i < SOLAR_OS_BLE_MAX_GATTC_CALLBACKS; i++) {
+        if (s_gattc_callbacks[i] == NULL) {
+            s_gattc_callbacks[i] = cb;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NO_MEM;
+}
+
+esp_err_t solar_os_ble_unregister_gattc_callback(solar_os_ble_gattc_event_cb_t cb)
+{
+    if (cb == NULL) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < SOLAR_OS_BLE_MAX_GATTC_CALLBACKS; i++) {
+        if (s_gattc_callbacks[i] == cb) {
+            s_gattc_callbacks[i] = NULL;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+static void central_gattc_callback(esp_gattc_cb_event_t event,
+                                   esp_gatt_if_t gattc_if,
+                                   esp_ble_gattc_cb_param_t *param)
+{
+    /* Forward unconditionally to ESP-IDF HID Host */
+    esp_hidh_gattc_event_handler(event, gattc_if, param);
+
+    /* Dispatch to registered module callbacks */
+    for (size_t i = 0; i < SOLAR_OS_BLE_MAX_GATTC_CALLBACKS; i++) {
+        if (s_gattc_callbacks[i] != NULL) {
+            s_gattc_callbacks[i](event, gattc_if, param);
+        }
+    }
+}
+
 static esp_err_t central_init_security(void)
 {
     esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;
@@ -254,52 +300,78 @@ esp_err_t solar_os_ble_core_init(void)
         s_scan_done_sem = xSemaphoreCreateBinary();
     }
 
+    ESP_LOGI(TAG, "BLE core init start");
+
     static bool s_classic_bt_released = false;
     if (!s_classic_bt_released) {
         esp_err_t ret = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
         if (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) {
             s_classic_bt_released = true;
         } else {
-            SOLAR_OS_LOGW(TAG, "classic bt memory release failed: %s", esp_err_to_name(ret));
+            ESP_LOGW(TAG, "classic bt memory release failed: %s", esp_err_to_name(ret));
         }
     }
 
+    ESP_LOGI(TAG, "BLE controller init...");
     esp_bt_controller_status_t controller_status = esp_bt_controller_get_status();
     if (controller_status == ESP_BT_CONTROLLER_STATUS_IDLE) {
         esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-        ESP_RETURN_ON_ERROR(esp_bt_controller_init(&bt_cfg), TAG, "controller init failed");
+        esp_err_t err = esp_bt_controller_init(&bt_cfg);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGE(TAG, "esp_bt_controller_init failed: %s", esp_err_to_name(err));
+            return err;
+        }
         controller_status = esp_bt_controller_get_status();
     }
+    ESP_LOGI(TAG, "BLE controller enable...");
     if (controller_status == ESP_BT_CONTROLLER_STATUS_INITED) {
-        ESP_RETURN_ON_ERROR(esp_bt_controller_enable(ESP_BT_MODE_BLE),
-                            TAG, "controller enable failed");
-    } else if (controller_status != ESP_BT_CONTROLLER_STATUS_ENABLED) {
-        SOLAR_OS_LOGW(TAG, "unexpected controller status %d", (int)controller_status);
-        return ESP_ERR_INVALID_STATE;
+        esp_err_t err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGE(TAG, "esp_bt_controller_enable failed: %s", esp_err_to_name(err));
+            return err;
+        }
     }
 
-    (void)solar_os_power_apply_runtime_policy();
-
+    ESP_LOGI(TAG, "Bluedroid init...");
     esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
     if (bluedroid_status == ESP_BLUEDROID_STATUS_UNINITIALIZED) {
         esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
         bluedroid_cfg.ssp_en = false;
-        ESP_RETURN_ON_ERROR(esp_bluedroid_init_with_cfg(&bluedroid_cfg),
-                            TAG, "bluedroid init failed");
+        esp_err_t err = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGE(TAG, "esp_bluedroid_init_with_cfg failed: %s", esp_err_to_name(err));
+            return err;
+        }
         bluedroid_status = esp_bluedroid_get_status();
     }
+    ESP_LOGI(TAG, "Bluedroid enable...");
     if (bluedroid_status == ESP_BLUEDROID_STATUS_INITIALIZED) {
-        ESP_RETURN_ON_ERROR(esp_bluedroid_enable(), TAG, "bluedroid enable failed");
-    } else if (bluedroid_status != ESP_BLUEDROID_STATUS_ENABLED) {
-        SOLAR_OS_LOGW(TAG, "unexpected bluedroid status %d", (int)bluedroid_status);
-        return ESP_ERR_INVALID_STATE;
+        esp_err_t err = esp_bluedroid_enable();
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGE(TAG, "esp_bluedroid_enable failed: %s", esp_err_to_name(err));
+            return err;
+        }
     }
 
-    ESP_RETURN_ON_ERROR(esp_ble_gap_register_callback(central_gap_callback), TAG, "gap callback failed");
+    ESP_LOGI(TAG, "GAP register callback...");
+    esp_err_t gap_err = esp_ble_gap_register_callback(central_gap_callback);
+    if (gap_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ble_gap_register_callback failed: %s", esp_err_to_name(gap_err));
+        return gap_err;
+    }
+
+    ESP_LOGI(TAG, "GATTC register callback...");
+    esp_err_t gattc_err = esp_ble_gattc_register_callback(central_gattc_callback);
+    if (gattc_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ble_gattc_register_callback failed: %s", esp_err_to_name(gattc_err));
+        return gattc_err;
+    }
+
+    ESP_LOGI(TAG, "Central init security...");
     (void)central_init_security();
 
     s_initialized = true;
-    SOLAR_OS_LOGI(TAG, "BLE Core initialized successfully");
+    ESP_LOGI(TAG, "BLE Core initialized successfully");
     return ESP_OK;
 }
 

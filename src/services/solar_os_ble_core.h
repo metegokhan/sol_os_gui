@@ -7,6 +7,7 @@
 
 #include "esp_err.h"
 #include "esp_gap_ble_api.h"
+#include "esp_gattc_api.h"
 #include "esp_bt_defs.h"
 
 #ifdef __cplusplus
@@ -17,6 +18,7 @@ extern "C" {
 #define SOLAR_OS_BLE_KEYBOARD_NAME_MAX SOLAR_OS_BLE_NAME_MAX
 #define SOLAR_OS_BLE_ADV_DATA_MAX 64
 #define SOLAR_OS_BLE_MAX_GAP_CALLBACKS 4
+#define SOLAR_OS_BLE_MAX_GATTC_CALLBACKS 4
 
 typedef struct {
     uint8_t bda[6];
@@ -36,6 +38,7 @@ typedef struct {
 } solar_os_ble_scan_item_t;
 
 typedef void (*solar_os_ble_gap_event_cb_t)(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
+typedef void (*solar_os_ble_gattc_event_cb_t)(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
 
 /**
  * @brief Initialize BLE controller and Bluedroid stack safely (idempotent).
@@ -60,6 +63,12 @@ esp_err_t solar_os_ble_core_apply_boot_policy(void);
  */
 esp_err_t solar_os_ble_register_gap_callback(solar_os_ble_gap_event_cb_t cb);
 esp_err_t solar_os_ble_unregister_gap_callback(solar_os_ble_gap_event_cb_t cb);
+
+/**
+ * @brief Register/Unregister GATTC event listeners.
+ */
+esp_err_t solar_os_ble_register_gattc_callback(solar_os_ble_gattc_event_cb_t cb);
+esp_err_t solar_os_ble_unregister_gattc_callback(solar_os_ble_gattc_event_cb_t cb);
 
 /**
  * @brief Thread-safe synchronous BLE GAP scanning.
