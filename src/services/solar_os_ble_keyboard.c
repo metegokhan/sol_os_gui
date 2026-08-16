@@ -1505,22 +1505,11 @@ static void collect_scan_result(const uint8_t *bda,
         strlcpy(slot->name, name, sizeof(slot->name));
     }
     if (adv_data != NULL) {
-        if (adv_data_len > 0) {
-            const size_t copy_len = adv_data_len < sizeof(slot->adv_data) ? adv_data_len : sizeof(slot->adv_data);
+        const uint16_t total_len = (uint16_t)adv_data_len + (uint16_t)scan_rsp_len;
+        if (total_len > 0) {
+            const size_t copy_len = total_len < sizeof(slot->adv_data) ? total_len : sizeof(slot->adv_data);
             memcpy(slot->adv_data, adv_data, copy_len);
             slot->adv_data_len = (uint8_t)copy_len;
-        }
-        if (scan_rsp_len > 0) {
-            if (slot->adv_data_len == 0) {
-                const size_t copy_len = scan_rsp_len < sizeof(slot->adv_data) ? scan_rsp_len : sizeof(slot->adv_data);
-                memcpy(slot->adv_data, adv_data, copy_len);
-                slot->adv_data_len = (uint8_t)copy_len;
-            } else if (slot->adv_data_len < sizeof(slot->adv_data)) {
-                size_t remain = sizeof(slot->adv_data) - slot->adv_data_len;
-                size_t copy_len = scan_rsp_len < remain ? scan_rsp_len : remain;
-                memcpy(&slot->adv_data[slot->adv_data_len], adv_data, copy_len);
-                slot->adv_data_len += (uint8_t)copy_len;
-            }
         }
     }
 }
@@ -2951,19 +2940,7 @@ esp_err_t solar_os_ble_gatt_connect(const uint8_t bda[6], uint8_t addr_type, uin
     gatt_set_status_locked("connecting");
     gatt_unlock();
 
-    esp_ble_gatt_creat_conn_params_t params = {0};
-    memcpy(params.remote_bda, bda, ESP_BD_ADDR_LEN);
-    params.remote_addr_type = (esp_ble_addr_type_t)addr_type;
-    params.own_addr_type = BLE_ADDR_TYPE_PUBLIC;
-    params.is_direct = true;
-    params.is_aux = false;
-    params.phy_mask = 0x0;
-
-    ret = esp_ble_gattc_enh_open(gattc_if, &params);
-    if (ret != ESP_OK) {
-        /* Fallback to standard open */
-        ret = esp_ble_gattc_open(gattc_if, (uint8_t *)bda, (esp_ble_addr_type_t)addr_type, true);
-    }
+    ret = esp_ble_gattc_open(gattc_if, (uint8_t *)bda, (esp_ble_addr_type_t)addr_type, true);
     if (ret != ESP_OK) {
         gatt_lock();
         gatt_state.connecting = false;

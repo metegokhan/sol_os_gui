@@ -31,7 +31,7 @@
 
 #define BLE_SCANNER_MAX_DEVICES 32
 #define BLE_SCANNER_MAX_BOOKMARKS 16
-#define BLE_SCANNER_TASK_STACK 6144U
+#define BLE_SCANNER_TASK_STACK 8192U
 #define BLE_SCANNER_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 #define BLE_SCANNER_TICK_MS 100U
 #define BLE_SCANNER_LIST_AUTORESCAN_MS 60000U /* 60s for low overhead list rescan */
@@ -331,21 +331,32 @@ static void ble_scanner_scan_worker(void *arg)
 {
     (void)arg;
     for (;;) {
-        solar_os_ble_keyboard_scan_result_t local_results[BLE_SCANNER_MAX_DEVICES];
         size_t found = 0U;
-        const esp_err_t err = solar_os_ble_keyboard_scan(local_results, BLE_SCANNER_MAX_DEVICES, &found);
+        solar_os_ble_keyboard_scan_result_t *scan_buf = malloc(BLE_SCANNER_MAX_DEVICES * sizeof(solar_os_ble_keyboard_scan_result_t));
+        if (scan_buf != NULL) {
+            const esp_err_t err = solar_os_ble_keyboard_scan(scan_buf, BLE_SCANNER_MAX_DEVICES, &found);
 
-        portENTER_CRITICAL(&ble_scanner_lock);
-        if (err == ESP_OK) {
-            memcpy(ble_state.staging_results, local_results, sizeof(local_results));
-            ble_state.staging_count = found;
+            portENTER_CRITICAL(&ble_scanner_lock);
+            if (err == ESP_OK) {
+                memcpy(ble_state.staging_results, scan_buf, found * sizeof(ble_state.staging_results[0]));
+                ble_state.staging_count = found;
+            } else {
+                ble_state.staging_count = 0U;
+            }
+            ble_state.staging_err = err;
+            ble_state.staging_ready = true;
+            ble_state.task_done = true;
+            portEXIT_CRITICAL(&ble_scanner_lock);
+
+            free(scan_buf);
         } else {
+            portENTER_CRITICAL(&ble_scanner_lock);
             ble_state.staging_count = 0U;
+            ble_state.staging_err = ESP_ERR_NO_MEM;
+            ble_state.staging_ready = true;
+            ble_state.task_done = true;
+            portEXIT_CRITICAL(&ble_scanner_lock);
         }
-        ble_state.staging_err = err;
-        ble_state.staging_ready = true;
-        ble_state.task_done = true;
-        portEXIT_CRITICAL(&ble_scanner_lock);
 
         vTaskSuspend(NULL);
     }
@@ -657,7 +668,7 @@ static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
 {
     const int top = BLE_HEADER_H + 4;
     const int bottom = height - BLE_FOOTER_H - 4;
-    const int row_h = 24;
+    const int row_h = 32;
     const int visible_rows = (bottom - top) / row_h;
 
     const size_t total_visible = ble_filtered_device_count();
@@ -701,39 +712,49 @@ static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
         }
 
         /* Signal Meter */
-        ble_draw_signal_bars(gfx, 10, y + row_h - 6, dev->rssi);
+        ble_draw_signal_bars(gfx, 8, y + 20, dev->rssi);
 
-        /* Device Title: Alias + Original Name together */
+        /* Line 1: Alias / Device Name */
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        char label[80];
-        if (dev->alias[0] != '\0' && dev->name[0] != '\0' && strcmp(dev->name, "(none)") != 0 && strcmp(dev->alias, dev->name) != 0) {
-            snprintf(label, sizeof(label), "* [%s] (%s)", dev->alias, dev->name);
-        } else if (dev->alias[0] != '\0') {
+        char label[64];
+        if (dev->alias[0] != '\0') {
             snprintf(label, sizeof(label), "* [%s]", dev->alias);
         } else if (dev->name[0] != '\0' && strcmp(dev->name, "(none)") != 0) {
             snprintf(label, sizeof(label), "%s", dev->name);
         } else {
             snprintf(label, sizeof(label), "(Unknown BLE Device)");
         }
-        solar_os_gfx_text(gfx, 32, y + 15, label);
+        solar_os_gfx_text(gfx, 28, y + 13, label);
 
-        /* MAC Address & Live RSSI */
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        char mac_str[48];
-        snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X  %ddBm",
-                 dev->bda[0], dev->bda[1], dev->bda[2],
-                 dev->bda[3], dev->bda[4], dev->bda[5],
-                 (int)dev->rssi);
-        solar_os_gfx_text(gfx, 225, y + 15, mac_str);
-
-        /* Tags */
+        /* Line 1 (Right): Tags */
         char tags[32] = "";
-        if (dev->adv_data_len > 0) strlcat(tags, "[ADV] ", sizeof(tags));
+        if (dev->adv_data_len > 0) {
+            char adv_tag[16];
+            snprintf(adv_tag, sizeof(adv_tag), "[ADV %uB] ", (unsigned)dev->adv_data_len);
+            strlcat(tags, adv_tag, sizeof(tags));
+        }
         if (dev->keyboard_like) strlcat(tags, "[KBD] ", sizeof(tags));
         else if (dev->hid_service) strlcat(tags, "[HID] ", sizeof(tags));
         if (tags[0] != '\0') {
-            solar_os_gfx_text(gfx, 340, y + 15, tags);
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+            solar_os_gfx_text(gfx, width - 110, y + 13, tags);
         }
+
+        /* Line 2: MAC Address & Signal & Original Name if aliased */
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        char line2[80];
+        if (dev->alias[0] != '\0' && dev->name[0] != '\0' && strcmp(dev->name, "(none)") != 0 && strcmp(dev->alias, dev->name) != 0) {
+            snprintf(line2, sizeof(line2), "MAC: %02X:%02X:%02X:%02X:%02X:%02X  %ddBm  (%s)",
+                     dev->bda[0], dev->bda[1], dev->bda[2],
+                     dev->bda[3], dev->bda[4], dev->bda[5],
+                     (int)dev->rssi, dev->name);
+        } else {
+            snprintf(line2, sizeof(line2), "MAC: %02X:%02X:%02X:%02X:%02X:%02X  RSSI: %ddBm",
+                     dev->bda[0], dev->bda[1], dev->bda[2],
+                     dev->bda[3], dev->bda[4], dev->bda[5],
+                     (int)dev->rssi);
+        }
+        solar_os_gfx_text(gfx, 28, y + 26, line2);
     }
 
     /* Modal dialog for editing alias */
@@ -916,7 +937,7 @@ static void ble_draw_integrated_gatt(solar_os_gfx_t *gfx, int width, int height)
     } else {
         snprintf(dev_title, sizeof(dev_title), "%s", ble_state.connected_alias[0] ? ble_state.connected_alias : ble_state.connected_name);
     }
-    solar_os_gfx_text(gfx, 6, top + 13, dev_title);
+    solar_os_gfx_text(gfx, 6, top + 11, dev_title);
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     char dev_details[96];
@@ -924,14 +945,14 @@ static void ble_draw_integrated_gatt(solar_os_gfx_t *gfx, int width, int height)
              ble_state.connected_bda[0], ble_state.connected_bda[1], ble_state.connected_bda[2],
              ble_state.connected_bda[3], ble_state.connected_bda[4], ble_state.connected_bda[5],
              (int)ble_state.connected_rssi,
-             ble_state.gatt_connected ? "CONNECTED (MTU 512)" : (ble_state.gatt_connecting ? "CONNECTING..." : "DISCONNECTED"));
-    solar_os_gfx_text(gfx, 175, top + 13, dev_details);
+             ble_state.gatt_connected ? "CONNECTED" : (ble_state.gatt_connecting ? "CONNECTING..." : "NOT CONNECTED"));
+    solar_os_gfx_text(gfx, 6, top + 24, dev_details);
 
-    solar_os_gfx_line(gfx, 4, top + 18, width - 4, top + 18);
+    solar_os_gfx_line(gfx, 4, top + 28, width - 4, top + 28);
 
     /* 2. Middle Split Columns: Services (Left) & Characteristics (Right) */
-    const int mid_top = top + 22;
-    const int mid_h = 145;
+    const int mid_top = top + 32;
+    const int mid_h = 135;
     const int split_x = 180;
 
     /* Left Column: Services */
