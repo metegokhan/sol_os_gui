@@ -34,18 +34,17 @@
 #define BLE_SCANNER_TASK_STACK 6144U
 #define BLE_SCANNER_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 #define BLE_SCANNER_TICK_MS 100U
-#define BLE_SCANNER_LIST_AUTORESCAN_MS 4000U
-#define BLE_SCANNER_RADAR_RESCAN_MS 1500U
+#define BLE_SCANNER_LIST_AUTORESCAN_MS 60000U /* 60s for low overhead list rescan */
+#define BLE_SCANNER_RADAR_RESCAN_MS 5000U     /* 5s for target radar tracking */
 
 #define BLE_HEADER_H 24
 #define BLE_FOOTER_H 22
 
 typedef enum {
     BLE_VIEW_SCANNER = 0,
-    BLE_VIEW_GATT_SERVICES = 1,
-    BLE_VIEW_GATT_CHARS = 2,
-    BLE_VIEW_RADAR = 3,
-    BLE_VIEW_ADV_INSPECTOR = 4,
+    BLE_VIEW_INTEGRATED_GATT = 1,
+    BLE_VIEW_RADAR = 2,
+    BLE_VIEW_ADV_INSPECTOR = 3,
 } ble_view_mode_t;
 
 typedef enum {
@@ -56,6 +55,11 @@ typedef enum {
     BLE_FILTER_STRONG = 4,
     BLE_FILTER_COUNT = 5,
 } ble_filter_mode_t;
+
+typedef enum {
+    GATT_FOCUS_SERVICES = 0,
+    GATT_FOCUS_CHARS = 1,
+} gatt_focus_t;
 
 typedef enum {
     GATT_DECODER_AUTO = 0,
@@ -128,17 +132,19 @@ typedef struct {
 
     /* --- ADV Inspector State --- */
     adv_inspect_mode_t adv_mode;
-    char custom_lua_expr[128];
+    char custom_lua_expr[160];
     bool editing_lua;
-    char lua_input[128];
+    char lua_input[160];
     size_t lua_cursor;
 
-    /* --- GATT Explorer State --- */
+    /* --- Integrated GATT Explorer State --- */
     bool gatt_connecting;
     bool gatt_connected;
     uint8_t connected_bda[6];
     uint8_t connected_addr_type;
     char connected_name[SOLAR_OS_BLE_KEYBOARD_NAME_MAX];
+    char connected_alias[32];
+    int8_t connected_rssi;
     solar_os_ble_gatt_service_t services[SOLAR_OS_BLE_GATT_MAX_SERVICES];
     size_t service_count;
     size_t selected_service;
@@ -146,6 +152,7 @@ typedef struct {
     solar_os_ble_gatt_characteristic_t characteristics[SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS];
     size_t char_count;
     size_t selected_char;
+    gatt_focus_t gatt_focus;
 
     /* Live characteristic read value & decoders */
     uint8_t read_value[SOLAR_OS_BLE_GATT_VALUE_MAX];
@@ -205,10 +212,10 @@ static const char *ble_resolve_company_name(uint16_t company_id)
     case 0x0002: return "Intel Corp.";
     case 0x000A: return "Qualcomm";
     case 0x0100: return "LG Electronics";
-    case 0x0060: return "Logitech International";
-    case 0x03C2: return "Bose Corporation";
-    case 0x07D7: return "Huawei Technologies";
-    default: return "Custom / Proprietary";
+    case 0x0060: return "Logitech";
+    case 0x03C2: return "Bose";
+    case 0x07D7: return "Huawei";
+    default: return "Vendor Custom";
     }
 }
 
@@ -224,60 +231,36 @@ static const char *ble_resolve_uuid_name(const char *uuid_str)
     if (strcasecmp(uuid_str, "0x1803") == 0) return "Link Loss";
     if (strcasecmp(uuid_str, "0x1804") == 0) return "Tx Power";
     if (strcasecmp(uuid_str, "0x1805") == 0) return "Current Time";
-    if (strcasecmp(uuid_str, "0x1806") == 0) return "Reference Time Update";
-    if (strcasecmp(uuid_str, "0x1807") == 0) return "Next DST Change";
     if (strcasecmp(uuid_str, "0x1808") == 0) return "Glucose";
     if (strcasecmp(uuid_str, "0x1809") == 0) return "Health Thermometer";
-    if (strcasecmp(uuid_str, "0x180a") == 0) return "Device Information";
+    if (strcasecmp(uuid_str, "0x180a") == 0) return "Device Info";
     if (strcasecmp(uuid_str, "0x180d") == 0) return "Heart Rate";
-    if (strcasecmp(uuid_str, "0x180e") == 0) return "Phone Alert Status";
     if (strcasecmp(uuid_str, "0x180f") == 0) return "Battery Service";
     if (strcasecmp(uuid_str, "0x1810") == 0) return "Blood Pressure";
-    if (strcasecmp(uuid_str, "0x1811") == 0) return "Alert Notification";
-    if (strcasecmp(uuid_str, "0x1812") == 0) return "Human Interface Device";
-    if (strcasecmp(uuid_str, "0x1813") == 0) return "Scan Parameters";
-    if (strcasecmp(uuid_str, "0x1814") == 0) return "Running Speed & Cadence";
-    if (strcasecmp(uuid_str, "0x1815") == 0) return "Automation IO";
-    if (strcasecmp(uuid_str, "0x1816") == 0) return "Cycling Speed & Cadence";
-    if (strcasecmp(uuid_str, "0x1818") == 0) return "Cycling Power";
-    if (strcasecmp(uuid_str, "0x1819") == 0) return "Location & Navigation";
+    if (strcasecmp(uuid_str, "0x1812") == 0) return "HID Service";
     if (strcasecmp(uuid_str, "0x181a") == 0) return "Environmental Sensing";
-    if (strcasecmp(uuid_str, "0x181b") == 0) return "Body Composition (Scale)";
-    if (strcasecmp(uuid_str, "0x181c") == 0) return "User Data";
-    if (strcasecmp(uuid_str, "0x181d") == 0) return "Weight Scale (Baskül)";
-    if (strcasecmp(uuid_str, "0x181e") == 0) return "Bond Management";
-    if (strcasecmp(uuid_str, "0x181f") == 0) return "Continuous Glucose";
-    if (strcasecmp(uuid_str, "0x1820") == 0) return "Internet Protocol Support";
-    if (strcasecmp(uuid_str, "0x1821") == 0) return "Indoor Positioning";
+    if (strcasecmp(uuid_str, "0x181b") == 0) return "Body Composition";
+    if (strcasecmp(uuid_str, "0x181d") == 0) return "Weight Scale (Baskul)";
+    if (strcasecmp(uuid_str, "0x1820") == 0) return "IP Support";
     if (strcasecmp(uuid_str, "0x1822") == 0) return "Pulse Oximeter";
-    if (strcasecmp(uuid_str, "0x1823") == 0) return "HTTP Proxy";
-    if (strcasecmp(uuid_str, "0x1824") == 0) return "Transport Discovery";
-    if (strcasecmp(uuid_str, "0x1825") == 0) return "Object Transfer";
-    if (strcasecmp(uuid_str, "0x1826") == 0) return "Fitness Machine";
 
-    /* Standard Characteristic UUIDs */
+    /* Characteristics */
     if (strcasecmp(uuid_str, "0x2a00") == 0) return "Device Name";
     if (strcasecmp(uuid_str, "0x2a01") == 0) return "Appearance";
-    if (strcasecmp(uuid_str, "0x2a04") == 0) return "Peripheral Conn Params";
-    if (strcasecmp(uuid_str, "0x2a05") == 0) return "Service Changed";
     if (strcasecmp(uuid_str, "0x2a19") == 0) return "Battery Level (%)";
     if (strcasecmp(uuid_str, "0x2a24") == 0) return "Model Number";
     if (strcasecmp(uuid_str, "0x2a25") == 0) return "Serial Number";
-    if (strcasecmp(uuid_str, "0x2a26") == 0) return "Firmware Revision";
-    if (strcasecmp(uuid_str, "0x2a27") == 0) return "Hardware Revision";
-    if (strcasecmp(uuid_str, "0x2a28") == 0) return "Software Revision";
-    if (strcasecmp(uuid_str, "0x2a29") == 0) return "Manufacturer Name";
-    if (strcasecmp(uuid_str, "0x2a4a") == 0) return "HID Information";
+    if (strcasecmp(uuid_str, "0x2a26") == 0) return "Firmware Rev";
+    if (strcasecmp(uuid_str, "0x2a28") == 0) return "Software Rev";
+    if (strcasecmp(uuid_str, "0x2a29") == 0) return "Manufacturer";
+    if (strcasecmp(uuid_str, "0x2a4a") == 0) return "HID Info";
     if (strcasecmp(uuid_str, "0x2a4b") == 0) return "Report Map";
-    if (strcasecmp(uuid_str, "0x2a4c") == 0) return "HID Control Point";
     if (strcasecmp(uuid_str, "0x2a4d") == 0) return "Report";
-    if (strcasecmp(uuid_str, "0x2a4e") == 0) return "Protocol Mode";
     if (strcasecmp(uuid_str, "0x2a6e") == 0) return "Temperature";
     if (strcasecmp(uuid_str, "0x2a6f") == 0) return "Humidity";
-    if (strcasecmp(uuid_str, "0x2a76") == 0) return "UV Index";
     if (strcasecmp(uuid_str, "0x2a98") == 0) return "Weight Measurement";
-    if (strcasecmp(uuid_str, "0x2a9c") == 0) return "Body Composition Measurement";
-    if (strcasecmp(uuid_str, "0x2a37") == 0) return "Heart Rate Measurement";
+    if (strcasecmp(uuid_str, "0x2a9c") == 0) return "Body Comp Measurement";
+    if (strcasecmp(uuid_str, "0x2a37") == 0) return "Heart Rate";
 
     return "Custom UUID";
 }
@@ -465,7 +448,7 @@ static ble_device_item_t *ble_get_filtered_device(size_t index)
 }
 
 /* ---------------------------------------------------------------------
- * GATT Explorer Routines
+ * Integrated GATT Explorer Routines
  * ------------------------------------------------------------------- */
 
 static void ble_start_gatt_explorer(const ble_device_item_t *dev)
@@ -474,8 +457,9 @@ static void ble_start_gatt_explorer(const ble_device_item_t *dev)
 
     memcpy(ble_state.connected_bda, dev->bda, 6);
     ble_state.connected_addr_type = dev->addr_type;
-    const char *display_title = dev->alias[0] ? dev->alias : (dev->name[0] ? dev->name : "(Unnamed Device)");
-    strlcpy(ble_state.connected_name, display_title, sizeof(ble_state.connected_name));
+    ble_state.connected_rssi = dev->rssi;
+    strlcpy(ble_state.connected_name, dev->name[0] ? dev->name : "(Unnamed)", sizeof(ble_state.connected_name));
+    strlcpy(ble_state.connected_alias, dev->alias, sizeof(ble_state.connected_alias));
 
     ble_state.gatt_connecting = true;
     ble_state.gatt_connected = false;
@@ -483,27 +467,30 @@ static void ble_start_gatt_explorer(const ble_device_item_t *dev)
     ble_state.selected_service = 0;
     ble_state.char_count = 0;
     ble_state.selected_char = 0;
+    ble_state.gatt_focus = GATT_FOCUS_SERVICES;
     ble_state.has_read_value = false;
     ble_state.decoder_mode = GATT_DECODER_AUTO;
-    ble_state.view = BLE_VIEW_GATT_SERVICES;
+    ble_state.view = BLE_VIEW_INTEGRATED_GATT;
 
     char msg[64];
-    snprintf(msg, sizeof(msg), "Connecting to %s...", ble_state.connected_name);
+    snprintf(msg, sizeof(msg), "Connecting to %s...", ble_state.connected_alias[0] ? ble_state.connected_alias : ble_state.connected_name);
     ble_scanner_set_status(msg);
 
-    /* Disconnect any existing GATT session */
     (void)solar_os_ble_gatt_disconnect();
 
-    /* Initiate GATT Connection */
     const esp_err_t err = solar_os_ble_gatt_connect(ble_state.connected_bda, ble_state.connected_addr_type, 6000);
     if (err == ESP_OK) {
         ble_state.gatt_connected = true;
         ble_state.gatt_connecting = false;
 
-        /* Query all services */
         size_t srv_count = 0;
         if (solar_os_ble_gatt_services(ble_state.services, SOLAR_OS_BLE_GATT_MAX_SERVICES, &srv_count) == ESP_OK) {
             ble_state.service_count = srv_count;
+            if (srv_count > 0) {
+                size_t ch_count = 0;
+                solar_os_ble_gatt_characteristics(0, ble_state.characteristics, SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS, &ch_count);
+                ble_state.char_count = ch_count;
+            }
             snprintf(msg, sizeof(msg), "Connected: %u Services found", (unsigned)srv_count);
             ble_scanner_set_status(msg);
         } else {
@@ -531,12 +518,8 @@ static void ble_load_service_characteristics(size_t srv_idx)
         ble_state.char_count = count;
         ble_state.selected_char = 0;
         ble_state.has_read_value = false;
-        ble_state.view = BLE_VIEW_GATT_CHARS;
-        char msg[64];
-        snprintf(msg, sizeof(msg), "Service %u: %u Characteristics", (unsigned)(srv_idx + 1), (unsigned)count);
-        ble_scanner_set_status(msg);
     } else {
-        ble_scanner_set_status("Could not load characteristics");
+        ble_state.char_count = 0;
     }
     ble_state.render_pending = true;
 }
@@ -557,7 +540,7 @@ static void ble_read_selected_characteristic(void)
         ble_state.last_read_handle = handle;
         ble_state.has_read_value = true;
         char msg[64];
-        snprintf(msg, sizeof(msg), "Read handle 0x%04x: %u bytes", (unsigned)handle, (unsigned)read_len);
+        snprintf(msg, sizeof(msg), "Read 0x%04X: %u bytes", (unsigned)handle, (unsigned)read_len);
         ble_scanner_set_status(msg);
     } else {
         ble_scanner_set_status("GATT Read failed");
@@ -589,8 +572,7 @@ static void ble_draw_header(solar_os_gfx_t *gfx, int width)
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
 
     const char *view_name = "BLE SCANNER";
-    if (ble_state.view == BLE_VIEW_GATT_SERVICES) view_name = "GATT SERVICES";
-    else if (ble_state.view == BLE_VIEW_GATT_CHARS) view_name = "GATT CHARACTERISTICS";
+    if (ble_state.view == BLE_VIEW_INTEGRATED_GATT) view_name = "DEVICE & GATT EXPLORER";
     else if (ble_state.view == BLE_VIEW_RADAR) view_name = "PROXIMITY RADAR";
     else if (ble_state.view == BLE_VIEW_ADV_INSPECTOR) view_name = "ADV PACKET INSPECTOR";
 
@@ -599,7 +581,7 @@ static void ble_draw_header(solar_os_gfx_t *gfx, int width)
     snprintf(header, sizeof(header), "BLE EXPLORER - %s | Dev: %u | %s",
              view_name,
              (unsigned)total_found,
-             ble_state.scanning ? "SCANNING..." : "IDLE");
+             ble_state.scanning ? "SCANNING..." : "READY");
     solar_os_gfx_text(gfx, 8, 16, header);
 }
 
@@ -620,24 +602,21 @@ static void ble_draw_footer(solar_os_gfx_t *gfx, int width, int height)
                                       ble_state.filter == BLE_FILTER_NAMED ? "NAMED" :
                                       ble_state.filter == BLE_FILTER_HID ? "HID" : "STRONG";
             snprintf(footer, sizeof(footer),
-                     "[I] ADV Packet | [Enter] GATT | [T] Radar | [A] Alias | [F] Fltr (%s) | [ESC] Exit",
+                     "[Enter] Explore | [I] ADV Data | [T] Radar | [A] Alias | [F] Fltr (%s) | [ESC] Exit",
                      filter_name);
         } else if (ble_state.view == BLE_VIEW_ADV_INSPECTOR) {
             const char *mode_str = ble_state.adv_mode == ADV_INSPECT_AUTO ? "AUTO" :
                                   ble_state.adv_mode == ADV_INSPECT_STRUCTURES ? "TLV" :
                                   ble_state.adv_mode == ADV_INSPECT_HEX ? "HEX" : "LUA";
             snprintf(footer, sizeof(footer),
-                     "[M] Mode (%s) | [E] Edit Lua | [R] Rescan | [ESC] Back to List",
+                     "[M] Mode (%s) | [E] Edit Lua | [1-3] Presets | [R] Scan | [ESC] Back",
                      mode_str);
-        } else if (ble_state.view == BLE_VIEW_GATT_SERVICES) {
-            snprintf(footer, sizeof(footer),
-                     "[Up/Down] Select Service | [Enter] Open Chars | [D] Disconnect | [ESC] Back");
-        } else if (ble_state.view == BLE_VIEW_GATT_CHARS) {
+        } else if (ble_state.view == BLE_VIEW_INTEGRATED_GATT) {
             const char *dec_str = ble_state.decoder_mode == GATT_DECODER_AUTO ? "AUTO" :
                                   ble_state.decoder_mode == GATT_DECODER_HEX_ASCII ? "HEX" :
                                   ble_state.decoder_mode == GATT_DECODER_NUMERIC ? "NUM" : "LUA";
             snprintf(footer, sizeof(footer),
-                     "[Enter/R] Read | [M] Mode (%s) | [ESC] Back to Services",
+                     "[Tab/Arrows] Navigate | [Enter/R] Read | [M] Dec (%s) | [D/ESC] Back",
                      dec_str);
         } else {
             snprintf(footer, sizeof(footer),
@@ -650,7 +629,6 @@ static void ble_draw_footer(solar_os_gfx_t *gfx, int width, int height)
 
 static void ble_draw_signal_bars(solar_os_gfx_t *gfx, int x, int y, int8_t rssi)
 {
-    /* 4-segment visual signal strength meter */
     int bars = 1;
     if (rssi >= -60) bars = 4;
     else if (rssi >= -75) bars = 3;
@@ -669,7 +647,7 @@ static void ble_draw_signal_bars(solar_os_gfx_t *gfx, int x, int y, int8_t rssi)
 }
 
 /* ---------------------------------------------------------------------
- * View 0: BLE Device Scanner List & Alias Modal
+ * View 0: BLE Device Scanner List (Alias + Original Name)
  * ------------------------------------------------------------------- */
 
 static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
@@ -722,12 +700,14 @@ static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
         /* Signal Meter */
         ble_draw_signal_bars(gfx, 10, y + row_h - 6, dev->rssi);
 
-        /* Device Title (Alias or Name) */
+        /* Device Title: Alias + Original Name together */
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        char label[64];
-        if (dev->alias[0] != '\0') {
+        char label[80];
+        if (dev->alias[0] != '\0' && dev->name[0] != '\0' && strcmp(dev->name, "(none)") != 0 && strcmp(dev->alias, dev->name) != 0) {
+            snprintf(label, sizeof(label), "* [%s] (%s)", dev->alias, dev->name);
+        } else if (dev->alias[0] != '\0') {
             snprintf(label, sizeof(label), "* [%s]", dev->alias);
-        } else if (dev->name[0] != '\0') {
+        } else if (dev->name[0] != '\0' && strcmp(dev->name, "(none)") != 0) {
             snprintf(label, sizeof(label), "%s", dev->name);
         } else {
             snprintf(label, sizeof(label), "(Unknown BLE Device)");
@@ -741,16 +721,15 @@ static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
                  dev->bda[0], dev->bda[1], dev->bda[2],
                  dev->bda[3], dev->bda[4], dev->bda[5],
                  (int)dev->rssi);
-        solar_os_gfx_text(gfx, 210, y + 15, mac_str);
+        solar_os_gfx_text(gfx, 225, y + 15, mac_str);
 
-        /* Tags: [ADV], [SAVED], [KBD], [HID] */
+        /* Tags */
         char tags[32] = "";
         if (dev->adv_data_len > 0) strlcat(tags, "[ADV] ", sizeof(tags));
-        if (dev->is_bookmarked) strlcat(tags, "[SAVED] ", sizeof(tags));
         if (dev->keyboard_like) strlcat(tags, "[KBD] ", sizeof(tags));
         else if (dev->hid_service) strlcat(tags, "[HID] ", sizeof(tags));
         if (tags[0] != '\0') {
-            solar_os_gfx_text(gfx, 320, y + 15, tags);
+            solar_os_gfx_text(gfx, 340, y + 15, tags);
         }
     }
 
@@ -770,7 +749,6 @@ static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
         solar_os_gfx_text(gfx, mx + 10, my + 20, "Set Custom Device Alias:");
 
-        /* Input field box */
         solar_os_gfx_rect(gfx, mx + 10, my + 30, mw - 20, 24);
         char disp_input[40];
         snprintf(disp_input, sizeof(disp_input), "%s_", ble_state.alias_input);
@@ -783,423 +761,11 @@ static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
 }
 
 /* ---------------------------------------------------------------------
- * View 4: BLE Advertising Packet Inspector & Custom Scale/Beacon Decoder
+ * View 1: Integrated Single-Screen Device Details & GATT Explorer
  * ------------------------------------------------------------------- */
 
-static void ble_draw_adv_inspector(solar_os_gfx_t *gfx, int width, int height)
+static void ble_render_gatt_decoded_value(solar_os_gfx_t *gfx, int x, int y)
 {
-    const int top = BLE_HEADER_H + 4;
-    const int bottom = height - BLE_FOOTER_H - 4;
-
-    const ble_device_item_t *dev = ble_get_filtered_device(ble_state.selected_device);
-    if (dev == NULL) {
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 20, top + 30, "No device selected.");
-        return;
-    }
-
-    /* Top Device Header */
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    const char *title = dev->alias[0] ? dev->alias : (dev->name[0] ? dev->name : "(Unnamed Device)");
-    char dev_hdr[96];
-    snprintf(dev_hdr, sizeof(dev_hdr), "ADV: %s [%02X:%02X:%02X:%02X:%02X:%02X] %ddBm (Len: %u)",
-             title,
-             dev->bda[0], dev->bda[1], dev->bda[2], dev->bda[3], dev->bda[4], dev->bda[5],
-             (int)dev->rssi, (unsigned)dev->adv_data_len);
-    solar_os_gfx_text(gfx, 8, top + 14, dev_hdr);
-    solar_os_gfx_line(gfx, 4, top + 20, width - 4, top + 20);
-
-    const int content_y = top + 26;
-    const uint8_t *adv = dev->adv_data;
-    const size_t len = dev->adv_data_len;
-
-    if (len == 0) {
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 20, content_y + 20, "No advertising payload bytes captured yet. Press [R] to rescan.");
-        return;
-    }
-
-    switch (ble_state.adv_mode) {
-    case ADV_INSPECT_AUTO: {
-        /* 1. Intelligent Beacon / Scale / Sensor Parsers */
-        int cur_y = content_y + 12;
-
-        /* Look for Weight Scale (Baskül) data (0x181D Service Data or Xiaomi Scale 0x038F / 0x0157) */
-        bool is_scale = false;
-        char scale_reading[96] = "";
-
-        for (size_t i = 0; i + 1 < len;) {
-            uint8_t ad_len = adv[i];
-            if (ad_len == 0 || i + 1 + ad_len > len) break;
-            uint8_t ad_type = adv[i + 1];
-            const uint8_t *ad_payload = &adv[i + 2];
-            uint8_t payload_len = ad_len - 1;
-
-            /* Check Service Data 16-bit (0x16) for Weight Service 0x181D / 0x181B */
-            if (ad_type == 0x16 && payload_len >= 4) {
-                uint16_t srv_uuid = (uint16_t)ad_payload[0] | ((uint16_t)ad_payload[1] << 8);
-                if (srv_uuid == 0x181D || srv_uuid == 0x181B) {
-                    is_scale = true;
-                    uint8_t flags = ad_payload[2];
-                    const char *unit = (flags & 0x01) ? "lbs" : "kg";
-                    uint16_t raw_w = (uint16_t)ad_payload[3] | ((uint16_t)ad_payload[4] << 8);
-                    float weight_kg = (flags & 0x01) ? ((float)raw_w * 0.01f) : ((float)raw_w * 0.005f);
-                    snprintf(scale_reading, sizeof(scale_reading), "WEIGHT SCALE (BASKUL): %.2f %s (Flags: 0x%02X)",
-                             weight_kg, unit, flags);
-                    break;
-                }
-            }
-
-            /* Check Xiaomi / Mi Body Composition Scale in Manufacturer Data (0xFF) */
-            if (ad_type == 0xFF && payload_len >= 12) {
-                uint16_t comp_id = (uint16_t)ad_payload[0] | ((uint16_t)ad_payload[1] << 8);
-                if (comp_id == 0x038F || comp_id == 0x0157) {
-                    is_scale = true;
-                    uint8_t flags = ad_payload[2];
-                    const char *unit = (flags & 0x01) ? "lbs" : ((flags & 0x02) ? "jin" : "kg");
-                    bool stabilized = (flags & 0x20) != 0;
-                    uint16_t raw_w = (uint16_t)ad_payload[11] | ((uint16_t)ad_payload[12] << 8);
-                    float w = (flags & 0x01) ? ((float)raw_w / 100.0f) : ((float)raw_w / 200.0f);
-                    snprintf(scale_reading, sizeof(scale_reading), "XIAOMI SCALE (BASKUL): %.2f %s [%s]",
-                             w, unit, stabilized ? "STABILIZED" : "MEASURING...");
-                    break;
-                }
-            }
-            i += (1 + ad_len);
-        }
-
-        if (is_scale) {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, 6, cur_y - 12, width - 12, 28);
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-            solar_os_gfx_text(gfx, 12, cur_y + 6, scale_reading);
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            cur_y += 32;
-        }
-
-        /* 2. Decode Apple iBeacon / Eddystone / Manufacturer Data */
-        bool found_special = false;
-        for (size_t i = 0; i + 1 < len;) {
-            uint8_t ad_len = adv[i];
-            if (ad_len == 0 || i + 1 + ad_len > len) break;
-            uint8_t ad_type = adv[i + 1];
-            const uint8_t *ad_payload = &adv[i + 2];
-            uint8_t payload_len = ad_len - 1;
-
-            if (ad_type == 0xFF && payload_len >= 2) {
-                uint16_t comp_id = (uint16_t)ad_payload[0] | ((uint16_t)ad_payload[1] << 8);
-                const char *comp_name = ble_resolve_company_name(comp_id);
-                solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-                char comp_str[96];
-                snprintf(comp_str, sizeof(comp_str), "Manufacturer: 0x%04X (%s)", comp_id, comp_name);
-                solar_os_gfx_text(gfx, 10, cur_y, comp_str);
-                cur_y += 18;
-
-                /* iBeacon Format Check: 0x004C Apple, type 0x02, len 0x15 */
-                if (comp_id == 0x004C && payload_len >= 23 && ad_payload[2] == 0x02 && ad_payload[3] == 0x15) {
-                    found_special = true;
-                    uint16_t major = ((uint16_t)ad_payload[20] << 8) | (uint16_t)ad_payload[21];
-                    uint16_t minor = ((uint16_t)ad_payload[22] << 8) | (uint16_t)ad_payload[23];
-                    int8_t tx_pow = (int8_t)ad_payload[24];
-
-                    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-                    solar_os_gfx_text(gfx, 10, cur_y, ">> iBeacon Frame Detected <<");
-                    cur_y += 16;
-                    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-                    char ib_str[96];
-                    snprintf(ib_str, sizeof(ib_str), "Major: %u | Minor: %u | TxPower@1m: %ddBm", major, minor, (int)tx_pow);
-                    solar_os_gfx_text(gfx, 10, cur_y, ib_str);
-                    cur_y += 16;
-                } else {
-                    /* Generic Manufacturer Data Hex preview */
-                    char m_hex[64] = "Payload: ";
-                    for (size_t m = 2; m < payload_len && m < 12; m++) {
-                        char bh[8];
-                        snprintf(bh, sizeof(bh), "%02X ", ad_payload[m]);
-                        strlcat(m_hex, bh, sizeof(m_hex));
-                    }
-                    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-                    solar_os_gfx_text(gfx, 10, cur_y, m_hex);
-                    cur_y += 18;
-                }
-            } else if (ad_type == 0x16 && payload_len >= 2) {
-                uint16_t srv_uuid = (uint16_t)ad_payload[0] | ((uint16_t)ad_payload[1] << 8);
-                solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-                char srv_str[96];
-                snprintf(srv_str, sizeof(srv_str), "Service Data: 0x%04X (%s)", srv_uuid,
-                         (srv_uuid == 0xFEAA) ? "Google Eddystone Beacon" :
-                         (srv_uuid == 0xFCD2) ? "BTHome V2" : "BLE Service");
-                solar_os_gfx_text(gfx, 10, cur_y, srv_str);
-                cur_y += 18;
-            }
-            i += (1 + ad_len);
-        }
-
-        /* 3. Raw Hex Packet Strip at bottom */
-        const int hex_box_y = bottom - 46;
-        solar_os_gfx_rect(gfx, 6, hex_box_y, width - 12, 42);
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 10, hex_box_y + 12, "Raw Advertisement Bytes (HEX):");
-
-        char hex_line[128] = "";
-        for (size_t h = 0; h < len && h < 18; h++) {
-            char bh[8];
-            snprintf(bh, sizeof(bh), "%02X ", adv[h]);
-            strlcat(hex_line, bh, sizeof(hex_line));
-        }
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 10, hex_box_y + 26, hex_line);
-        break;
-    }
-
-    case ADV_INSPECT_STRUCTURES: {
-        /* Full TLV structure breakdown */
-        int cur_y = content_y + 12;
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 10, cur_y, "Advertised TLV Elements:");
-        cur_y += 18;
-
-        for (size_t i = 0; i + 1 < len;) {
-            uint8_t ad_len = adv[i];
-            if (ad_len == 0 || i + 1 + ad_len > len) break;
-            uint8_t ad_type = adv[i + 1];
-            const uint8_t *ad_payload = &adv[i + 2];
-            uint8_t payload_len = ad_len - 1;
-
-            const char *type_name = (ad_type == 0x01) ? "Flags" :
-                                    (ad_type == 0x02 || ad_type == 0x03) ? "16-bit Service UUIDs" :
-                                    (ad_type == 0x08 || ad_type == 0x09) ? "Local Name" :
-                                    (ad_type == 0x0A) ? "Tx Power" :
-                                    (ad_type == 0x16) ? "Service Data" :
-                                    (ad_type == 0xFF) ? "Manufacturer Specific" : "Custom AD";
-
-            char tlv_buf[128];
-            char hex_snippet[48] = "";
-            for (size_t k = 0; k < payload_len && k < 6; k++) {
-                char h[8];
-                snprintf(h, sizeof(h), "%02X ", ad_payload[k]);
-                strlcat(hex_snippet, h, sizeof(hex_snippet));
-            }
-            snprintf(tlv_buf, sizeof(tlv_buf), "Type 0x%02X (%s) [Len %u]: %s",
-                     ad_type, type_name, payload_len, hex_snippet);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-            solar_os_gfx_text(gfx, 10, cur_y, tlv_buf);
-            cur_y += 16;
-            if (cur_y > bottom - 10) break;
-
-            i += (1 + ad_len);
-        }
-        break;
-    }
-
-    case ADV_INSPECT_HEX: {
-        /* Full multi-line HEX and ASCII dump */
-        int cur_y = content_y + 12;
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 10, cur_y, "Full 62-byte Advertisement Payload Dump:");
-        cur_y += 20;
-
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO);
-        for (size_t row = 0; row < len; row += 16) {
-            char row_hex[64] = "";
-            char row_asc[32] = "";
-            for (size_t col = 0; col < 16; col++) {
-                if (row + col < len) {
-                    char bh[8];
-                    snprintf(bh, sizeof(bh), "%02X ", adv[row + col]);
-                    strlcat(row_hex, bh, sizeof(row_hex));
-                    char c = (char)adv[row + col];
-                    char a[2] = { isprint((unsigned char)c) ? c : '.', '\0' };
-                    strlcat(row_asc, a, sizeof(row_asc));
-                } else {
-                    strlcat(row_hex, "   ", sizeof(row_hex));
-                }
-            }
-            char full_line[128];
-            snprintf(full_line, sizeof(full_line), "%02X:  %s | %s", (unsigned)row, row_hex, row_asc);
-            solar_os_gfx_text(gfx, 10, cur_y, full_line);
-            cur_y += 18;
-        }
-        break;
-    }
-
-    case ADV_INSPECT_LUA: {
-        /* Custom Lua expression evaluation on advertising packet bytes */
-        int cur_y = content_y + 12;
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 10, cur_y, "Lua Script Custom Packet Evaluator ([E] to Edit):");
-        cur_y += 20;
-
-        /* Show current expression */
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        char expr_line[160];
-        const char *expr = ble_state.custom_lua_expr[0] ? ble_state.custom_lua_expr :
-            "return string.format('Scale/Val: %.2f (B12=%d)', ((adv[12] or 0) + (adv[13] or 0)*256)/200.0, adv[12] or 0)";
-        snprintf(expr_line, sizeof(expr_line), "Script: %s", expr);
-        solar_os_gfx_text(gfx, 10, cur_y, expr_line);
-        cur_y += 24;
-
-        /* Construct Lua execution code */
-        char lua_full_code[512] = "adv = {";
-        for (size_t b = 0; b < len && b < 32; b++) {
-            char bh[16];
-            snprintf(bh, sizeof(bh), "%u,", adv[b]);
-            strlcat(lua_full_code, bh, sizeof(lua_full_code));
-        }
-        strlcat(lua_full_code, "}; bda = '", sizeof(lua_full_code));
-        char mac_str[32];
-        snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
-                 dev->bda[0], dev->bda[1], dev->bda[2], dev->bda[3], dev->bda[4], dev->bda[5]);
-        strlcat(lua_full_code, mac_str, sizeof(lua_full_code));
-        strlcat(lua_full_code, "'; rssi = ", sizeof(lua_full_code));
-        char rssi_str[16];
-        snprintf(rssi_str, sizeof(rssi_str), "%d; ", (int)dev->rssi);
-        strlcat(lua_full_code, rssi_str, sizeof(lua_full_code));
-        strlcat(lua_full_code, expr, sizeof(lua_full_code));
-
-        char lua_out[128] = "Lua: (Ready)";
-        solar_os_script_run_request_t req = {
-            .input_type = SOLAR_OS_SCRIPT_INPUT_SOURCE,
-            .input = lua_full_code,
-            .input_len = strlen(lua_full_code),
-            .source_name = "adv_eval",
-            .timeout_ms = 500,
-            .output = lua_out,
-            .output_size = sizeof(lua_out),
-        };
-        solar_os_script_run_result_t res = {0};
-
-        /* Box for Output */
-        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-        solar_os_gfx_rect(gfx, 6, cur_y, width - 12, 48);
-
-        if (solar_os_lua_run(&req, &res) == ESP_OK && res.success) {
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-            solar_os_gfx_text(gfx, 12, cur_y + 20, lua_out[0] ? lua_out : "Result: (nil)");
-        } else {
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-            solar_os_gfx_text(gfx, 12, cur_y + 18, "Lua Eval Output: Error in script");
-            if (res.error[0] != '\0') {
-                solar_os_gfx_text(gfx, 12, cur_y + 34, res.error);
-            }
-        }
-        break;
-    }
-
-    default:
-        break;
-    }
-
-    /* Modal dialog for editing custom Lua expression */
-    if (ble_state.editing_lua) {
-        const int mw = 360;
-        const int mh = 80;
-        const int mx = (width - mw) / 2;
-        const int my = (height - mh) / 2;
-
-        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        solar_os_gfx_fill_rect(gfx, mx, my, mw, mh);
-        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-        solar_os_gfx_rect(gfx, mx, my, mw, mh);
-        solar_os_gfx_rect(gfx, mx + 2, my + 2, mw - 4, mh - 4);
-
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, mx + 10, my + 20, "Enter Lua Expression (e.g. return adv[12].. ' kg'):");
-
-        solar_os_gfx_rect(gfx, mx + 10, my + 30, mw - 20, 24);
-        char disp_lua[128];
-        snprintf(disp_lua, sizeof(disp_lua), "%s_", ble_state.lua_input);
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, mx + 15, my + 46, disp_lua);
-
-        solar_os_gfx_text(gfx, mx + 10, my + 68, "[Enter] Save  |  [ESC] Cancel");
-    }
-}
-
-/* ---------------------------------------------------------------------
- * View 1: GATT Services List
- * ------------------------------------------------------------------- */
-
-static void ble_draw_gatt_services(solar_os_gfx_t *gfx, int width, int height)
-{
-    const int top = BLE_HEADER_H + 4;
-    const int bottom = height - BLE_FOOTER_H - 4;
-    const int row_h = 26;
-    const int visible_rows = (bottom - top - 24) / row_h;
-
-    /* Device Info Banner */
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    char dev_info[96];
-    snprintf(dev_info, sizeof(dev_info), "Connected: %s (%02X:%02X:%02X:%02X:%02X:%02X)",
-             ble_state.connected_name,
-             ble_state.connected_bda[0], ble_state.connected_bda[1], ble_state.connected_bda[2],
-             ble_state.connected_bda[3], ble_state.connected_bda[4], ble_state.connected_bda[5]);
-    solar_os_gfx_text(gfx, 8, top + 14, dev_info);
-    solar_os_gfx_line(gfx, 4, top + 20, width - 4, top + 20);
-
-    const int list_top = top + 24;
-
-    if (ble_state.service_count == 0) {
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        if (ble_state.gatt_connecting) {
-            solar_os_gfx_text(gfx, 20, list_top + 30, "Connecting to peripheral and discovering GATT services...");
-        } else {
-            solar_os_gfx_text(gfx, 20, list_top + 30, "No GATT services found or connection lost.");
-        }
-        return;
-    }
-
-    if (ble_state.selected_service >= ble_state.service_count) {
-        ble_state.selected_service = ble_state.service_count - 1U;
-    }
-
-    size_t scroll_offset = 0;
-    if (ble_state.selected_service >= (size_t)visible_rows) {
-        scroll_offset = ble_state.selected_service - (size_t)visible_rows + 1U;
-    }
-
-    for (int r = 0; r < visible_rows; r++) {
-        const size_t srv_idx = scroll_offset + (size_t)r;
-        if (srv_idx >= ble_state.service_count) break;
-
-        const solar_os_ble_gatt_service_t *srv = &ble_state.services[srv_idx];
-        const int y = list_top + r * row_h;
-        const bool is_selected = (srv_idx == ble_state.selected_service);
-
-        if (is_selected) {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, row_h - 2);
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        } else {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_rect(gfx, 4, y, width - 8, row_h - 2);
-        }
-
-        const char *friendly_name = ble_resolve_uuid_name(srv->uuid);
-
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        char srv_title[64];
-        snprintf(srv_title, sizeof(srv_title), "%u. %s", (unsigned)(srv_idx + 1), friendly_name);
-        solar_os_gfx_text(gfx, 10, y + 16, srv_title);
-
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        char srv_details[64];
-        snprintf(srv_details, sizeof(srv_details), "UUID: %s (Hnd: 0x%04x-0x%04x)",
-                 srv->uuid, (unsigned)srv->start_handle, (unsigned)srv->end_handle);
-        solar_os_gfx_text(gfx, 210, y + 16, srv_details);
-    }
-}
-
-/* ---------------------------------------------------------------------
- * View 2: GATT Characteristics Explorer & Multi-Decoder Inspector
- * ------------------------------------------------------------------- */
-
-static void ble_render_characteristic_decoded_value(solar_os_gfx_t *gfx, int x, int y, int w)
-{
-    (void)w;
     if (!ble_state.has_read_value || ble_state.read_value_len == 0) {
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
         solar_os_gfx_text(gfx, x, y, "Press [Enter] or [R] to read characteristic live value.");
@@ -1228,8 +794,7 @@ static void ble_render_characteristic_decoded_value(solar_os_gfx_t *gfx, int x, 
             snprintf(decoded, sizeof(decoded), "WEIGHT (BASKUL): %.2f kg", (float)raw_w * 0.005f);
         } else if (strcasecmp(uuid_str, "0x2a00") == 0 || strcasecmp(uuid_str, "0x2a24") == 0 ||
                    strcasecmp(uuid_str, "0x2a25") == 0 || strcasecmp(uuid_str, "0x2a26") == 0 ||
-                   strcasecmp(uuid_str, "0x2a27") == 0 || strcasecmp(uuid_str, "0x2a28") == 0 ||
-                   strcasecmp(uuid_str, "0x2a29") == 0) {
+                   strcasecmp(uuid_str, "0x2a28") == 0 || strcasecmp(uuid_str, "0x2a29") == 0) {
             char str_buf[64] = "";
             size_t slen = len < sizeof(str_buf) - 1 ? len : sizeof(str_buf) - 1;
             memcpy(str_buf, val, slen);
@@ -1333,82 +898,137 @@ static void ble_render_characteristic_decoded_value(solar_os_gfx_t *gfx, int x, 
     }
 }
 
-static void ble_draw_gatt_characteristics(solar_os_gfx_t *gfx, int width, int height)
+static void ble_draw_integrated_gatt(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = BLE_HEADER_H + 4;
-    const int bottom = height - BLE_FOOTER_H - 4;
+    const int top = BLE_HEADER_H + 2;
+    const int bottom = height - BLE_FOOTER_H - 2;
 
-    /* Service Banner */
+    /* 1. Top Device Details Banner */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    const char *srv_name = ble_resolve_uuid_name(ble_state.services[ble_state.selected_service].uuid);
-    char srv_info[96];
-    snprintf(srv_info, sizeof(srv_info), "Service: %s [%s]",
-             srv_name, ble_state.services[ble_state.selected_service].uuid);
-    solar_os_gfx_text(gfx, 8, top + 14, srv_info);
-    solar_os_gfx_line(gfx, 4, top + 20, width - 4, top + 20);
 
-    const int list_top = top + 24;
-    const int list_h = 130;
-    const int row_h = 24;
-    const int visible_rows = list_h / row_h;
+    char dev_title[96];
+    if (ble_state.connected_alias[0] != '\0' && strcmp(ble_state.connected_alias, ble_state.connected_name) != 0) {
+        snprintf(dev_title, sizeof(dev_title), "* [%s] (%s)", ble_state.connected_alias, ble_state.connected_name);
+    } else {
+        snprintf(dev_title, sizeof(dev_title), "%s", ble_state.connected_alias[0] ? ble_state.connected_alias : ble_state.connected_name);
+    }
+    solar_os_gfx_text(gfx, 6, top + 13, dev_title);
 
-    if (ble_state.char_count == 0) {
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 20, list_top + 30, "No characteristics found for this service.");
-        return;
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    char dev_details[96];
+    snprintf(dev_details, sizeof(dev_details), "MAC: %02X:%02X:%02X:%02X:%02X:%02X | %ddBm | %s",
+             ble_state.connected_bda[0], ble_state.connected_bda[1], ble_state.connected_bda[2],
+             ble_state.connected_bda[3], ble_state.connected_bda[4], ble_state.connected_bda[5],
+             (int)ble_state.connected_rssi,
+             ble_state.gatt_connected ? "CONNECTED (MTU 512)" : (ble_state.gatt_connecting ? "CONNECTING..." : "DISCONNECTED"));
+    solar_os_gfx_text(gfx, 175, top + 13, dev_details);
+
+    solar_os_gfx_line(gfx, 4, top + 18, width - 4, top + 18);
+
+    /* 2. Middle Split Columns: Services (Left) & Characteristics (Right) */
+    const int mid_top = top + 22;
+    const int mid_h = 145;
+    const int split_x = 180;
+
+    /* Left Column: Services */
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    char srv_hdr[32];
+    snprintf(srv_hdr, sizeof(srv_hdr), "Services (%u):", (unsigned)ble_state.service_count);
+    solar_os_gfx_text(gfx, 6, mid_top + 10, srv_hdr);
+
+    const int srv_list_y = mid_top + 16;
+    const int srv_row_h = 24;
+    const int max_srv_rows = (mid_h - 18) / srv_row_h;
+
+    size_t srv_scroll = 0;
+    if (ble_state.selected_service >= (size_t)max_srv_rows) {
+        srv_scroll = ble_state.selected_service - (size_t)max_srv_rows + 1U;
     }
 
-    if (ble_state.selected_char >= ble_state.char_count) {
-        ble_state.selected_char = ble_state.char_count - 1U;
+    for (int r = 0; r < max_srv_rows; r++) {
+        const size_t s_idx = srv_scroll + (size_t)r;
+        if (s_idx >= ble_state.service_count) break;
+
+        const solar_os_ble_gatt_service_t *srv = &ble_state.services[s_idx];
+        const int y = srv_list_y + r * srv_row_h;
+        const bool is_sel = (s_idx == ble_state.selected_service);
+        const bool has_focus = (ble_state.gatt_focus == GATT_FOCUS_SERVICES);
+
+        if (is_sel) {
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+            if (has_focus) {
+                solar_os_gfx_fill_rect(gfx, 4, y, split_x - 8, srv_row_h - 2);
+                solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+            } else {
+                solar_os_gfx_rect(gfx, 4, y, split_x - 8, srv_row_h - 2);
+            }
+        }
+
+        const char *name = ble_resolve_uuid_name(srv->uuid);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+        char s_label[32];
+        snprintf(s_label, sizeof(s_label), "%u. %s", (unsigned)(s_idx + 1), name);
+        solar_os_gfx_text(gfx, 8, y + 15, s_label);
+
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     }
 
-    size_t scroll_offset = 0;
-    if (ble_state.selected_char >= (size_t)visible_rows) {
-        scroll_offset = ble_state.selected_char - (size_t)visible_rows + 1U;
+    /* Vertical Divider */
+    solar_os_gfx_line(gfx, split_x, mid_top, split_x, mid_top + mid_h);
+
+    /* Right Column: Characteristics */
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    char chr_hdr[32];
+    snprintf(chr_hdr, sizeof(chr_hdr), "Characteristics (%u):", (unsigned)ble_state.char_count);
+    solar_os_gfx_text(gfx, split_x + 6, mid_top + 10, chr_hdr);
+
+    const int chr_list_y = mid_top + 16;
+    const int chr_row_h = 24;
+    const int max_chr_rows = (mid_h - 18) / chr_row_h;
+
+    size_t chr_scroll = 0;
+    if (ble_state.selected_char >= (size_t)max_chr_rows) {
+        chr_scroll = ble_state.selected_char - (size_t)max_chr_rows + 1U;
     }
 
-    for (int r = 0; r < visible_rows; r++) {
-        const size_t c_idx = scroll_offset + (size_t)r;
+    for (int r = 0; r < max_chr_rows; r++) {
+        const size_t c_idx = chr_scroll + (size_t)r;
         if (c_idx >= ble_state.char_count) break;
 
         const solar_os_ble_gatt_characteristic_t *ch = &ble_state.characteristics[c_idx];
-        const int y = list_top + r * row_h;
-        const bool is_selected = (c_idx == ble_state.selected_char);
+        const int y = chr_list_y + r * chr_row_h;
+        const bool is_sel = (c_idx == ble_state.selected_char);
+        const bool has_focus = (ble_state.gatt_focus == GATT_FOCUS_CHARS);
 
-        if (is_selected) {
+        if (is_sel) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, row_h - 2);
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        } else {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_rect(gfx, 4, y, width - 8, row_h - 2);
+            if (has_focus) {
+                solar_os_gfx_fill_rect(gfx, split_x + 4, y, width - split_x - 8, chr_row_h - 2);
+                solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+            } else {
+                solar_os_gfx_rect(gfx, split_x + 4, y, width - split_x - 8, chr_row_h - 2);
+            }
         }
 
-        const char *friendly_name = ble_resolve_uuid_name(ch->uuid);
-
+        const char *name = ble_resolve_uuid_name(ch->uuid);
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        char ch_title[64];
-        snprintf(ch_title, sizeof(ch_title), "%s", friendly_name);
-        solar_os_gfx_text(gfx, 10, y + 15, ch_title);
+        char c_label[48];
+        snprintf(c_label, sizeof(c_label), "%s", name);
+        solar_os_gfx_text(gfx, split_x + 8, y + 15, c_label);
 
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        char props[16] = "";
-        if (ch->properties & 0x02) strlcat(props, "R ", sizeof(props));
-        if (ch->properties & 0x08) strlcat(props, "W ", sizeof(props));
-        if (ch->properties & 0x10) strlcat(props, "N ", sizeof(props));
-        if (ch->properties & 0x20) strlcat(props, "I ", sizeof(props));
+        char c_props[32];
+        snprintf(c_props, sizeof(c_props), "0x%04X (%s)", (unsigned)ch->handle, ch->uuid);
+        solar_os_gfx_text(gfx, width - 110, y + 15, c_props);
 
-        char ch_details[64];
-        snprintf(ch_details, sizeof(ch_details), "Hnd: 0x%04x | %s | %s",
-                 (unsigned)ch->handle, ch->uuid, props);
-        solar_os_gfx_text(gfx, 175, y + 15, ch_details);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     }
 
-    const int box_top = list_top + list_h + 8;
+    /* 3. Bottom Box: Live Decoded Characteristic Inspector */
+    const int box_top = mid_top + mid_h + 4;
     const int box_h = bottom - box_top;
     if (box_h > 20) {
-        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
         solar_os_gfx_rect(gfx, 4, box_top, width - 8, box_h);
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
 
@@ -1418,14 +1038,337 @@ static void ble_draw_gatt_characteristics(solar_os_gfx_t *gfx, int width, int he
                                  "[MODE: LUA SCRIPT EVAL]";
         char title_buf[64];
         snprintf(title_buf, sizeof(title_buf), "Value Inspector %s ([M] Change):", mode_label);
-        solar_os_gfx_text(gfx, 10, box_top + 14, title_buf);
+        solar_os_gfx_text(gfx, 8, box_top + 14, title_buf);
 
-        ble_render_characteristic_decoded_value(gfx, 10, box_top + 32, width - 20);
+        ble_render_gatt_decoded_value(gfx, 8, box_top + 32);
     }
 }
 
 /* ---------------------------------------------------------------------
- * View 3: Proximity Radar / Signal Tracker
+ * View 3: BLE Advertising Packet Inspector & Robust Lua Evaluator
+ * ------------------------------------------------------------------- */
+
+static void ble_draw_adv_inspector(solar_os_gfx_t *gfx, int width, int height)
+{
+    const int top = BLE_HEADER_H + 4;
+    const int bottom = height - BLE_FOOTER_H - 4;
+
+    const ble_device_item_t *dev = ble_get_filtered_device(ble_state.selected_device);
+    if (dev == NULL) {
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+        solar_os_gfx_text(gfx, 20, top + 30, "No device selected.");
+        return;
+    }
+
+    /* Top Header */
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    char title[80];
+    if (dev->alias[0] != '\0' && dev->name[0] != '\0' && strcmp(dev->alias, dev->name) != 0) {
+        snprintf(title, sizeof(title), "* [%s] (%s)", dev->alias, dev->name);
+    } else {
+        snprintf(title, sizeof(title), "%s", dev->alias[0] ? dev->alias : (dev->name[0] ? dev->name : "(Unnamed)"));
+    }
+
+    char dev_hdr[110];
+    snprintf(dev_hdr, sizeof(dev_hdr), "ADV: %s [%02X:%02X:%02X:%02X:%02X:%02X] %ddBm (Len: %u)",
+             title,
+             dev->bda[0], dev->bda[1], dev->bda[2], dev->bda[3], dev->bda[4], dev->bda[5],
+             (int)dev->rssi, (unsigned)dev->adv_data_len);
+    solar_os_gfx_text(gfx, 8, top + 14, dev_hdr);
+    solar_os_gfx_line(gfx, 4, top + 20, width - 4, top + 20);
+
+    const int content_y = top + 26;
+    const uint8_t *adv = dev->adv_data;
+    const size_t len = dev->adv_data_len;
+
+    switch (ble_state.adv_mode) {
+    case ADV_INSPECT_AUTO: {
+        int cur_y = content_y + 12;
+
+        /* Look for Weight Scale (Baskul) data */
+        bool is_scale = false;
+        char scale_reading[96] = "";
+
+        for (size_t i = 0; i + 1 < len;) {
+            uint8_t ad_len = adv[i];
+            if (ad_len == 0 || i + 1 + ad_len > len) break;
+            uint8_t ad_type = adv[i + 1];
+            const uint8_t *ad_payload = &adv[i + 2];
+            uint8_t payload_len = ad_len - 1;
+
+            if (ad_type == 0x16 && payload_len >= 4) {
+                uint16_t srv_uuid = (uint16_t)ad_payload[0] | ((uint16_t)ad_payload[1] << 8);
+                if (srv_uuid == 0x181D || srv_uuid == 0x181B) {
+                    is_scale = true;
+                    uint8_t flags = ad_payload[2];
+                    const char *unit = (flags & 0x01) ? "lbs" : "kg";
+                    uint16_t raw_w = (uint16_t)ad_payload[3] | ((uint16_t)ad_payload[4] << 8);
+                    float weight_kg = (flags & 0x01) ? ((float)raw_w * 0.01f) : ((float)raw_w * 0.005f);
+                    snprintf(scale_reading, sizeof(scale_reading), "WEIGHT SCALE (BASKUL): %.2f %s (Flags: 0x%02X)",
+                             weight_kg, unit, flags);
+                    break;
+                }
+            }
+
+            if (ad_type == 0xFF && payload_len >= 12) {
+                uint16_t comp_id = (uint16_t)ad_payload[0] | ((uint16_t)ad_payload[1] << 8);
+                if (comp_id == 0x038F || comp_id == 0x0157) {
+                    is_scale = true;
+                    uint8_t flags = ad_payload[2];
+                    const char *unit = (flags & 0x01) ? "lbs" : ((flags & 0x02) ? "jin" : "kg");
+                    bool stabilized = (flags & 0x20) != 0;
+                    uint16_t raw_w = (uint16_t)ad_payload[11] | ((uint16_t)ad_payload[12] << 8);
+                    float w = (flags & 0x01) ? ((float)raw_w / 100.0f) : ((float)raw_w / 200.0f);
+                    snprintf(scale_reading, sizeof(scale_reading), "XIAOMI SCALE (BASKUL): %.2f %s [%s]",
+                             w, unit, stabilized ? "STABILIZED" : "MEASURING...");
+                    break;
+                }
+            }
+            i += (1 + ad_len);
+        }
+
+        if (is_scale) {
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+            solar_os_gfx_fill_rect(gfx, 6, cur_y - 12, width - 12, 28);
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
+            solar_os_gfx_text(gfx, 12, cur_y + 6, scale_reading);
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+            cur_y += 32;
+        }
+
+        /* Decode Manufacturer Data / Beacons */
+        for (size_t i = 0; i + 1 < len;) {
+            uint8_t ad_len = adv[i];
+            if (ad_len == 0 || i + 1 + ad_len > len) break;
+            uint8_t ad_type = adv[i + 1];
+            const uint8_t *ad_payload = &adv[i + 2];
+            uint8_t payload_len = ad_len - 1;
+
+            if (ad_type == 0xFF && payload_len >= 2) {
+                uint16_t comp_id = (uint16_t)ad_payload[0] | ((uint16_t)ad_payload[1] << 8);
+                const char *comp_name = ble_resolve_company_name(comp_id);
+                solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+                char comp_str[96];
+                snprintf(comp_str, sizeof(comp_str), "Manufacturer: 0x%04X (%s)", comp_id, comp_name);
+                solar_os_gfx_text(gfx, 10, cur_y, comp_str);
+                cur_y += 18;
+
+                if (comp_id == 0x004C && payload_len >= 23 && ad_payload[2] == 0x02 && ad_payload[3] == 0x15) {
+                    uint16_t major = ((uint16_t)ad_payload[20] << 8) | (uint16_t)ad_payload[21];
+                    uint16_t minor = ((uint16_t)ad_payload[22] << 8) | (uint16_t)ad_payload[23];
+                    int8_t tx_pow = (int8_t)ad_payload[24];
+
+                    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+                    solar_os_gfx_text(gfx, 10, cur_y, ">> iBeacon Frame Detected <<");
+                    cur_y += 16;
+                    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+                    char ib_str[96];
+                    snprintf(ib_str, sizeof(ib_str), "Major: %u | Minor: %u | TxPower@1m: %ddBm", major, minor, (int)tx_pow);
+                    solar_os_gfx_text(gfx, 10, cur_y, ib_str);
+                    cur_y += 16;
+                } else {
+                    char m_hex[64] = "Payload: ";
+                    for (size_t m = 2; m < payload_len && m < 12; m++) {
+                        char bh[8];
+                        snprintf(bh, sizeof(bh), "%02X ", ad_payload[m]);
+                        strlcat(m_hex, bh, sizeof(m_hex));
+                    }
+                    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+                    solar_os_gfx_text(gfx, 10, cur_y, m_hex);
+                    cur_y += 18;
+                }
+            } else if (ad_type == 0x16 && payload_len >= 2) {
+                uint16_t srv_uuid = (uint16_t)ad_payload[0] | ((uint16_t)ad_payload[1] << 8);
+                solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+                char srv_str[96];
+                snprintf(srv_str, sizeof(srv_str), "Service Data: 0x%04X (%s)", srv_uuid,
+                         (srv_uuid == 0xFEAA) ? "Google Eddystone Beacon" :
+                         (srv_uuid == 0xFCD2) ? "BTHome V2" : "BLE Service");
+                solar_os_gfx_text(gfx, 10, cur_y, srv_str);
+                cur_y += 18;
+            }
+            i += (1 + ad_len);
+        }
+
+        /* Raw Hex Packet Strip */
+        const int hex_box_y = bottom - 46;
+        solar_os_gfx_rect(gfx, 6, hex_box_y, width - 12, 42);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+        solar_os_gfx_text(gfx, 10, hex_box_y + 12, "Raw Advertisement Bytes (HEX):");
+
+        char hex_line[128] = "";
+        for (size_t h = 0; h < len && h < 18; h++) {
+            char bh[8];
+            snprintf(bh, sizeof(bh), "%02X ", adv[h]);
+            strlcat(hex_line, bh, sizeof(hex_line));
+        }
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, 10, hex_box_y + 26, hex_line[0] ? hex_line : "(No bytes captured yet)");
+        break;
+    }
+
+    case ADV_INSPECT_STRUCTURES: {
+        int cur_y = content_y + 12;
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+        solar_os_gfx_text(gfx, 10, cur_y, "Advertised TLV Elements:");
+        cur_y += 18;
+
+        for (size_t i = 0; i + 1 < len;) {
+            uint8_t ad_len = adv[i];
+            if (ad_len == 0 || i + 1 + ad_len > len) break;
+            uint8_t ad_type = adv[i + 1];
+            const uint8_t *ad_payload = &adv[i + 2];
+            uint8_t payload_len = ad_len - 1;
+
+            const char *type_name = (ad_type == 0x01) ? "Flags" :
+                                    (ad_type == 0x02 || ad_type == 0x03) ? "16-bit Service UUIDs" :
+                                    (ad_type == 0x08 || ad_type == 0x09) ? "Local Name" :
+                                    (ad_type == 0x0A) ? "Tx Power" :
+                                    (ad_type == 0x16) ? "Service Data" :
+                                    (ad_type == 0xFF) ? "Manufacturer Specific" : "Custom AD";
+
+            char tlv_buf[128];
+            char hex_snippet[48] = "";
+            for (size_t k = 0; k < payload_len && k < 6; k++) {
+                char h[8];
+                snprintf(h, sizeof(h), "%02X ", ad_payload[k]);
+                strlcat(hex_snippet, h, sizeof(hex_snippet));
+            }
+            snprintf(tlv_buf, sizeof(tlv_buf), "Type 0x%02X (%s) [Len %u]: %s",
+                     ad_type, type_name, payload_len, hex_snippet);
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+            solar_os_gfx_text(gfx, 10, cur_y, tlv_buf);
+            cur_y += 16;
+            if (cur_y > bottom - 10) break;
+
+            i += (1 + ad_len);
+        }
+        break;
+    }
+
+    case ADV_INSPECT_HEX: {
+        int cur_y = content_y + 12;
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+        solar_os_gfx_text(gfx, 10, cur_y, "Full 62-byte Advertisement Payload Dump:");
+        cur_y += 20;
+
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO);
+        for (size_t row = 0; row < len && row < 48; row += 16) {
+            char row_hex[64] = "";
+            char row_asc[32] = "";
+            for (size_t col = 0; col < 16; col++) {
+                if (row + col < len) {
+                    char bh[8];
+                    snprintf(bh, sizeof(bh), "%02X ", adv[row + col]);
+                    strlcat(row_hex, bh, sizeof(row_hex));
+                    char c = (char)adv[row + col];
+                    char a[2] = { isprint((unsigned char)c) ? c : '.', '\0' };
+                    strlcat(row_asc, a, sizeof(row_asc));
+                } else {
+                    strlcat(row_hex, "   ", sizeof(row_hex));
+                }
+            }
+            char full_line[128];
+            snprintf(full_line, sizeof(full_line), "%02X:  %s | %s", (unsigned)row, row_hex, row_asc);
+            solar_os_gfx_text(gfx, 10, cur_y, full_line);
+            cur_y += 18;
+        }
+        break;
+    }
+
+    case ADV_INSPECT_LUA: {
+        int cur_y = content_y + 12;
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+        solar_os_gfx_text(gfx, 10, cur_y, "Lua Script Custom Packet Evaluator ([E] to Edit | [1-3] Presets):");
+        cur_y += 20;
+
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        char expr_line[180];
+        const char *expr = ble_state.custom_lua_expr[0] ? ble_state.custom_lua_expr :
+            "return string.format('Scale: %.2f kg (B12=%d)', ((adv[12] or 0) + (adv[13] or 0)*256)/200.0, adv[12] or 0)";
+        snprintf(expr_line, sizeof(expr_line), "Script: %s", expr);
+        solar_os_gfx_text(gfx, 10, cur_y, expr_line);
+        cur_y += 22;
+
+        char lua_full_code[512] = "adv = {";
+        for (size_t b = 0; b < len && b < 32; b++) {
+            char bh[16];
+            snprintf(bh, sizeof(bh), "%u,", adv[b]);
+            strlcat(lua_full_code, bh, sizeof(lua_full_code));
+        }
+        strlcat(lua_full_code, "}; bda = '", sizeof(lua_full_code));
+        char mac_str[32];
+        snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 dev->bda[0], dev->bda[1], dev->bda[2], dev->bda[3], dev->bda[4], dev->bda[5]);
+        strlcat(lua_full_code, mac_str, sizeof(lua_full_code));
+        strlcat(lua_full_code, "'; rssi = ", sizeof(lua_full_code));
+        char rssi_str[16];
+        snprintf(rssi_str, sizeof(rssi_str), "%d; ", (int)dev->rssi);
+        strlcat(lua_full_code, rssi_str, sizeof(lua_full_code));
+        strlcat(lua_full_code, expr, sizeof(lua_full_code));
+
+        char lua_out[128] = "Lua: (Ready)";
+        solar_os_script_run_request_t req = {
+            .input_type = SOLAR_OS_SCRIPT_INPUT_SOURCE,
+            .input = lua_full_code,
+            .input_len = strlen(lua_full_code),
+            .source_name = "adv_eval",
+            .timeout_ms = 500,
+            .output = lua_out,
+            .output_size = sizeof(lua_out),
+        };
+        solar_os_script_run_result_t res = {0};
+
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_rect(gfx, 6, cur_y, width - 12, 48);
+
+        if (solar_os_lua_run(&req, &res) == ESP_OK && res.success) {
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
+            solar_os_gfx_text(gfx, 12, cur_y + 20, lua_out[0] ? lua_out : "Result: (nil)");
+        } else {
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+            solar_os_gfx_text(gfx, 12, cur_y + 18, "Lua Eval Output: Error in script");
+            if (res.error[0] != '\0') {
+                solar_os_gfx_text(gfx, 12, cur_y + 34, res.error);
+            }
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    /* Modal dialog for editing custom Lua expression */
+    if (ble_state.editing_lua) {
+        const int mw = 360;
+        const int mh = 86;
+        const int mx = (width - mw) / 2;
+        const int my = (height - mh) / 2;
+
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_fill_rect(gfx, mx, my, mw, mh);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_rect(gfx, mx, my, mw, mh);
+        solar_os_gfx_rect(gfx, mx + 2, my + 2, mw - 4, mh - 4);
+
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+        solar_os_gfx_text(gfx, mx + 10, my + 18, "Edit Lua Code (e.g. return adv[12] .. ' kg'):");
+
+        solar_os_gfx_rect(gfx, mx + 10, my + 28, mw - 20, 26);
+        char disp_lua[180];
+        snprintf(disp_lua, sizeof(disp_lua), "%s_", ble_state.lua_input);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, mx + 14, my + 45, disp_lua);
+
+        solar_os_gfx_text(gfx, mx + 10, my + 72, "[Enter] Save  |  [ESC] Cancel");
+    }
+}
+
+/* ---------------------------------------------------------------------
+ * View 2: Proximity Radar / Signal Tracker
  * ------------------------------------------------------------------- */
 
 static void ble_draw_radar(solar_os_gfx_t *gfx, int width, int height)
@@ -1436,7 +1379,6 @@ static void ble_draw_radar(solar_os_gfx_t *gfx, int width, int height)
     const int cy = top + (bottom - top) / 2;
     const int max_radius = 80;
 
-    /* Radar Circles */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_circle(gfx, cx, cy, max_radius);
     solar_os_gfx_circle(gfx, cx, cy, max_radius * 2 / 3);
@@ -1444,13 +1386,11 @@ static void ble_draw_radar(solar_os_gfx_t *gfx, int width, int height)
     solar_os_gfx_line(gfx, cx - max_radius, cy, cx + max_radius, cy);
     solar_os_gfx_line(gfx, cx, cy - max_radius, cx, cy + max_radius);
 
-    /* Rotating Radar Sweep Line */
     const float rad = ble_state.radar_sweep_angle;
     const int sx = cx + (int)(cosf(rad) * (float)max_radius);
     const int sy = cy + (int)(sinf(rad) * (float)max_radius);
     solar_os_gfx_line(gfx, cx, cy, sx, sy);
 
-    /* Target Blip based on RSSI */
     int8_t rssi = ble_state.tracked_rssi;
     if (rssi > -30) rssi = -30;
     if (rssi < -95) rssi = -95;
@@ -1460,7 +1400,6 @@ static void ble_draw_radar(solar_os_gfx_t *gfx, int width, int height)
     const int by = cy + (int)(sinf(rad - 0.5f) * (float)blip_r);
     solar_os_gfx_fill_circle(gfx, bx, by, 5);
 
-    /* Right Side: Metrics & Status */
     const int info_x = 240;
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
     solar_os_gfx_text(gfx, info_x, top + 24, "BLE RADAR TRACKER");
@@ -1477,20 +1416,17 @@ static void ble_draw_radar(solar_os_gfx_t *gfx, int width, int height)
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_text(gfx, info_x, top + 64, mac_buf);
 
-    /* Big RSSI readout */
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_20);
     char rssi_buf[32];
     snprintf(rssi_buf, sizeof(rssi_buf), "%d dBm", (int)ble_state.tracked_rssi);
     solar_os_gfx_text(gfx, info_x, top + 98, rssi_buf);
 
-    /* Proximity estimate */
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
     const char *prox = (ble_state.tracked_rssi >= -60) ? "PROXIMITY: IMMEDIATE (<0.5m)" :
                        (ble_state.tracked_rssi >= -75) ? "PROXIMITY: NEAR (1-3m)" :
                        "PROXIMITY: FAR (>3m)";
     solar_os_gfx_text(gfx, info_x, top + 120, prox);
 
-    /* RSSI History Sparkline */
     const int spark_y = top + 144;
     const int spark_w = width - info_x - 12;
     const int spark_h = 36;
@@ -1530,11 +1466,8 @@ static void ble_scanner_render(solar_os_context_t *ctx)
     ble_draw_header(gfx, width);
 
     switch (ble_state.view) {
-    case BLE_VIEW_GATT_SERVICES:
-        ble_draw_gatt_services(gfx, width, height);
-        break;
-    case BLE_VIEW_GATT_CHARS:
-        ble_draw_gatt_characteristics(gfx, width, height);
+    case BLE_VIEW_INTEGRATED_GATT:
+        ble_draw_integrated_gatt(gfx, width, height);
         break;
     case BLE_VIEW_RADAR:
         ble_draw_radar(gfx, width, height);
@@ -1628,7 +1561,7 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
         if (ch == '\n' || ch == '\r') {
             strlcpy(ble_state.custom_lua_expr, ble_state.lua_input, sizeof(ble_state.custom_lua_expr));
             ble_state.editing_lua = false;
-            ble_scanner_set_status("Custom Lua expression updated");
+            ble_scanner_set_status("Custom Lua expression saved");
             ble_state.render_pending = true;
             return;
         }
@@ -1650,12 +1583,7 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
     }
 
     if (uch == SOLAR_OS_KEY_ESCAPE) {
-        if (ble_state.view == BLE_VIEW_GATT_CHARS) {
-            ble_state.view = BLE_VIEW_GATT_SERVICES;
-            ble_state.render_pending = true;
-            return;
-        }
-        if (ble_state.view == BLE_VIEW_GATT_SERVICES || ble_state.view == BLE_VIEW_RADAR || ble_state.view == BLE_VIEW_ADV_INSPECTOR) {
+        if (ble_state.view == BLE_VIEW_INTEGRATED_GATT || ble_state.view == BLE_VIEW_RADAR || ble_state.view == BLE_VIEW_ADV_INSPECTOR) {
             (void)solar_os_ble_gatt_disconnect();
             ble_state.view = BLE_VIEW_SCANNER;
             ble_state.render_pending = true;
@@ -1664,24 +1592,6 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
         ble_scanner_stop_worker();
         (void)solar_os_ble_gatt_disconnect();
         solar_os_context_request_exit(ctx);
-        return;
-    }
-
-    if (ch == '\t') {
-        if (ble_state.view == BLE_VIEW_RADAR || ble_state.view == BLE_VIEW_ADV_INSPECTOR) {
-            ble_state.view = BLE_VIEW_SCANNER;
-        } else if (ble_state.view == BLE_VIEW_SCANNER && ble_state.device_count > 0) {
-            const ble_device_item_t *dev = ble_get_filtered_device(ble_state.selected_device);
-            if (dev != NULL) {
-                memcpy(ble_state.tracked_bda, dev->bda, 6);
-                const char *dev_lbl = dev->alias[0] ? dev->alias : (dev->name[0] ? dev->name : "(Unnamed)");
-                strlcpy(ble_state.tracked_name, dev_lbl, sizeof(ble_state.tracked_name));
-                ble_state.tracked_rssi = dev->rssi;
-                ble_state.rssi_history_count = 0;
-                ble_state.view = BLE_VIEW_RADAR;
-            }
-        }
-        ble_state.render_pending = true;
         return;
     }
 
@@ -1723,7 +1633,6 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
             return;
         }
         if (ch == 'i' || ch == 'I') {
-            /* Open ADV Packet Inspector */
             if (total_visible > 0) {
                 ble_state.view = BLE_VIEW_ADV_INSPECTOR;
                 ble_state.adv_mode = ADV_INSPECT_AUTO;
@@ -1761,12 +1670,40 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
             return;
         }
         if (ch == 'e' || ch == 'E') {
-            /* Edit custom Lua expression */
             strlcpy(ble_state.lua_input, ble_state.custom_lua_expr[0] ? ble_state.custom_lua_expr :
-                    "return string.format('Val: %.2f', ((adv[12] or 0) + (adv[13] or 0)*256)/200.0)",
+                    "return string.format('Scale: %.2f kg', ((adv[12] or 0) + (adv[13] or 0)*256)/200.0)",
                     sizeof(ble_state.lua_input));
             ble_state.lua_cursor = strlen(ble_state.lua_input);
             ble_state.editing_lua = true;
+            ble_state.adv_mode = ADV_INSPECT_LUA;
+            ble_state.render_pending = true;
+            return;
+        }
+        /* Presets */
+        if (ch == '1') {
+            strlcpy(ble_state.custom_lua_expr,
+                    "return string.format('Xiaomi Scale 2: %.2f kg', ((adv[12] or 0) + (adv[13] or 0)*256)/200.0)",
+                    sizeof(ble_state.custom_lua_expr));
+            ble_state.adv_mode = ADV_INSPECT_LUA;
+            ble_scanner_set_status("Loaded Xiaomi Scale 2 preset");
+            ble_state.render_pending = true;
+            return;
+        }
+        if (ch == '2') {
+            strlcpy(ble_state.custom_lua_expr,
+                    "return string.format('Standard Scale: %.2f kg', ((adv[5] or 0) + (adv[6] or 0)*256)*0.005)",
+                    sizeof(ble_state.custom_lua_expr));
+            ble_state.adv_mode = ADV_INSPECT_LUA;
+            ble_scanner_set_status("Loaded Standard Scale (0x181D) preset");
+            ble_state.render_pending = true;
+            return;
+        }
+        if (ch == '3') {
+            strlcpy(ble_state.custom_lua_expr,
+                    "return string.format('BTHome/Sens: B0=%d B1=%d B2=%d', adv[1] or 0, adv[2] or 0, adv[3] or 0)",
+                    sizeof(ble_state.custom_lua_expr));
+            ble_state.adv_mode = ADV_INSPECT_LUA;
+            ble_scanner_set_status("Loaded BTHome Sensor preset");
             ble_state.render_pending = true;
             return;
         }
@@ -1777,49 +1714,44 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
         return;
     }
 
-    if (ble_state.view == BLE_VIEW_GATT_SERVICES) {
-        if (uch == SOLAR_OS_KEY_UP) {
-            if (ble_state.selected_service > 0) {
-                ble_state.selected_service--;
-                ble_state.render_pending = true;
-            }
-            return;
-        }
-        if (uch == SOLAR_OS_KEY_DOWN) {
-            if (ble_state.selected_service + 1 < ble_state.service_count) {
-                ble_state.selected_service++;
-                ble_state.render_pending = true;
-            }
-            return;
-        }
-        if (ch == '\n' || ch == '\r') {
-            ble_load_service_characteristics(ble_state.selected_service);
-            return;
-        }
-        if (ch == 'd' || ch == 'D') {
-            (void)solar_os_ble_gatt_disconnect();
-            ble_state.view = BLE_VIEW_SCANNER;
-            ble_scanner_set_status("Disconnected");
+    if (ble_state.view == BLE_VIEW_INTEGRATED_GATT) {
+        if (ch == '\t' || uch == SOLAR_OS_KEY_LEFT || uch == SOLAR_OS_KEY_RIGHT) {
+            ble_state.gatt_focus = (ble_state.gatt_focus == GATT_FOCUS_SERVICES) ? GATT_FOCUS_CHARS : GATT_FOCUS_SERVICES;
             ble_state.render_pending = true;
             return;
         }
-        return;
-    }
-
-    if (ble_state.view == BLE_VIEW_GATT_CHARS) {
-        if (uch == SOLAR_OS_KEY_UP) {
-            if (ble_state.selected_char > 0) {
-                ble_state.selected_char--;
-                ble_state.render_pending = true;
+        if (ble_state.gatt_focus == GATT_FOCUS_SERVICES) {
+            if (uch == SOLAR_OS_KEY_UP) {
+                if (ble_state.selected_service > 0) {
+                    ble_state.selected_service--;
+                    ble_load_service_characteristics(ble_state.selected_service);
+                }
+                return;
             }
-            return;
-        }
-        if (uch == SOLAR_OS_KEY_DOWN) {
-            if (ble_state.selected_char + 1 < ble_state.char_count) {
-                ble_state.selected_char++;
-                ble_state.render_pending = true;
+            if (uch == SOLAR_OS_KEY_DOWN) {
+                if (ble_state.selected_service + 1 < ble_state.service_count) {
+                    ble_state.selected_service++;
+                    ble_load_service_characteristics(ble_state.selected_service);
+                }
+                return;
             }
-            return;
+        } else {
+            if (uch == SOLAR_OS_KEY_UP) {
+                if (ble_state.selected_char > 0) {
+                    ble_state.selected_char--;
+                    ble_state.has_read_value = false;
+                    ble_state.render_pending = true;
+                }
+                return;
+            }
+            if (uch == SOLAR_OS_KEY_DOWN) {
+                if (ble_state.selected_char + 1 < ble_state.char_count) {
+                    ble_state.selected_char++;
+                    ble_state.has_read_value = false;
+                    ble_state.render_pending = true;
+                }
+                return;
+            }
         }
         if (ch == 'm' || ch == 'M') {
             ble_state.decoder_mode = (gatt_decoder_mode_t)((ble_state.decoder_mode + 1) % GATT_DECODER_COUNT);
@@ -1828,6 +1760,13 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
         }
         if (ch == '\n' || ch == '\r' || ch == 'r' || ch == 'R') {
             ble_read_selected_characteristic();
+            return;
+        }
+        if (ch == 'd' || ch == 'D') {
+            (void)solar_os_ble_gatt_disconnect();
+            ble_state.view = BLE_VIEW_SCANNER;
+            ble_scanner_set_status("Disconnected");
+            ble_state.render_pending = true;
             return;
         }
         return;
@@ -1857,7 +1796,7 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
     case SOLAR_OS_EVENT_TICK:
         ble_state.elapsed_ms += BLE_SCANNER_TICK_MS;
 
-        /* Check if background scan finished */
+        /* Check background scan worker results */
         if (ble_state.scanning) {
             bool ready = false;
             size_t count = 0;
@@ -1875,7 +1814,6 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
             if (ready) {
                 ble_state.scanning = false;
 
-                /* Merge and update devices */
                 for (size_t s = 0; s < count; s++) {
                     int existing_idx = -1;
                     for (size_t d = 0; d < ble_state.device_count; d++) {
@@ -1912,7 +1850,7 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
                         target->adv_data_len = staged[s].adv_data_len;
                     }
 
-                    /* Check Proximity Enter / Leave Range Alerts for Bookmarks */
+                    /* Proximity Alerts */
                     const ble_bookmark_t *bm = ble_find_bookmark(target->bda);
                     if (bm != NULL && bm->alert_enabled) {
                         const bool in_range_now = (target->rssi >= bm->alert_threshold_rssi);
@@ -1932,7 +1870,7 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
                         }
                     }
 
-                    /* Update Tracked Device in Radar view */
+                    /* Radar view update */
                     if (ble_state.view == BLE_VIEW_RADAR &&
                         memcmp(target->bda, ble_state.tracked_bda, 6) == 0) {
                         ble_state.tracked_rssi = target->rssi;
@@ -1954,7 +1892,7 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
             }
         }
 
-        /* Periodic continuous auto-scan */
+        /* Periodic continuous auto-scan: 60s for List, 5s for Radar */
         if (!ble_state.scanning && !ble_state.gatt_connecting && !ble_state.gatt_connected) {
             const uint32_t auto_interval = (ble_state.view == BLE_VIEW_RADAR) ?
                                            BLE_SCANNER_RADAR_RESCAN_MS : BLE_SCANNER_LIST_AUTORESCAN_MS;
@@ -2012,7 +1950,6 @@ static esp_err_t ble_scanner_start(solar_os_context_t *ctx)
     ble_state.next_auto_rescan_ms = 1000;
     ble_state.render_pending = true;
 
-    /* Load persistent custom aliases from NVS */
     ble_scanner_load_bookmarks();
 
     solar_os_context_set_graphics_active(ctx, true);
