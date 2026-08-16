@@ -106,15 +106,16 @@ void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t
     /* 1. Scroll Wheel Translation -> UP / DOWN navigation */
     if (wheel != 0 && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         const uint8_t nav_key = (wheel > 0) ? SOLAR_OS_KEY_UP : SOLAR_OS_KEY_DOWN;
+        const uint16_t phys_id = (wheel > 0) ? 0xF001 : 0xF002;
         (void)solar_os_input_write_key(mouse_input_source,
-                                       nav_key,
-                                       nav_key,
+                                       phys_id,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
                                        nav_key,
                                        0,
                                        SOLAR_OS_INPUT_KEY_PRESS);
         (void)solar_os_input_write_key(mouse_input_source,
-                                       nav_key,
-                                       nav_key,
+                                       phys_id,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
                                        nav_key,
                                        0,
                                        SOLAR_OS_INPUT_KEY_RELEASE);
@@ -126,16 +127,16 @@ void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t
     const bool left_prev = (prev_buttons & SOLAR_OS_MOUSE_BTN_LEFT) != 0;
     if (left_pressed && !left_prev && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         (void)solar_os_input_write_key(mouse_input_source,
-                                       '\r',
-                                       '\r',
-                                       '\r',
+                                       0xE001,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
+                                       SOLAR_OS_KEY_ENTER,
                                        0,
                                        SOLAR_OS_INPUT_KEY_PRESS);
     } else if (!left_pressed && left_prev && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         (void)solar_os_input_write_key(mouse_input_source,
-                                       '\r',
-                                       '\r',
-                                       '\r',
+                                       0xE001,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
+                                       SOLAR_OS_KEY_ENTER,
                                        0,
                                        SOLAR_OS_INPUT_KEY_RELEASE);
     }
@@ -145,14 +146,15 @@ void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t
     const bool right_prev = (prev_buttons & SOLAR_OS_MOUSE_BTN_RIGHT) != 0;
     if (right_pressed && !right_prev && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         (void)solar_os_input_write_key(mouse_input_source,
-                                       SOLAR_OS_KEY_ESCAPE,
-                                       SOLAR_OS_KEY_ESCAPE,
+                                       0xE002,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
                                        SOLAR_OS_KEY_ESCAPE,
                                        0,
                                        SOLAR_OS_INPUT_KEY_PRESS);
+    } else if (!right_pressed && right_prev && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         (void)solar_os_input_write_key(mouse_input_source,
-                                       SOLAR_OS_KEY_ESCAPE,
-                                       SOLAR_OS_KEY_ESCAPE,
+                                       0xE002,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
                                        SOLAR_OS_KEY_ESCAPE,
                                        0,
                                        SOLAR_OS_INPUT_KEY_RELEASE);
@@ -163,14 +165,15 @@ void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t
     const bool mid_prev = (prev_buttons & SOLAR_OS_MOUSE_BTN_MIDDLE) != 0;
     if (mid_pressed && !mid_prev && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         (void)solar_os_input_write_key(mouse_input_source,
-                                       '\t',
-                                       '\t',
+                                       0xE003,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
                                        '\t',
                                        0,
                                        SOLAR_OS_INPUT_KEY_PRESS);
+    } else if (!mid_pressed && mid_prev && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         (void)solar_os_input_write_key(mouse_input_source,
-                                       '\t',
-                                       '\t',
+                                       0xE003,
+                                       SOLAR_OS_INPUT_USAGE_NONE,
                                        '\t',
                                        0,
                                        SOLAR_OS_INPUT_KEY_RELEASE);
@@ -187,29 +190,29 @@ void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t
     if (mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         int count = 0;
         while (s_accum_dx >= MOVE_THRESHOLD && count < 4) {
-            (void)solar_os_input_write_key(mouse_input_source, SOLAR_OS_KEY_RIGHT, SOLAR_OS_KEY_RIGHT, 0x4F, 0, SOLAR_OS_INPUT_KEY_PRESS);
-            (void)solar_os_input_write_key(mouse_input_source, SOLAR_OS_KEY_RIGHT, SOLAR_OS_KEY_RIGHT, 0x4F, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+            (void)solar_os_input_write_key(mouse_input_source, 0xD001, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_RIGHT, 0, SOLAR_OS_INPUT_KEY_PRESS);
+            (void)solar_os_input_write_key(mouse_input_source, 0xD001, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_RIGHT, 0, SOLAR_OS_INPUT_KEY_RELEASE);
             s_accum_dx -= MOVE_THRESHOLD;
             count++;
         }
         count = 0;
         while (s_accum_dx <= -MOVE_THRESHOLD && count < 4) {
-            (void)solar_os_input_write_key(mouse_input_source, SOLAR_OS_KEY_LEFT, SOLAR_OS_KEY_LEFT, 0x50, 0, SOLAR_OS_INPUT_KEY_PRESS);
-            (void)solar_os_input_write_key(mouse_input_source, SOLAR_OS_KEY_LEFT, SOLAR_OS_KEY_LEFT, 0x50, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+            (void)solar_os_input_write_key(mouse_input_source, 0xD002, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_LEFT, 0, SOLAR_OS_INPUT_KEY_PRESS);
+            (void)solar_os_input_write_key(mouse_input_source, 0xD002, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_LEFT, 0, SOLAR_OS_INPUT_KEY_RELEASE);
             s_accum_dx += MOVE_THRESHOLD;
             count++;
         }
         count = 0;
         while (s_accum_dy >= MOVE_THRESHOLD && count < 4) {
-            (void)solar_os_input_write_key(mouse_input_source, SOLAR_OS_KEY_DOWN, SOLAR_OS_KEY_DOWN, 0x51, 0, SOLAR_OS_INPUT_KEY_PRESS);
-            (void)solar_os_input_write_key(mouse_input_source, SOLAR_OS_KEY_DOWN, SOLAR_OS_KEY_DOWN, 0x51, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+            (void)solar_os_input_write_key(mouse_input_source, 0xD003, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_DOWN, 0, SOLAR_OS_INPUT_KEY_PRESS);
+            (void)solar_os_input_write_key(mouse_input_source, 0xD003, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_DOWN, 0, SOLAR_OS_INPUT_KEY_RELEASE);
             s_accum_dy -= MOVE_THRESHOLD;
             count++;
         }
         count = 0;
         while (s_accum_dy <= -MOVE_THRESHOLD && count < 4) {
-            (void)solar_os_input_write_key(mouse_input_source, SOLAR_OS_KEY_UP, SOLAR_OS_KEY_UP, 0x52, 0, SOLAR_OS_INPUT_KEY_PRESS);
-            (void)solar_os_input_write_key(mouse_input_source, SOLAR_OS_KEY_UP, SOLAR_OS_KEY_UP, 0x52, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+            (void)solar_os_input_write_key(mouse_input_source, 0xD004, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_UP, 0, SOLAR_OS_INPUT_KEY_PRESS);
+            (void)solar_os_input_write_key(mouse_input_source, 0xD004, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_UP, 0, SOLAR_OS_INPUT_KEY_RELEASE);
             s_accum_dy += MOVE_THRESHOLD;
             count++;
         }
