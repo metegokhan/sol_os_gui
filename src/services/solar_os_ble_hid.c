@@ -68,6 +68,14 @@ static void hid_unlock(void)
     }
 }
 
+#define BLE_KEYBOARD_PEER_MAGIC_LEGACY 0x424B5052U
+typedef struct {
+    uint32_t magic;
+    uint8_t addr_type;
+    uint8_t bda[6];
+    char name[64];
+} ble_keyboard_peer_legacy_t;
+
 static esp_err_t load_remembered_peers(void)
 {
     memset(s_remembered_peers, 0, sizeof(s_remembered_peers));
@@ -75,10 +83,56 @@ static esp_err_t load_remembered_peers(void)
     esp_err_t ret = nvs_open(BLE_HID_NVS_NAMESPACE, NVS_READONLY, &nvs);
     if (ret != ESP_OK) return ret;
 
-    size_t size = sizeof(s_remembered_peers);
-    ret = nvs_get_blob(nvs, BLE_HID_NVS_PEERS_KEY, s_remembered_peers, &size);
+    uint8_t raw_buf[sizeof(ble_keyboard_peer_legacy_t) * 4] = {0};
+    size_t raw_size = sizeof(raw_buf);
+
+    ret = nvs_get_blob(nvs, BLE_HID_NVS_PEERS_KEY, raw_buf, &raw_size);
+    if (ret == ESP_OK && raw_size > 0) {
+        /* Check if current format */
+        const ble_hid_persisted_peer_t *p_new = (const ble_hid_persisted_peer_t *)raw_buf;
+        if (p_new[0].magic == BLE_HID_PEER_MAGIC) {
+            size_t copy_cnt = raw_size / sizeof(ble_hid_persisted_peer_t);
+            if (copy_cnt > SOLAR_OS_BLE_HID_MAX_CONNECTED) copy_cnt = SOLAR_OS_BLE_HID_MAX_CONNECTED;
+            memcpy(s_remembered_peers, raw_buf, copy_cnt * sizeof(ble_hid_persisted_peer_t));
+        } else {
+            /* Migrate legacy multi-peer struct */
+            const ble_keyboard_peer_legacy_t *p_old = (const ble_keyboard_peer_legacy_t *)raw_buf;
+            size_t old_cnt = raw_size / sizeof(ble_keyboard_peer_legacy_t);
+            size_t out_idx = 0;
+            for (size_t i = 0; i < old_cnt && out_idx < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+                if (p_old[i].magic == BLE_KEYBOARD_PEER_MAGIC_LEGACY) {
+                    s_remembered_peers[out_idx].magic = BLE_HID_PEER_MAGIC;
+                    s_remembered_peers[out_idx].addr_type = p_old[i].addr_type;
+                    memcpy(s_remembered_peers[out_idx].bda, p_old[i].bda, 6);
+                    strlcpy(s_remembered_peers[out_idx].name, p_old[i].name[0] ? p_old[i].name : "Keyboard", sizeof(s_remembered_peers[out_idx].name));
+                    out_idx++;
+                }
+            }
+        }
+    } else {
+        /* Check single legacy peer */
+        ble_keyboard_peer_legacy_t legacy_peer;
+        size_t leg_size = sizeof(legacy_peer);
+        if (nvs_get_blob(nvs, "peer", &legacy_peer, &leg_size) == ESP_OK) {
+            if (legacy_peer.magic == BLE_KEYBOARD_PEER_MAGIC_LEGACY) {
+                s_remembered_peers[0].magic = BLE_HID_PEER_MAGIC;
+                s_remembered_peers[0].addr_type = legacy_peer.addr_type;
+                memcpy(s_remembered_peers[0].bda, legacy_peer.bda, 6);
+                strlcpy(s_remembered_peers[0].name, legacy_peer.name[0] ? legacy_peer.name : "Keyboard", sizeof(s_remembered_peers[0].name));
+            }
+        }
+    }
     nvs_close(nvs);
-    return ret;
+
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (s_remembered_peers[i].magic == BLE_HID_PEER_MAGIC) {
+            SOLAR_OS_LOGI(TAG, "Loaded remembered peer: " ESP_BD_ADDR_STR " (%s, type=%u)",
+                          ESP_BD_ADDR_HEX(s_remembered_peers[i].bda),
+                          s_remembered_peers[i].name,
+                          (unsigned)s_remembered_peers[i].addr_type);
+        }
+    }
+    return ESP_OK;
 }
 
 static esp_err_t save_remembered_peers(void)
@@ -101,6 +155,7 @@ static void record_remembered_peer(const uint8_t *bda, esp_ble_addr_type_t addr_
     for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
         if (s_remembered_peers[i].magic == BLE_HID_PEER_MAGIC &&
             memcmp(s_remembered_peers[i].bda, bda, 6) == 0) {
+            s_remembered_peers[i].addr_type = (uint8_t)addr_type;
             strlcpy(s_remembered_peers[i].name, name != NULL ? name : "Device", sizeof(s_remembered_peers[i].name));
             (void)save_remembered_peers();
             return;
@@ -127,6 +182,25 @@ static size_t remembered_peer_count(void)
         }
     }
     return count;
+}
+
+size_t solar_os_ble_hid_remembered_count(void)
+{
+    return remembered_peer_count();
+}
+
+esp_err_t solar_os_ble_hid_forget_all(void)
+{
+    memset(s_remembered_peers, 0, sizeof(s_remembered_peers));
+    nvs_handle_t nvs;
+    if (nvs_open(BLE_HID_NVS_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK) {
+        (void)nvs_erase_key(nvs, BLE_HID_NVS_PEERS_KEY);
+        (void)nvs_erase_key(nvs, "peer");
+        (void)nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+    SOLAR_OS_LOGI(TAG, "All remembered HID peers cleared");
+    return ESP_OK;
 }
 
 static void update_device_subsystem_states(void)
@@ -276,28 +350,120 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
     }
 }
 
+static TaskHandle_t s_pairing_task_handle = NULL;
+
+static void hid_pairing_task(void *arg)
+{
+    (void)arg;
+    SOLAR_OS_LOGI(TAG, "Starting BLE HID auto-pairing scan (5s)...");
+
+    solar_os_ble_scan_item_t scan_results[16] = {0};
+    size_t found_count = 0;
+
+    esp_err_t scan_err = solar_os_ble_scan_start(5, scan_results, 16, &found_count);
+    if (scan_err != ESP_OK || found_count == 0) {
+        SOLAR_OS_LOGW(TAG, "Pairing scan found no devices or failed: %s", esp_err_to_name(scan_err));
+        s_pairing_task_handle = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    int best_idx = -1;
+    int8_t best_rssi = -128;
+
+    for (size_t i = 0; i < found_count; i++) {
+        if (solar_os_ble_hid_is_connected(scan_results[i].bda)) continue;
+
+        bool is_hid = scan_results[i].hid_service ||
+                      scan_results[i].keyboard_like ||
+                      scan_results[i].mouse_like ||
+                      scan_results[i].gamepad_like ||
+                      scan_results[i].appearance == 0x03C1 ||
+                      scan_results[i].appearance == 0x03C2 ||
+                      scan_results[i].appearance == 0x03C4 ||
+                      solar_os_ble_is_hid_like(scan_results[i].appearance, scan_results[i].name);
+
+        if (is_hid) {
+            if (best_idx == -1 || scan_results[i].rssi > best_rssi) {
+                best_idx = (int)i;
+                best_rssi = scan_results[i].rssi;
+            }
+        }
+    }
+
+    if (best_idx >= 0) {
+        SOLAR_OS_LOGI(TAG, "Auto-pairing candidate found: %s [" ESP_BD_ADDR_STR "] (rssi=%d, type=%u)",
+                      scan_results[best_idx].name[0] ? scan_results[best_idx].name : "HID Device",
+                      ESP_BD_ADDR_HEX(scan_results[best_idx].bda),
+                      scan_results[best_idx].rssi,
+                      (unsigned)scan_results[best_idx].addr_type);
+
+        (void)solar_os_ble_hid_connect(scan_results[best_idx].bda,
+                                      scan_results[best_idx].addr_type,
+                                      scan_results[best_idx].name);
+    } else {
+        SOLAR_OS_LOGW(TAG, "No suitable BLE HID device detected in pairing mode during scan");
+    }
+
+    s_pairing_task_handle = NULL;
+    vTaskDelete(NULL);
+}
+
+esp_err_t solar_os_ble_hid_start_pairing(void)
+{
+    if (s_pairing_task_handle != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    BaseType_t ret = xTaskCreate(hid_pairing_task, "ble_pair", 8192, NULL, tskIDLE_PRIORITY + 2, &s_pairing_task_handle);
+    return ret == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+static solar_os_ble_scan_item_t s_reconn_scan_results[4];
+
 static void hid_reconnect_task(void *arg)
 {
     (void)arg;
+    /* Allow boot, launcher, and wifi to stabilize */
+    vTaskDelay(pdMS_TO_TICKS(8000));
+
     while (!s_reconnect_stop_requested) {
-        vTaskDelay(pdMS_TO_TICKS(4000));
         if (s_reconnect_stop_requested) break;
 
-        /* Do not interfere if user is scanning in foreground */
-        if (solar_os_ble_is_scanning()) continue;
+        /* Do not interfere if user is scanning or pairing in foreground */
+        if (!solar_os_ble_is_scanning() && s_pairing_task_handle == NULL) {
+            /* Check if any remembered peer is disconnected */
+            bool has_disconnected_peer = false;
+            for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+                if (s_remembered_peers[i].magic == BLE_HID_PEER_MAGIC &&
+                    !solar_os_ble_hid_is_connected(s_remembered_peers[i].bda)) {
+                    has_disconnected_peer = true;
+                    break;
+                }
+            }
 
-        /* Check if we have remembered peers and at least one is disconnected */
-        for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
-            if (s_remembered_peers[i].magic != BLE_HID_PEER_MAGIC) continue;
-            if (solar_os_ble_hid_is_connected(s_remembered_peers[i].bda)) continue;
-            if (solar_os_ble_is_scanning()) break;
-
-            /* Attempt background open */
-            (void)solar_os_ble_hid_connect(s_remembered_peers[i].bda,
-                                          s_remembered_peers[i].addr_type,
-                                          s_remembered_peers[i].name);
-            break;
+            if (has_disconnected_peer) {
+                size_t found = 0;
+                esp_err_t scan_err = solar_os_ble_scan_start(2, s_reconn_scan_results, 4, &found);
+                if (scan_err == ESP_OK && found > 0 && !s_reconnect_stop_requested) {
+                    for (size_t i = 0; i < found; i++) {
+                        for (size_t p = 0; p < SOLAR_OS_BLE_HID_MAX_CONNECTED; p++) {
+                            if (s_remembered_peers[p].magic == BLE_HID_PEER_MAGIC &&
+                                memcmp(s_remembered_peers[p].bda, s_reconn_scan_results[i].bda, 6) == 0 &&
+                                !solar_os_ble_hid_is_connected(s_reconn_scan_results[i].bda)) {
+                                SOLAR_OS_LOGI(TAG, "Auto-reconnecting remembered device: %s [" ESP_BD_ADDR_STR "]",
+                                              s_remembered_peers[p].name, ESP_BD_ADDR_HEX(s_reconn_scan_results[i].bda));
+                                (void)solar_os_ble_hid_connect(s_reconn_scan_results[i].bda,
+                                                              s_reconn_scan_results[i].addr_type,
+                                                              s_remembered_peers[p].name);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+        vTaskDelay(pdMS_TO_TICKS(15000));
     }
     s_reconnect_task_handle = NULL;
     vTaskDelete(NULL);
@@ -323,7 +489,7 @@ esp_err_t solar_os_ble_hid_init(void)
 
     esp_hidh_config_t config = {
         .callback = hidh_callback,
-        .event_stack_size = 4096,
+        .event_stack_size = 6144,
         .callback_arg = NULL,
     };
 
@@ -349,7 +515,7 @@ esp_err_t solar_os_ble_hid_init(void)
     /* Start background reconnect task only if there are remembered peers */
     if (remembered_peer_count() > 0 && s_reconnect_task_handle == NULL) {
         s_reconnect_stop_requested = false;
-        (void)xTaskCreate(hid_reconnect_task, "ble_reconn", 4096, NULL, tskIDLE_PRIORITY + 1, &s_reconnect_task_handle);
+        (void)xTaskCreate(hid_reconnect_task, "ble_reconn", 6144, NULL, tskIDLE_PRIORITY + 1, &s_reconnect_task_handle);
     }
 
     ESP_LOGI(TAG, "BLE HID Host initialized successfully");

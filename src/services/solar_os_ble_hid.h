@@ -70,6 +70,21 @@ void solar_os_ble_hid_get_status(char *out_status, size_t max_len);
  */
 bool solar_os_ble_hid_has_keyboard(void);
 
+/**
+ * @brief Get total number of remembered HID devices in NVS.
+ */
+size_t solar_os_ble_hid_remembered_count(void);
+
+/**
+ * @brief Forget all remembered HID devices from NVS.
+ */
+esp_err_t solar_os_ble_hid_forget_all(void);
+
+/**
+ * @brief Start background auto-discovery & pairing task for keyboards/HID devices.
+ */
+esp_err_t solar_os_ble_hid_start_pairing(void);
+
 #ifdef __cplusplus
 }
 #endif

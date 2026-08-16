@@ -86,6 +86,17 @@ static esp_err_t adc_port_init_calibration_locked(adc_unit_t unit,
 {
     esp_err_t ret = ESP_ERR_NOT_SUPPORTED;
 
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    if (state->cali_handle != NULL && state->cali_scheme == ADC_PORT_CALI_CURVE_FITTING) {
+        (void)adc_cali_delete_scheme_curve_fitting(state->cali_handle);
+    }
+#endif
+#if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    if (state->cali_handle != NULL && state->cali_scheme == ADC_PORT_CALI_LINE_FITTING) {
+        (void)adc_cali_delete_scheme_line_fitting(state->cali_handle);
+    }
+#endif
+
     state->cali_handle = NULL;
     state->cali_scheme = ADC_PORT_CALI_NONE;
     state->calibrated = false;
@@ -212,18 +223,31 @@ esp_err_t adc_port_read(gpio_num_t pin, adc_port_sample_t *sample)
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_RETURN_ON_ERROR(adc_port_configure_pin(pin, ADC_ATTEN_DB_12, ADC_BITWIDTH_12),
-                        TAG,
-                        "ADC pin config failed");
+    if (!adc_channels[unit_index][channel].configured) {
+        ESP_RETURN_ON_ERROR(adc_port_ensure_init(), TAG, "ADC port init failed");
+        ESP_RETURN_ON_ERROR(adc_port_configure_pin(pin, ADC_ATTEN_DB_12, ADC_BITWIDTH_12),
+                            TAG,
+                            "ADC pin config failed");
+    }
 
-    xSemaphoreTake(adc_mutex, portMAX_DELAY);
+    if (adc_mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (xSemaphoreTake(adc_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (adc_units[unit_index] == NULL) {
+        xSemaphoreGive(adc_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
 
     int raw = 0;
     esp_err_t ret = adc_oneshot_read(adc_units[unit_index], channel, &raw);
     int voltage_mv = 0;
     adc_port_channel_state_t *state = &adc_channels[unit_index][channel];
     bool calibrated = state->calibrated;
-    if (ret == ESP_OK && calibrated) {
+    if (ret == ESP_OK && calibrated && state->cali_handle != NULL) {
         ret = adc_cali_raw_to_voltage(state->cali_handle, raw, &voltage_mv);
         if (ret != ESP_OK) {
             calibrated = false;

@@ -364,23 +364,17 @@ size_t solar_os_ble_keyboard_read_chars(char *buffer, size_t max_len)
 
 esp_err_t solar_os_ble_keyboard_forget(void)
 {
-    nvs_handle_t nvs;
-    if (nvs_open(BLE_KEYBOARD_NVS_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK) {
-        nvs_erase_key(nvs, "peers");
-        nvs_commit(nvs);
-        nvs_close(nvs);
-    }
-    return ESP_OK;
+    return solar_os_ble_hid_forget_all();
 }
 
 esp_err_t solar_os_ble_keyboard_start_pairing(void)
 {
-    return ESP_OK;
+    return solar_os_ble_hid_start_pairing();
 }
 
 size_t solar_os_ble_keyboard_remembered_count(void)
 {
-    return solar_os_ble_hid_connected_count();
+    return solar_os_ble_hid_remembered_count();
 }
 
 bool solar_os_ble_keyboard_is_scanning(void)
