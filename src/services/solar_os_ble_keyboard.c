@@ -1505,11 +1505,23 @@ static void collect_scan_result(const uint8_t *bda,
         strlcpy(slot->name, name, sizeof(slot->name));
     }
     if (adv_data != NULL) {
-        const uint16_t total_len = (uint16_t)adv_data_len + (uint16_t)scan_rsp_len;
-        if (total_len > 0) {
-            const size_t copy_len = total_len < sizeof(slot->adv_data) ? total_len : sizeof(slot->adv_data);
+        if (adv_data_len > 0) {
+            const size_t copy_len = adv_data_len < sizeof(slot->adv_data) ? adv_data_len : sizeof(slot->adv_data);
             memcpy(slot->adv_data, adv_data, copy_len);
             slot->adv_data_len = (uint8_t)copy_len;
+        }
+        if (scan_rsp_len > 0) {
+            if (slot->adv_data_len == 0) {
+                const size_t copy_len = scan_rsp_len < sizeof(slot->adv_data) ? scan_rsp_len : sizeof(slot->adv_data);
+                memcpy(slot->adv_data, adv_data, copy_len);
+                slot->adv_data_len = (uint8_t)copy_len;
+            } else if (slot->adv_data_len < sizeof(slot->adv_data)) {
+                const size_t remain = sizeof(slot->adv_data) - slot->adv_data_len;
+                const size_t copy_len = scan_rsp_len < remain ? scan_rsp_len : remain;
+                const uint8_t *src = (adv_data_len > 0) ? &adv_data[adv_data_len] : adv_data;
+                memcpy(&slot->adv_data[slot->adv_data_len], src, copy_len);
+                slot->adv_data_len += (uint8_t)copy_len;
+            }
         }
     }
 }
@@ -3277,7 +3289,7 @@ static esp_err_t run_keyboard_scan(ble_keyboard_scan_mode_t mode)
     }
     active_scan_mode = BLE_KEYBOARD_SCAN_DISCOVERY;
 
-    if (!candidate.valid) {
+    if (mode == BLE_KEYBOARD_SCAN_PAIRING && !candidate.valid) {
         SOLAR_OS_LOGW(TAG,
                       "%s candidate not found",
                       scan_mode_log_name(mode));
@@ -3285,6 +3297,7 @@ static esp_err_t run_keyboard_scan(ble_keyboard_scan_mode_t mode)
         return ESP_ERR_NOT_FOUND;
     }
 
+    restore_status_after_scan(mode);
     return ESP_OK;
 }
 
