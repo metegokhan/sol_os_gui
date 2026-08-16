@@ -2798,11 +2798,11 @@ static esp_err_t init_nvs(void)
 
 static esp_err_t init_security(void)
 {
-    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;
-    esp_ble_io_cap_t iocap = ESP_IO_CAP_OUT;
+    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;
+    esp_ble_io_cap_t iocap = ESP_IO_CAP_NONE;
     uint8_t key_size = 16;
-    uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
-    uint8_t rsp_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+    uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK | ESP_BLE_CSR_KEY_MASK;
+    uint8_t rsp_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK | ESP_BLE_CSR_KEY_MASK;
     uint8_t oob_support = ESP_BLE_OOB_DISABLE;
 
     ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(
@@ -2820,6 +2820,9 @@ static esp_err_t init_security(void)
     ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(
                             ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(init_key)),
                         TAG, "set init key failed");
+    ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(
+                            ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(rsp_key)),
+                        TAG, "set rsp key failed");
     uint32_t passkey = 123456;
     ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(
                             ESP_BLE_SM_SET_STATIC_PASSKEY, &passkey, sizeof(passkey)),
@@ -2983,20 +2986,7 @@ esp_err_t solar_os_ble_hid_connect(const uint8_t bda[6], uint8_t addr_type, cons
         stop_reconnect_task("hid_connect", 50U);
     }
 
-    memcpy(pending_bda, bda, 6);
-    pending_addr_type = (esp_ble_addr_type_t)addr_type;
-    if (name != NULL && name[0] != '\0') {
-        strlcpy(pending_name, name, sizeof(pending_name));
-    } else {
-        pending_name[0] = '\0';
-    }
-
-    esp_hidh_dev_t *dev = esp_hidh_dev_open((uint8_t *)bda, (esp_ble_addr_type_t)addr_type, 0);
-    if (dev == NULL) {
-        SOLAR_OS_LOGE(TAG, "esp_hidh_dev_open failed for " ESP_BD_ADDR_STR, ESP_BD_ADDR_HEX(bda));
-        return ESP_FAIL;
-    }
-    return ESP_OK;
+    return open_keyboard(bda, (esp_ble_addr_type_t)addr_type, name, "connect");
 }
 
 esp_err_t solar_os_ble_hid_disconnect(const uint8_t bda[6])

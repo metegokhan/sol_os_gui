@@ -754,7 +754,7 @@ static void ble_draw_footer(solar_os_gfx_t *gfx, int width, int height)
         } else {
             if (ble_state.active_tab == DEV_TAB_OVERVIEW) {
                 snprintf(footer, sizeof(footer),
-                         "[Tab] Switch Tab | [1-4] Jump | [P] Connect HID | [R] Scan ADV | [H] Help | [ESC] Back");
+                         "[Tab] Tab | [1-4] Jump | [P] Connect | [D] Disconn | [H] Help | [ESC] Back");
             } else if (ble_state.active_tab == DEV_TAB_SETTINGS) {
                 snprintf(footer, sizeof(footer),
                          "[1-4] Presets | [E] Edit Lua | [A] Rename | [P] Alert | [Tab] Tab | [ESC] Back");
@@ -1048,6 +1048,16 @@ static void ble_draw_tab_overview(solar_os_gfx_t *gfx, int width, int height)
              dev->addr_type == 0 ? "Public" : "Random", (int)dev->rssi);
     solar_os_gfx_text(gfx, 12, top + 34, mac_line);
 
+    bool is_hid_conn = false;
+    solar_os_ble_connected_dev_info_t dev_info;
+    const size_t conn_cnt = solar_os_ble_hid_connected_count();
+    for (size_t ci = 0; ci < conn_cnt; ci++) {
+        if (solar_os_ble_hid_get_connected_dev(ci, &dev_info) && memcmp(dev_info.bda, dev->bda, 6) == 0) {
+            is_hid_conn = true;
+            break;
+        }
+    }
+
     char type_line[96];
     const char *hid_desc = dev->gamepad_like ? "Gamepad / Controller" :
                            dev->mouse_like ? "BLE Mouse (Pointer)" :
@@ -1056,7 +1066,7 @@ static void ble_draw_tab_overview(solar_os_gfx_t *gfx, int width, int height)
     snprintf(type_line, sizeof(type_line), "Appearance: 0x%04X  |  HID: %s  |  Status: %s",
              (unsigned)dev->appearance,
              hid_desc,
-             dev->connected ? "CONNECTED (HID)" :
+             (is_hid_conn || dev->connected) ? "CONNECTED (HID)" :
              ble_state.gatt_connected ? "CONNECTED (GATT)" : (ble_state.gatt_connecting ? "CONNECTING..." : "DISCONNECTED"));
     solar_os_gfx_text(gfx, 12, top + 52, type_line);
 
@@ -1852,17 +1862,30 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
                 ble_state.next_auto_rescan_ms = 0;
                 ble_scanner_start_scan();
                 ble_state.render_pending = true;
-            } else if (ch == 'r' || ch == 'R' || ch == ' ') {
-                ble_scanner_start_scan();
-                ble_scanner_set_status("Scanning broadcast data...");
             } else if (ch == 'p' || ch == 'P') {
                 const ble_device_item_t *d = ble_find_device(ble_state.target_bda);
                 if (d != NULL) {
+                    if (ble_state.gatt_connected || ble_state.gatt_connecting) {
+                        (void)solar_os_ble_gatt_disconnect();
+                        ble_state.gatt_connected = false;
+                        ble_state.gatt_connecting = false;
+                    }
                     const esp_err_t err = solar_os_ble_hid_connect(d->bda, d->addr_type, d->name);
                     if (err == ESP_OK) {
-                        ble_scanner_set_status("Pairing / Connecting BLE HID...");
+                        ble_scanner_set_status("Connecting / Pairing BLE HID...");
                     } else {
                         ble_scanner_set_status("HID Connect request failed");
+                    }
+                }
+                ble_state.render_pending = true;
+            } else if (ch == 'd' || ch == 'D') {
+                const ble_device_item_t *d = ble_find_device(ble_state.target_bda);
+                if (d != NULL) {
+                    const esp_err_t err = solar_os_ble_hid_disconnect(d->bda);
+                    if (err == ESP_OK) {
+                        ble_scanner_set_status("HID Disconnected");
+                    } else {
+                        ble_scanner_set_status("Device not connected");
                     }
                 }
                 ble_state.render_pending = true;
