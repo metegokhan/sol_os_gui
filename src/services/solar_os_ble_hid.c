@@ -19,6 +19,7 @@
 #include "freertos/task.h"
 
 #include "esp_hidh.h"
+#include "esp_private/esp_hidh_private.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "solar_os_log.h"
@@ -262,9 +263,13 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
             hid_unlock();
 
             if (bda != NULL) {
-                record_remembered_peer(bda, BLE_ADDR_TYPE_RANDOM, name);
-                SOLAR_OS_LOGI(TAG, "HID device connected: %s [" ESP_BD_ADDR_STR "] (type %d)",
-                              name, ESP_BD_ADDR_HEX(bda), (int)dev_type);
+                esp_ble_addr_type_t dev_addr_type = BLE_ADDR_TYPE_RANDOM;
+                if (param->open.dev != NULL) {
+                    dev_addr_type = param->open.dev->ble.address_type;
+                }
+                record_remembered_peer(bda, dev_addr_type, name);
+                SOLAR_OS_LOGI(TAG, "HID device connected: %s [" ESP_BD_ADDR_STR "] (type %d, addr_type=%u)",
+                              name, ESP_BD_ADDR_HEX(bda), (int)dev_type, (unsigned)dev_addr_type);
             }
         } else {
             SOLAR_OS_LOGW(TAG, "HID open failed: %s", esp_err_to_name(param->open.status));
@@ -611,7 +616,17 @@ esp_err_t solar_os_ble_hid_connect(const uint8_t bda[6], uint8_t addr_type, cons
 
     esp_hidh_dev_t *dev = esp_hidh_dev_open((uint8_t *)bda, ESP_HID_TRANSPORT_BLE, (esp_ble_addr_type_t)addr_type);
     if (dev == NULL) {
-        SOLAR_OS_LOGE(TAG, "esp_hidh_dev_open failed");
+        esp_ble_addr_type_t alt_type = (addr_type == BLE_ADDR_TYPE_PUBLIC) ? BLE_ADDR_TYPE_RANDOM : BLE_ADDR_TYPE_PUBLIC;
+        SOLAR_OS_LOGW(TAG, "esp_hidh_dev_open failed with type %u, retrying with alternative type %u...",
+                      (unsigned)addr_type, (unsigned)alt_type);
+        dev = esp_hidh_dev_open((uint8_t *)bda, ESP_HID_TRANSPORT_BLE, alt_type);
+        if (dev != NULL) {
+            addr_type = (uint8_t)alt_type;
+        }
+    }
+
+    if (dev == NULL) {
+        SOLAR_OS_LOGE(TAG, "esp_hidh_dev_open failed for all address types");
         return ESP_FAIL;
     }
 

@@ -246,7 +246,7 @@ static void central_gattc_callback(esp_gattc_cb_event_t event,
 
 static esp_err_t central_init_security(void)
 {
-    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;
+    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_BOND;
     esp_ble_io_cap_t iocap = ESP_IO_CAP_NONE;
     uint8_t key_size = 16;
     uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK | ESP_BLE_CSR_KEY_MASK;
@@ -271,11 +271,6 @@ static esp_err_t central_init_security(void)
     ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(
                             ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(rsp_key)),
                         TAG, "set rsp key failed");
-
-    uint32_t passkey = 123456;
-    ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(
-                            ESP_BLE_SM_SET_STATIC_PASSKEY, &passkey, sizeof(passkey)),
-                        TAG, "set static passkey failed");
 
     return ESP_OK;
 }
@@ -577,11 +572,22 @@ static void central_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_pa
         break;
     }
 
+    case ESP_GAP_BLE_PASSKEY_NOTIF_EVT:
+        SOLAR_OS_LOGW(TAG, "Passkey notification: %06" PRIu32 " (type this on the keyboard and press Enter!)", param->ble_security.key_notif.passkey);
+        break;
+
+    case ESP_GAP_BLE_KEY_EVT:
+        SOLAR_OS_LOGI(TAG, "SMP Key exchanged (type=0x%x)", param->ble_security.ble_key.key_type);
+        break;
+
     case ESP_GAP_BLE_AUTH_CMPL_EVT:
         if (param->ble_security.auth_cmpl.success) {
-            SOLAR_OS_LOGI(TAG, "auth success with peer");
+            SOLAR_OS_LOGI(TAG, "BLE Authentication SUCCESS with peer [" ESP_BD_ADDR_STR "]",
+                          ESP_BD_ADDR_HEX(param->ble_security.auth_cmpl.bd_addr));
         } else {
-            SOLAR_OS_LOGW(TAG, "auth failed reason=0x%x", param->ble_security.auth_cmpl.fail_reason);
+            SOLAR_OS_LOGW(TAG, "BLE Authentication FAILED with peer [" ESP_BD_ADDR_STR "] reason=0x%x",
+                          ESP_BD_ADDR_HEX(param->ble_security.auth_cmpl.bd_addr),
+                          param->ble_security.auth_cmpl.fail_reason);
         }
         break;
 
@@ -656,8 +662,10 @@ esp_err_t solar_os_ble_scan_start(uint32_t duration_sec,
     const TickType_t wait_ticks = pdMS_TO_TICKS((scan_sec + 2U) * 1000U);
     (void)xSemaphoreTake(s_scan_done_sem, wait_ticks);
 
-    (void)esp_ble_gap_stop_scanning();
-    s_is_scanning = false;
+    if (s_is_scanning) {
+        (void)esp_ble_gap_stop_scanning();
+        s_is_scanning = false;
+    }
 
     *out_count = s_active_scan_count;
     s_active_scan_results = NULL;

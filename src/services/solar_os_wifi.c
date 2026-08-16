@@ -1131,7 +1131,7 @@ static esp_err_t wifi_apply_mode(void)
 
     }
 
-    ret = esp_wifi_set_ps(wifi_connectionless_active ? WIFI_PS_NONE : WIFI_PS_MAX_MODEM);
+    ret = esp_wifi_set_ps(wifi_connectionless_active ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM);
     if (ret != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Wi-Fi power save setup failed: %s", esp_err_to_name(ret));
     }
