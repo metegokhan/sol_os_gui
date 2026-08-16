@@ -84,17 +84,21 @@ void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t
 
     portENTER_CRITICAL(&mouse_lock);
 
-    /* Update coordinates with acceleration */
-    int new_x = (int)mouse_state.x + (int)dx;
-    int new_y = (int)mouse_state.y + (int)dy;
+    /* Update coordinates with smooth sub-pixel motion divider (4x slower/smoother) */
+    static float s_cursor_fx = SOLAR_OS_MOUSE_WIDTH / 2.0f;
+    static float s_cursor_fy = SOLAR_OS_MOUSE_HEIGHT / 2.0f;
+    const float SPEED_DIVIDER = 4.0f;
 
-    if (new_x < 0) new_x = 0;
-    if (new_x >= SOLAR_OS_MOUSE_WIDTH) new_x = SOLAR_OS_MOUSE_WIDTH - 1;
-    if (new_y < 0) new_y = 0;
-    if (new_y >= SOLAR_OS_MOUSE_HEIGHT) new_y = SOLAR_OS_MOUSE_HEIGHT - 1;
+    s_cursor_fx += ((float)dx / SPEED_DIVIDER);
+    s_cursor_fy += ((float)dy / SPEED_DIVIDER);
 
-    mouse_state.x = (int16_t)new_x;
-    mouse_state.y = (int16_t)new_y;
+    if (s_cursor_fx < 0.0f) s_cursor_fx = 0.0f;
+    if (s_cursor_fx >= (float)SOLAR_OS_MOUSE_WIDTH) s_cursor_fx = (float)(SOLAR_OS_MOUSE_WIDTH - 1);
+    if (s_cursor_fy < 0.0f) s_cursor_fy = 0.0f;
+    if (s_cursor_fy >= (float)SOLAR_OS_MOUSE_HEIGHT) s_cursor_fy = (float)(SOLAR_OS_MOUSE_HEIGHT - 1);
+
+    mouse_state.x = (int16_t)s_cursor_fx;
+    mouse_state.y = (int16_t)s_cursor_fy;
     mouse_state.buttons = buttons;
     mouse_state.wheel = wheel;
     mouse_state.visible = true;
@@ -177,45 +181,6 @@ void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t
                                        '\t',
                                        0,
                                        SOLAR_OS_INPUT_KEY_RELEASE);
-    }
-
-    /* 3. Mouse Movement Translation -> Directional Arrow Keys */
-    static int16_t s_accum_dx = 0;
-    static int16_t s_accum_dy = 0;
-    const int16_t MOVE_THRESHOLD = 8;
-
-    s_accum_dx += (int16_t)dx;
-    s_accum_dy += (int16_t)dy;
-
-    if (mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
-        int count = 0;
-        while (s_accum_dx >= MOVE_THRESHOLD && count < 4) {
-            (void)solar_os_input_write_key(mouse_input_source, 0xD001, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_RIGHT, 0, SOLAR_OS_INPUT_KEY_PRESS);
-            (void)solar_os_input_write_key(mouse_input_source, 0xD001, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_RIGHT, 0, SOLAR_OS_INPUT_KEY_RELEASE);
-            s_accum_dx -= MOVE_THRESHOLD;
-            count++;
-        }
-        count = 0;
-        while (s_accum_dx <= -MOVE_THRESHOLD && count < 4) {
-            (void)solar_os_input_write_key(mouse_input_source, 0xD002, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_LEFT, 0, SOLAR_OS_INPUT_KEY_PRESS);
-            (void)solar_os_input_write_key(mouse_input_source, 0xD002, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_LEFT, 0, SOLAR_OS_INPUT_KEY_RELEASE);
-            s_accum_dx += MOVE_THRESHOLD;
-            count++;
-        }
-        count = 0;
-        while (s_accum_dy >= MOVE_THRESHOLD && count < 4) {
-            (void)solar_os_input_write_key(mouse_input_source, 0xD003, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_DOWN, 0, SOLAR_OS_INPUT_KEY_PRESS);
-            (void)solar_os_input_write_key(mouse_input_source, 0xD003, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_DOWN, 0, SOLAR_OS_INPUT_KEY_RELEASE);
-            s_accum_dy -= MOVE_THRESHOLD;
-            count++;
-        }
-        count = 0;
-        while (s_accum_dy <= -MOVE_THRESHOLD && count < 4) {
-            (void)solar_os_input_write_key(mouse_input_source, 0xD004, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_UP, 0, SOLAR_OS_INPUT_KEY_PRESS);
-            (void)solar_os_input_write_key(mouse_input_source, 0xD004, SOLAR_OS_INPUT_USAGE_NONE, SOLAR_OS_KEY_UP, 0, SOLAR_OS_INPUT_KEY_RELEASE);
-            s_accum_dy += MOVE_THRESHOLD;
-            count++;
-        }
     }
 
     prev_buttons = buttons;
