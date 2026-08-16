@@ -33,7 +33,7 @@ typedef struct {
 esp_err_t solar_os_mouse_init(void);
 void solar_os_mouse_set_connected(bool connected);
 bool solar_os_mouse_is_connected(void);
-void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel);
+void solar_os_mouse_process_report(uint8_t buttons, int16_t dx, int16_t dy, int8_t wheel);
 void solar_os_mouse_get_state(solar_os_mouse_state_t *out);
 bool solar_os_mouse_is_visible(void);
 void solar_os_mouse_draw_cursor(solar_os_gfx_t *gfx);

@@ -225,6 +225,62 @@ static void update_device_subsystem_states(void)
     }
 }
 
+static void decode_ble_mouse_report(const uint8_t *data, uint16_t length, uint8_t report_id)
+{
+    if (data == NULL || length < 3) return;
+
+    const uint8_t *m_data = data;
+    uint16_t m_len = length;
+
+    /* If report ID prefix is present at data[0] */
+    if (report_id != 0 && m_len > 3 && m_data[0] == report_id) {
+        m_data++;
+        m_len--;
+    }
+
+    uint8_t btns = 0;
+    int16_t dx = 0;
+    int16_t dy = 0;
+    int8_t wheel = 0;
+
+    /*
+     * 1. 12-bit Packed Format (5 bytes: [btns, X_L, X_H_Y_L, Y_H, wheel])
+     * Widely used by Bluetooth LE mice (PixArt / Nordic / Logitech / Microsoft BLE)
+     */
+    if (m_len == 5 || (m_len == 6 && m_data[0] <= 0x1F)) {
+        btns = m_data[0] & 0x1F;
+        uint16_t raw_x_u = (uint16_t)m_data[1] | (((uint16_t)(m_data[2] & 0x0F)) << 8);
+        dx = (raw_x_u >= 0x0800) ? (int16_t)(raw_x_u | 0xF000) : (int16_t)raw_x_u;
+
+        uint16_t raw_y_u = (((uint16_t)(m_data[2] & 0xF0)) >> 4) | (((uint16_t)m_data[3]) << 4);
+        dy = (raw_y_u >= 0x0800) ? (int16_t)(raw_y_u | 0xF000) : (int16_t)raw_y_u;
+
+        if (m_len >= 5) {
+            wheel = (int8_t)m_data[4];
+        }
+    }
+    /*
+     * 2. 16-bit Coordinates (6 or 7 bytes: [btns, X_L, X_H, Y_L, Y_H, wheel])
+     */
+    else if (m_len >= 6) {
+        btns = m_data[0] & 0x1F;
+        dx = (int16_t)((uint16_t)m_data[1] | ((uint16_t)m_data[2] << 8));
+        dy = (int16_t)((uint16_t)m_data[3] | ((uint16_t)m_data[4] << 8));
+        wheel = (m_len >= 6) ? (int8_t)m_data[5] : 0;
+    }
+    /*
+     * 3. Standard 8-bit Coordinates (3 or 4 bytes: [btns, dx, dy, wheel])
+     */
+    else {
+        btns = m_data[0] & 0x1F;
+        dx = (int8_t)m_data[1];
+        dy = (int8_t)m_data[2];
+        wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
+    }
+
+    solar_os_mouse_process_report(btns, dx, dy, wheel);
+}
+
 static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id, void *event_data)
 {
     (void)handler_args;
@@ -284,38 +340,14 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                                                  param->input.data,
                                                  param->input.length);
         } else if (param->input.usage == ESP_HID_USAGE_MOUSE) {
-            const uint8_t *m_data = param->input.data;
-            uint16_t m_len = param->input.length;
-            if (param->input.report_id != 0 && m_len >= 5 && m_data[0] == (uint8_t)param->input.report_id) {
-                m_data++;
-                m_len--;
-            }
-            if (m_len >= 3) {
-                uint8_t btns = m_data[0];
-                int8_t dx = (int8_t)m_data[1];
-                int8_t dy = (int8_t)m_data[2];
-                int8_t wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
-                solar_os_mouse_process_report(btns, dx, dy, wheel);
-            }
+            decode_ble_mouse_report(param->input.data, param->input.length, param->input.report_id);
         } else if (param->input.usage == ESP_HID_USAGE_JOYSTICK || param->input.usage == ESP_HID_USAGE_GAMEPAD) {
             solar_os_gamepad_process_report(param->input.data, param->input.length);
         } else {
             /* Heuristic fallback */
             const char *dev_name = esp_hidh_dev_name_get(param->input.dev);
             if (dev_name != NULL && solar_os_ble_is_mouse_like(0, dev_name)) {
-                const uint8_t *m_data = param->input.data;
-                uint16_t m_len = param->input.length;
-                if (param->input.report_id != 0 && m_len >= 5 && m_data[0] == (uint8_t)param->input.report_id) {
-                    m_data++;
-                    m_len--;
-                }
-                if (m_len >= 3) {
-                    uint8_t btns = m_data[0];
-                    int8_t dx = (int8_t)m_data[1];
-                    int8_t dy = (int8_t)m_data[2];
-                    int8_t wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
-                    solar_os_mouse_process_report(btns, dx, dy, wheel);
-                }
+                decode_ble_mouse_report(param->input.data, param->input.length, param->input.report_id);
             } else if (dev_name != NULL && solar_os_ble_is_gamepad_like(0, dev_name)) {
                 solar_os_gamepad_process_report(param->input.data, param->input.length);
             } else {
