@@ -7,6 +7,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_gfx_internal.h"
 #include "solar_os_memory.h"
+#include "solar_os_mouse.h"
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 #include "nvs.h"
@@ -942,6 +943,9 @@ void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode
 {
     if (u8g2 == NULL) {
         return;
+    }
+    if (solar_os_mouse_is_visible()) {
+        solar_os_mouse_draw_cursor_u8g2(u8g2);
     }
     (void)solar_os_display_request_present_mode(u8g2, mode);
     display_publish_frame(u8g2);

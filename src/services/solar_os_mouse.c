@@ -78,27 +78,32 @@ bool solar_os_mouse_is_connected(void)
     return connected;
 }
 
+static bool mouse_dirty = false;
+
 void solar_os_mouse_process_report(uint8_t buttons, int16_t dx, int16_t dy, int8_t wheel)
 {
     const uint32_t now = mouse_millis();
 
     portENTER_CRITICAL(&mouse_lock);
 
-    /* Update coordinates with smooth sub-pixel motion divider (4x slower/smoother) */
+    /* Update coordinates with 1:1 direct pixel response and sub-pixel float */
     static float s_cursor_fx = SOLAR_OS_MOUSE_WIDTH / 2.0f;
     static float s_cursor_fy = SOLAR_OS_MOUSE_HEIGHT / 2.0f;
-    const float SPEED_DIVIDER = 4.0f;
 
-    s_cursor_fx += ((float)dx / SPEED_DIVIDER);
-    s_cursor_fy += ((float)dy / SPEED_DIVIDER);
+    if (dx != 0 || dy != 0) {
+        s_cursor_fx += (float)dx;
+        s_cursor_fy += (float)dy;
 
-    if (s_cursor_fx < 0.0f) s_cursor_fx = 0.0f;
-    if (s_cursor_fx >= (float)SOLAR_OS_MOUSE_WIDTH) s_cursor_fx = (float)(SOLAR_OS_MOUSE_WIDTH - 1);
-    if (s_cursor_fy < 0.0f) s_cursor_fy = 0.0f;
-    if (s_cursor_fy >= (float)SOLAR_OS_MOUSE_HEIGHT) s_cursor_fy = (float)(SOLAR_OS_MOUSE_HEIGHT - 1);
+        if (s_cursor_fx < 0.0f) s_cursor_fx = 0.0f;
+        if (s_cursor_fx >= (float)SOLAR_OS_MOUSE_WIDTH) s_cursor_fx = (float)(SOLAR_OS_MOUSE_WIDTH - 1);
+        if (s_cursor_fy < 0.0f) s_cursor_fy = 0.0f;
+        if (s_cursor_fy >= (float)SOLAR_OS_MOUSE_HEIGHT) s_cursor_fy = (float)(SOLAR_OS_MOUSE_HEIGHT - 1);
 
-    mouse_state.x = (int16_t)s_cursor_fx;
-    mouse_state.y = (int16_t)s_cursor_fy;
+        mouse_state.x = (int16_t)s_cursor_fx;
+        mouse_state.y = (int16_t)s_cursor_fy;
+        mouse_dirty = true;
+    }
+
     mouse_state.buttons = buttons;
     mouse_state.wheel = wheel;
     mouse_state.visible = true;
@@ -185,11 +190,28 @@ bool solar_os_mouse_is_visible(void)
     return visible;
 }
 
+bool solar_os_mouse_is_dirty(void)
+{
+    bool dirty;
+    portENTER_CRITICAL(&mouse_lock);
+    dirty = mouse_dirty;
+    portEXIT_CRITICAL(&mouse_lock);
+    return dirty;
+}
+
+void solar_os_mouse_clear_dirty(void)
+{
+    portENTER_CRITICAL(&mouse_lock);
+    mouse_dirty = false;
+    portEXIT_CRITICAL(&mouse_lock);
+}
+
 void solar_os_mouse_tick(uint32_t now_ms)
 {
     portENTER_CRITICAL(&mouse_lock);
     if (mouse_state.visible && (now_ms - mouse_state.last_active_ms) > SOLAR_OS_MOUSE_TIMEOUT_MS) {
         mouse_state.visible = false;
+        mouse_dirty = true;
     }
     portEXIT_CRITICAL(&mouse_lock);
 }
@@ -197,6 +219,77 @@ void solar_os_mouse_tick(uint32_t now_ms)
 /* ---------------------------------------------------------------------
  * Software Cursor Overlay Drawing (Arrow Sprite for ST7305 RLCD)
  * ------------------------------------------------------------------- */
+static const uint8_t cursor_mask[14] = {
+    0b10000000,
+    0b11000000,
+    0b11100000,
+    0b11110000,
+    0b11111000,
+    0b11111100,
+    0b11111110,
+    0b11111111,
+    0b11111000,
+    0b11011100,
+    0b10001100,
+    0b00001110,
+    0b00000110,
+    0b00000000,
+};
+
+static const uint8_t cursor_fill[14] = {
+    0b00000000,
+    0b01000000,
+    0b01100000,
+    0b01110000,
+    0b01111000,
+    0b01111100,
+    0b01111100,
+    0b01111000,
+    0b01100000,
+    0b01001100,
+    0b00000110,
+    0b00000110,
+    0b00000000,
+    0b00000000,
+};
+
+void solar_os_mouse_draw_cursor_u8g2(u8g2_t *u8g2)
+{
+    if (u8g2 == NULL) return;
+
+    int mx, my;
+    bool vis;
+    portENTER_CRITICAL(&mouse_lock);
+    mx = mouse_state.x;
+    my = mouse_state.y;
+    vis = mouse_state.visible;
+    portEXIT_CRITICAL(&mouse_lock);
+
+    if (!vis) return;
+
+    /* Draw white interior fill (color 0 on RLCD) */
+    u8g2_SetDrawColor(u8g2, 0);
+    for (int r = 0; r < 14; r++) {
+        uint8_t row = cursor_fill[r];
+        for (int c = 0; c < 8; c++) {
+            if (row & (1 << (7 - c))) {
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)(mx + c), (u8g2_uint_t)(my + r));
+            }
+        }
+    }
+
+    /* Draw black crisp outline (color 1 on RLCD) */
+    u8g2_SetDrawColor(u8g2, 1);
+    for (int r = 0; r < 14; r++) {
+        uint8_t row = cursor_mask[r];
+        for (int c = 0; c < 8; c++) {
+            if ((row & (1 << (7 - c))) && !(cursor_fill[r] & (1 << (7 - c)))) {
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)(mx + c), (u8g2_uint_t)(my + r));
+            }
+        }
+    }
+}
+
 void solar_os_mouse_draw_cursor(solar_os_gfx_t *gfx)
 {
     if (gfx == NULL) return;
@@ -210,44 +303,6 @@ void solar_os_mouse_draw_cursor(solar_os_gfx_t *gfx)
     portEXIT_CRITICAL(&mouse_lock);
 
     if (!vis) return;
-
-    /*
-     * Classic 11x14 arrow cursor bitmask
-     * 1 = Black outline, 2 = White interior
-     */
-    static const uint8_t cursor_mask[14] = {
-        0b10000000,
-        0b11000000,
-        0b11100000,
-        0b11110000,
-        0b11111000,
-        0b11111100,
-        0b11111110,
-        0b11111111,
-        0b11111000,
-        0b11011100,
-        0b10001100,
-        0b00001110,
-        0b00000110,
-        0b00000000,
-    };
-
-    static const uint8_t cursor_fill[14] = {
-        0b00000000,
-        0b01000000,
-        0b01100000,
-        0b01110000,
-        0b01111000,
-        0b01111100,
-        0b01111100,
-        0b01111000,
-        0b01100000,
-        0b01001100,
-        0b00000110,
-        0b00000110,
-        0b00000000,
-        0b00000000,
-    };
 
     /* Draw white interior fill */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);

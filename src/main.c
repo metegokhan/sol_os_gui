@@ -349,10 +349,11 @@ static void IRAM_ATTR key_button_isr(void *arg)
 
 static void draw_terminal_if_needed(void)
 {
-    if (!solar_os_context_graphics_active(&os_ctx) &&
-        terminal != NULL &&
-        solar_os_terminal_needs_draw(terminal)) {
-        solar_os_terminal_draw(terminal);
+    if (!solar_os_context_graphics_active(&os_ctx) && terminal != NULL) {
+        if (solar_os_terminal_needs_draw(terminal) || solar_os_mouse_is_dirty()) {
+            solar_os_mouse_clear_dirty();
+            solar_os_terminal_draw(terminal);
+        }
     }
 }
 

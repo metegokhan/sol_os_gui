@@ -11,6 +11,7 @@
 
 #include "esp_err.h"
 #include "solar_os_gfx.h"
+#include "u8g2.h"
 
 #define SOLAR_OS_MOUSE_WIDTH 400
 #define SOLAR_OS_MOUSE_HEIGHT 300
@@ -36,5 +37,8 @@ bool solar_os_mouse_is_connected(void);
 void solar_os_mouse_process_report(uint8_t buttons, int16_t dx, int16_t dy, int8_t wheel);
 void solar_os_mouse_get_state(solar_os_mouse_state_t *out);
 bool solar_os_mouse_is_visible(void);
+bool solar_os_mouse_is_dirty(void);
+void solar_os_mouse_clear_dirty(void);
 void solar_os_mouse_draw_cursor(solar_os_gfx_t *gfx);
+void solar_os_mouse_draw_cursor_u8g2(u8g2_t *u8g2);
 void solar_os_mouse_tick(uint32_t now_ms);

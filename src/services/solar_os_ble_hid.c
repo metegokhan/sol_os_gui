@@ -238,45 +238,10 @@ static void decode_ble_mouse_report(const uint8_t *data, uint16_t length, uint8_
         m_len--;
     }
 
-    uint8_t btns = 0;
-    int16_t dx = 0;
-    int16_t dy = 0;
-    int8_t wheel = 0;
-
-    /*
-     * 1. 12-bit Packed Format (5 bytes: [btns, X_L, X_H_Y_L, Y_H, wheel])
-     * Widely used by Bluetooth LE mice (PixArt / Nordic / Logitech / Microsoft BLE)
-     */
-    if (m_len == 5 || (m_len == 6 && m_data[0] <= 0x1F)) {
-        btns = m_data[0] & 0x1F;
-        uint16_t raw_x_u = (uint16_t)m_data[1] | (((uint16_t)(m_data[2] & 0x0F)) << 8);
-        dx = (raw_x_u >= 0x0800) ? (int16_t)(raw_x_u | 0xF000) : (int16_t)raw_x_u;
-
-        uint16_t raw_y_u = (((uint16_t)(m_data[2] & 0xF0)) >> 4) | (((uint16_t)m_data[3]) << 4);
-        dy = (raw_y_u >= 0x0800) ? (int16_t)(raw_y_u | 0xF000) : (int16_t)raw_y_u;
-
-        if (m_len >= 5) {
-            wheel = (int8_t)m_data[4];
-        }
-    }
-    /*
-     * 2. 16-bit Coordinates (6 or 7 bytes: [btns, X_L, X_H, Y_L, Y_H, wheel])
-     */
-    else if (m_len >= 6) {
-        btns = m_data[0] & 0x1F;
-        dx = (int16_t)((uint16_t)m_data[1] | ((uint16_t)m_data[2] << 8));
-        dy = (int16_t)((uint16_t)m_data[3] | ((uint16_t)m_data[4] << 8));
-        wheel = (m_len >= 6) ? (int8_t)m_data[5] : 0;
-    }
-    /*
-     * 3. Standard 8-bit Coordinates (3 or 4 bytes: [btns, dx, dy, wheel])
-     */
-    else {
-        btns = m_data[0] & 0x1F;
-        dx = (int8_t)m_data[1];
-        dy = (int8_t)m_data[2];
-        wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
-    }
+    uint8_t btns = m_data[0] & 0x1F;
+    int16_t dx = (int8_t)m_data[1];
+    int16_t dy = (int8_t)m_data[2];
+    int8_t wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
 
     solar_os_mouse_process_report(btns, dx, dy, wheel);
 }
