@@ -80,11 +80,58 @@ static void send_gamepad_key(uint8_t key, bool pressed)
 {
     if (key == 0 || pad_input_source == SOLAR_OS_INPUT_SOURCE_INVALID) return;
 
+    uint8_t ascii = key;
+    uint16_t usage = key;
+    if (key == SOLAR_OS_KEY_ENTER || key == '\r' || key == '\n') {
+        ascii = '\r';
+        key = SOLAR_OS_KEY_ENTER;
+        usage = 0x28; /* HID Enter */
+    } else if (key == SOLAR_OS_KEY_ESCAPE) {
+        ascii = 27;
+        usage = 0x29; /* HID Escape */
+    } else if (key == '\t') {
+        ascii = '\t';
+        usage = 0x2B; /* HID Tab */
+    } else if (key == ' ') {
+        ascii = ' ';
+        usage = 0x2C; /* HID Space */
+    } else if (key == 'a' || key == 'A') {
+        ascii = 'a';
+        usage = 0x04;
+    } else if (key == 'b' || key == 'B') {
+        ascii = 'b';
+        usage = 0x05;
+    } else if (key == 'x' || key == 'X') {
+        ascii = 'x';
+        usage = 0x1B;
+    } else if (key == 'y' || key == 'Y') {
+        ascii = 'y';
+        usage = 0x1C;
+    } else if (key == 'p' || key == 'P') {
+        ascii = 'p';
+        usage = 0x13;
+    } else if (key == 'n' || key == 'N') {
+        ascii = 'n';
+        usage = 0x11;
+    } else if (key == SOLAR_OS_KEY_UP) {
+        usage = 0x52;
+    } else if (key == SOLAR_OS_KEY_DOWN) {
+        usage = 0x51;
+    } else if (key == SOLAR_OS_KEY_LEFT) {
+        usage = 0x50;
+    } else if (key == SOLAR_OS_KEY_RIGHT) {
+        usage = 0x4F;
+    } else if (key == SOLAR_OS_KEY_AUDIO_VOLUME_UP) {
+        usage = 0x00E9;
+    } else if (key == SOLAR_OS_KEY_AUDIO_VOLUME_DOWN) {
+        usage = 0x00EA;
+    }
+
     const solar_os_input_key_action_t action = pressed ? SOLAR_OS_INPUT_KEY_PRESS : SOLAR_OS_INPUT_KEY_RELEASE;
     (void)solar_os_input_write_key(pad_input_source,
+                                   ascii,
                                    key,
-                                   key,
-                                   key,
+                                   usage,
                                    0,
                                    action);
 }
@@ -131,6 +178,12 @@ void solar_os_gamepad_process_report(const uint8_t *data, uint16_t length)
         cur.stick_ly = (int8_t)(((int32_t)raw_ly - 32768) * 100 / 32768);
         cur.stick_rx = (int8_t)(((int32_t)raw_rx - 32768) * 100 / 32768);
         cur.stick_ry = (int8_t)(((int32_t)raw_ry - 32768) * 100 / 32768);
+
+        /* Triggers for Xbox (LT = data[8..9], RT = data[10..11]) */
+        uint16_t raw_lt = (uint16_t)data[8] | ((uint16_t)data[9] << 8);
+        uint16_t raw_rt = (uint16_t)data[10] | ((uint16_t)data[11] << 8);
+        cur.btn_l2 = (raw_lt > 250);
+        cur.btn_r2 = (raw_rt > 250);
 
         /* Hat Switch: byte 12 (or byte 14 depending on report ID) */
         uint8_t hat = (data[12] <= 8) ? data[12] : ((length > 14 && data[14] <= 8) ? data[14] : 0);
@@ -196,27 +249,27 @@ void solar_os_gamepad_process_report(const uint8_t *data, uint16_t length)
     prev_pad_state = cur;
     portEXIT_CRITICAL(&pad_lock);
 
-    /* D-pad Directional Navigation */
+    /* D-pad Directional Navigation -> Arrow Keys */
     if (cur.dpad_up != prev.dpad_up) send_gamepad_key(SOLAR_OS_KEY_UP, cur.dpad_up);
     if (cur.dpad_down != prev.dpad_down) send_gamepad_key(SOLAR_OS_KEY_DOWN, cur.dpad_down);
     if (cur.dpad_left != prev.dpad_left) send_gamepad_key(SOLAR_OS_KEY_LEFT, cur.dpad_left);
     if (cur.dpad_right != prev.dpad_right) send_gamepad_key(SOLAR_OS_KEY_RIGHT, cur.dpad_right);
 
-    /* Face Buttons */
-    if (cur.btn_a != prev.btn_a) send_gamepad_key('\r', cur.btn_a);                      /* A -> Enter / Select */
-    if (cur.btn_b != prev.btn_b) send_gamepad_key(SOLAR_OS_KEY_ESCAPE, cur.btn_b);      /* B -> Escape / Back */
-    if (cur.btn_x != prev.btn_x) send_gamepad_key('\t', cur.btn_x);                      /* X -> Tab / Next Field */
-    if (cur.btn_y != prev.btn_y) send_gamepad_key('h', cur.btn_y);                       /* Y -> Help Guide */
+    /* Face Buttons: a:a, b:b, x:x, y:y */
+    if (cur.btn_a != prev.btn_a) send_gamepad_key('a', cur.btn_a);
+    if (cur.btn_b != prev.btn_b) send_gamepad_key('b', cur.btn_b);
+    if (cur.btn_x != prev.btn_x) send_gamepad_key('x', cur.btn_x);
+    if (cur.btn_y != prev.btn_y) send_gamepad_key('y', cur.btn_y);
 
-    /* Shoulder / Triggers */
-    if (cur.btn_l1 != prev.btn_l1) send_gamepad_key(SOLAR_OS_KEY_PAGE_UP, cur.btn_l1);  /* L1 -> Page Up */
-    if (cur.btn_r1 != prev.btn_r1) send_gamepad_key(SOLAR_OS_KEY_PAGE_DOWN, cur.btn_r1);/* R1 -> Page Down */
-    if (cur.btn_l2 != prev.btn_l2 && cur.btn_l2) send_gamepad_key(SOLAR_OS_KEY_AUDIO_VOLUME_DOWN, true);
-    if (cur.btn_r2 != prev.btn_r2 && cur.btn_r2) send_gamepad_key(SOLAR_OS_KEY_AUDIO_VOLUME_UP, true);
+    /* Shoulder / Triggers: rb:enter, lb:esc, rt:space, lt:tab */
+    if (cur.btn_r1 != prev.btn_r1) send_gamepad_key(SOLAR_OS_KEY_ENTER, cur.btn_r1);     /* RB -> Enter */
+    if (cur.btn_l1 != prev.btn_l1) send_gamepad_key(SOLAR_OS_KEY_ESCAPE, cur.btn_l1);   /* LB -> Esc */
+    if (cur.btn_r2 != prev.btn_r2) send_gamepad_key(' ', cur.btn_r2);                    /* RT -> Space */
+    if (cur.btn_l2 != prev.btn_l2) send_gamepad_key('\t', cur.btn_l2);                   /* LT -> Tab */
 
     /* Start / Select */
-    if (cur.btn_start != prev.btn_start) send_gamepad_key('\r', cur.btn_start);
-    if (cur.btn_select != prev.btn_select) send_gamepad_key('\t', cur.btn_select);
+    if (cur.btn_start != prev.btn_start) send_gamepad_key(SOLAR_OS_KEY_ENTER, cur.btn_start);
+    if (cur.btn_select != prev.btn_select) send_gamepad_key(SOLAR_OS_KEY_ESCAPE, cur.btn_select);
 }
 
 /* Handle continuous analog stick navigation with pacing */
@@ -225,28 +278,54 @@ void solar_os_gamepad_tick(uint32_t now_ms)
     portENTER_CRITICAL(&pad_lock);
     int8_t lx = pad_state.stick_lx;
     int8_t ly = pad_state.stick_ly;
+    int8_t rx = pad_state.stick_rx;
+    int8_t ry = pad_state.stick_ry;
     bool conn = pad_state.connected;
     portEXIT_CRITICAL(&pad_lock);
 
     if (!conn) return;
 
-    if (now_ms >= next_stick_repeat_ms) {
+    /* 1. Sol Joystick: Yön Tuşları (Up/Down/Left/Right) */
+    static uint32_t next_left_stick_repeat_ms = 0;
+    if (now_ms >= next_left_stick_repeat_ms) {
         if (ly < -STICK_DEADZONE) {
             send_gamepad_key(SOLAR_OS_KEY_UP, true);
             send_gamepad_key(SOLAR_OS_KEY_UP, false);
-            next_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
+            next_left_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
         } else if (ly > STICK_DEADZONE) {
             send_gamepad_key(SOLAR_OS_KEY_DOWN, true);
             send_gamepad_key(SOLAR_OS_KEY_DOWN, false);
-            next_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
+            next_left_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
         } else if (lx < -STICK_DEADZONE) {
             send_gamepad_key(SOLAR_OS_KEY_LEFT, true);
             send_gamepad_key(SOLAR_OS_KEY_LEFT, false);
-            next_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
+            next_left_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
         } else if (lx > STICK_DEADZONE) {
             send_gamepad_key(SOLAR_OS_KEY_RIGHT, true);
             send_gamepad_key(SOLAR_OS_KEY_RIGHT, false);
-            next_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
+            next_left_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
+        }
+    }
+
+    /* 2. Sağ Joystick: Yukarı 'p', Aşağı 'n', Sağa VolUp, Sola VolDown */
+    static uint32_t next_right_stick_repeat_ms = 0;
+    if (now_ms >= next_right_stick_repeat_ms) {
+        if (ry < -STICK_DEADZONE) {
+            send_gamepad_key('p', true);
+            send_gamepad_key('p', false);
+            next_right_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
+        } else if (ry > STICK_DEADZONE) {
+            send_gamepad_key('n', true);
+            send_gamepad_key('n', false);
+            next_right_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
+        } else if (rx > STICK_DEADZONE) {
+            send_gamepad_key(SOLAR_OS_KEY_AUDIO_VOLUME_UP, true);
+            send_gamepad_key(SOLAR_OS_KEY_AUDIO_VOLUME_UP, false);
+            next_right_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
+        } else if (rx < -STICK_DEADZONE) {
+            send_gamepad_key(SOLAR_OS_KEY_AUDIO_VOLUME_DOWN, true);
+            send_gamepad_key(SOLAR_OS_KEY_AUDIO_VOLUME_DOWN, false);
+            next_right_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
         }
     }
 }
