@@ -286,7 +286,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
         } else if (param->input.usage == ESP_HID_USAGE_MOUSE) {
             const uint8_t *m_data = param->input.data;
             uint16_t m_len = param->input.length;
-            if (m_len > 3 && (m_data[0] == (uint8_t)param->input.report_id || m_data[0] <= 8)) {
+            if (param->input.report_id != 0 && m_len >= 5 && m_data[0] == (uint8_t)param->input.report_id) {
                 m_data++;
                 m_len--;
             }
@@ -305,12 +305,16 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
             if (dev_name != NULL && solar_os_ble_is_mouse_like(0, dev_name)) {
                 const uint8_t *m_data = param->input.data;
                 uint16_t m_len = param->input.length;
-                if (m_len > 3 && (m_data[0] == (uint8_t)param->input.report_id || m_data[0] <= 8)) {
+                if (param->input.report_id != 0 && m_len >= 5 && m_data[0] == (uint8_t)param->input.report_id) {
                     m_data++;
                     m_len--;
                 }
                 if (m_len >= 3) {
-                    solar_os_mouse_process_report(m_data[0], (int8_t)m_data[1], (int8_t)m_data[2], m_len >= 4 ? (int8_t)m_data[3] : 0);
+                    uint8_t btns = m_data[0];
+                    int8_t dx = (int8_t)m_data[1];
+                    int8_t dy = (int8_t)m_data[2];
+                    int8_t wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
+                    solar_os_mouse_process_report(btns, dx, dy, wheel);
                 }
             } else if (dev_name != NULL && solar_os_ble_is_gamepad_like(0, dev_name)) {
                 solar_os_gamepad_process_report(param->input.data, param->input.length);

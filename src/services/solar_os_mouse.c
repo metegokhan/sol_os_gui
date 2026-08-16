@@ -107,25 +107,7 @@ void solar_os_mouse_process_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t
 
     portEXIT_CRITICAL(&mouse_lock);
 
-    /* 1. Scroll Wheel Translation -> UP / DOWN navigation */
-    if (wheel != 0 && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
-        const uint8_t nav_key = (wheel > 0) ? SOLAR_OS_KEY_UP : SOLAR_OS_KEY_DOWN;
-        const uint16_t phys_id = (wheel > 0) ? 0xF001 : 0xF002;
-        (void)solar_os_input_write_key(mouse_input_source,
-                                       phys_id,
-                                       SOLAR_OS_INPUT_USAGE_NONE,
-                                       nav_key,
-                                       0,
-                                       SOLAR_OS_INPUT_KEY_PRESS);
-        (void)solar_os_input_write_key(mouse_input_source,
-                                       phys_id,
-                                       SOLAR_OS_INPUT_USAGE_NONE,
-                                       nav_key,
-                                       0,
-                                       SOLAR_OS_INPUT_KEY_RELEASE);
-    }
-
-    /* 2. Button State Translation */
+    /* 1. Button State Translation */
     /* Left Button (Bit 0): Enter / Select */
     const bool left_pressed = (buttons & SOLAR_OS_MOUSE_BTN_LEFT) != 0;
     const bool left_prev = (prev_buttons & SOLAR_OS_MOUSE_BTN_LEFT) != 0;
