@@ -26,6 +26,7 @@
 #include "nvs_flash.h"
 
 #include "solar_os_log.h"
+#include "solar_os_power.h"
 
 #define TAG "ble_core"
 #define BLE_NVS_NAMESPACE "ble_kb"
@@ -253,41 +254,49 @@ esp_err_t solar_os_ble_core_init(void)
         s_scan_done_sem = xSemaphoreCreateBinary();
     }
 
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    esp_err_t ret = esp_bt_controller_init(&bt_cfg);
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        SOLAR_OS_LOGE(TAG, "esp_bt_controller_init failed: %s", esp_err_to_name(ret));
-        return ret;
+    static bool s_classic_bt_released = false;
+    if (!s_classic_bt_released) {
+        esp_err_t ret = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+        if (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) {
+            s_classic_bt_released = true;
+        } else {
+            SOLAR_OS_LOGW(TAG, "classic bt memory release failed: %s", esp_err_to_name(ret));
+        }
     }
 
-    ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        SOLAR_OS_LOGE(TAG, "esp_bt_controller_enable failed: %s", esp_err_to_name(ret));
-        return ret;
+    esp_bt_controller_status_t controller_status = esp_bt_controller_get_status();
+    if (controller_status == ESP_BT_CONTROLLER_STATUS_IDLE) {
+        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+        ESP_RETURN_ON_ERROR(esp_bt_controller_init(&bt_cfg), TAG, "controller init failed");
+        controller_status = esp_bt_controller_get_status();
+    }
+    if (controller_status == ESP_BT_CONTROLLER_STATUS_INITED) {
+        ESP_RETURN_ON_ERROR(esp_bt_controller_enable(ESP_BT_MODE_BLE),
+                            TAG, "controller enable failed");
+    } else if (controller_status != ESP_BT_CONTROLLER_STATUS_ENABLED) {
+        SOLAR_OS_LOGW(TAG, "unexpected controller status %d", (int)controller_status);
+        return ESP_ERR_INVALID_STATE;
     }
 
-    ret = esp_bluedroid_init();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        SOLAR_OS_LOGE(TAG, "esp_bluedroid_init failed: %s", esp_err_to_name(ret));
-        return ret;
+    (void)solar_os_power_apply_runtime_policy();
+
+    esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
+    if (bluedroid_status == ESP_BLUEDROID_STATUS_UNINITIALIZED) {
+        esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
+        bluedroid_cfg.ssp_en = false;
+        ESP_RETURN_ON_ERROR(esp_bluedroid_init_with_cfg(&bluedroid_cfg),
+                            TAG, "bluedroid init failed");
+        bluedroid_status = esp_bluedroid_get_status();
+    }
+    if (bluedroid_status == ESP_BLUEDROID_STATUS_INITIALIZED) {
+        ESP_RETURN_ON_ERROR(esp_bluedroid_enable(), TAG, "bluedroid enable failed");
+    } else if (bluedroid_status != ESP_BLUEDROID_STATUS_ENABLED) {
+        SOLAR_OS_LOGW(TAG, "unexpected bluedroid status %d", (int)bluedroid_status);
+        return ESP_ERR_INVALID_STATE;
     }
 
-    ret = esp_bluedroid_enable();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        SOLAR_OS_LOGE(TAG, "esp_bluedroid_enable failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    ret = esp_ble_gap_register_callback(central_gap_callback);
-    if (ret != ESP_OK) {
-        SOLAR_OS_LOGE(TAG, "esp_ble_gap_register_callback failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    ret = central_init_security();
-    if (ret != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "central_init_security warning: %s", esp_err_to_name(ret));
-    }
+    ESP_RETURN_ON_ERROR(esp_ble_gap_register_callback(central_gap_callback), TAG, "gap callback failed");
+    (void)central_init_security();
 
     s_initialized = true;
     SOLAR_OS_LOGI(TAG, "BLE Core initialized successfully");

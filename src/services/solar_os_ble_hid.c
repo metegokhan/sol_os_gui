@@ -70,6 +70,7 @@ static void hid_unlock(void)
 
 static esp_err_t load_remembered_peers(void)
 {
+    memset(s_remembered_peers, 0, sizeof(s_remembered_peers));
     nvs_handle_t nvs;
     esp_err_t ret = nvs_open(BLE_HID_NVS_NAMESPACE, NVS_READONLY, &nvs);
     if (ret != ESP_OK) return ret;
@@ -115,6 +116,17 @@ static void record_remembered_peer(const uint8_t *bda, esp_ble_addr_type_t addr_
             return;
         }
     }
+}
+
+static size_t remembered_peer_count(void)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (s_remembered_peers[i].magic == BLE_HID_PEER_MAGIC) {
+            count++;
+        }
+    }
+    return count;
 }
 
 static void update_device_subsystem_states(void)
@@ -310,10 +322,14 @@ esp_err_t solar_os_ble_hid_init(void)
         .callback_arg = NULL,
     };
 
-    ret = esp_hidh_init(&config);
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        SOLAR_OS_LOGE(TAG, "esp_hidh_init failed: %s", esp_err_to_name(ret));
-        return ret;
+    static bool s_hidh_inited = false;
+    if (!s_hidh_inited) {
+        ret = esp_hidh_init(&config);
+        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+            SOLAR_OS_LOGE(TAG, "esp_hidh_init failed: %s", esp_err_to_name(ret));
+            return ret;
+        }
+        s_hidh_inited = true;
     }
 
     /* Initialize input devices */
@@ -323,9 +339,11 @@ esp_err_t solar_os_ble_hid_init(void)
 
     s_hid_initialized = true;
 
-    /* Start background reconnect task */
-    s_reconnect_stop_requested = false;
-    (void)xTaskCreate(hid_reconnect_task, "ble_reconn", 3072, NULL, tskIDLE_PRIORITY + 1, &s_reconnect_task_handle);
+    /* Start background reconnect task only if there are remembered peers */
+    if (remembered_peer_count() > 0 && s_reconnect_task_handle == NULL) {
+        s_reconnect_stop_requested = false;
+        (void)xTaskCreate(hid_reconnect_task, "ble_reconn", 4096, NULL, tskIDLE_PRIORITY + 1, &s_reconnect_task_handle);
+    }
 
     SOLAR_OS_LOGI(TAG, "BLE HID Host initialized");
     return ESP_OK;
