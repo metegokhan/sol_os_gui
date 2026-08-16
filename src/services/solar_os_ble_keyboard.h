@@ -21,6 +21,24 @@
 #define SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS 64
 #define SOLAR_OS_BLE_GATT_VALUE_MAX 128
 
+#define SOLAR_OS_BLE_HID_MAX_CONNECTED 4
+
+typedef enum {
+    SOLAR_OS_BLE_DEV_TYPE_UNKNOWN = 0,
+    SOLAR_OS_BLE_DEV_TYPE_KEYBOARD = 1,
+    SOLAR_OS_BLE_DEV_TYPE_MOUSE = 2,
+    SOLAR_OS_BLE_DEV_TYPE_GAMEPAD = 3,
+} solar_os_ble_dev_type_t;
+
+typedef struct {
+    uint8_t bda[6];
+    uint8_t addr_type;
+    char name[SOLAR_OS_BLE_KEYBOARD_NAME_MAX];
+    solar_os_ble_dev_type_t type;
+    bool connected;
+    uint8_t battery_level;
+} solar_os_ble_connected_dev_info_t;
+
 typedef enum {
     SOLAR_OS_BLE_KEYBOARD_LAYOUT_US,
     SOLAR_OS_BLE_KEYBOARD_LAYOUT_TR,
@@ -42,6 +60,8 @@ typedef struct {
     uint16_t appearance;
     bool hid_service;
     bool keyboard_like;
+    bool mouse_like;
+    bool gamepad_like;
     bool remembered;
     bool connected;
     char name[SOLAR_OS_BLE_KEYBOARD_NAME_MAX];
@@ -100,6 +120,13 @@ bool solar_os_ble_keyboard_parse_layout(const char *name, solar_os_ble_keyboard_
 const char *solar_os_ble_keyboard_addr_type_name(uint8_t addr_type);
 bool solar_os_ble_keyboard_parse_addr_type(const char *name, uint8_t *addr_type);
 
+/* Multi-device HID connection APIs */
+size_t solar_os_ble_hid_connected_count(void);
+bool solar_os_ble_hid_get_connected_dev(size_t index, solar_os_ble_connected_dev_info_t *out);
+esp_err_t solar_os_ble_hid_connect(const uint8_t bda[6], uint8_t addr_type, const char *name);
+esp_err_t solar_os_ble_hid_disconnect(const uint8_t bda[6]);
+
+/* Generic GATT Client APIs */
 esp_err_t solar_os_ble_gatt_connect(const uint8_t bda[6], uint8_t addr_type, uint32_t timeout_ms);
 esp_err_t solar_os_ble_gatt_disconnect(void);
 void solar_os_ble_gatt_get_status(solar_os_ble_gatt_status_t *status);

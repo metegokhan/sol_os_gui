@@ -26,6 +26,8 @@
 #include "solar_os_audio.h"
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
+#include "solar_os_mouse.h"
+#include "solar_os_gamepad.h"
 #include "solar_os_buttons.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_CHAT
@@ -1120,6 +1122,10 @@ static void poll_local_input_sources(void)
 
 static void dispatch_input_sources(void)
 {
+    const uint32_t now_ms = millis_u32();
+    solar_os_mouse_tick(now_ms);
+    solar_os_gamepad_tick(now_ms);
+
     poll_local_input_sources();
     solar_os_input_key_event_t events[16];
     size_t count;

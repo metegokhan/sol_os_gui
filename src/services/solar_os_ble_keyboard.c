@@ -26,6 +26,8 @@
 #include "solar_os_input.h"
 #include "solar_os_power.h"
 #include "solar_os_task.h"
+#include "solar_os_mouse.h"
+#include "solar_os_gamepad.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -165,6 +167,19 @@ static solar_os_ble_keyboard_key_state_t key_state;
 static esp_hidh_dev_t *connected_dev;
 static esp_hidh_dev_t *pending_dev;
 static TickType_t pending_open_started_tick;
+
+typedef struct {
+    esp_hidh_dev_t *dev;
+    uint8_t bda[6];
+    esp_ble_addr_type_t addr_type;
+    char name[BLE_KEYBOARD_NAME_MAX];
+    solar_os_ble_dev_type_t type;
+    bool connected;
+    uint8_t battery_level;
+} ble_hid_connected_device_t;
+
+static ble_hid_connected_device_t hid_connected_devs[SOLAR_OS_BLE_HID_MAX_CONNECTED];
+
 static ble_keyboard_state_t state = BLE_KEYBOARD_IDLE;
 static ble_keyboard_candidate_t candidate;
 static solar_os_ble_keyboard_scan_result_t *active_scan_results;
@@ -1451,10 +1466,43 @@ static bool is_keyboard_like(uint16_t appearance, const char *name)
     if (appearance == ESP_HID_APPEARANCE_KEYBOARD) {
         return true;
     }
-
     return contains_ci(name, "keyboard") ||
            contains_ci(name, "kbd") ||
            contains_ci(name, "keychron");
+}
+
+static bool is_mouse_like(uint16_t appearance, const char *name)
+{
+    if (appearance == ESP_HID_APPEARANCE_MOUSE) {
+        return true;
+    }
+    return contains_ci(name, "mouse") ||
+           contains_ci(name, "trackball") ||
+           contains_ci(name, "touchpad") ||
+           contains_ci(name, "pointer");
+}
+
+static bool is_gamepad_like(uint16_t appearance, const char *name)
+{
+    if (appearance == ESP_HID_APPEARANCE_JOYSTICK || appearance == ESP_HID_APPEARANCE_GAMEPAD) {
+        return true;
+    }
+    return contains_ci(name, "xbox") ||
+           contains_ci(name, "switch") ||
+           contains_ci(name, "joy-con") ||
+           contains_ci(name, "pro controller") ||
+           contains_ci(name, "gamepad") ||
+           contains_ci(name, "controller") ||
+           contains_ci(name, "8bitdo") ||
+           contains_ci(name, "dualsense") ||
+           contains_ci(name, "dualshock");
+}
+
+static bool is_hid_like(uint16_t appearance, const char *name)
+{
+    return is_keyboard_like(appearance, name) ||
+           is_mouse_like(appearance, name) ||
+           is_gamepad_like(appearance, name);
 }
 
 static solar_os_ble_keyboard_scan_result_t *scan_result_slot(const uint8_t *bda)
@@ -1497,7 +1545,9 @@ static void collect_scan_result(const uint8_t *bda,
     slot->rssi = rssi;
     slot->appearance = appearance;
     slot->hid_service = slot->hid_service || hid_service;
-    slot->keyboard_like = slot->keyboard_like || keyboard_like;
+    slot->keyboard_like = slot->keyboard_like || keyboard_like || is_keyboard_like(appearance, name);
+    slot->mouse_like = slot->mouse_like || is_mouse_like(appearance, name);
+    slot->gamepad_like = slot->gamepad_like || is_gamepad_like(appearance, name);
     slot->remembered = slot->remembered ||
         bda_matches_remembered_peer(bda) ||
         name_matches_remembered_peer(name);
@@ -1528,35 +1578,29 @@ static void collect_scan_result(const uint8_t *bda,
 
 static void collect_connected_scan_result(void)
 {
-    if (!connected || connected_dev == NULL) {
+    if (!connected) {
         return;
     }
 
-    const uint8_t *bda = esp_hidh_dev_bda_get(connected_dev);
-    if (bda == NULL) {
-        return;
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (!hid_connected_devs[i].connected || hid_connected_devs[i].dev == NULL) continue;
+        const uint8_t *bda = hid_connected_devs[i].bda;
+        solar_os_ble_keyboard_scan_result_t *slot = scan_result_slot(bda);
+        if (slot == NULL) continue;
+        memcpy(slot->bda, bda, sizeof(slot->bda));
+        slot->addr_type = (uint8_t)hid_connected_devs[i].addr_type;
+        slot->rssi = 0;
+        slot->appearance = (hid_connected_devs[i].type == SOLAR_OS_BLE_DEV_TYPE_MOUSE) ? ESP_HID_APPEARANCE_MOUSE :
+                           (hid_connected_devs[i].type == SOLAR_OS_BLE_DEV_TYPE_GAMEPAD) ? ESP_HID_APPEARANCE_GAMEPAD :
+                           ESP_HID_APPEARANCE_KEYBOARD;
+        slot->hid_service = true;
+        slot->keyboard_like = (hid_connected_devs[i].type == SOLAR_OS_BLE_DEV_TYPE_KEYBOARD);
+        slot->mouse_like = (hid_connected_devs[i].type == SOLAR_OS_BLE_DEV_TYPE_MOUSE);
+        slot->gamepad_like = (hid_connected_devs[i].type == SOLAR_OS_BLE_DEV_TYPE_GAMEPAD);
+        slot->remembered = true;
+        slot->connected = true;
+        strlcpy(slot->name, hid_connected_devs[i].name[0] ? hid_connected_devs[i].name : "HID Device", sizeof(slot->name));
     }
-
-    solar_os_ble_keyboard_scan_result_t *slot = scan_result_slot(bda);
-    if (slot == NULL) {
-        return;
-    }
-
-    const char *name = esp_hidh_dev_name_get(connected_dev);
-    if (name == NULL || name[0] == '\0') {
-        name = connected_name;
-    }
-
-    memcpy(slot->bda, bda, sizeof(slot->bda));
-    const ble_keyboard_peer_t *peer = remembered_peer_for_bda(bda);
-    slot->addr_type = peer != NULL ? peer->addr_type : (uint8_t)pending_addr_type;
-    slot->rssi = 0;
-    slot->appearance = ESP_HID_APPEARANCE_KEYBOARD;
-    slot->hid_service = true;
-    slot->keyboard_like = true;
-    slot->remembered = true;
-    slot->connected = true;
-    strlcpy(slot->name, name != NULL && name[0] != '\0' ? name : "keyboard", sizeof(slot->name));
 }
 
 static void consider_candidate(const esp_ble_gap_cb_param_t *param)
@@ -1573,7 +1617,7 @@ static void consider_candidate(const esp_ble_gap_cb_param_t *param)
 
     const bool is_remembered = bda_matches_remembered_peer(param->scan_rst.bda) ||
                                name_matches_remembered_peer(name);
-    const bool keyboard_like = is_keyboard_like(appearance, name) || is_remembered;
+    const bool hid_like = is_hid_like(appearance, name) || is_remembered;
 
     if (active_scan_mode == BLE_KEYBOARD_SCAN_DISCOVERY) {
         collect_scan_result(param->scan_rst.bda,
@@ -1581,14 +1625,14 @@ static void consider_candidate(const esp_ble_gap_cb_param_t *param)
                             param->scan_rst.rssi,
                             appearance,
                             has_hid_service,
-                            keyboard_like,
+                            is_keyboard_like(appearance, name),
                             name,
                             adv_data,
                             param->scan_rst.adv_data_len,
                             param->scan_rst.scan_rsp_len);
     }
 
-    if (!is_remembered && !has_hid_service && !keyboard_like) {
+    if (!is_remembered && !has_hid_service && !hid_like) {
         return;
     }
 
@@ -1600,16 +1644,16 @@ static void consider_candidate(const esp_ble_gap_cb_param_t *param)
         }
         if (!candidate_is_remembered && is_remembered) {
             /* Prioritize remembered device above everything else */
-        } else if (candidate.keyboard_like && !keyboard_like) {
+        } else if (candidate.keyboard_like && !hid_like) {
             return;
-        } else if (candidate.keyboard_like == keyboard_like &&
+        } else if (candidate.keyboard_like == hid_like &&
             param->scan_rst.rssi <= candidate.rssi) {
             return;
         }
     }
 
     candidate.valid = true;
-    candidate.keyboard_like = keyboard_like;
+    candidate.keyboard_like = hid_like;
     memcpy(candidate.bda, param->scan_rst.bda, sizeof(candidate.bda));
     candidate.addr_type = param->scan_rst.ble_addr_type;
     candidate.rssi = param->scan_rst.rssi;
@@ -1623,7 +1667,7 @@ static void consider_candidate(const esp_ble_gap_cb_param_t *param)
              candidate.appearance,
              addr_type_name(candidate.addr_type),
              candidate.name[0] ? candidate.name : "(none)",
-             candidate.keyboard_like ? " keyboard-like" : "",
+             candidate.keyboard_like ? " hid-like" : "",
              is_remembered ? " [remembered]" : "");
 
     if (is_remembered && active_scan_mode == BLE_KEYBOARD_SCAN_PAIRING) {
@@ -2565,42 +2609,59 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
             const uint8_t *bda = esp_hidh_dev_bda_get(param->open.dev);
             esp_gap_conn_params_t params = {0};
             if (bda == NULL) {
-                SOLAR_OS_LOGW(TAG, "HID keyboard address unavailable at open; using requested address");
                 bda = pending_bda;
             }
 
             const bool conn_params_ready =
                 hidh_conn_params_ready(param->open.dev, &params);
-            connected = true;
-            connected_dev = param->open.dev;
-            keyboard_report_state_reset(true);
             const char *name = esp_hidh_dev_name_get(param->open.dev);
             const char *display_name = name != NULL && name[0] ? name : pending_name;
-            strlcpy(connected_name, display_name[0] ? display_name : "keyboard", sizeof(connected_name));
-            SOLAR_OS_LOGI(TAG, ESP_BD_ADDR_STR " open: %s",
+            if (display_name == NULL || display_name[0] == '\0') display_name = "HID Device";
+
+            /* Classify device type */
+            solar_os_ble_dev_type_t dev_type = SOLAR_OS_BLE_DEV_TYPE_KEYBOARD;
+            if (is_mouse_like(0, display_name)) {
+                dev_type = SOLAR_OS_BLE_DEV_TYPE_MOUSE;
+                solar_os_mouse_set_connected(true);
+            } else if (is_gamepad_like(0, display_name)) {
+                dev_type = SOLAR_OS_BLE_DEV_TYPE_GAMEPAD;
+                solar_os_gamepad_set_connected(true);
+            } else {
+                dev_type = SOLAR_OS_BLE_DEV_TYPE_KEYBOARD;
+                connected_dev = param->open.dev;
+                keyboard_report_state_reset(true);
+            }
+
+            /* Record into multi-device registry */
+            for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+                if (!hid_connected_devs[i].connected || memcmp(hid_connected_devs[i].bda, bda, 6) == 0) {
+                    hid_connected_devs[i].dev = param->open.dev;
+                    memcpy(hid_connected_devs[i].bda, bda, 6);
+                    hid_connected_devs[i].addr_type = pending_addr_type;
+                    strlcpy(hid_connected_devs[i].name, display_name, sizeof(hid_connected_devs[i].name));
+                    hid_connected_devs[i].type = dev_type;
+                    hid_connected_devs[i].connected = true;
+                    hid_connected_devs[i].battery_level = 100;
+                    break;
+                }
+            }
+
+            connected = true;
+            strlcpy(connected_name, display_name, sizeof(connected_name));
+            SOLAR_OS_LOGI(TAG, ESP_BD_ADDR_STR " open: %s [type %d]",
                      ESP_BD_ADDR_HEX(bda),
-                     connected_name);
+                     connected_name,
+                     (int)dev_type);
             if (conn_params_ready) {
                 log_conn_params("open", &params);
             }
-            if ((pairing_retry_pending || deferred_bond_forget_pending()) &&
-                remembered_peer_count() == 0) {
-                SOLAR_OS_LOGI(
-                    TAG,
-                    "not remembering keyboard superseded by forget/pair request");
-            } else {
-                save_remembered_peer(bda, pending_addr_type, connected_name);
-            }
+            save_remembered_peer(bda, pending_addr_type, connected_name);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name);
             if (pairing_retry_pending) {
                 portENTER_CRITICAL(&reconnect_task_lock);
                 const bool reconnect_open = reconnect_open_in_progress;
                 portEXIT_CRITICAL(&reconnect_task_lock);
-                if (reconnect_open) {
-                    SOLAR_OS_LOGI(
-                        TAG,
-                        "pairing remains deferred until HID report listeners are ready");
-                } else {
+                if (!reconnect_open) {
                     esp_err_t pair_ret = start_pairing_scan_now();
                     if (pair_ret != ESP_OK) {
                         SOLAR_OS_LOGW(
@@ -2611,89 +2672,105 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                 }
             }
         } else {
-            connected = false;
-            connected_dev = NULL;
-            pending_dev = NULL;
-            keyboard_report_state_reset(false);
             SOLAR_OS_LOGE(TAG, "open failed: %s", esp_err_to_name(param->open.status));
-            if (pairing_retry_pending) {
-                portENTER_CRITICAL(&reconnect_task_lock);
-                const bool reconnect_open = reconnect_open_in_progress;
-                portEXIT_CRITICAL(&reconnect_task_lock);
-                if (!reconnect_open) {
-                    esp_err_t pair_ret = start_pairing_scan_now();
-                    if (pair_ret != ESP_OK) {
-                        SOLAR_OS_LOGW(
-                            TAG,
-                            "deferred pairing start failed after open failure: %s",
-                            esp_err_to_name(pair_ret));
-                        set_status(BLE_KEYBOARD_FAILED, "open failed");
-                    }
-                }
-                break;
-            }
             set_status(BLE_KEYBOARD_FAILED, "open failed");
-            if (!reconnect_is_suppressed()) {
-                schedule_reconnect(BLE_KEYBOARD_RECONNECT_RETRY_DELAY_MS);
-            }
         }
         break;
 
     case ESP_HIDH_BATTERY_EVENT:
         SOLAR_OS_LOGI(TAG, "battery %u%%", param->battery.level);
+        if (param->battery.dev != NULL) {
+            for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+                if (hid_connected_devs[i].dev == param->battery.dev) {
+                    hid_connected_devs[i].battery_level = param->battery.level;
+                    break;
+                }
+            }
+        }
         break;
 
     case ESP_HIDH_INPUT_EVENT:
-        SOLAR_OS_LOGD(TAG,
-                      "input usage=%s map=%u report=%u len=%u",
-                      esp_hid_usage_str(param->input.usage),
-                      param->input.map_index,
-                      param->input.report_id,
-                      param->input.length);
-        solar_os_log_buffer_hex(SOLAR_OS_LOG_LEVEL_DEBUG,
-                                TAG,
-                                param->input.data,
-                                param->input.length);
         if (param->input.usage == ESP_HID_USAGE_KEYBOARD) {
             handle_keyboard_report(param->input.map_index,
                                    param->input.report_id,
                                    param->input.data,
                                    param->input.length);
-            set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
+        } else if (param->input.usage == ESP_HID_USAGE_MOUSE) {
+            const uint8_t *m_data = param->input.data;
+            uint16_t m_len = param->input.length;
+            if (m_len > 3 && (m_data[0] == (uint8_t)param->input.report_id || m_data[0] <= 8)) {
+                m_data++;
+                m_len--;
+            }
+            if (m_len >= 3) {
+                uint8_t btns = m_data[0];
+                int8_t dx = (int8_t)m_data[1];
+                int8_t dy = (int8_t)m_data[2];
+                int8_t wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
+                solar_os_mouse_process_report(btns, dx, dy, wheel);
+            }
+        } else if (param->input.usage == ESP_HID_USAGE_JOYSTICK || param->input.usage == ESP_HID_USAGE_GAMEPAD) {
+            solar_os_gamepad_process_report(param->input.data, param->input.length);
         } else {
-            handle_consumer_report(param->input.report_id, param->input.data, param->input.length);
-            set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
+            /* Fallback detection based on device name / heuristic */
+            const char *dev_name = esp_hidh_dev_name_get(param->input.dev);
+            if (dev_name != NULL && is_mouse_like(0, dev_name)) {
+                const uint8_t *m_data = param->input.data;
+                uint16_t m_len = param->input.length;
+                if (m_len > 3 && (m_data[0] == (uint8_t)param->input.report_id || m_data[0] <= 8)) {
+                    m_data++;
+                    m_len--;
+                }
+                if (m_len >= 3) {
+                    solar_os_mouse_process_report(m_data[0], (int8_t)m_data[1], (int8_t)m_data[2], m_len >= 4 ? (int8_t)m_data[3] : 0);
+                }
+            } else if (dev_name != NULL && is_gamepad_like(0, dev_name)) {
+                solar_os_gamepad_process_report(param->input.data, param->input.length);
+            } else {
+                handle_consumer_report(param->input.report_id, param->input.data, param->input.length);
+            }
         }
         break;
 
     case ESP_HIDH_CLOSE_EVENT:
         pending_open_started_tick = 0;
-        connected = false;
         if (connected_dev == param->close.dev) {
             connected_dev = NULL;
+            keyboard_report_state_reset(false);
         }
         if (pending_dev == param->close.dev) {
             pending_dev = NULL;
         }
-        keyboard_report_state_reset(false);
+
+        {
+            bool any_mouse = false;
+            bool any_gamepad = false;
+            bool any_conn = false;
+            for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+                if (hid_connected_devs[i].dev == param->close.dev) {
+                    hid_connected_devs[i].connected = false;
+                    hid_connected_devs[i].dev = NULL;
+                } else if (hid_connected_devs[i].connected) {
+                    any_conn = true;
+                    if (hid_connected_devs[i].type == SOLAR_OS_BLE_DEV_TYPE_MOUSE) any_mouse = true;
+                    if (hid_connected_devs[i].type == SOLAR_OS_BLE_DEV_TYPE_GAMEPAD) any_gamepad = true;
+                }
+            }
+            solar_os_mouse_set_connected(any_mouse);
+            solar_os_gamepad_set_connected(any_gamepad);
+            connected = any_conn;
+        }
+
         SOLAR_OS_LOGI(TAG, "close reason=%d status=%s",
                  param->close.reason,
                  esp_err_to_name(param->close.status));
         esp_hidh_dev_free(param->close.dev);
         remove_deferred_bonds();
-        set_status(BLE_KEYBOARD_IDLE, "disconnected");
+        if (!connected) {
+            set_status(BLE_KEYBOARD_IDLE, "disconnected");
+        }
         if (close_done_sem != NULL) {
             xSemaphoreGive(close_done_sem);
-        }
-        if (pairing_retry_pending) {
-            esp_err_t pair_ret = start_pairing_scan_now();
-            if (pair_ret != ESP_OK) {
-                SOLAR_OS_LOGW(TAG,
-                              "deferred pairing start failed after close: %s",
-                              esp_err_to_name(pair_ret));
-            }
-        } else if (!reconnect_is_suppressed()) {
-            schedule_reconnect(BLE_KEYBOARD_RECONNECT_INITIAL_DELAY_MS);
         }
         break;
 
@@ -2852,13 +2929,87 @@ esp_err_t solar_os_ble_keyboard_init(void)
     }
 
     initialized = true;
+    (void)solar_os_mouse_init();
+    (void)solar_os_gamepad_init();
     set_status(BLE_KEYBOARD_IDLE, "idle");
     if (remembered_peer_count() > 0) {
         start_fast_reconnect_window("boot");
         schedule_reconnect(0);
     }
-    SOLAR_OS_LOGI(TAG, "BLE keyboard host ready");
+    SOLAR_OS_LOGI(TAG, "BLE HID host ready (Keyboard, Mouse, Gamepad)");
     return ESP_OK;
+}
+
+size_t solar_os_ble_hid_connected_count(void)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (hid_connected_devs[i].connected && hid_connected_devs[i].dev != NULL) {
+            count++;
+        }
+    }
+    return count;
+}
+
+bool solar_os_ble_hid_get_connected_dev(size_t index, solar_os_ble_connected_dev_info_t *out)
+{
+    if (out == NULL) return false;
+    size_t current = 0;
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (hid_connected_devs[i].connected && hid_connected_devs[i].dev != NULL) {
+            if (current == index) {
+                memcpy(out->bda, hid_connected_devs[i].bda, 6);
+                out->addr_type = (uint8_t)hid_connected_devs[i].addr_type;
+                strlcpy(out->name, hid_connected_devs[i].name, sizeof(out->name));
+                out->type = hid_connected_devs[i].type;
+                out->connected = true;
+                out->battery_level = hid_connected_devs[i].battery_level;
+                return true;
+            }
+            current++;
+        }
+    }
+    return false;
+}
+
+esp_err_t solar_os_ble_hid_connect(const uint8_t bda[6], uint8_t addr_type, const char *name)
+{
+    if (bda == NULL) return ESP_ERR_INVALID_ARG;
+    esp_err_t ret = solar_os_ble_keyboard_init();
+    if (ret != ESP_OK) return ret;
+
+    (void)esp_ble_gap_stop_scanning();
+    if (reconnect_task_handle != NULL) {
+        stop_reconnect_task("hid_connect", 50U);
+    }
+
+    memcpy(pending_bda, bda, 6);
+    pending_addr_type = (esp_ble_addr_type_t)addr_type;
+    if (name != NULL && name[0] != '\0') {
+        strlcpy(pending_name, name, sizeof(pending_name));
+    } else {
+        pending_name[0] = '\0';
+    }
+
+    esp_hidh_dev_t *dev = esp_hidh_dev_open((uint8_t *)bda, (esp_ble_addr_type_t)addr_type, 0);
+    if (dev == NULL) {
+        SOLAR_OS_LOGE(TAG, "esp_hidh_dev_open failed for " ESP_BD_ADDR_STR, ESP_BD_ADDR_HEX(bda));
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_ble_hid_disconnect(const uint8_t bda[6])
+{
+    if (bda == NULL) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (hid_connected_devs[i].connected && memcmp(hid_connected_devs[i].bda, bda, 6) == 0 && hid_connected_devs[i].dev != NULL) {
+            esp_hidh_dev_t *d = hid_connected_devs[i].dev;
+            esp_hidh_dev_close(d);
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
 }
 
 esp_err_t solar_os_ble_keyboard_scan(solar_os_ble_keyboard_scan_result_t *results,

@@ -532,6 +532,8 @@ label = "service.ble"
 sources = [
   "services/solar_os_ble_keyboard.c",
   "services/solar_os_hid_keyboard_report.c",
+  "services/solar_os_mouse.c",
+  "services/solar_os_gamepad.c",
 ]
 requires = ["bt", "esp_hid", "nvs_flash"]
 capabilities = ["ble"]

@@ -7,6 +7,7 @@
 
 #include "solar_os_display.h"
 #include "solar_os_fonts.h"
+#include "solar_os_mouse.h"
 
 static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
 {
@@ -655,6 +656,10 @@ void solar_os_gfx_present(solar_os_gfx_t *gfx)
 {
     if (!gfx_ready(gfx)) {
         return;
+    }
+
+    if (solar_os_mouse_is_visible()) {
+        solar_os_mouse_draw_cursor(gfx);
     }
 
     solar_os_display_present(gfx->u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);

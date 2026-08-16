@@ -97,6 +97,8 @@ typedef struct {
     uint16_t appearance;
     bool hid_service;
     bool keyboard_like;
+    bool mouse_like;
+    bool gamepad_like;
     bool remembered;
     bool connected;
     char name[SOLAR_OS_BLE_KEYBOARD_NAME_MAX];
@@ -129,7 +131,7 @@ static const ble_help_line_t ble_help_docs[] = {
     { "", false, false },
     { "[Device Hub - 4 Modular Tabs]", true, false },
     { "* [Tab]             : Cycle Tabs (INFO -> SETTINGS -> GATT -> RADAR)", false, false },
-    { "* Tab 1 [INFO]      : Specs, live ADV broadcast & GATT live reading", false, false },
+    { "* Tab 1 [INFO]      : Specs, live ADV broadcast & [P] Direct HID Pair", false, false },
     { "* Tab 2 [SETTINGS]  : [A] Rename Alias | [P] Proximity Alert", false, false },
     { "                      [1-4] Presets (Scale/Sensor) | [E] Edit ADV Lua", false, false },
     { "* Tab 3 [GATT]      : [C] Connect/Disconnect | [Left/Right] Switch Column", false, false },
@@ -178,6 +180,24 @@ static const ble_help_line_t ble_help_docs[] = {
     { "* Background scan pauses during active GATT connection.", false, false },
     { "* Fast scan captures up to 62 bytes of ADV payload.", false, false },
     { "* Aliases & Proximity bookmarks persist in NVS flash.", false, false },
+    { "", false, false },
+    { "5. BLE MOUSE, GAMEPAD & MULTI-DEVICE SUPPORT", true, false },
+    { "--------------------------------------------------", false, false },
+    { "* Multi-Device: Simultaneously connect Keyboard, Mouse, & Gamepad!", false, false },
+    { "* Supported Gamepads: Xbox Wireless, Switch Pro/Joy-Con, 8BitDo, Android HID.", false, false },
+    { "* Gamepad UI Controls:", false, false },
+    { "  - D-Pad / Left Stick : Arrow Keys (Up, Down, Left, Right)", false, false },
+    { "  - Button A           : [Enter] / Select", false, false },
+    { "  - Button B           : [ESC] / Back / Cancel", false, false },
+    { "  - Button X           : [Tab] Next Field / Next Tab", false, false },
+    { "  - Button Y           : [H] Help / Menu", false, false },
+    { "  - Bumpers (L1/R1)    : [PageUp] / [PageDown] Fast Scroll", false, false },
+    { "  - Triggers (L2/R2)   : Volume Down / Volume Up", false, false },
+    { "* BLE Mouse Controls:", false, false },
+    { "  - Smooth on-screen pointer cursor (auto-hides after 5s)", false, false },
+    { "  - Scroll Wheel       : [Up] / [Down] menu & list scrolling", false, false },
+    { "  - Left Click         : [Enter] / Select", false, false },
+    { "  - Right Click        : [ESC] / Back", false, false },
     { "", false, false },
     { "=== End of Guide - Press [ESC] or [H] to Exit ===", true, false },
 };
@@ -509,7 +529,7 @@ static bool ble_device_matches_filter(const ble_device_item_t *dev, ble_filter_m
     case BLE_FILTER_NAMED:
         return dev->name[0] != '\0' && strcmp(dev->name, "(none)") != 0;
     case BLE_FILTER_HID:
-        return dev->hid_service || dev->keyboard_like;
+        return dev->hid_service || dev->keyboard_like || dev->mouse_like || dev->gamepad_like;
     case BLE_FILTER_STRONG:
         return dev->rssi >= -70;
     default:
@@ -734,7 +754,7 @@ static void ble_draw_footer(solar_os_gfx_t *gfx, int width, int height)
         } else {
             if (ble_state.active_tab == DEV_TAB_OVERVIEW) {
                 snprintf(footer, sizeof(footer),
-                         "[Tab] Switch Tab | [1-4] Jump | [R] Scan ADV | [H] Help | [ESC] Back");
+                         "[Tab] Switch Tab | [1-4] Jump | [P] Connect HID | [R] Scan ADV | [H] Help | [ESC] Back");
             } else if (ble_state.active_tab == DEV_TAB_SETTINGS) {
                 snprintf(footer, sizeof(footer),
                          "[1-4] Presets | [E] Edit Lua | [A] Rename | [P] Alert | [Tab] Tab | [ESC] Back");
@@ -838,17 +858,19 @@ static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
         solar_os_gfx_text(gfx, 28, y + 13, label);
 
         /* Line 1 (Right): Tags */
-        char tags[32] = "";
+        char tags[48] = "";
         if (dev->adv_data_len > 0) {
             char adv_tag[16];
             snprintf(adv_tag, sizeof(adv_tag), "[ADV %uB] ", (unsigned)dev->adv_data_len);
             strlcat(tags, adv_tag, sizeof(tags));
         }
-        if (dev->keyboard_like) strlcat(tags, "[KBD] ", sizeof(tags));
+        if (dev->gamepad_like) strlcat(tags, "[PAD] ", sizeof(tags));
+        else if (dev->mouse_like) strlcat(tags, "[MOUSE] ", sizeof(tags));
+        else if (dev->keyboard_like) strlcat(tags, "[KBD] ", sizeof(tags));
         else if (dev->hid_service) strlcat(tags, "[HID] ", sizeof(tags));
         if (tags[0] != '\0') {
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-            solar_os_gfx_text(gfx, width - 110, y + 13, tags);
+            solar_os_gfx_text(gfx, width - 120, y + 13, tags);
         }
 
         /* Line 2: MAC Address & Signal & Original Name if aliased */
@@ -1027,9 +1049,14 @@ static void ble_draw_tab_overview(solar_os_gfx_t *gfx, int width, int height)
     solar_os_gfx_text(gfx, 12, top + 34, mac_line);
 
     char type_line[96];
+    const char *hid_desc = dev->gamepad_like ? "Gamepad / Controller" :
+                           dev->mouse_like ? "BLE Mouse (Pointer)" :
+                           dev->keyboard_like ? "BLE Keyboard" :
+                           (dev->hid_service ? "HID Device" : "None");
     snprintf(type_line, sizeof(type_line), "Appearance: 0x%04X  |  HID: %s  |  Status: %s",
              (unsigned)dev->appearance,
-             dev->keyboard_like ? "Keyboard" : (dev->hid_service ? "HID Device" : "None"),
+             hid_desc,
+             dev->connected ? "CONNECTED (HID)" :
              ble_state.gatt_connected ? "CONNECTED (GATT)" : (ble_state.gatt_connecting ? "CONNECTING..." : "DISCONNECTED"));
     solar_os_gfx_text(gfx, 12, top + 52, type_line);
 
@@ -1828,6 +1855,17 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
             } else if (ch == 'r' || ch == 'R' || ch == ' ') {
                 ble_scanner_start_scan();
                 ble_scanner_set_status("Scanning broadcast data...");
+            } else if (ch == 'p' || ch == 'P') {
+                const ble_device_item_t *d = ble_find_device(ble_state.target_bda);
+                if (d != NULL) {
+                    const esp_err_t err = solar_os_ble_hid_connect(d->bda, d->addr_type, d->name);
+                    if (err == ESP_OK) {
+                        ble_scanner_set_status("Pairing / Connecting BLE HID...");
+                    } else {
+                        ble_scanner_set_status("HID Connect request failed");
+                    }
+                }
+                ble_state.render_pending = true;
             }
             break;
 
@@ -1994,6 +2032,8 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
                     target->appearance = staged[s].appearance;
                     target->hid_service = staged[s].hid_service;
                     target->keyboard_like = staged[s].keyboard_like;
+                    target->mouse_like = staged[s].mouse_like;
+                    target->gamepad_like = staged[s].gamepad_like;
                     target->remembered = staged[s].remembered;
                     target->connected = staged[s].connected;
                     target->last_seen_ms = ble_state.elapsed_ms;
