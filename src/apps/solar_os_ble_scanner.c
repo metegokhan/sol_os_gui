@@ -109,6 +109,80 @@ typedef struct {
 } ble_device_item_t;
 
 typedef struct {
+    const char *text;
+    bool is_header;
+    bool is_code;
+} ble_help_line_t;
+
+static const ble_help_line_t ble_help_docs[] = {
+    { "=== BLE SCANNER & DEVICE HUB GUIDE ===", true, false },
+    { "", false, false },
+    { "1. USER INTERFACE & NAVIGATION", true, false },
+    { "--------------------------------------------------", false, false },
+    { "[Main Scanner Screen]", true, false },
+    { "* [Up/Down] / [W/S] : Browse detected BLE devices", false, false },
+    { "* [Enter]           : Open Dedicated Device Hub", false, false },
+    { "* [Space] / [R]     : Trigger instant BLE scan", false, false },
+    { "* [F]               : Filter (ALL, SAVED, NAMED, HID, STRONG)", false, false },
+    { "* [H]               : Open this Help Guide", false, false },
+    { "* [ESC] / [Q]       : Exit application to SolarOS", false, false },
+    { "", false, false },
+    { "[Device Hub - 4 Modular Tabs]", true, false },
+    { "* [Tab]             : Cycle Tabs (INFO -> SETTINGS -> GATT -> RADAR)", false, false },
+    { "* Tab 1 [INFO]      : Specs, live ADV broadcast & GATT live reading", false, false },
+    { "* Tab 2 [SETTINGS]  : [A] Rename Alias | [P] Proximity Alert", false, false },
+    { "                      [1-4] Presets (Scale/Sensor) | [E] Edit ADV Lua", false, false },
+    { "* Tab 3 [GATT]      : [C] Connect/Disconnect | [Left/Right] Switch Column", false, false },
+    { "                      [Up/Down] Select | [R] Read | [M] Mode | [E] Edit Lua", false, false },
+    { "* Tab 4 [RADAR]     : 3s Real-Time Proximity Tracker, Sweep & History", false, false },
+    { "                      [B] Audio Proximity Beeper | [R] Scan Now", false, false },
+    { "* [ESC]             : Return to Main Scanner List", false, false },
+    { "", false, false },
+    { "2. LUA SCRIPTING ENVIRONMENT", true, false },
+    { "--------------------------------------------------", false, false },
+    { "* Integrated Lua 5.3 runtime with 500ms safety timeout.", false, false },
+    { "* Variables Provided to Lua Scripts:", false, false },
+    { "  - bytes[1..16]    : 1-indexed raw byte payload table", false, false },
+    { "  - handle          : GATT characteristic handle (integer)", false, false },
+    { "  - len             : Total payload length in bytes", false, false },
+    { "* Rule: Lua script MUST return a display string.", false, false },
+    { "", false, false },
+    { "3. PRACTICAL CODE EXAMPLES (2-LINE FORMAT)", true, false },
+    { "--------------------------------------------------", false, false },
+    { "Example 1: Xiaomi Mi Body Scale (ADV Payload)", true, false },
+    { "  val = ((bytes[12] or 0)*256 + (bytes[11] or 0)) / 200", false, true },
+    { "  return string.format('Weight: %.2f kg', val)", false, true },
+    { "", false, false },
+    { "Example 2: Standard Bluetooth Scale (0x181D)", true, false },
+    { "  val = ((bytes[5] or 0)*256 + (bytes[4] or 0)) * 0.005", false, true },
+    { "  return string.format('Scale: %.2f kg', val)", false, true },
+    { "", false, false },
+    { "Example 3: BTHome / Sensor (Temp & Humidity)", true, false },
+    { "  t = bytes[3] or 0; h = bytes[4] or 0", false, true },
+    { "  return string.format('Temp: %d C | Humidity: %d%%', t, h)", false, true },
+    { "", false, false },
+    { "Example 4: GATT Battery Level (0x2A19)", true, false },
+    { "  lvl = bytes[1] or 0", false, true },
+    { "  return string.format('Battery Level: %d%%', lvl)", false, true },
+    { "", false, false },
+    { "Example 5: GATT 16-bit Unsigned Little-Endian", true, false },
+    { "  val = (bytes[2] or 0)*256 + (bytes[1] or 0)", false, true },
+    { "  return string.format('Sensor: %u raw', val)", false, true },
+    { "", false, false },
+    { "Example 6: GATT ASCII Text String", true, false },
+    { "  return string.char(table.unpack(bytes, 1, math.min(len, 16)))", false, true },
+    { "", false, false },
+    { "4. HARDWARE CONSTRAINTS & BEST PRACTICES", true, false },
+    { "--------------------------------------------------", false, false },
+    { "* ESP32-S3 uses a single 2.4GHz RF core.", false, false },
+    { "* Background scan pauses during active GATT connection.", false, false },
+    { "* Fast scan captures up to 62 bytes of ADV payload.", false, false },
+    { "* Aliases & Proximity bookmarks persist in NVS flash.", false, false },
+    { "", false, false },
+    { "=== End of Guide - Press [ESC] or [H] to Exit ===", true, false },
+};
+
+typedef struct {
     /* --- Scan worker (guarded by ble_scanner_lock) --- */
     TaskHandle_t task;
     volatile bool task_done;
@@ -178,8 +252,9 @@ typedef struct {
     bool beep_enabled;
     float radar_sweep_angle;
 
-    /* Help Modal */
+    /* Help Modal & Scroll */
     bool showing_help;
+    size_t help_scroll_line;
 
     /* General status */
     uint32_t elapsed_ms;
@@ -1419,53 +1494,57 @@ static void ble_draw_tab_radar(solar_os_gfx_t *gfx, int width, int height)
 }
 
 /* ---------------------------------------------------------------------
- * Help Modal Dialog
+ * Full Scrollable English Help Guide
  * ------------------------------------------------------------------- */
 
 static void ble_draw_help_modal(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int mw = 380;
-    const int mh = 260;
-    const int mx = (width - mw) / 2;
-    const int my = (height - mh) / 2;
+    const int top = BLE_HEADER_H + 2;
+    const int bottom = height - BLE_FOOTER_H - 2;
+    const int view_h = bottom - top;
+    const int line_h = 16;
+    const int visible_lines = view_h / line_h;
+    const size_t total_lines = sizeof(ble_help_docs) / sizeof(ble_help_docs[0]);
 
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_fill_rect(gfx, mx, my, mw, mh);
+    solar_os_gfx_fill_rect(gfx, 2, top, width - 4, view_h);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, mx, my, mw, mh);
-    solar_os_gfx_rect(gfx, mx + 2, my + 2, mw - 4, mh - 4);
+    solar_os_gfx_rect(gfx, 2, top, width - 4, view_h);
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, mx + 10, my + 18, "LUA KODU YORUMLAMA REHBERI & ORNEKLER");
-    solar_os_gfx_line(gfx, mx + 6, my + 24, mx + mw - 6, my + 24);
+    if (ble_state.help_scroll_line + visible_lines > total_lines && total_lines > (size_t)visible_lines) {
+        ble_state.help_scroll_line = total_lines - (size_t)visible_lines;
+    }
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    int y = my + 38;
-    solar_os_gfx_text(gfx, mx + 10, y, "* ADV ve GATT verileri 'bytes[1..16]' tablosu olarak sunulur."); y += 16;
-    solar_os_gfx_text(gfx, mx + 10, y, "* 'return' ile dondurulen metin ekranda anlik gosterilir."); y += 20;
+    for (int i = 0; i < visible_lines; i++) {
+        const size_t line_idx = ble_state.help_scroll_line + (size_t)i;
+        if (line_idx >= total_lines) break;
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, mx + 10, y, "Ornek 1 (Xiaomi Tartisi):"); y += 14;
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, mx + 14, y, "return string.format('Kilo: %.2f kg', ((bytes[12] or 0)*256 + (bytes[11] or 0))/200)"); y += 18;
+        const ble_help_line_t *item = &ble_help_docs[line_idx];
+        const int y = top + 4 + i * line_h;
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, mx + 10, y, "Ornek 2 (Standart Baskul 0x181D):"); y += 14;
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, mx + 14, y, "return string.format('Agirlik: %.2f kg', ((bytes[5] or 0)*256 + (bytes[4] or 0))*0.005)"); y += 18;
+        if (item->is_header) {
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+            solar_os_gfx_text(gfx, 10, y + 12, item->text);
+        } else if (item->is_code) {
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+            solar_os_gfx_text(gfx, 18, y + 12, item->text);
+        } else {
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+            solar_os_gfx_text(gfx, 10, y + 12, item->text);
+        }
+    }
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, mx + 10, y, "Ornek 3 (Ortam / Sicaklik Sensoru):"); y += 14;
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, mx + 14, y, "return 'Sicaklik: ' .. (bytes[3] or 0) .. ' C, Nem: ' .. (bytes[4] or 0) .. '%'"); y += 18;
+    /* Scroll Bar on Right Edge */
+    if (total_lines > (size_t)visible_lines) {
+        const int bar_x = width - 10;
+        const int bar_w = 4;
+        const int bar_h_total = view_h - 10;
+        const int thumb_h = (bar_h_total * visible_lines) / (int)total_lines;
+        const int thumb_y = top + 5 + (int)((ble_state.help_scroll_line * (size_t)(bar_h_total - thumb_h)) / (total_lines - (size_t)visible_lines));
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, mx + 10, y, "Ornek 4 (GATT Batarya / 16-bit LE):"); y += 14;
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, mx + 14, y, "return 'Batarya: ' .. (bytes[1] or 0) .. '%%'"); y += 22;
-
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, mx + 10, y, "[ESC] veya [H] Kapat");
+        solar_os_gfx_rect(gfx, bar_x, top + 5, bar_w, bar_h_total);
+        solar_os_gfx_fill_rect(gfx, bar_x, thumb_y, bar_w, thumb_h > 8 ? thumb_h : 8);
+    }
 }
 
 /* ---------------------------------------------------------------------
@@ -1544,11 +1623,28 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
 {
     const unsigned char uch = (unsigned char)ch;
 
-    /* Help Modal Close */
+    /* Help Modal Scroll & Close */
     if (ble_state.showing_help) {
-        if (uch == SOLAR_OS_KEY_ESCAPE || ch == 'h' || ch == 'H' || ch == 'q' || ch == 'Q' || ch == '\n' || ch == '\r') {
+        const size_t total = sizeof(ble_help_docs) / sizeof(ble_help_docs[0]);
+        if (uch == SOLAR_OS_KEY_UP || ch == 'w' || ch == 'W') {
+            if (ble_state.help_scroll_line > 0) {
+                ble_state.help_scroll_line--;
+                ble_state.render_pending = true;
+            }
+            return;
+        }
+        if (uch == SOLAR_OS_KEY_DOWN || ch == 's' || ch == 'S') {
+            if (ble_state.help_scroll_line + 14 < total) {
+                ble_state.help_scroll_line++;
+                ble_state.render_pending = true;
+            }
+            return;
+        }
+        if (uch == SOLAR_OS_KEY_ESCAPE || ch == 'h' || ch == 'H' || ch == 'q' || ch == 'Q') {
             ble_state.showing_help = false;
+            ble_state.help_scroll_line = 0;
             ble_state.render_pending = true;
+            return;
         }
         return;
     }
@@ -1557,6 +1653,7 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
     if ((ch == 'h' || ch == 'H' || ch == '?') &&
         !ble_state.editing_alias && !ble_state.editing_lua && !ble_state.editing_gatt_lua) {
         ble_state.showing_help = true;
+        ble_state.help_scroll_line = 0;
         ble_state.render_pending = true;
         return;
     }
@@ -1736,20 +1833,20 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
 
         case DEV_TAB_SETTINGS:
             if (ch == '1') {
-                strlcpy(ble_state.custom_lua_expr, "return string.format('Xiaomi Tartisi: %.2f kg', ((bytes[12] or 0)*256 + (bytes[11] or 0))/200)", sizeof(ble_state.custom_lua_expr));
-                ble_scanner_set_status("Preset 1 (Xiaomi Tartisi) uygulandi");
+                strlcpy(ble_state.custom_lua_expr, "return string.format('Xiaomi Scale: %.2f kg', ((bytes[12] or 0)*256 + (bytes[11] or 0))/200)", sizeof(ble_state.custom_lua_expr));
+                ble_scanner_set_status("Preset 1 (Xiaomi Scale) applied");
                 ble_state.render_pending = true;
             } else if (ch == '2') {
-                strlcpy(ble_state.custom_lua_expr, "return string.format('Standart Baskul: %.2f kg', ((bytes[5] or 0)*256 + (bytes[4] or 0))*0.005)", sizeof(ble_state.custom_lua_expr));
-                ble_scanner_set_status("Preset 2 (Standart Baskul 0x181D) uygulandi");
+                strlcpy(ble_state.custom_lua_expr, "return string.format('Standard Scale: %.2f kg', ((bytes[5] or 0)*256 + (bytes[4] or 0))*0.005)", sizeof(ble_state.custom_lua_expr));
+                ble_scanner_set_status("Preset 2 (Standard Scale 0x181D) applied");
                 ble_state.render_pending = true;
             } else if (ch == '3') {
-                strlcpy(ble_state.custom_lua_expr, "return 'Sensor: ' .. (bytes[3] or 0) .. ' C, Nem: ' .. (bytes[4] or 0) .. '%'", sizeof(ble_state.custom_lua_expr));
-                ble_scanner_set_status("Preset 3 (Sensor) uygulandi");
+                strlcpy(ble_state.custom_lua_expr, "return 'Sensor: ' .. (bytes[3] or 0) .. ' C, Hum: ' .. (bytes[4] or 0) .. '%'", sizeof(ble_state.custom_lua_expr));
+                ble_scanner_set_status("Preset 3 (Sensor) applied");
                 ble_state.render_pending = true;
             } else if (ch == '4') {
                 ble_state.custom_lua_expr[0] = '\0';
-                ble_scanner_set_status("Preset 4 (Varsayilan Cozumleyiciler) geri yuklendi");
+                ble_scanner_set_status("Preset 4 (Default Decoders) restored");
                 ble_state.render_pending = true;
             } else if (ch == 'a' || ch == 'A') {
                 ble_state.editing_alias = true;
