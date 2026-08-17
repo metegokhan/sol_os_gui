@@ -939,13 +939,78 @@ static void display_publish_frame(u8g2_t *u8g2)
     solar_os_memory_free(free_buffer);
 }
 
+/* External U8g2 rotation callbacks, used to map logical (x,y) to the native
+ * buffer layout below -- same technique as solar_os_screenshot.c's
+ * u8g2_extract_logical_pixel(), duplicated rather than shared so this file
+ * doesn't take a dependency on the screenshot module for an unrelated
+ * feature. */
+extern const u8g2_cb_t u8g2_cb_r0;
+extern const u8g2_cb_t u8g2_cb_r1;
+extern const u8g2_cb_t u8g2_cb_r2;
+extern const u8g2_cb_t u8g2_cb_r3;
+
+uint8_t solar_os_display_get_pixel(u8g2_t *u8g2, uint16_t x, uint16_t y)
+{
+    if (u8g2 == NULL) {
+        return 0;
+    }
+    uint8_t *buf = u8g2_GetBufferPtr(u8g2);
+    if (buf == NULL) {
+        return 0;
+    }
+
+    const u8x8_display_info_t *info = u8g2_GetU8x8(u8g2)->display_info;
+    if (info == NULL) {
+        return 0;
+    }
+
+    const uint8_t tile_width = info->tile_width;
+    const uint16_t native_w = info->pixel_width;
+    const uint16_t native_h = info->pixel_height;
+
+    uint16_t nx = x;
+    uint16_t ny = y;
+
+    if (u8g2->cb == &u8g2_cb_r1) {
+        if (y < native_w && x < native_h) {
+            nx = (uint16_t)((native_w - 1) - y);
+            ny = x;
+        } else {
+            return 0;
+        }
+    } else if (u8g2->cb == &u8g2_cb_r2) {
+        if (x < native_w && y < native_h) {
+            nx = (uint16_t)((native_w - 1) - x);
+            ny = (uint16_t)((native_h - 1) - y);
+        } else {
+            return 0;
+        }
+    } else if (u8g2->cb == &u8g2_cb_r3) {
+        if (y < native_h && x < native_w) {
+            nx = y;
+            ny = (uint16_t)((native_h - 1) - x);
+        } else {
+            return 0;
+        }
+    } else {
+        if (x >= native_w || y >= native_h) {
+            return 0;
+        }
+    }
+
+    const size_t byte_idx = (size_t)(ny / 8) * (tile_width * 8) + (size_t)(nx / 8) * 8 + (nx & 7);
+    return (buf[byte_idx] >> (ny & 7)) & 1;
+}
+
 void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode)
 {
     if (u8g2 == NULL) {
         return;
     }
     if (solar_os_mouse_is_visible()) {
-        solar_os_mouse_draw_cursor_u8g2(u8g2);
+        solar_os_mouse_compositor_stamp(u8g2);
+    } else {
+        solar_os_mouse_compositor_invalidate();
     }
     (void)solar_os_display_request_present_mode(u8g2, mode);
     display_publish_frame(u8g2);

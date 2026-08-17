@@ -95,6 +95,10 @@ esp_err_t solar_os_display_set_high_refresh_override(const char *name,
 esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
                                                 solar_os_display_present_mode_t mode);
 void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode);
+/* Reads back one logical pixel (rotation-aware) from u8g2's own framebuffer.
+ * Out-of-range coordinates return 0. Used by the mouse cursor compositor to
+ * snapshot/restore the pixels under the cursor sprite. */
+uint8_t solar_os_display_get_pixel(u8g2_t *u8g2, uint16_t x, uint16_t y);
 esp_err_t solar_os_display_present_mono_xbm(u8g2_t *u8g2,
                                             const uint8_t *bitmap,
                                             size_t bitmap_size,

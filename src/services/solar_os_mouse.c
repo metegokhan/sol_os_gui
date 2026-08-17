@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 
+#include "solar_os_display.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
@@ -30,6 +31,8 @@ static solar_os_mouse_state_t mouse_state = {
 
 static uint8_t prev_buttons = 0;
 static solar_os_input_source_t mouse_input_source = SOLAR_OS_INPUT_SOURCE_INVALID;
+static float cursor_fx = SOLAR_OS_MOUSE_WIDTH / 2.0f;
+static float cursor_fy = SOLAR_OS_MOUSE_HEIGHT / 2.0f;
 
 static portMUX_TYPE mouse_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -49,7 +52,11 @@ esp_err_t solar_os_mouse_init(void)
     mouse_state.connected = false;
     mouse_state.last_active_ms = 0;
     prev_buttons = 0;
+    cursor_fx = SOLAR_OS_MOUSE_WIDTH / 2.0f;
+    cursor_fy = SOLAR_OS_MOUSE_HEIGHT / 2.0f;
     portEXIT_CRITICAL(&mouse_lock);
+
+    solar_os_mouse_compositor_invalidate();
 
     if (mouse_input_source == SOLAR_OS_INPUT_SOURCE_INVALID) {
         (void)solar_os_input_source_open("ble-mouse", &mouse_input_source);
@@ -80,27 +87,40 @@ bool solar_os_mouse_is_connected(void)
 
 static bool mouse_dirty = false;
 
+/* Pending click: the (x,y) the cursor was at on the left-button press edge,
+ * for apps that want to hit-test their own on-screen elements instead of
+ * (or in addition to) the generic Enter-key emulation below. Popped once by
+ * main.c's dispatch loop -- see solar_os_mouse_take_pending_click(). */
+static bool click_pending = false;
+static int16_t click_pending_x = 0;
+static int16_t click_pending_y = 0;
+static uint8_t click_pending_buttons = 0;
+
+/* Pending scroll: wheel notches accumulated since the last pop, plus the
+ * cursor position at the time of accumulation. Popped once by main.c's
+ * dispatch loop -- see solar_os_mouse_take_pending_scroll(). */
+static int16_t scroll_pending_delta = 0;
+static int16_t scroll_pending_x = 0;
+static int16_t scroll_pending_y = 0;
+
 void solar_os_mouse_process_report(uint8_t buttons, int16_t dx, int16_t dy, int8_t wheel)
 {
     const uint32_t now = mouse_millis();
+    int16_t final_x, final_y;
 
     portENTER_CRITICAL(&mouse_lock);
 
-    /* Update coordinates with 1:1 direct pixel response and sub-pixel float */
-    static float s_cursor_fx = SOLAR_OS_MOUSE_WIDTH / 2.0f;
-    static float s_cursor_fy = SOLAR_OS_MOUSE_HEIGHT / 2.0f;
-
     if (dx != 0 || dy != 0) {
-        s_cursor_fx += (float)dx;
-        s_cursor_fy += (float)dy;
+        cursor_fx += (float)dx;
+        cursor_fy += (float)dy;
 
-        if (s_cursor_fx < 0.0f) s_cursor_fx = 0.0f;
-        if (s_cursor_fx >= (float)SOLAR_OS_MOUSE_WIDTH) s_cursor_fx = (float)(SOLAR_OS_MOUSE_WIDTH - 1);
-        if (s_cursor_fy < 0.0f) s_cursor_fy = 0.0f;
-        if (s_cursor_fy >= (float)SOLAR_OS_MOUSE_HEIGHT) s_cursor_fy = (float)(SOLAR_OS_MOUSE_HEIGHT - 1);
+        if (cursor_fx < 0.0f) cursor_fx = 0.0f;
+        if (cursor_fx >= (float)SOLAR_OS_MOUSE_WIDTH) cursor_fx = (float)(SOLAR_OS_MOUSE_WIDTH - 1);
+        if (cursor_fy < 0.0f) cursor_fy = 0.0f;
+        if (cursor_fy >= (float)SOLAR_OS_MOUSE_HEIGHT) cursor_fy = (float)(SOLAR_OS_MOUSE_HEIGHT - 1);
 
-        mouse_state.x = (int16_t)s_cursor_fx;
-        mouse_state.y = (int16_t)s_cursor_fy;
+        mouse_state.x = (int16_t)cursor_fx;
+        mouse_state.y = (int16_t)cursor_fy;
         mouse_dirty = true;
     }
 
@@ -109,27 +129,36 @@ void solar_os_mouse_process_report(uint8_t buttons, int16_t dx, int16_t dy, int8
     mouse_state.visible = true;
     mouse_state.connected = true;
     mouse_state.last_active_ms = now;
+    final_x = mouse_state.x;
+    final_y = mouse_state.y;
+
+    if (wheel != 0) {
+        scroll_pending_delta += wheel;
+        scroll_pending_x = final_x;
+        scroll_pending_y = final_y;
+    }
 
     portEXIT_CRITICAL(&mouse_lock);
 
     /* 1. Button State Translation */
-    /* Left Button (Bit 0): Enter / Select */
+    /* Left Button (Bit 0): positional click only (SOLAR_OS_EVENT_CLICK).
+     * This used to also synthesize a global Enter keypress, but that meant
+     * every left-click fired TWO actions: Enter first (activating whatever
+     * item was already selected from prior keyboard/click nav), then the
+     * click landing wherever the cursor actually was -- e.g. clicking one
+     * folder over from the selected one would open the OLD selection and
+     * then act on the new one. Position is now the only signal; apps that
+     * don't handle SOLAR_OS_EVENT_CLICK simply don't get left-click input,
+     * same as before this mouse service existed. */
     const bool left_pressed = (buttons & SOLAR_OS_MOUSE_BTN_LEFT) != 0;
     const bool left_prev = (prev_buttons & SOLAR_OS_MOUSE_BTN_LEFT) != 0;
-    if (left_pressed && !left_prev && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
-        (void)solar_os_input_write_key(mouse_input_source,
-                                       0xE001,
-                                       SOLAR_OS_INPUT_USAGE_NONE,
-                                       SOLAR_OS_KEY_ENTER,
-                                       0,
-                                       SOLAR_OS_INPUT_KEY_PRESS);
-    } else if (!left_pressed && left_prev && mouse_input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
-        (void)solar_os_input_write_key(mouse_input_source,
-                                       0xE001,
-                                       SOLAR_OS_INPUT_USAGE_NONE,
-                                       SOLAR_OS_KEY_ENTER,
-                                       0,
-                                       SOLAR_OS_INPUT_KEY_RELEASE);
+    if (left_pressed && !left_prev) {
+        portENTER_CRITICAL(&mouse_lock);
+        click_pending = true;
+        click_pending_x = final_x;
+        click_pending_y = final_y;
+        click_pending_buttons = SOLAR_OS_MOUSE_BTN_LEFT;
+        portEXIT_CRITICAL(&mouse_lock);
     }
 
     /* Right Button (Bit 1): ESC / Back */
@@ -206,6 +235,36 @@ void solar_os_mouse_clear_dirty(void)
     portEXIT_CRITICAL(&mouse_lock);
 }
 
+bool solar_os_mouse_take_pending_click(int16_t *x, int16_t *y, uint8_t *buttons)
+{
+    bool had_click;
+    portENTER_CRITICAL(&mouse_lock);
+    had_click = click_pending;
+    if (had_click) {
+        if (x != NULL) *x = click_pending_x;
+        if (y != NULL) *y = click_pending_y;
+        if (buttons != NULL) *buttons = click_pending_buttons;
+        click_pending = false;
+    }
+    portEXIT_CRITICAL(&mouse_lock);
+    return had_click;
+}
+
+bool solar_os_mouse_take_pending_scroll(int16_t *delta, int16_t *x, int16_t *y)
+{
+    bool had_scroll;
+    portENTER_CRITICAL(&mouse_lock);
+    had_scroll = scroll_pending_delta != 0;
+    if (had_scroll) {
+        if (delta != NULL) *delta = scroll_pending_delta;
+        if (x != NULL) *x = scroll_pending_x;
+        if (y != NULL) *y = scroll_pending_y;
+        scroll_pending_delta = 0;
+    }
+    portEXIT_CRITICAL(&mouse_lock);
+    return had_scroll;
+}
+
 void solar_os_mouse_tick(uint32_t now_ms)
 {
     portENTER_CRITICAL(&mouse_lock);
@@ -253,6 +312,45 @@ static const uint8_t cursor_fill[14] = {
     0b00000000,
 };
 
+/* Cursor sprite footprint in physical pixels (8 cols x 14 rows, 2x scale). */
+#define MOUSE_CURSOR_PX_W 16
+#define MOUSE_CURSOR_PX_H 28
+
+static void mouse_draw_sprite_at_u8g2(u8g2_t *u8g2, int mx, int my)
+{
+    /* Draw white interior fill (color 0 on RLCD) */
+    u8g2_SetDrawColor(u8g2, 0);
+    for (int r = 0; r < 14; r++) {
+        uint8_t row = cursor_fill[r];
+        for (int c = 0; c < 8; c++) {
+            if (row & (1 << (7 - c))) {
+                const int px = mx + (c * 2);
+                const int py = my + (r * 2);
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)px, (u8g2_uint_t)py);
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)(px + 1), (u8g2_uint_t)py);
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)px, (u8g2_uint_t)(py + 1));
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)(px + 1), (u8g2_uint_t)(py + 1));
+            }
+        }
+    }
+
+    /* Draw black crisp outline (color 1 on RLCD) */
+    u8g2_SetDrawColor(u8g2, 1);
+    for (int r = 0; r < 14; r++) {
+        uint8_t row = cursor_mask[r];
+        for (int c = 0; c < 8; c++) {
+            if ((row & (1 << (7 - c))) && !(cursor_fill[r] & (1 << (7 - c)))) {
+                const int px = mx + (c * 2);
+                const int py = my + (r * 2);
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)px, (u8g2_uint_t)py);
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)(px + 1), (u8g2_uint_t)py);
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)px, (u8g2_uint_t)(py + 1));
+                u8g2_DrawPixel(u8g2, (u8g2_uint_t)(px + 1), (u8g2_uint_t)(py + 1));
+            }
+        }
+    }
+}
+
 void solar_os_mouse_draw_cursor_u8g2(u8g2_t *u8g2)
 {
     if (u8g2 == NULL) return;
@@ -266,28 +364,78 @@ void solar_os_mouse_draw_cursor_u8g2(u8g2_t *u8g2)
     portEXIT_CRITICAL(&mouse_lock);
 
     if (!vis) return;
+    mouse_draw_sprite_at_u8g2(u8g2, mx, my);
+}
 
-    /* Draw white interior fill (color 0 on RLCD) */
-    u8g2_SetDrawColor(u8g2, 0);
-    for (int r = 0; r < 14; r++) {
-        uint8_t row = cursor_fill[r];
-        for (int c = 0; c < 8; c++) {
-            if (row & (1 << (7 - c))) {
-                u8g2_DrawPixel(u8g2, (u8g2_uint_t)(mx + c), (u8g2_uint_t)(my + r));
-            }
-        }
+/* ---------------------------------------------------------------------
+ * Cursor Compositor: save/restore the pixels under the sprite so the
+ * cursor can be tracked between full app redraws without leaving a trail.
+ * See solar_os_display_present() (the single choke point every app and
+ * the terminal already push frames through) and main.c's
+ * dispatch_mouse_compositor() for how these get called.
+ * ------------------------------------------------------------------- */
+static uint8_t cursor_backup[MOUSE_CURSOR_PX_H][MOUSE_CURSOR_PX_W];
+static bool cursor_backup_valid = false;
+static int cursor_backup_x = 0;
+static int cursor_backup_y = 0;
+
+void solar_os_mouse_compositor_invalidate(void)
+{
+    cursor_backup_valid = false;
+}
+
+void solar_os_mouse_compositor_stamp(u8g2_t *u8g2)
+{
+    if (u8g2 == NULL) return;
+
+    int mx, my;
+    bool vis;
+    portENTER_CRITICAL(&mouse_lock);
+    mx = mouse_state.x;
+    my = mouse_state.y;
+    vis = mouse_state.visible;
+    portEXIT_CRITICAL(&mouse_lock);
+
+    if (!vis) {
+        cursor_backup_valid = false;
+        return;
     }
 
-    /* Draw black crisp outline (color 1 on RLCD) */
-    u8g2_SetDrawColor(u8g2, 1);
-    for (int r = 0; r < 14; r++) {
-        uint8_t row = cursor_mask[r];
-        for (int c = 0; c < 8; c++) {
-            if ((row & (1 << (7 - c))) && !(cursor_fill[r] & (1 << (7 - c)))) {
-                u8g2_DrawPixel(u8g2, (u8g2_uint_t)(mx + c), (u8g2_uint_t)(my + r));
-            }
+    for (int r = 0; r < MOUSE_CURSOR_PX_H; r++) {
+        for (int c = 0; c < MOUSE_CURSOR_PX_W; c++) {
+            cursor_backup[r][c] = solar_os_display_get_pixel(u8g2, (uint16_t)(mx + c), (uint16_t)(my + r));
         }
     }
+    cursor_backup_x = mx;
+    cursor_backup_y = my;
+    cursor_backup_valid = true;
+
+    mouse_draw_sprite_at_u8g2(u8g2, mx, my);
+}
+
+static void mouse_compositor_restore(u8g2_t *u8g2)
+{
+    if (u8g2 == NULL || !cursor_backup_valid) return;
+
+    for (int r = 0; r < MOUSE_CURSOR_PX_H; r++) {
+        for (int c = 0; c < MOUSE_CURSOR_PX_W; c++) {
+            u8g2_SetDrawColor(u8g2, cursor_backup[r][c]);
+            u8g2_DrawPixel(u8g2, (u8g2_uint_t)(cursor_backup_x + c), (u8g2_uint_t)(cursor_backup_y + r));
+        }
+    }
+    cursor_backup_valid = false;
+}
+
+void solar_os_mouse_compositor_track_tick(u8g2_t *u8g2)
+{
+    if (u8g2 == NULL) return;
+    /* Safe as long as nothing besides our own last stamp touched this
+     * region since -- true between two app redraws, since solar_os_gfx /
+     * terminal always redraw their whole background before presenting,
+     * which naturally overwrites any stale backup and takes the stamp
+     * path (with a fresh, valid snapshot) instead of this one. */
+    mouse_compositor_restore(u8g2);
+    solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
 }
 
 void solar_os_mouse_draw_cursor(solar_os_gfx_t *gfx)
@@ -310,7 +458,10 @@ void solar_os_mouse_draw_cursor(solar_os_gfx_t *gfx)
         uint8_t row = cursor_fill[r];
         for (int c = 0; c < 8; c++) {
             if (row & (1 << (7 - c))) {
-                solar_os_gfx_pixel(gfx, mx + c, my + r);
+                solar_os_gfx_pixel(gfx, mx + (c * 2), my + (r * 2));
+                solar_os_gfx_pixel(gfx, mx + (c * 2) + 1, my + (r * 2));
+                solar_os_gfx_pixel(gfx, mx + (c * 2), my + (r * 2) + 1);
+                solar_os_gfx_pixel(gfx, mx + (c * 2) + 1, my + (r * 2) + 1);
             }
         }
     }
@@ -321,7 +472,10 @@ void solar_os_mouse_draw_cursor(solar_os_gfx_t *gfx)
         uint8_t row = cursor_mask[r];
         for (int c = 0; c < 8; c++) {
             if ((row & (1 << (7 - c))) && !(cursor_fill[r] & (1 << (7 - c)))) {
-                solar_os_gfx_pixel(gfx, mx + c, my + r);
+                solar_os_gfx_pixel(gfx, mx + (c * 2), my + (r * 2));
+                solar_os_gfx_pixel(gfx, mx + (c * 2) + 1, my + (r * 2));
+                solar_os_gfx_pixel(gfx, mx + (c * 2), my + (r * 2) + 1);
+                solar_os_gfx_pixel(gfx, mx + (c * 2) + 1, my + (r * 2) + 1);
             }
         }
     }

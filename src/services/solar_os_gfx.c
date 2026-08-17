@@ -658,10 +658,10 @@ void solar_os_gfx_present(solar_os_gfx_t *gfx)
         return;
     }
 
-    if (solar_os_mouse_is_visible()) {
-        solar_os_mouse_draw_cursor(gfx);
-    }
-
+    /* solar_os_display_present() stamps the cursor itself (with a
+     * save/restore compositor so it can also be tracked between app
+     * redraws) -- drawing it here too would double-draw it and step on
+     * the compositor's backup bookkeeping. */
     solar_os_display_present(gfx->u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
     gfx->dirty = false;
 }

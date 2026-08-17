@@ -80,7 +80,21 @@ typedef enum {
     SOLAR_OS_EVENT_KEY,
     SOLAR_OS_EVENT_TICK,
     SOLAR_OS_EVENT_RESUME,
+    SOLAR_OS_EVENT_CLICK,
+    SOLAR_OS_EVENT_SCROLL,
 } solar_os_event_type_t;
+
+typedef struct {
+    int16_t x;
+    int16_t y;
+    uint8_t buttons; /* SOLAR_OS_MOUSE_BTN_* bitmask of the button(s) that triggered this click */
+} solar_os_click_event_t;
+
+typedef struct {
+    int16_t delta; /* Accumulated wheel notches since the last scroll event; positive/negative sign is device-dependent. */
+    int16_t x;
+    int16_t y;
+} solar_os_scroll_event_t;
 
 typedef struct {
     solar_os_event_type_t type;
@@ -88,6 +102,8 @@ typedef struct {
         char ch;
         solar_os_input_key_event_t key;
         uint32_t tick_ms;
+        solar_os_click_event_t click;
+        solar_os_scroll_event_t scroll;
     } data;
 } solar_os_event_t;
 
