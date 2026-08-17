@@ -580,6 +580,17 @@ static void central_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_pa
         SOLAR_OS_LOGI(TAG, "SMP Key exchanged (type=0x%x)", param->ble_security.ble_key.key_type);
         break;
 
+    case ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT:
+        SOLAR_OS_LOGI(TAG,
+                      "conn params updated [" ESP_BD_ADDR_STR "] status=%d conn_int=%u (%.2fms) latency=%u timeout=%ums",
+                      ESP_BD_ADDR_HEX(param->update_conn_params.bda),
+                      (int)param->update_conn_params.status,
+                      param->update_conn_params.conn_int,
+                      param->update_conn_params.conn_int * 1.25,
+                      param->update_conn_params.latency,
+                      param->update_conn_params.timeout * 10);
+        break;
+
     case ESP_GAP_BLE_AUTH_CMPL_EVT:
         if (param->ble_security.auth_cmpl.success) {
             SOLAR_OS_LOGI(TAG, "BLE Authentication SUCCESS with peer [" ESP_BD_ADDR_STR "]",

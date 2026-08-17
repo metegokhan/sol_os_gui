@@ -80,6 +80,28 @@ size_t solar_os_ble_hid_remembered_count(void);
  */
 esp_err_t solar_os_ble_hid_forget_all(void);
 
+typedef struct {
+    uint8_t bda[6];
+    uint8_t addr_type;
+    char name[32];
+    bool connected;
+} solar_os_ble_hid_remembered_info_t;
+
+/**
+ * @brief Check whether a specific device address is remembered (paired).
+ */
+bool solar_os_ble_hid_is_remembered(const uint8_t bda[6]);
+
+/**
+ * @brief Retrieve a remembered HID device by index (0..remembered_count-1).
+ */
+bool solar_os_ble_hid_get_remembered(size_t index, solar_os_ble_hid_remembered_info_t *out);
+
+/**
+ * @brief Forget one remembered HID device by address.
+ */
+esp_err_t solar_os_ble_hid_forget(const uint8_t bda[6]);
+
 /**
  * @brief Start background auto-discovery & pairing task for keyboards/HID devices.
  */
