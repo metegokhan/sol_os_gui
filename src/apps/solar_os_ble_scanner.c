@@ -18,6 +18,8 @@
 #include "nvs_flash.h"
 
 #include "solar_os_audio.h"
+#include "solar_os_appbar.h"
+#include "solar_os_ble_hid.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
@@ -36,8 +38,6 @@
 #define BLE_SCANNER_LIST_AUTORESCAN_MS 60000U /* 60s list rescan */
 #define BLE_SCANNER_RADAR_RESCAN_MS 3000U     /* 3s responsive target radar rescan */
 
-#define BLE_HEADER_H 24
-#define BLE_FOOTER_H 22
 
 typedef enum {
     BLE_VIEW_SCANNER = 0,
@@ -122,16 +122,17 @@ static const ble_help_line_t ble_help_docs[] = {
     { "1. USER INTERFACE & NAVIGATION", true, false },
     { "--------------------------------------------------", false, false },
     { "[Main Scanner Screen]", true, false },
-    { "* [Up/Down] / [W/S] : Browse detected BLE devices", false, false },
+    { "* [Up/Down/Left/Right] / [WASD] : Browse detected BLE devices", false, false },
     { "* [Enter]           : Open Dedicated Device Hub", false, false },
     { "* [Space] / [R]     : Trigger instant BLE scan", false, false },
     { "* [F]               : Filter (ALL, SAVED, NAMED, HID, STRONG)", false, false },
+    { "* [M]               : Manage Paired Devices (reconnect / forget)", false, false },
     { "* [H]               : Open this Help Guide", false, false },
     { "* [ESC] / [Q]       : Exit application to SolarOS", false, false },
     { "", false, false },
     { "[Device Hub - 4 Modular Tabs]", true, false },
     { "* [Tab]             : Cycle Tabs (INFO -> SETTINGS -> GATT -> RADAR)", false, false },
-    { "* Tab 1 [INFO]      : Specs, live ADV broadcast & [P] Direct HID Pair", false, false },
+    { "* Tab 1 [INFO]      : Specs, live ADV broadcast & [Enter/P] Direct HID Pair", false, false },
     { "* Tab 2 [SETTINGS]  : [A] Rename Alias | [P] Proximity Alert", false, false },
     { "                      [1-4] Presets (Scale/Sensor) | [E] Edit ADV Lua", false, false },
     { "* Tab 3 [GATT]      : [C] Connect/Disconnect | [Left/Right] Switch Column", false, false },
@@ -275,6 +276,10 @@ typedef struct {
     /* Help Modal & Scroll */
     bool showing_help;
     size_t help_scroll_line;
+
+    /* Paired Devices Modal */
+    bool showing_paired;
+    size_t paired_selected;
 
     /* General status */
     uint32_t elapsed_ms;
@@ -670,92 +675,104 @@ static void ble_scanner_set_status(const char *message)
  * UI Drawing Helpers
  * ------------------------------------------------------------------- */
 
-static void ble_draw_header(solar_os_gfx_t *gfx, int width)
+static const char * const BLE_DEV_TAB_NAMES[DEV_TAB_COUNT] = { "Info", "Settings", "GATT", "Radar" };
+
+static void ble_build_header(solar_os_appbar_header_t *out, char *status_buf, size_t status_buf_len)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, BLE_HEADER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    memset(out, 0, sizeof(*out));
+    out->show_back = true;
 
     if (ble_state.view == BLE_VIEW_SCANNER) {
-        char header[96];
-        const size_t total_found = ble_filtered_device_count();
-        snprintf(header, sizeof(header), "BLE SCANNER - Devices: %u | %s",
-                 (unsigned)total_found,
+        out->title = "BLE Scanner";
+        snprintf(status_buf, status_buf_len, "Devices: %u | %s",
+                 (unsigned)ble_filtered_device_count(),
                  ble_state.scanning ? "SCANNING..." : "READY");
-        solar_os_gfx_text(gfx, 8, 16, header);
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, width - 68, 16, "[H] Help");
+        out->status_line = status_buf;
     } else {
-        /* Device Page Header with Tab strip */
-        char title_buf[48];
-        const char *disp_name = ble_state.target_alias[0] ? ble_state.target_alias : (ble_state.target_name[0] ? ble_state.target_name : "Device");
-        snprintf(title_buf, sizeof(title_buf), "%s", disp_name);
-        solar_os_gfx_text(gfx, 8, 16, title_buf);
-
-        /* Tabs on right side of header */
-        const char *tabs[DEV_TAB_COUNT] = { "1:INFO", "2:SETTINGS", "3:GATT", "4:RADAR" };
-        int tab_x = 110;
-        for (int t = 0; t < DEV_TAB_COUNT; t++) {
-            const bool is_cur = (t == (int)ble_state.active_tab);
-            const int tw = 58;
-            if (is_cur) {
-                solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-                solar_os_gfx_fill_rect(gfx, tab_x, 2, tw, BLE_HEADER_H - 4);
-                solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            } else {
-                solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-                solar_os_gfx_rect(gfx, tab_x, 2, tw, BLE_HEADER_H - 4);
-            }
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-            solar_os_gfx_text(gfx, tab_x + 3, 16, tabs[t]);
-            tab_x += tw + 3;
-        }
-
-        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, width - 42, 16, "[H]");
+        out->title = ble_state.target_alias[0] ? ble_state.target_alias :
+                     (ble_state.target_name[0] ? ble_state.target_name : "Device");
+        out->tabs.names = BLE_DEV_TAB_NAMES;
+        out->tabs.count = DEV_TAB_COUNT;
+        out->tabs.active_index = (size_t)ble_state.active_tab;
     }
+}
+
+static void ble_draw_header(solar_os_gfx_t *gfx)
+{
+    char status_buf[64];
+    solar_os_appbar_header_t header;
+    ble_build_header(&header, status_buf, sizeof(status_buf));
+    solar_os_appbar_draw_header(gfx, &header);
+}
+
+/* Builds the current footer's shortcut chips into a caller-owned buffer,
+ * returning the count. Same set used by both drawing and click hit-testing
+ * so they can never disagree about what's on screen. */
+static size_t ble_build_footer_shortcuts(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (ble_state.showing_paired) {
+        if (n < max_items) { items[n].key = 'D'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Forget"); n++; }
+        if (n < max_items) { items[n].key = (char)SOLAR_OS_KEY_ESCAPE; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Close"); n++; }
+        return n;
+    }
+
+    if (ble_state.view == BLE_VIEW_SCANNER) {
+        const char *filter_name = ble_state.filter == BLE_FILTER_ALL ? "All" :
+                                  ble_state.filter == BLE_FILTER_SAVED ? "Saved" :
+                                  ble_state.filter == BLE_FILTER_NAMED ? "Named" :
+                                  ble_state.filter == BLE_FILTER_HID ? "HID" : "Strong";
+        if (n < max_items) { items[n].key = 'R'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Scan"); n++; }
+        if (n < max_items) { items[n].key = 'F'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Filter: %s", filter_name); n++; }
+        if (n < max_items) { items[n].key = 'M'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Paired"); n++; }
+        if (n < max_items) { items[n].key = 'H'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Help"); n++; }
+        return n;
+    }
+
+    switch (ble_state.active_tab) {
+    case DEV_TAB_OVERVIEW: {
+        const ble_device_item_t *d = ble_find_device(ble_state.target_bda);
+        const bool connected = d != NULL && d->connected;
+        if (n < max_items) { items[n].key = connected ? 'D' : 'P'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "%s", connected ? "Disconnect" : "Connect"); n++; }
+        break;
+    }
+    case DEV_TAB_SETTINGS:
+        if (n < max_items) { items[n].key = 'A'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Rename"); n++; }
+        if (n < max_items) { items[n].key = 'E'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Edit Lua"); n++; }
+        if (n < max_items) { items[n].key = 'P'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Alert"); n++; }
+        break;
+    case DEV_TAB_GATT:
+        if (n < max_items) { items[n].key = 'C'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "%s", ble_state.gatt_connected ? "Disconnect" : "Connect"); n++; }
+        if (n < max_items) { items[n].key = 'R'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Read"); n++; }
+        if (n < max_items) { items[n].key = 'M'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Mode"); n++; }
+        if (n < max_items) { items[n].key = 'E'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Lua"); n++; }
+        break;
+    case DEV_TAB_RADAR:
+    default:
+        if (n < max_items) { items[n].key = 'B'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "%s", ble_state.beep_enabled ? "Beep Off" : "Beep On"); n++; }
+        if (n < max_items) { items[n].key = 'R'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Scan Now"); n++; }
+        break;
+    }
+    return n;
 }
 
 static void ble_draw_footer(solar_os_gfx_t *gfx, int width, int height)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, height - BLE_FOOTER_H, width, BLE_FOOTER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-
-    char footer[128];
-    if (ble_state.status_until_ms > ble_state.elapsed_ms && ble_state.status_message[0] != '\0') {
-        snprintf(footer, sizeof(footer), "%s", ble_state.status_message);
-    } else {
-        if (ble_state.view == BLE_VIEW_SCANNER) {
-            const char *filter_name = ble_state.filter == BLE_FILTER_ALL ? "ALL" :
-                                      ble_state.filter == BLE_FILTER_SAVED ? "SAVED" :
-                                      ble_state.filter == BLE_FILTER_NAMED ? "NAMED" :
-                                      ble_state.filter == BLE_FILTER_HID ? "HID" : "STRONG";
-            snprintf(footer, sizeof(footer),
-                     "[Enter] Open Device | [R/Space] Scan | [F] Filter (%s) | [H] Help | [ESC] Exit",
-                     filter_name);
-        } else {
-            if (ble_state.active_tab == DEV_TAB_OVERVIEW) {
-                snprintf(footer, sizeof(footer),
-                         "[Tab] Tab | [1-4] Jump | [P] Connect | [D] Disconn | [H] Help | [ESC] Back");
-            } else if (ble_state.active_tab == DEV_TAB_SETTINGS) {
-                snprintf(footer, sizeof(footer),
-                         "[1-4] Presets | [E] Edit Lua | [A] Rename | [P] Alert | [Tab] Tab | [ESC] Back");
-            } else if (ble_state.active_tab == DEV_TAB_GATT) {
-                snprintf(footer, sizeof(footer),
-                         "[C] %s | [Arrows] Nav | [R] Read | [M] Mode | [E] Lua | [Tab] Tab | [ESC] Back",
-                         ble_state.gatt_connected ? "Disconnect" : "Connect");
-            } else {
-                snprintf(footer, sizeof(footer),
-                         "[B] Beep (%s) | [R] Scan Now | [Tab] Switch Tab | [H] Help | [ESC] Back",
-                         ble_state.beep_enabled ? "ON" : "OFF");
-            }
-        }
+    if (ble_state.status_until_ms > ble_state.elapsed_ms && ble_state.status_message[0] != '\0' &&
+        !ble_state.showing_paired) {
+        const int footer_h = solar_os_appbar_footer_height(gfx);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_fill_rect(gfx, 0, height - footer_h, width, footer_h);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, 8, height - footer_h / 4, ble_state.status_message);
+        return;
     }
-    solar_os_gfx_text(gfx, 8, height - 6, footer);
+
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = ble_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 }
 
 static void ble_draw_signal_bars(solar_os_gfx_t *gfx, int x, int y, int8_t rssi)
@@ -783,8 +800,8 @@ static void ble_draw_signal_bars(solar_os_gfx_t *gfx, int x, int y, int8_t rssi)
 
 static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = BLE_HEADER_H + 4;
-    const int bottom = height - BLE_FOOTER_H - 4;
+    const int top = solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx) + 4;
+    const int bottom = height - solar_os_appbar_footer_height(gfx) - 4;
     const int row_h = 32;
     const int visible_rows = (bottom - top) / row_h;
 
@@ -1010,7 +1027,7 @@ static void ble_render_adv_decoded_box(solar_os_gfx_t *gfx, const ble_device_ite
 
 static void ble_draw_tab_overview(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = BLE_HEADER_H + 4;
+    const int top = solar_os_appbar_header_height(gfx) + 4;
     const ble_device_item_t *dev = ble_find_device(ble_state.target_bda);
     if (dev == NULL) return;
 
@@ -1096,7 +1113,7 @@ static void ble_draw_tab_overview(solar_os_gfx_t *gfx, int width, int height)
 
 static void ble_draw_tab_settings(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = BLE_HEADER_H + 6;
+    const int top = solar_os_appbar_header_height(gfx) + 6;
     const ble_device_item_t *dev = ble_find_device(ble_state.target_bda);
     if (dev == NULL) return;
 
@@ -1200,8 +1217,8 @@ static void ble_draw_tab_settings(solar_os_gfx_t *gfx, int width, int height)
 
 static void ble_draw_tab_gatt(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = BLE_HEADER_H + 4;
-    const int bottom = height - BLE_FOOTER_H - 2;
+    const int top = solar_os_appbar_header_height(gfx) + 4;
+    const int bottom = height - solar_os_appbar_footer_height(gfx) - 2;
 
     /* Top GATT Connection Banner */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -1434,7 +1451,7 @@ static void ble_draw_tab_gatt(solar_os_gfx_t *gfx, int width, int height)
 
 static void ble_draw_tab_radar(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = BLE_HEADER_H + 2;
+    const int top = solar_os_appbar_header_height(gfx) + 2;
     const ble_device_item_t *dev = ble_find_device(ble_state.target_bda);
     if (dev == NULL) return;
 
@@ -1522,8 +1539,8 @@ static void ble_draw_tab_radar(solar_os_gfx_t *gfx, int width, int height)
 
 static void ble_draw_help_modal(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = BLE_HEADER_H + 2;
-    const int bottom = height - BLE_FOOTER_H - 2;
+    const int top = solar_os_appbar_header_height(gfx) + 2;
+    const int bottom = height - solar_os_appbar_footer_height(gfx) - 2;
     const int view_h = bottom - top;
     const int line_h = 16;
     const int visible_lines = view_h / line_h;
@@ -1570,6 +1587,72 @@ static void ble_draw_help_modal(solar_os_gfx_t *gfx, int width, int height)
     }
 }
 
+static void ble_draw_paired_modal(solar_os_gfx_t *gfx, int width, int height)
+{
+    const int top = solar_os_appbar_header_height(gfx) + 2;
+    const int bottom = height - solar_os_appbar_footer_height(gfx) - 2;
+    const int view_h = bottom - top;
+    const int row_h = 24;
+
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+    solar_os_gfx_fill_rect(gfx, 2, top, width - 4, view_h);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_rect(gfx, 2, top, width - 4, view_h);
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    solar_os_gfx_text(gfx, 10, top + 16, "PAIRED DEVICES");
+    solar_os_gfx_line(gfx, 4, top + 22, width - 6, top + 22);
+
+    const size_t count = solar_os_ble_hid_remembered_count();
+    if (count == 0) {
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, 10, top + 46, "No paired devices yet.");
+        solar_os_gfx_text(gfx, 10, top + 62, "Pair one with [P] on a device's Overview tab.");
+        return;
+    }
+
+    if (ble_state.paired_selected >= count) {
+        ble_state.paired_selected = count - 1;
+    }
+
+    const int list_top = top + 28;
+    const int visible_rows = (bottom - list_top) / row_h;
+    size_t scroll = 0;
+    if (visible_rows > 0 && ble_state.paired_selected >= (size_t)visible_rows) {
+        scroll = ble_state.paired_selected - (size_t)visible_rows + 1;
+    }
+
+    for (int i = 0; i < visible_rows; i++) {
+        const size_t idx = scroll + (size_t)i;
+        if (idx >= count) break;
+
+        solar_os_ble_hid_remembered_info_t info;
+        if (!solar_os_ble_hid_get_remembered(idx, &info)) break;
+
+        const int row_y = list_top + i * row_h;
+        const bool selected = idx == ble_state.paired_selected;
+
+        if (selected) {
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+            solar_os_gfx_fill_rect(gfx, 4, row_y, width - 8, row_h - 2);
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        } else {
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        }
+
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+        const char *label = info.name[0] != '\0' ? info.name : "Unnamed Device";
+        solar_os_gfx_text(gfx, 12, row_y + 15, label);
+
+        char addr_buf[24];
+        snprintf(addr_buf, sizeof(addr_buf), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 info.bda[0], info.bda[1], info.bda[2], info.bda[3], info.bda[4], info.bda[5]);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, width - 190, row_y + 15, addr_buf);
+
+        solar_os_gfx_text(gfx, width - 60, row_y + 15, info.connected ? "LINK" : "-");
+    }
+}
+
 /* ---------------------------------------------------------------------
  * Master Render Routine
  * ------------------------------------------------------------------- */
@@ -1584,7 +1667,7 @@ static void ble_scanner_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    ble_draw_header(gfx, width);
+    ble_draw_header(gfx);
 
     if (ble_state.view == BLE_VIEW_SCANNER) {
         ble_draw_scanner_list(gfx, width, height);
@@ -1609,6 +1692,8 @@ static void ble_scanner_render(solar_os_context_t *ctx)
 
     if (ble_state.showing_help) {
         ble_draw_help_modal(gfx, width, height);
+    } else if (ble_state.showing_paired) {
+        ble_draw_paired_modal(gfx, width, height);
     }
 
     ble_draw_footer(gfx, width, height);
@@ -1666,6 +1751,59 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
         if (uch == SOLAR_OS_KEY_ESCAPE || ch == 'h' || ch == 'H' || ch == 'q' || ch == 'Q') {
             ble_state.showing_help = false;
             ble_state.help_scroll_line = 0;
+            ble_state.render_pending = true;
+            return;
+        }
+        return;
+    }
+
+    /* Paired Devices Modal: Navigate / Reconnect / Forget / Close */
+    if (ble_state.showing_paired) {
+        const size_t count = solar_os_ble_hid_remembered_count();
+        if (uch == SOLAR_OS_KEY_UP || ch == 'w' || ch == 'W') {
+            if (ble_state.paired_selected > 0) {
+                ble_state.paired_selected--;
+                ble_state.render_pending = true;
+            }
+            return;
+        }
+        if (uch == SOLAR_OS_KEY_DOWN || ch == 's' || ch == 'S') {
+            if (count > 0 && ble_state.paired_selected + 1 < count) {
+                ble_state.paired_selected++;
+                ble_state.render_pending = true;
+            }
+            return;
+        }
+        if (ch == '\n' || ch == '\r') {
+            solar_os_ble_hid_remembered_info_t info;
+            if (solar_os_ble_hid_get_remembered(ble_state.paired_selected, &info)) {
+                if (info.connected) {
+                    ble_scanner_set_status("Already connected");
+                } else {
+                    const esp_err_t err = solar_os_ble_hid_connect(info.bda, info.addr_type, info.name);
+                    ble_scanner_set_status(err == ESP_OK ? "Reconnecting..." : "Reconnect request failed");
+                }
+                ble_state.render_pending = true;
+            }
+            return;
+        }
+        if (ch == 'd' || ch == 'D' || uch == 0x7fU) {
+            solar_os_ble_hid_remembered_info_t info;
+            if (solar_os_ble_hid_get_remembered(ble_state.paired_selected, &info)) {
+                if (info.connected) {
+                    (void)solar_os_ble_hid_disconnect(info.bda);
+                }
+                (void)solar_os_ble_hid_forget(info.bda);
+                ble_scanner_set_status("Forgotten");
+                if (ble_state.paired_selected > 0) {
+                    ble_state.paired_selected--;
+                }
+                ble_state.render_pending = true;
+            }
+            return;
+        }
+        if (uch == SOLAR_OS_KEY_ESCAPE || ch == 'm' || ch == 'M' || ch == 'q' || ch == 'Q') {
+            ble_state.showing_paired = false;
             ble_state.render_pending = true;
             return;
         }
@@ -1768,14 +1906,16 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
      * ----------------------------------------------------------- */
     if (ble_state.view == BLE_VIEW_SCANNER) {
         const size_t count = ble_filtered_device_count();
-        if (uch == SOLAR_OS_KEY_UP || ch == 'w' || ch == 'W') {
+        if (uch == SOLAR_OS_KEY_UP || ch == 'w' || ch == 'W' ||
+            uch == SOLAR_OS_KEY_LEFT || ch == 'a' || ch == 'A') {
             if (ble_state.selected_device > 0) {
                 ble_state.selected_device--;
                 ble_state.render_pending = true;
             }
             return;
         }
-        if (uch == SOLAR_OS_KEY_DOWN || ch == 's' || ch == 'S') {
+        if (uch == SOLAR_OS_KEY_DOWN || ch == 's' || ch == 'S' ||
+            uch == SOLAR_OS_KEY_RIGHT || ch == 'd' || ch == 'D') {
             if (count > 0 && ble_state.selected_device + 1 < count) {
                 ble_state.selected_device++;
                 ble_state.render_pending = true;
@@ -1797,6 +1937,12 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
         if (ch == 'f' || ch == 'F') {
             ble_state.filter = (ble_filter_mode_t)((ble_state.filter + 1) % BLE_FILTER_COUNT);
             ble_state.selected_device = 0;
+            ble_state.render_pending = true;
+            return;
+        }
+        if (ch == 'm' || ch == 'M') {
+            ble_state.showing_paired = true;
+            ble_state.paired_selected = 0;
             ble_state.render_pending = true;
             return;
         }
@@ -1848,7 +1994,11 @@ static void ble_scanner_handle_char(solar_os_context_t *ctx, char ch)
                 ble_state.next_auto_rescan_ms = 0;
                 ble_scanner_start_scan();
                 ble_state.render_pending = true;
-            } else if (ch == 'p' || ch == 'P') {
+            } else if (ch == 'p' || ch == 'P' || ch == '\n' || ch == '\r') {
+                /* Enter also pairs here (not just [P]) so a keyboard-less
+                 * session -- e.g. only the on-screen BLE keyboard bound at
+                 * the main menu -- has a way to pair a second device
+                 * without depending on that first link staying up. */
                 const ble_device_item_t *d = ble_find_device(ble_state.target_bda);
                 if (d != NULL) {
                     if (ble_state.gatt_connected || ble_state.gatt_connecting) {
@@ -2137,6 +2287,48 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
         ble_state.render_pending = true;
         ble_scanner_render(ctx);
         break;
+
+    case SOLAR_OS_EVENT_CLICK: {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) break;
+
+        char status_buf[64];
+        solar_os_appbar_header_t header;
+        ble_build_header(&header, status_buf, sizeof(status_buf));
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                ble_scanner_handle_char(ctx, (char)SOLAR_OS_KEY_ESCAPE);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_PREV || hit.kind == SOLAR_OS_APPBAR_HIT_TAB_NEXT) {
+                const int dir = (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_NEXT) ? 1 : -1;
+                ble_state.active_tab = (dev_tab_t)((ble_state.active_tab + DEV_TAB_COUNT + dir) % DEV_TAB_COUNT);
+                if (ble_state.active_tab == DEV_TAB_RADAR) {
+                    ble_state.next_auto_rescan_ms = 0;
+                    ble_scanner_start_scan();
+                }
+                ble_state.render_pending = true;
+            }
+            if (ble_state.render_pending) ble_scanner_render(ctx);
+            break;
+        }
+
+        const bool showing_status = ble_state.status_until_ms > ble_state.elapsed_ms &&
+                                    ble_state.status_message[0] != '\0' && !ble_state.showing_paired;
+        if (!showing_status) {
+            solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+            const size_t count = ble_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+            const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+
+            solar_os_appbar_hit_t fhit;
+            if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, event->data.click.x, event->data.click.y, &fhit) &&
+                fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+                ble_scanner_handle_char(ctx, items[fhit.index].key);
+                if (ble_state.render_pending) ble_scanner_render(ctx);
+            }
+        }
+        break;
+    }
 
     default:
         break;
