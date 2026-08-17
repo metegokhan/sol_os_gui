@@ -20,6 +20,7 @@
 
 #include "esp_hidh.h"
 #include "esp_private/esp_hidh_private.h"
+#include "esp_timer.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "solar_os_log.h"
@@ -54,6 +55,9 @@ static ble_hid_persisted_peer_t s_remembered_peers[SOLAR_OS_BLE_HID_MAX_CONNECTE
 static SemaphoreHandle_t s_hid_mutex = NULL;
 static TaskHandle_t s_reconnect_task_handle = NULL;
 static bool s_reconnect_stop_requested = false;
+static int16_t s_mouse_packed_x_remainder = 0;
+static int16_t s_mouse_packed_y_remainder = 0;
+static bool s_mouse_report_map_logged = false;
 
 static void hid_lock(void)
 {
@@ -204,6 +208,57 @@ esp_err_t solar_os_ble_hid_forget_all(void)
     return ESP_OK;
 }
 
+bool solar_os_ble_hid_is_remembered(const uint8_t bda[6])
+{
+    if (bda == NULL) return false;
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (s_remembered_peers[i].magic == BLE_HID_PEER_MAGIC &&
+            memcmp(s_remembered_peers[i].bda, bda, 6) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool solar_os_ble_hid_get_remembered(size_t index, solar_os_ble_hid_remembered_info_t *out)
+{
+    if (out == NULL) return false;
+    size_t cur = 0;
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (s_remembered_peers[i].magic != BLE_HID_PEER_MAGIC) continue;
+        if (cur == index) {
+            memcpy(out->bda, s_remembered_peers[i].bda, 6);
+            out->addr_type = s_remembered_peers[i].addr_type;
+            strlcpy(out->name, s_remembered_peers[i].name, sizeof(out->name));
+            /* Must not hold any lock across this call: is_connected() takes
+             * hid_lock() itself and s_remembered_peers isn't guarded by it
+             * (matches the rest of this file's existing convention). */
+            out->connected = solar_os_ble_hid_is_connected(out->bda);
+            return true;
+        }
+        cur++;
+    }
+    return false;
+}
+
+esp_err_t solar_os_ble_hid_forget(const uint8_t bda[6])
+{
+    if (bda == NULL) return ESP_ERR_INVALID_ARG;
+    bool found = false;
+    for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
+        if (s_remembered_peers[i].magic == BLE_HID_PEER_MAGIC &&
+            memcmp(s_remembered_peers[i].bda, bda, 6) == 0) {
+            memset(&s_remembered_peers[i], 0, sizeof(s_remembered_peers[i]));
+            found = true;
+            break;
+        }
+    }
+    if (!found) return ESP_ERR_NOT_FOUND;
+    const esp_err_t ret = save_remembered_peers();
+    SOLAR_OS_LOGI(TAG, "Forgot remembered HID peer [" ESP_BD_ADDR_STR "]", ESP_BD_ADDR_HEX(bda));
+    return ret;
+}
+
 static void update_device_subsystem_states(void)
 {
     bool any_mouse = false;
@@ -225,23 +280,141 @@ static void update_device_subsystem_states(void)
     }
 }
 
+static int16_t sign_extend_12(uint16_t value)
+{
+    value &= 0x0FFFU;
+    return (value & 0x0800U) ? (int16_t)(value | 0xF000U) : (int16_t)value;
+}
+
+static int16_t packed_mouse_delta_to_pixels(int16_t raw, int16_t *remainder)
+{
+    const int16_t total = (int16_t)(raw + *remainder);
+    const int16_t pixels = (int16_t)(total / 16);
+    *remainder = (int16_t)(total - (pixels * 16));
+    return pixels;
+}
+
+static void log_mouse_report_map_once(esp_hidh_dev_t *dev)
+{
+    if (s_mouse_report_map_logged || dev == NULL) {
+        return;
+    }
+    s_mouse_report_map_logged = true;
+
+    size_t map_count = 0;
+    esp_hid_raw_report_map_t *maps = NULL;
+    if (esp_hidh_dev_report_maps_get(dev, &map_count, &maps) != ESP_OK || maps == NULL) {
+        ESP_LOGW(TAG, "MOUSE_REPORT_MAP unavailable");
+        return;
+    }
+
+    for (size_t i = 0; i < map_count; i++) {
+        ESP_LOGI(TAG, "MOUSE_REPORT_MAP index=%u len=%u",
+                 (unsigned)i, (unsigned)maps[i].len);
+        ESP_LOG_BUFFER_HEX(TAG, maps[i].data, maps[i].len);
+    }
+}
+
 static void decode_ble_mouse_report(const uint8_t *data, uint16_t length, uint8_t report_id)
 {
     if (data == NULL || length < 3) return;
 
-    const uint8_t *m_data = data;
-    uint16_t m_len = length;
-
-    /* If report ID prefix is present at data[0] */
-    if (report_id != 0 && m_len > 3 && m_data[0] == report_id) {
-        m_data++;
-        m_len--;
+    /* TEMPORARY diagnostic, throttled to 1-in-32 calls (fixed format, no
+     * loop/local buffer, kept far below what previously destabilized the
+     * connection). A prior edit to this function dropped this block --
+     * if you don't see MOUSE_RAW lines in the console, the build you
+     * flashed predates this re-add; do a full rebuild. Remove once the
+     * report shape is fully confirmed against MOUSE_REPORT_MAP. */
+    static uint32_t s_mouse_diag_counter = 0;
+    if ((s_mouse_diag_counter++ & 0x1FU) == 0U) {
+        ESP_LOGI("MOUSE_RAW", "id=%u len=%u b=[%02X %02X %02X %02X %02X %02X %02X]",
+                 report_id, length,
+                 length > 0 ? data[0] : 0, length > 1 ? data[1] : 0,
+                 length > 2 ? data[2] : 0, length > 3 ? data[3] : 0,
+                 length > 4 ? data[4] : 0, length > 5 ? data[5] : 0,
+                 length > 6 ? data[6] : 0);
     }
 
-    uint8_t btns = m_data[0] & 0x1F;
-    int16_t dx = (int8_t)m_data[1];
-    int16_t dy = (int8_t)m_data[2];
-    int8_t wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
+    /* TEMPORARY diagnostic: unthrottled report-rate counter split by
+     * button state, printed every ~2s. Purpose: distinguish "the mouse
+     * itself sends reports less often when idle" (a real, common BLE
+     * power-saving behavior tied to connection interval) from "reports
+     * arrive fine but decode/accumulation nets to ~0". Remove once the
+     * idle-vs-held movement difference is root-caused. */
+    {
+        static uint32_t s_reports_btn = 0, s_reports_idle = 0;
+        static int64_t s_window_start_us = 0;
+        const int64_t now_us = esp_timer_get_time();
+        if (s_window_start_us == 0) s_window_start_us = now_us;
+        if ((data[0] & 0x07U) != 0U) {
+            s_reports_btn++;
+        } else {
+            s_reports_idle++;
+        }
+        if (now_us - s_window_start_us >= 2000000) {
+            ESP_LOGI("MOUSE_RATE", "reports/2s: with_button=%u idle=%u",
+                     (unsigned)s_reports_btn, (unsigned)s_reports_idle);
+            s_reports_btn = 0;
+            s_reports_idle = 0;
+            s_window_start_us = now_us;
+        }
+    }
+
+    const uint8_t *m_data = data;
+    const uint16_t m_len = length;
+
+    /* NOTE: esp_hidh already separates the report ID out-of-band (it's
+     * the `report_id` parameter here); BLE HID-over-GATT input report
+     * characteristics don't re-embed it as a leading data byte. A
+     * previous version of this function tried to detect and strip such
+     * a prefix by checking `m_data[0] == report_id` -- but that check
+     * is unsafe: it collides with legitimate data. This mouse uses
+     * report_id 2, and SOLAR_OS_MOUSE_BTN_RIGHT is bit 1 (value 2), so
+     * every right-click (buttons byte == 2) was misdetected as a
+     * report-ID prefix and the whole report got shifted by one byte --
+     * silently corrupting that button read AND the following X/Y
+     * bytes. The same false match also fires whenever the low byte of
+     * a normal X movement happens to equal 2, which is common during
+     * slow/precise motion, corrupting plain movement too. Trust
+     * esp_hidh's data/length as already correctly framed; do not
+     * attempt to strip a prefix. */
+
+    /* Report ID 2 HID Report Descriptor (manually decoded from the
+     * MOUSE_REPORT_MAP dump, 110 bytes) gives the definitive layout:
+     *   byte0: bits[2:0] = Button1/2/3 (Left/Right/Middle), bits[7:3] = padding
+     *   byte1: all 8 bits padding/constant (always 0x00)
+     *   byte2 + byte3[3:0]: X, 12-bit signed relative, logical range +-2047
+     *   byte3[7:4] + byte4: Y, 12-bit signed relative, logical range +-2047
+     *   byte5: Wheel, 8-bit signed relative
+     *   byte6: padding/constant (always 0x00) -- not a pan axis
+     * A prior edit (made in a parallel session without the descriptor)
+     * had X and Y swapped and combined the wrong byte halves entirely,
+     * which is why movement only ever looked right by accident. */
+    const uint8_t btns = m_data[0] & 0x07;
+    int16_t dx;
+    int16_t dy;
+    int8_t wheel;
+
+    if (report_id == 2 && m_len == 7) {
+        const int16_t raw_x = sign_extend_12(
+            (uint16_t)m_data[2] | (((uint16_t)m_data[3] & 0x0FU) << 8));
+        const int16_t raw_y = sign_extend_12(
+            (((uint16_t)m_data[3] >> 4) & 0x0FU) | ((uint16_t)m_data[4] << 4));
+        dx = packed_mouse_delta_to_pixels(raw_x, &s_mouse_packed_x_remainder);
+        dy = packed_mouse_delta_to_pixels(raw_y, &s_mouse_packed_y_remainder);
+        wheel = (int8_t)m_data[5];
+    } else {
+        /* Standard boot-mouse layout: [buttons, X, Y, wheel, ...]. */
+        dx = (int8_t)m_data[1];
+        dy = (int8_t)m_data[2];
+        wheel = (m_len >= 4) ? (int8_t)m_data[3] : 0;
+    }
+
+    /* A corrupt or mismatched report must not move the cursor across the UI. */
+    if (dx > 12) dx = 12;
+    if (dx < -12) dx = -12;
+    if (dy > 12) dy = 12;
+    if (dy < -12) dy = -12;
 
     solar_os_mouse_process_report(btns, dx, dy, wheel);
 }
@@ -291,6 +464,33 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                 record_remembered_peer(bda, dev_addr_type, name);
                 SOLAR_OS_LOGI(TAG, "HID device connected: %s [" ESP_BD_ADDR_STR "] (type %d, addr_type=%u)",
                               name, ESP_BD_ADDR_HEX(bda), (int)dev_type, (unsigned)dev_addr_type);
+
+                if (dev_type == SOLAR_OS_BLE_DEV_TYPE_MOUSE) {
+                    s_mouse_packed_x_remainder = 0;
+                    s_mouse_packed_y_remainder = 0;
+                    s_mouse_report_map_logged = false;
+                    /* Don't rely on the mouse's own connection-parameter-update
+                     * request: the console log shows the controller rejecting
+                     * it (HCI opcode 0x2013 LE Connection Update, status=12
+                     * Invalid Param), which leaves the link on whatever
+                     * interval it happened to negotiate initially -- often
+                     * too slow/inconsistent for smooth cursor tracking.
+                     * Proactively request our own known-good, coex-friendly
+                     * parameters instead: short-ish interval, zero slave
+                     * latency (never skip an event, so every report lands
+                     * as soon as possible), generous supervision timeout. */
+                    esp_ble_conn_update_params_t conn_params = {0};
+                    memcpy(conn_params.bda, bda, sizeof(conn_params.bda));
+                    conn_params.min_int = 12;  /* 15 ms */
+                    conn_params.max_int = 24;  /* 30 ms */
+                    conn_params.latency = 0;
+                    conn_params.timeout = 400; /* 4000 ms supervision timeout */
+                    const esp_err_t upd_err = esp_ble_gap_update_conn_params(&conn_params);
+                    if (upd_err != ESP_OK) {
+                        SOLAR_OS_LOGW(TAG, "mouse conn param update request failed: %s",
+                                      esp_err_to_name(upd_err));
+                    }
+                }
             }
         } else {
             SOLAR_OS_LOGW(TAG, "HID open failed: %s", esp_err_to_name(param->open.status));
@@ -305,6 +505,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                                                  param->input.data,
                                                  param->input.length);
         } else if (param->input.usage == ESP_HID_USAGE_MOUSE) {
+            log_mouse_report_map_once(param->input.dev);
             decode_ble_mouse_report(param->input.data, param->input.length, param->input.report_id);
         } else if (param->input.usage == ESP_HID_USAGE_JOYSTICK || param->input.usage == ESP_HID_USAGE_GAMEPAD) {
             solar_os_gamepad_process_report(param->input.data, param->input.length);
@@ -312,6 +513,7 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
             /* Heuristic fallback */
             const char *dev_name = esp_hidh_dev_name_get(param->input.dev);
             if (dev_name != NULL && solar_os_ble_is_mouse_like(0, dev_name)) {
+                log_mouse_report_map_once(param->input.dev);
                 decode_ble_mouse_report(param->input.data, param->input.length, param->input.report_id);
             } else if (dev_name != NULL && solar_os_ble_is_gamepad_like(0, dev_name)) {
                 solar_os_gamepad_process_report(param->input.data, param->input.length);
