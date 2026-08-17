@@ -837,7 +837,43 @@ esp_err_t solar_os_storage_mkdir(const char *path)
         return ESP_ERR_INVALID_ARG;
     }
 
-    return mkdir(path, 0777) == 0 ? ESP_OK : ESP_FAIL;
+    if (mkdir(path, 0777) == 0 || errno == EEXIST) {
+        return ESP_OK;
+    }
+    return ESP_FAIL;
+}
+
+esp_err_t solar_os_storage_app_data_dir(const char *app_name, char *path, size_t path_len)
+{
+    if (app_name == NULL || app_name[0] == '\0' || path == NULL || path_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!solar_os_storage_sd_is_mounted()) {
+        return SOLAR_OS_STORAGE_ERR_NO_SD_CARD;
+    }
+
+    char data_root[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t ret = solar_os_storage_join_path(solar_os_storage_sd_mount_point(),
+                                               ".data", data_root, sizeof(data_root));
+    if (ret != ESP_OK) return ret;
+    ret = solar_os_storage_mkdir(data_root);
+    if (ret != ESP_OK) return ret;
+
+    ret = solar_os_storage_join_path(data_root, app_name, path, path_len);
+    if (ret != ESP_OK) return ret;
+    return solar_os_storage_mkdir(path);
+}
+
+esp_err_t solar_os_storage_app_data_path(const char *app_name, const char *leaf,
+                                         char *path, size_t path_len)
+{
+    char dir[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t ret = solar_os_storage_app_data_dir(app_name, dir, sizeof(dir));
+    if (ret != ESP_OK) return ret;
+    if (leaf == NULL || leaf[0] == '\0') {
+        return strlcpy(path, dir, path_len) < path_len ? ESP_OK : ESP_ERR_INVALID_SIZE;
+    }
+    return solar_os_storage_join_path(dir, leaf, path, path_len);
 }
 
 esp_err_t solar_os_storage_rmdir(const char *path)
