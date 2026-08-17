@@ -79,41 +79,18 @@ typedef struct {
 static void *reader_state;
 #define reader (*(reader_state_t *)reader_state)
 
+/* Resolves under the SD card exclusively (via solar_os_storage_app_data_path);
+ * position data is not critical to system operation, so unlike some other
+ * app state it never falls back to internal flash. Returns
+ * SOLAR_OS_STORAGE_ERR_NO_SD_CARD (without touching the filesystem) when no
+ * SD card is present -- callers should treat that as "nothing to
+ * save/load", not a hard error. */
 static esp_err_t reader_state_path(char *path, size_t path_len, const char *leaf)
 {
-    if (path == NULL || path_len == 0 || !solar_os_storage_is_mounted()) {
-        return ESP_ERR_INVALID_STATE;
+    if (path == NULL || path_len == 0) {
+        return ESP_ERR_INVALID_ARG;
     }
-
-    if (leaf == NULL || leaf[0] == '\0') {
-        return solar_os_storage_default_path(READER_STATE_DIR, path, path_len);
-    }
-
-    char dir[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t ret = solar_os_storage_default_path(READER_STATE_DIR, dir, sizeof(dir));
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    return solar_os_storage_join_path(dir, leaf, path, path_len);
-}
-
-static esp_err_t reader_ensure_state_dir(void)
-{
-    char dir[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t ret = reader_state_path(dir, sizeof(dir), NULL);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    struct stat st;
-    if (stat(dir, &st) == 0) {
-        return S_ISDIR(st.st_mode) ? ESP_OK : ESP_ERR_INVALID_STATE;
-    }
-
-    if (mkdir(dir, 0777) == 0 || errno == EEXIST) {
-        return ESP_OK;
-    }
-    return ESP_FAIL;
+    return solar_os_storage_app_data_path("reader", leaf, path, path_len);
 }
 
 static bool reader_file_exists(const char *path)
@@ -776,12 +753,16 @@ static void reader_save_position(solar_os_context_t *ctx)
     char tmp_path[SOLAR_OS_STORAGE_PATH_MAX];
     char line[READER_POSITION_LINE_MAX];
 
-    if (ctx == NULL ||
-        !reader.loaded ||
-        reader.error_only ||
-        reader.path[0] == '\0' ||
-        reader_ensure_state_dir() != ESP_OK ||
-        reader_state_path(positions_path, sizeof(positions_path), READER_POSITIONS_FILE) != ESP_OK ||
+    if (ctx == NULL || !reader.loaded || reader.error_only || reader.path[0] == '\0') {
+        return;
+    }
+
+    const esp_err_t path_err = reader_state_path(positions_path, sizeof(positions_path), READER_POSITIONS_FILE);
+    if (path_err == SOLAR_OS_STORAGE_ERR_NO_SD_CARD) {
+        snprintf(reader.message, sizeof(reader.message), "No SD card - position not saved");
+        return;
+    }
+    if (path_err != ESP_OK ||
         reader_state_path(tmp_path, sizeof(tmp_path), READER_POSITIONS_TMP_FILE) != ESP_OK) {
         return;
     }
@@ -1687,6 +1668,17 @@ static bool reader_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
     if (event->type == SOLAR_OS_EVENT_RESUME) {
         reader_resume(ctx);
+        return true;
+    }
+    if (event->type == SOLAR_OS_EVENT_SCROLL) {
+        /* Sign is device-dependent -- flip here if it feels backwards. */
+        const bool down = event->data.scroll.delta < 0;
+        if (reader.pager) {
+            reader_page(ctx, down);
+        } else {
+            reader_scroll_lines(ctx, down ? 3 : -3);
+        }
+        reader_render(ctx);
         return true;
     }
     if (event->type != SOLAR_OS_EVENT_CHAR) {

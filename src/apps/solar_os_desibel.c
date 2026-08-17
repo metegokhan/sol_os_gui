@@ -26,6 +26,7 @@
 #include "freertos/portmacro.h"
 #include "freertos/task.h"
 
+#include "solar_os_appbar.h"
 #include "solar_os_audio.h"
 #include "solar_os_dsp.h"
 #include "solar_os_gfx.h"
@@ -52,9 +53,6 @@
 #define DESIBEL_DB_CEIL 0.0f
 #define DESIBEL_NORM_FLOOR 0.0000305f /* ~ -90 dBFS taban, log10(0) kacinma */
 #define DESIBEL_PI 3.14159265358979323846f
-
-#define DESIBEL_HEADER_H 22
-#define DESIBEL_FOOTER_H 18
 
 #define DESIBEL_LOG_DIR "desibel"
 #define DESIBEL_LOG_FILE "olcum.csv"
@@ -490,46 +488,65 @@ static int desibel_db_to_y(float db, int top, int height)
     return top + height - (int)(norm * (float)height);
 }
 
-static void desibel_draw_header(solar_os_gfx_t *gfx, int width)
-{
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, DESIBEL_HEADER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+static const char * const DESIBEL_TAB_NAMES[DESIBEL_VIEW_COUNT] = {
+    "Overview", "Spectrum", "Spectrogram",
+};
 
-    const char *view_name = desibel.view == DESIBEL_VIEW_OVERVIEW ? "SOUND LEVEL (dBFS)"
-                            : desibel.view == DESIBEL_VIEW_SPECTRUM ? "FFT SPECTRUM"
-                            : "SPECTROGRAM";
-    char header[96];
-    snprintf(header, sizeof(header), "DECIBEL METER - %s | %s | Cal: %+.0f dB",
-             view_name, desibel.monitoring ? "LISTENING" : "PAUSED",
-             (double)desibel.calibration_offset_db);
-    solar_os_gfx_text(gfx, 8, 16, header);
+static int desibel_body_top(solar_os_gfx_t *gfx)
+{
+    return solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx) + 4;
 }
 
-static void desibel_draw_footer(solar_os_gfx_t *gfx, int width, int height)
+static void desibel_draw_header(solar_os_gfx_t *gfx)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, height - DESIBEL_FOOTER_H, width, DESIBEL_FOOTER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    char status[64];
+    snprintf(status, sizeof(status), "Cal: %+.0f dB | %s",
+             (double)desibel.calibration_offset_db,
+             desibel.monitoring ? "LISTENING" : "PAUSED");
 
-    char footer[128];
+    const solar_os_appbar_header_t header = {
+        .title = "Decibel Meter",
+        .show_back = true,
+        .tabs = {
+            .names = DESIBEL_TAB_NAMES,
+            .count = DESIBEL_VIEW_COUNT,
+            .active_index = (size_t)desibel.view,
+        },
+        .status_line = status,
+    };
+    solar_os_appbar_draw_header(gfx, &header);
+}
+
+static void desibel_draw_footer(solar_os_gfx_t *gfx)
+{
     if (desibel.status_until_ms > desibel.elapsed_ms && desibel.status_message[0] != '\0') {
-        snprintf(footer, sizeof(footer), "%s", desibel.status_message);
-    } else {
-        snprintf(footer, sizeof(footer),
-                 "[Tab/1-3] Mode | [Space] %s | [L] CSV Log (%s) | [+/-] Cal | [ESC] Exit",
-                 desibel.monitoring ? "Pause" : "Resume",
-                 desibel.logging ? "ON" : "OFF");
+        const int width = (int)solar_os_gfx_width(gfx);
+        const int height = (int)solar_os_gfx_height(gfx);
+        const int footer_h = solar_os_appbar_footer_height(gfx);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_fill_rect(gfx, 0, height - footer_h, width, footer_h);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, 8, height - footer_h / 4, desibel.status_message);
+        return;
     }
-    solar_os_gfx_text(gfx, 8, height - 6, footer);
+
+    solar_os_appbar_shortcut_t items[2];
+    items[0].key = ' ';
+    items[0].ctrl = false;
+    snprintf(items[0].label, sizeof(items[0].label), "%s", desibel.monitoring ? "Pause" : "Resume");
+    items[1].key = 'L';
+    items[1].ctrl = true;
+    snprintf(items[1].label, sizeof(items[1].label), "%s", desibel.logging ? "Log Off" : "Log On");
+
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = 2 };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 }
 
 static void desibel_draw_overview(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = DESIBEL_HEADER_H + 4;
-    const int bottom = height - DESIBEL_FOOTER_H - 4;
+    const int top = desibel_body_top(gfx);
+    const int bottom = height - solar_os_appbar_footer_height(gfx) - 4;
 
     /* Big numeric reading */
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_20);
@@ -586,8 +603,9 @@ static void desibel_draw_overview(solar_os_gfx_t *gfx, int width, int height)
 
 static void desibel_draw_spectrum(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = DESIBEL_HEADER_H + 20;
-    const int bottom = height - DESIBEL_FOOTER_H - 4;
+    const int label_y = desibel_body_top(gfx) + 10;
+    const int top = desibel_body_top(gfx) + 26;
+    const int bottom = height - solar_os_appbar_footer_height(gfx) - 4;
     const int area_h = bottom - top;
     if (area_h <= 0) return;
 
@@ -596,7 +614,7 @@ static void desibel_draw_spectrum(solar_os_gfx_t *gfx, int width, int height)
     char label[64];
     snprintf(label, sizeof(label), "Audio Spectrum (0 - %u Hz) | Dominant: %.0f Hz",
              (unsigned)(DESIBEL_SAMPLE_RATE / 2U), (double)desibel.dominant_hz);
-    solar_os_gfx_text(gfx, 8, DESIBEL_HEADER_H + 14, label);
+    solar_os_gfx_text(gfx, 8, label_y, label);
 
     const int margin = 8;
     const int usable_w = width - 2 * margin;
@@ -621,8 +639,8 @@ static void desibel_draw_spectrum(solar_os_gfx_t *gfx, int width, int height)
 
 static void desibel_draw_spectrogram(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = DESIBEL_HEADER_H + 4;
-    const int bottom = height - DESIBEL_FOOTER_H - 4;
+    const int top = desibel_body_top(gfx);
+    const int bottom = height - solar_os_appbar_footer_height(gfx) - 4;
     const int area_h = bottom - top;
     const int area_w = width - 8;
     if (area_h <= 0 || area_w <= 0 || desibel.spectrogram_count == 0U) return;
@@ -659,7 +677,7 @@ static void desibel_render(solar_os_context_t *ctx)
     const int height = (int)solar_os_gfx_height(gfx);
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    desibel_draw_header(gfx, width);
+    desibel_draw_header(gfx);
 
     switch (desibel.view) {
     case DESIBEL_VIEW_SPECTRUM:
@@ -674,7 +692,7 @@ static void desibel_render(solar_os_context_t *ctx)
         break;
     }
 
-    desibel_draw_footer(gfx, width, height);
+    desibel_draw_footer(gfx);
     solar_os_gfx_present(gfx);
     desibel.render_pending = false;
 }
@@ -772,6 +790,59 @@ static bool desibel_event(solar_os_context_t *ctx, const solar_os_event_t *event
         desibel.render_pending = true;
         desibel_render(ctx);
         break;
+    case SOLAR_OS_EVENT_CLICK: {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) break;
+
+        const solar_os_appbar_header_t header = {
+            .title = "Decibel Meter",
+            .show_back = true,
+            .tabs = {
+                .names = DESIBEL_TAB_NAMES,
+                .count = DESIBEL_VIEW_COUNT,
+                .active_index = (size_t)desibel.view,
+            },
+        };
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                desibel_handle_char(ctx, (char)SOLAR_OS_KEY_ESCAPE);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_PREV) {
+                desibel.view = (desibel_view_t)((desibel.view + DESIBEL_VIEW_COUNT - 1U) % DESIBEL_VIEW_COUNT);
+                desibel.render_pending = true;
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_NEXT) {
+                desibel.view = (desibel_view_t)((desibel.view + 1U) % DESIBEL_VIEW_COUNT);
+                desibel.render_pending = true;
+            }
+            break;
+        }
+
+        const bool showing_status = desibel.status_until_ms > desibel.elapsed_ms && desibel.status_message[0] != '\0';
+        if (!showing_status) {
+            solar_os_appbar_shortcut_t items[2];
+            items[0].key = ' ';
+            items[0].ctrl = false;
+            snprintf(items[0].label, sizeof(items[0].label), "%s", desibel.monitoring ? "Pause" : "Resume");
+            items[1].key = 'L';
+            items[1].ctrl = true;
+            snprintf(items[1].label, sizeof(items[1].label), "%s", desibel.logging ? "Log Off" : "Log On");
+            const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = 2 };
+
+            solar_os_appbar_hit_t fhit;
+            if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, event->data.click.x, event->data.click.y, &fhit) &&
+                fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+                if (fhit.index == 0) {
+                    desibel_handle_char(ctx, ' ');
+                } else if (fhit.index == 1) {
+                    desibel_handle_char(ctx, 'L');
+                }
+            }
+        }
+        if (desibel.render_pending) {
+            desibel_render(ctx);
+        }
+        break;
+    }
     default:
         break;
     }
