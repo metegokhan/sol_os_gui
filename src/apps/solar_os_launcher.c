@@ -1591,6 +1591,140 @@ static bool launcher_event(solar_os_context_t *ctx, const solar_os_event_t *even
         return true;
     }
 
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        launcher.idle_start_ms = (uint32_t)(esp_timer_get_time() / 1000U);
+
+        if (launcher.view_mode == VIEW_SCREENSAVER) {
+            launcher.view_mode = VIEW_HOME_FOLDERS;
+            launcher_draw(ctx);
+            return true;
+        }
+
+        const int cx = event->data.click.x;
+        const int cy = event->data.click.y;
+
+        if (launcher.view_mode == VIEW_HOME_FOLDERS) {
+            /* Inverse of the card_x/card_y formula in launcher_draw(). */
+            const int col = (cx - LAUNCHER_GRID_START_X) / (LAUNCHER_CARD_W + LAUNCHER_GRID_GAP_X);
+            const int col_local_x = (cx - LAUNCHER_GRID_START_X) - col * (LAUNCHER_CARD_W + LAUNCHER_GRID_GAP_X);
+            const int row = (cy - LAUNCHER_GRID_START_Y) / (LAUNCHER_CARD_H + LAUNCHER_GRID_GAP_Y);
+            const int row_local_y = (cy - LAUNCHER_GRID_START_Y) - row * (LAUNCHER_CARD_H + LAUNCHER_GRID_GAP_Y);
+
+            if (col >= 0 && col < LAUNCHER_GRID_COLS && col_local_x >= 0 && col_local_x < LAUNCHER_CARD_W &&
+                row >= 0 && row_local_y >= 0 && row_local_y < LAUNCHER_CARD_H) {
+                const size_t hit = (size_t)row * LAUNCHER_GRID_COLS + (size_t)col;
+                if (hit < LAUNCHER_FOLDER_COUNT) {
+                    if (hit == launcher.selected_folder) {
+                        launcher.view_mode = VIEW_INSIDE_FOLDER;
+                    } else {
+                        launcher.selected_folder = hit;
+                    }
+                    launcher_draw(ctx);
+                }
+            }
+        } else if (launcher.view_mode == VIEW_INSIDE_FOLDER) {
+            launcher_folder_t *f = &launcher.folders[launcher.selected_folder];
+            const size_t sel = launcher.selected_item[launcher.selected_folder];
+            const size_t page = (f->count > 0) ? (sel / LAUNCHER_SUB_PAGE_SIZE) : 0;
+            const size_t page_start = page * LAUNCHER_SUB_PAGE_SIZE;
+
+            const int col = (cx - LAUNCHER_SUB_START_X) / (LAUNCHER_SUB_CARD_W + LAUNCHER_SUB_GAP_X);
+            const int col_local_x = (cx - LAUNCHER_SUB_START_X) - col * (LAUNCHER_SUB_CARD_W + LAUNCHER_SUB_GAP_X);
+            const int row = (cy - LAUNCHER_SUB_START_Y) / (LAUNCHER_SUB_CARD_H + LAUNCHER_SUB_GAP_Y);
+            const int row_local_y = (cy - LAUNCHER_SUB_START_Y) - row * (LAUNCHER_SUB_CARD_H + LAUNCHER_SUB_GAP_Y);
+
+            if (col >= 0 && col < LAUNCHER_SUB_GRID_COLS && col_local_x >= 0 && col_local_x < LAUNCHER_SUB_CARD_W &&
+                row >= 0 && row_local_y >= 0 && row_local_y < LAUNCHER_SUB_CARD_H) {
+                const size_t hit = page_start + (size_t)row * LAUNCHER_SUB_GRID_COLS + (size_t)col;
+                if (hit < f->count) {
+                    if (hit == sel) {
+                        (void)launcher_launch_item(ctx, &f->items[hit]);
+                    } else {
+                        launcher.selected_item[launcher.selected_folder] = hit;
+                        launcher_draw(ctx);
+                    }
+                }
+            }
+        } else if (launcher.view_mode == VIEW_ROM_PICKER && launcher.picker_count > 0) {
+            /* Inverse of draw_rom_picker_modal()'s list geometry. */
+            const int list_top = 70;
+            const int row_h = 24;
+            const size_t max_visible = 6;
+            size_t top_idx = 0;
+            if (launcher.selected_picker_item >= max_visible) {
+                top_idx = launcher.selected_picker_item - max_visible + 1;
+            }
+
+            if (cx >= 34 && cx < (int)solar_os_gfx_width(solar_os_context_gfx(ctx)) - 34 && cy >= list_top) {
+                const int row = (cy - list_top) / row_h;
+                if (row >= 0 && (size_t)row < max_visible) {
+                    const size_t hit = top_idx + (size_t)row;
+                    if (hit < launcher.picker_count) {
+                        if (hit == launcher.selected_picker_item) {
+                            launcher_picker_entry_t *p = &launcher.picker_items[hit];
+                            launcher.view_mode = VIEW_HOME_FOLDERS;
+                            const solar_os_app_registry_entry_t *entry = solar_os_app_registry_find(launcher.picker_app_name);
+                            if (entry != NULL && entry->app != NULL) {
+                                solar_os_context_set_graphics_active(ctx, false);
+                                char file_arg[128];
+                                if (p->is_new_file || p->path[0] == '\0') {
+                                    const char *created = create_default_file_for_app(launcher.picker_app_name);
+                                    strlcpy(file_arg, created, sizeof(file_arg));
+                                } else {
+                                    strlcpy(file_arg, p->path, sizeof(file_arg));
+                                }
+                                char *argv[] = {launcher.picker_app_name, file_arg};
+                                return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_CHILD_RETURN);
+                            }
+                        } else {
+                            launcher.selected_picker_item = hit;
+                            launcher_draw(ctx);
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_SCROLL) {
+        /* Sign is device-dependent; flip here in one place if it feels
+         * backwards on real hardware instead of hunting through each view. */
+        const int notches = event->data.scroll.delta > 0 ? 1 : -1;
+
+        if (launcher.view_mode == VIEW_ROM_PICKER && launcher.picker_count > 0) {
+            if (notches < 0 && launcher.selected_picker_item + 1 < launcher.picker_count) {
+                launcher.selected_picker_item++;
+            } else if (notches > 0 && launcher.selected_picker_item > 0) {
+                launcher.selected_picker_item--;
+            }
+            launcher_draw(ctx);
+            return true;
+        }
+        if (launcher.view_mode == VIEW_INSIDE_FOLDER) {
+            launcher_folder_t *f = &launcher.folders[launcher.selected_folder];
+            size_t sel = launcher.selected_item[launcher.selected_folder];
+            if (notches < 0 && f->count > 0) {
+                /* A full-row jump can land past the end when the last page
+                 * is short (e.g. 14 items over 6-per-page = a ragged final
+                 * row of 2): fall back to the last item instead of
+                 * refusing to move at all. */
+                if (sel + LAUNCHER_SUB_GRID_COLS < f->count) {
+                    sel += LAUNCHER_SUB_GRID_COLS;
+                } else if (sel + 1 < f->count) {
+                    sel = f->count - 1;
+                }
+                launcher.selected_item[launcher.selected_folder] = sel;
+            } else if (notches > 0 && sel >= LAUNCHER_SUB_GRID_COLS) {
+                sel -= LAUNCHER_SUB_GRID_COLS;
+                launcher.selected_item[launcher.selected_folder] = sel;
+            }
+            launcher_draw(ctx);
+            return true;
+        }
+        return true;
+    }
+
     if (event->type != SOLAR_OS_EVENT_CHAR) return false;
 
     /* Any key activity resets the idle timer */
@@ -1780,8 +1914,14 @@ static bool launcher_event(solar_os_context_t *ctx, const solar_os_event_t *even
         case 'S':
         case 'j':
         case 'J':
-            if (f->count > 0 && sel + LAUNCHER_SUB_GRID_COLS < f->count) {
-                launcher.selected_item[launcher.selected_folder] += LAUNCHER_SUB_GRID_COLS;
+            /* Fall back to the last item when a full-row jump would land
+             * past the end (ragged final row on a short last page). */
+            if (f->count > 0) {
+                if (sel + LAUNCHER_SUB_GRID_COLS < f->count) {
+                    launcher.selected_item[launcher.selected_folder] += LAUNCHER_SUB_GRID_COLS;
+                } else if (sel + 1 < f->count) {
+                    launcher.selected_item[launcher.selected_folder] = f->count - 1;
+                }
             }
             launcher_draw(ctx);
             return true;

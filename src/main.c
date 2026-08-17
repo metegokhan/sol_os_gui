@@ -349,10 +349,24 @@ static void IRAM_ATTR key_button_isr(void *arg)
 
 static void draw_terminal_if_needed(void)
 {
+    static uint32_t last_mouse_present_ms = 0;
     if (!solar_os_context_graphics_active(&os_ctx) && terminal != NULL) {
-        if (solar_os_terminal_needs_draw(terminal) || solar_os_mouse_is_dirty()) {
+        const bool terminal_dirty = solar_os_terminal_needs_draw(terminal);
+        const bool mouse_dirty = solar_os_mouse_is_dirty();
+        const uint32_t now_ms = millis_u32();
+
+        /* A BLE mouse can report at 40+ Hz.  Rebuilding and transferring the
+         * full terminal framebuffer for every report starves the main loop;
+         * coalesce motion while retaining the latest cursor location. */
+        if (!terminal_dirty && mouse_dirty &&
+            (uint32_t)(now_ms - last_mouse_present_ms) < 33U) {
+            return;
+        }
+
+        if (terminal_dirty || mouse_dirty) {
             solar_os_mouse_clear_dirty();
             solar_os_terminal_draw(terminal);
+            last_mouse_present_ms = now_ms;
         }
     }
 }
@@ -1122,6 +1136,42 @@ static void poll_local_input_sources(void)
 #endif
 }
 
+static void dispatch_mouse_click(void)
+{
+    int16_t x, y;
+    uint8_t buttons;
+    if (!solar_os_mouse_take_pending_click(&x, &y, &buttons)) {
+        return;
+    }
+    solar_os_power_note_activity(millis_u32());
+
+    /* Apps that don't hit-test their own layout simply never see this
+     * (same as before this mouse service existed); apps that want a real
+     * "click the thing under the cursor" handle SOLAR_OS_EVENT_CLICK. */
+    const solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_CLICK,
+        .data.click = { .x = x, .y = y, .buttons = buttons },
+    };
+    (void)solar_os_sessions_dispatch_input_event(&event);
+    process_app_requests();
+}
+
+static void dispatch_mouse_scroll(void)
+{
+    int16_t delta, x, y;
+    if (!solar_os_mouse_take_pending_scroll(&delta, &x, &y)) {
+        return;
+    }
+    solar_os_power_note_activity(millis_u32());
+
+    const solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_SCROLL,
+        .data.scroll = { .delta = delta, .x = x, .y = y },
+    };
+    (void)solar_os_sessions_dispatch_input_event(&event);
+    process_app_requests();
+}
+
 static void dispatch_input_sources(void)
 {
     const uint32_t now_ms = millis_u32();
@@ -1137,6 +1187,9 @@ static void dispatch_input_sources(void)
             dispatch_input_key(&events[i]);
         }
     }
+
+    dispatch_mouse_click();
+    dispatch_mouse_scroll();
 }
 
 static uint32_t requested_tick_interval_ms(void)
@@ -1171,6 +1224,36 @@ static void dispatch_app_tick(void)
 
     solar_os_jobs_tick(&os_ctx, now_ms);
     process_app_requests();
+}
+
+/* Mouse cursor tracking between app redraws: solar_os_display_present() is
+ * the single choke point every app/terminal frame push already goes
+ * through, and it now stamps the cursor into the framebuffer with a
+ * save/restore compositor (see solar_os_mouse.c) instead of just drawing
+ * over whatever was there. This poll is what lets the cursor track smoothly
+ * in between two such frames -- without it, a graphics app whose own event
+ * handler doesn't redraw on every tick (most non-animated ones) would only
+ * ever show the cursor at wherever it was during the app's own last content
+ * redraw, since nothing else in the OS was pushing a fresh frame purely for
+ * cursor movement. Gated to graphics-active apps: the terminal already
+ * redraws its whole screen at this same cadence whenever the mouse is dirty
+ * (draw_terminal_if_needed()), so it doesn't need this extra path. */
+#define SOLAR_OS_MOUSE_TRACKING_TICK_MS 33U
+
+static void dispatch_mouse_compositor(void)
+{
+    static uint32_t last_track_ms = 0;
+    if (display_u8g2 == NULL || !solar_os_context_graphics_active(&os_ctx) ||
+        !solar_os_mouse_is_dirty()) {
+        return;
+    }
+    const uint32_t now_ms = millis_u32();
+    if ((now_ms - last_track_ms) < SOLAR_OS_MOUSE_TRACKING_TICK_MS) {
+        return;
+    }
+    last_track_ms = now_ms;
+    solar_os_mouse_compositor_track_tick(display_u8g2);
+    solar_os_mouse_clear_dirty();
 }
 
 static void update_status(void)
@@ -1713,6 +1796,7 @@ void app_main(void)
         update_status();
 
         draw_terminal_if_needed();
+        dispatch_mouse_compositor();
         draw_session_overlay_if_needed();
         maybe_enter_idle_sleep();
 
