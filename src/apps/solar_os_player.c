@@ -20,6 +20,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_appbar.h"
 #include "solar_os_player_playlist.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_signal_widgets.h"
@@ -35,7 +36,6 @@
 #define PLAYER_DISPLAY_HPM_HZ_TENTHS 255U
 #define PLAYER_SCOPE_SAMPLES 256U
 #define PLAYER_SPECTRUM_FFT_SIZE 256U
-#define PLAYER_HEADER_HEIGHT 28
 #define PLAYER_ROW_HEIGHT 24
 #define PLAYER_FOOTER_HEIGHT 20
 #define PLAYER_VOLUME_STEP 5
@@ -543,18 +543,20 @@ static void player_draw_centered(solar_os_gfx_t *gfx, int width,
                       baseline, text);
 }
 
-static void player_draw_header(solar_os_gfx_t *gfx, int width)
+static const char * const PLAYER_TAB_NAMES[PLAYER_TAB_COUNT] = { "Play", "Playlist" };
+
+static void player_draw_header(solar_os_gfx_t *gfx)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, PLAYER_HEADER_HEIGHT);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-    solar_os_gfx_text(gfx, 7, 19, "Player");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    const char *tabs = player.tab == PLAYER_TAB_PLAY ?
-        "[PLAY]  PLAYLIST" : "PLAY  [PLAYLIST]";
-    solar_os_gfx_text(gfx, width - (int)solar_os_gfx_text_width(gfx, tabs) - 7,
-                      18, tabs);
+    const solar_os_appbar_header_t header = {
+        .title = "Player",
+        .show_back = true,
+        .tabs = {
+            .names = PLAYER_TAB_NAMES,
+            .count = PLAYER_TAB_COUNT,
+            .active_index = (size_t)player.tab,
+        },
+    };
+    solar_os_appbar_draw_header(gfx, &header);
 }
 
 static void draw_single_vu_dial(solar_os_gfx_t *gfx, int pivot_x, int pivot_y, int radius, float level, const char *label)
@@ -661,7 +663,7 @@ static void player_draw_vu_meter(solar_os_gfx_t *gfx, int x, int y, int width, i
 static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
 {
     const int media_top = height * 2 / 3;
-    const int visual_y = PLAYER_HEADER_HEIGHT + 4;
+    const int visual_y = solar_os_appbar_header_height(gfx) + 4;
     const int visual_height = media_top - visual_y - 4;
     if (player.visualizer == PLAYER_VISUALIZER_CASSETTE) {
         solar_os_cassette_widget_draw(player.cassette, gfx, 5, visual_y,
@@ -725,7 +727,7 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
 
 static void player_render_list(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int list_y = PLAYER_HEADER_HEIGHT + 5;
+    const int list_y = solar_os_appbar_header_height(gfx) + 5;
     const int bottom = height - PLAYER_FOOTER_HEIGHT;
     const size_t visible = bottom > list_y ?
         (size_t)((bottom - list_y) / PLAYER_ROW_HEIGHT) : 0U;
@@ -781,7 +783,7 @@ static void player_render(solar_os_context_t *ctx)
     const int width = (int)solar_os_gfx_width(gfx);
     const int height = (int)solar_os_gfx_height(gfx);
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    player_draw_header(gfx, width);
+    player_draw_header(gfx);
     if (player.tab == PLAYER_TAB_PLAY && !player.browsing) {
         player_render_play(gfx, width, height);
     } else {
@@ -1028,6 +1030,103 @@ static bool player_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         }
         return true;
     }
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        if (player.mode != PLAYER_MODE_GRAPHICS) return true;
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int width = (int)solar_os_gfx_width(gfx);
+        const int height = (int)solar_os_gfx_height(gfx);
+        const int cx = event->data.click.x;
+        const int cy = event->data.click.y;
+
+        const solar_os_appbar_header_t header = {
+            .title = "Player",
+            .show_back = true,
+            .tabs = { .names = PLAYER_TAB_NAMES, .count = PLAYER_TAB_COUNT, .active_index = (size_t)player.tab },
+        };
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_PREV || hit.kind == SOLAR_OS_APPBAR_HIT_TAB_NEXT) {
+                player.tab = (player_tab_t)((player.tab + 1U) % PLAYER_TAB_COUNT);
+            }
+            player.redraw = true;
+            player_render(ctx);
+            return true;
+        }
+
+        if (player.tab == PLAYER_TAB_PLAY && !player.browsing) {
+            /* Inverse of player_render_play()'s geometry. */
+            const int visual_y = solar_os_appbar_header_height(gfx) + 4;
+            if (cx >= 9 && cx < 99 && cy >= visual_y + 4 && cy < visual_y + 19) {
+                player.visualizer = (player_visualizer_t)((player.visualizer + 1U) %
+                                                           PLAYER_VISUALIZER_COUNT);
+            } else {
+                const int gap = 5;
+                const int button_width = (width - 4 * gap) / 3;
+                const int button_y = height - 25;
+                if (cy >= button_y && cy < button_y + 21) {
+                    if (cx >= gap && cx < gap + button_width) {
+                        player_play_offset(-1);
+                    } else if (cx >= gap * 2 + button_width && cx < gap * 2 + button_width * 2) {
+                        player_toggle_play_stop();
+                    } else if (cx >= gap * 3 + button_width * 2 && cx < gap * 3 + button_width * 3) {
+                        player_play_offset(1);
+                    }
+                }
+            }
+        } else {
+            /* Inverse of player_render_list()'s geometry -- also covers the
+             * nested storage-browser ("A" add-track) view, which reuses it. */
+            const int list_y = solar_os_appbar_header_height(gfx) + 5;
+            const int bottom = height - PLAYER_FOOTER_HEIGHT;
+            if (cy >= list_y && cy < bottom) {
+                const size_t row = (size_t)((cy - list_y) / PLAYER_ROW_HEIGHT);
+                const size_t count = player.browsing ?
+                    solar_os_storage_browser_count(player.browser) : player.track_count;
+                const size_t idx = player.top + row;
+                if (idx < count) {
+                    const size_t cursor = player.browsing ?
+                        solar_os_storage_browser_cursor(player.browser) : player.cursor;
+                    if (idx == cursor) {
+                        if (player.browsing) {
+                            player_activate_browser();
+                        } else {
+                            (void)player_play_index(idx);
+                            player.tab = PLAYER_TAB_PLAY;
+                        }
+                    } else if (player.browsing) {
+                        solar_os_storage_browser_move(player.browser, (int)idx - (int)cursor);
+                    } else {
+                        player.cursor = idx;
+                    }
+                }
+            }
+        }
+        player.redraw = true;
+        player_render(ctx);
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_SCROLL) {
+        if (player.mode != PLAYER_MODE_GRAPHICS) return true;
+        /* Sign is device-dependent -- flip here if it feels backwards. */
+        const bool down = event->data.scroll.delta < 0;
+        if (player.tab == PLAYER_TAB_PLAY && !player.browsing) {
+            player_adjust_volume(down ? -1 : 1);
+        } else if (player.browsing) {
+            solar_os_storage_browser_move(player.browser, down ? 1 : -1);
+        } else if (down) {
+            if (player.cursor + 1U < player.track_count) player.cursor++;
+        } else if (player.cursor > 0U) {
+            player.cursor--;
+        }
+        player.redraw = true;
+        player_render(ctx);
+        return true;
+    }
+
     return event->type == SOLAR_OS_EVENT_CHAR ?
         player_handle_key(ctx, (uint8_t)event->data.ch) : false;
 }

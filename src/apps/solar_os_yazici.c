@@ -466,7 +466,9 @@ static void yazici_load_settings(void)
 {
     yazici_apply_default_settings();
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    if (solar_os_storage_resolve_path("/" YAZICI_SETTINGS_DIR "/" YAZICI_SETTINGS_FILE, path, sizeof(path)) != ESP_OK) {
+    /* Settings live on the SD card exclusively (solar_os_storage_app_data_path);
+     * no SD card just means "use defaults", same as no settings file yet. */
+    if (solar_os_storage_app_data_path("yazici", YAZICI_SETTINGS_FILE, path, sizeof(path)) != ESP_OK) {
         return;
     }
     FILE *f = fopen(path, "rb");
@@ -490,11 +492,13 @@ static void yazici_load_settings(void)
 
 static void yazici_save_settings(void)
 {
-    char dir[SOLAR_OS_STORAGE_PATH_MAX];
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    if (solar_os_storage_resolve_path("/" YAZICI_SETTINGS_DIR, dir, sizeof(dir)) != ESP_OK) return;
-    ensure_dir_exists(dir);
-    if (solar_os_storage_resolve_path("/" YAZICI_SETTINGS_DIR "/" YAZICI_SETTINGS_FILE, path, sizeof(path)) != ESP_OK) return;
+    const esp_err_t path_err = solar_os_storage_app_data_path("yazici", YAZICI_SETTINGS_FILE, path, sizeof(path));
+    if (path_err == SOLAR_OS_STORAGE_ERR_NO_SD_CARD) {
+        yazici_set_status("No SD card - settings not saved");
+        return;
+    }
+    if (path_err != ESP_OK) return;
 
     const yazici_settings_t settings = {
         .magic = YAZICI_SETTINGS_MAGIC,
@@ -642,6 +646,42 @@ static int yazici_x_for_offset(solar_os_gfx_t *gfx, const yazici_line_t *line, s
     size_t len = offset - line->start;
     if (offset > line->end) len = line->end - line->start;
     return yazici_measure(gfx, yazici.buffer + line->start, len);
+}
+
+/* Inverse of yazici_x_for_offset(): walks the line the same way
+ * yazici_draw_line_text() draws it (respecting strike markers and UTF-8
+ * continuation bytes) and returns the byte offset of whichever character
+ * boundary is closest to target_x, for click-to-position-cursor. */
+static size_t yazici_offset_for_x(solar_os_gfx_t *gfx, const yazici_line_t *line, int target_x)
+{
+    if (target_x <= 0) return line->start;
+    solar_os_gfx_set_font(gfx, YAZICI_FONT);
+
+    size_t i = line->start;
+    int x = 0;
+    while (i < line->end) {
+        if ((unsigned char)yazici.buffer[i] == (unsigned char)YAZICI_STRIKE_MARKER) {
+            i++;
+            if (i >= line->end) break;
+        }
+        const size_t char_start = i;
+        size_t char_end = char_start + 1U;
+        while (char_end < line->end && ((unsigned char)yazici.buffer[char_end] & 0xC0) == 0x80) {
+            char_end++;
+        }
+        char glyph[8];
+        size_t glyph_len = char_end - char_start;
+        if (glyph_len >= sizeof(glyph)) glyph_len = sizeof(glyph) - 1U;
+        memcpy(glyph, yazici.buffer + char_start, glyph_len);
+        glyph[glyph_len] = '\0';
+        const int glyph_w = (int)solar_os_gfx_text_width(gfx, glyph);
+        if (target_x < x + glyph_w / 2) {
+            return char_start;
+        }
+        x += glyph_w;
+        i = char_end;
+    }
+    return line->end;
 }
 
 static void yazici_render(solar_os_context_t *ctx)
@@ -902,6 +942,44 @@ static bool yazici_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         yazici.render_pending = true;
         yazici_render(ctx);
         break;
+    case SOLAR_OS_EVENT_CLICK: {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx != NULL && yazici.line_count > 0U && !yazici.prompt_active) {
+            const int line_h = yazici.line_spacing >= 2U ? YAZICI_LINE_H_DOUBLE : YAZICI_LINE_H_SINGLE;
+            const int row = (event->data.click.y - YAZICI_HEADER_H) / line_h;
+            if (row >= 0) {
+                size_t idx = yazici.scroll_top_line + (size_t)row;
+                if (idx >= yazici.line_count) idx = yazici.line_count - 1U;
+                const yazici_line_t *line = &yazici.lines[idx];
+                yazici.cursor_line = idx;
+                yazici.cursor = yazici_offset_for_x(gfx, line, event->data.click.x - yazici.margin_left);
+                yazici.blink_visible = true;
+                yazici.blink_accum_ms = 0U;
+                yazici.render_pending = true;
+                yazici_render(ctx);
+            }
+        }
+        break;
+    }
+    case SOLAR_OS_EVENT_SCROLL: {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx != NULL && yazici.line_count > 0U) {
+            const int visible = yazici_visible_line_count(gfx);
+            const size_t max_top = (size_t)visible < yazici.line_count ? yazici.line_count - (size_t)visible : 0U;
+            /* Sign is device-dependent -- flip here if it feels backwards. */
+            if (event->data.scroll.delta < 0) {
+                if (yazici.scroll_top_line < max_top) {
+                    yazici.scroll_top_line += 3U;
+                    if (yazici.scroll_top_line > max_top) yazici.scroll_top_line = max_top;
+                }
+            } else {
+                yazici.scroll_top_line = yazici.scroll_top_line > 3U ? yazici.scroll_top_line - 3U : 0U;
+            }
+            yazici.render_pending = true;
+            yazici_render(ctx);
+        }
+        break;
+    }
     default:
         break;
     }
