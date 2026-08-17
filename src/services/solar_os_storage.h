@@ -92,6 +92,25 @@ esp_err_t solar_os_storage_join_path(const char *base_path,
 esp_err_t solar_os_storage_default_path(const char *relative_path,
                                         char *path,
                                         size_t path_len);
+
+// Returned (without touching the filesystem) when solar_os_storage_sd_is_mounted()
+// is false. Callers should show a "no SD card, not saved" message and skip
+// persistence -- this NEVER falls back to internal flash, unlike
+// solar_os_storage_default_path()/resolve_path() above.
+#define SOLAR_OS_STORAGE_ERR_NO_SD_CARD ESP_ERR_NOT_FOUND
+
+// Resolves <sd_mount_point>/.data/<app_name>/<leaf>, creating .data and
+// .data/<app_name> as needed. app_name is the app's short slug (e.g. "reader"),
+// a stable constant the caller owns. Use this (not default_path/resolve_path)
+// for per-app data that should live on the SD card exclusively.
+esp_err_t solar_os_storage_app_data_path(const char *app_name,
+                                         const char *leaf,
+                                         char *path,
+                                         size_t path_len);
+// Same resolution with leaf omitted; ensures and returns just the app's data dir.
+esp_err_t solar_os_storage_app_data_dir(const char *app_name,
+                                        char *path,
+                                        size_t path_len);
 esp_err_t solar_os_storage_get_usage(solar_os_storage_usage_t *usage);
 esp_err_t solar_os_storage_get_usage_for_path(const char *path, solar_os_storage_usage_t *usage);
 esp_err_t solar_os_storage_get_usage_for_block(const solar_os_storage_block_t *block,
