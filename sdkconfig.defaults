@@ -35,6 +35,11 @@ CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
 # boards without PSRAM continue to use internal RAM.
 CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+# Run app_main (the SolarOS main loop and every foreground app, e.g. the Game
+# Boy emulator) on APP_CPU (core 1), leaving the Wi-Fi/BT stacks and other
+# system tasks on PRO_CPU (core 0). This "system on core 0, apps on core 1"
+# split gives foreground apps steadier frame pacing.
+CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y
 CONFIG_FREERTOS_HZ=1000
 CONFIG_PM_ENABLE=y
 # The ESP32-S3 is rated for 240 MHz. Power profiles may scale below this, but

@@ -372,7 +372,7 @@ out:
 
 esp_err_t audio_codec_board_init(void)
 {
-    if (audio_codec.output_initialized && audio_codec.input_initialized) {
+    if (audio_codec.output_initialized) {
         return ESP_OK;
     }
 
@@ -380,10 +380,13 @@ esp_err_t audio_codec_board_init(void)
     if (ret != ESP_OK) {
         return audio_codec_handle_init_error(ret);
     }
-    ret = audio_codec_ensure_input();
-    if (ret != ESP_OK) {
-        return audio_codec_handle_init_error(ret);
-    }
+    /*
+     * The ES7210 microphone input (4-channel TDM RX) is opened lazily on the
+     * first audio_codec_board_read()/set_mic_gain() via audio_codec_ensure_
+     * input(), not eagerly here. Playback-only workloads -- notably the Game
+     * Boy emulator, which needs the DAC but never records -- then avoid the
+     * continuous mic RX DMA/interrupt load and its internal-SRAM buffers.
+     */
 
     ESP_LOGI(TAG,
              "audio ready: %s/%s I2S%d mclk=%d bclk=%d ws=%d din=%d dout=%d pa=%d",

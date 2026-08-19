@@ -1172,6 +1172,25 @@ static void dispatch_mouse_scroll(void)
     process_app_requests();
 }
 
+static void dispatch_mouse_drag(void)
+{
+    int16_t x, y, dx, dy;
+    uint8_t buttons;
+    bool started, ended;
+    if (!solar_os_mouse_take_pending_drag(&x, &y, &dx, &dy, &buttons, &started, &ended)) {
+        return;
+    }
+    solar_os_power_note_activity(millis_u32());
+
+    const solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_DRAG,
+        .data.drag = { .x = x, .y = y, .dx = dx, .dy = dy, .buttons = buttons,
+                       .started = started, .ended = ended },
+    };
+    (void)solar_os_sessions_dispatch_input_event(&event);
+    process_app_requests();
+}
+
 static void dispatch_input_sources(void)
 {
     const uint32_t now_ms = millis_u32();
@@ -1190,6 +1209,7 @@ static void dispatch_input_sources(void)
 
     dispatch_mouse_click();
     dispatch_mouse_scroll();
+    dispatch_mouse_drag();
 }
 
 static uint32_t requested_tick_interval_ms(void)
@@ -1245,6 +1265,13 @@ static void dispatch_mouse_compositor(void)
     static uint32_t last_track_ms = 0;
     if (display_u8g2 == NULL || !solar_os_context_graphics_active(&os_ctx) ||
         !solar_os_mouse_is_dirty()) {
+        return;
+    }
+    const solar_os_app_t *foreground = solar_os_sessions_foreground_app();
+    if (foreground != NULL &&
+        (foreground->flags & SOLAR_OS_APP_FLAG_NO_CURSOR) != 0U) {
+        /* App owns the full screen; skip cursor compositing entirely. */
+        solar_os_mouse_clear_dirty();
         return;
     }
     const uint32_t now_ms = millis_u32();

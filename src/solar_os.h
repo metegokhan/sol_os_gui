@@ -25,6 +25,11 @@ typedef void (*solar_os_session_list_fn)(solar_os_shell_io_t *io, void *user);
 #define SOLAR_OS_APP_FLAG_SHELL_INLINE (1U << 1)
 /* Receive structured local key events instead of their legacy character form. */
 #define SOLAR_OS_APP_FLAG_KEY_EVENTS (1U << 2)
+/* Suppress the system mouse-cursor compositor while this app is foreground.
+ * Full-screen graphics apps (e.g. the Game Boy emulator) own every pixel and
+ * gain nothing from a cursor overlay -- compositing one just steals frame time
+ * and display bandwidth from the app. */
+#define SOLAR_OS_APP_FLAG_NO_CURSOR (1U << 3)
 
 /*
  * Foreground-app mutable state is cold by default: the shared app lifecycle
@@ -82,6 +87,7 @@ typedef enum {
     SOLAR_OS_EVENT_RESUME,
     SOLAR_OS_EVENT_CLICK,
     SOLAR_OS_EVENT_SCROLL,
+    SOLAR_OS_EVENT_DRAG,
 } solar_os_event_type_t;
 
 typedef struct {
@@ -96,6 +102,23 @@ typedef struct {
     int16_t y;
 } solar_os_scroll_event_t;
 
+/* Fires on every cursor move while a mouse button is held, from the
+ * press edge (started=true, dx=dy=0) through intermediate moves to the
+ * release edge (ended=true). x/y are the current cursor position; dx/dy
+ * are the delta since the previous drag event for this same press --
+ * apps doing a vertical-drag-adjusts-a-value control (e.g. a knob) only
+ * need dy. There is no separate "drag start" event type: check `started`
+ * on the first event of a press to capture the anchor if needed. */
+typedef struct {
+    int16_t x;
+    int16_t y;
+    int16_t dx;
+    int16_t dy;
+    uint8_t buttons;
+    bool started;
+    bool ended;
+} solar_os_drag_event_t;
+
 typedef struct {
     solar_os_event_type_t type;
     union {
@@ -104,6 +127,7 @@ typedef struct {
         uint32_t tick_ms;
         solar_os_click_event_t click;
         solar_os_scroll_event_t scroll;
+        solar_os_drag_event_t drag;
     } data;
 } solar_os_event_t;
 

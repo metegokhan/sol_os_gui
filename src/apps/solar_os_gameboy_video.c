@@ -9,8 +9,8 @@ static const uint8_t bayer4[4][4] = {
     {15, 7, 13, 5},
 };
 
-static void gameboy_bitmap_set(uint8_t *bitmap, size_t x, size_t y) {
-  const size_t offset = y * SOLAR_OS_GAMEBOY_BITMAP_STRIDE + x / 8U;
+static inline void gameboy_bitmap_set(uint8_t *bitmap, size_t x, size_t y) {
+  const size_t offset = y * SOLAR_OS_GAMEBOY_BITMAP_STRIDE + (x >> 3U);
   bitmap[offset] |= (uint8_t)(1U << (x & 7U));
 }
 
