@@ -70,8 +70,9 @@ static void gameboy_audio_unlock(void) {
 static void gameboy_audio_render(int16_t *samples, size_t frames,
                                  uint32_t sample_rate, void *user) {
   (void)user;
+  (void)sample_rate;
   if (gameboy_audio_state == NULL || samples == NULL || frames != AUDIO_SAMPLES ||
-      sample_rate != AUDIO_SAMPLE_RATE || !gameboy_apu_initialized) {
+      !gameboy_apu_initialized) {
     return;
   }
   gameboy_audio_lock();

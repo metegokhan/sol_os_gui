@@ -34,6 +34,11 @@ typedef struct {
 esp_err_t solar_os_mouse_init(void);
 void solar_os_mouse_set_connected(bool connected);
 bool solar_os_mouse_is_connected(void);
+/* When suppressed, incoming HID mouse reports are dropped at the source so a
+ * moving mouse costs no CPU. Keyboard and gamepad input are unaffected. Used by
+ * full-screen apps (e.g. the Game Boy emulator) that have no cursor. */
+void solar_os_mouse_set_suppressed(bool suppressed);
+bool solar_os_mouse_is_suppressed(void);
 void solar_os_mouse_process_report(uint8_t buttons, int16_t dx, int16_t dy, int8_t wheel);
 void solar_os_mouse_get_state(solar_os_mouse_state_t *out);
 bool solar_os_mouse_is_visible(void);
@@ -46,6 +51,12 @@ bool solar_os_mouse_take_pending_click(int16_t *x, int16_t *y, uint8_t *buttons)
 /* Pops accumulated wheel notches since the last pop, if any. Returns false
  * and leaves the out-params untouched when there is no pending scroll. */
 bool solar_os_mouse_take_pending_scroll(int16_t *delta, int16_t *x, int16_t *y);
+/* Pops one pending drag step (left-button held + cursor moved, or the
+ * press/release edge of a left-button hold), if any. dx/dy are relative to
+ * the previous popped drag step of the same press. Returns false and
+ * leaves the out-params untouched when there is no pending drag step. */
+bool solar_os_mouse_take_pending_drag(int16_t *x, int16_t *y, int16_t *dx, int16_t *dy,
+                                      uint8_t *buttons, bool *started, bool *ended);
 void solar_os_mouse_draw_cursor(solar_os_gfx_t *gfx);
 void solar_os_mouse_draw_cursor_u8g2(u8g2_t *u8g2);
 void solar_os_mouse_tick(uint32_t now_ms);

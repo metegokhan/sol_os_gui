@@ -12,6 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "esp_log.h"
 #include "esp_timer.h"
 #include "solar_os_config.h"
 #include "solar_os_gameboy_audio.h"
@@ -23,7 +24,10 @@
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_mouse.h"
+#include "solar_os_power.h"
 #include "solar_os_storage.h"
+#include "solar_os_wifi.h"
 
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 #define audio_read solar_os_gameboy_audio_read
@@ -33,6 +37,7 @@
 #define ENABLE_SOUND 0
 #endif
 #define PEANUT_GB_12_COLOUR 0
+#define PEANUT_GB_HIGH_LCD_ACCURACY 0
 #include "vendor/peanut_gb/peanut_gb.h"
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 #undef audio_read
@@ -73,6 +78,8 @@ typedef struct {
   bool paused;
   bool cart_ram_dirty;
   bool frame_rendered;
+  bool profile_boosted;
+  solar_os_power_profile_t saved_profile;
 } gameboy_state_t;
 
 static const char *TAG = "solar_os_gameboy";
@@ -302,6 +309,67 @@ static void gameboy_load_save(void) {
   (void)fclose(file);
 }
 
+/*
+ * Focus mode carves out CPU for the emulator while it is foreground:
+ *   - The default BALANCED power profile pins the CPU at 160 MHz, where a full
+ *     Game Boy frame needs ~25 ms; at PERFORMANCE (240 MHz) it needs ~17 ms, so
+ *     this lifts emulation from ~38 fps to full speed.
+ *   - Wi-Fi is parked (prepare_sleep) so its reconnect churn and BLE coexistence
+ *     arbitration stop stealing radio/CPU time; resume restores the prior state.
+ *   - HID mouse reports are suppressed at the source (this app has no cursor);
+ *     keyboard and gamepad input keep working. Note: the BLE mouse is left
+ *     connected on purpose -- disconnecting it just makes the auto-pairing task
+ *     reconnect mid-game, and the re-enumeration churn is worse than the idle
+ *     notification traffic it was meant to avoid.
+ * Everything is restored on suspend/stop so the rest of the system is untouched.
+ */
+static void gameboy_enter_focus_mode(void) {
+  solar_os_mouse_set_suppressed(true);
+  /*
+   * A BLE mouse with report characteristics we don't subscribe to makes
+   * Bluedroid log a "drop notif ... not registered" warning for every report
+   * while it moves -- dozens per second of blocking 115200-baud UART writes
+   * that steal time from the whole system. Silence those layers while the
+   * emulator runs; restored on exit.
+   */
+  esp_log_level_set("BT_APPL", ESP_LOG_ERROR);
+  esp_log_level_set("BT_HCI", ESP_LOG_ERROR);
+  (void)solar_os_wifi_prepare_sleep();
+  if (gameboy.profile_boosted) {
+    return;
+  }
+  solar_os_power_status_t status;
+  solar_os_power_get_status(&status);
+  gameboy.saved_profile = status.profile;
+  if (status.profile == SOLAR_OS_POWER_PROFILE_PERFORMANCE) {
+    return;
+  }
+  const esp_err_t err =
+      solar_os_power_set_profile(SOLAR_OS_POWER_PROFILE_PERFORMANCE);
+  if (err == ESP_OK) {
+    gameboy.profile_boosted = true;
+    SOLAR_OS_LOGI(TAG, "focus mode: cpu 240 MHz (from %s), wifi parked, mouse suppressed",
+                  solar_os_power_profile_name(gameboy.saved_profile));
+  } else {
+    SOLAR_OS_LOGW(TAG, "cpu boost failed: %s", esp_err_to_name(err));
+  }
+}
+
+static void gameboy_exit_focus_mode(void) {
+  solar_os_mouse_set_suppressed(false);
+  esp_log_level_set("BT_APPL", ESP_LOG_WARN);
+  esp_log_level_set("BT_HCI", ESP_LOG_WARN);
+  (void)solar_os_wifi_resume();
+  if (!gameboy.profile_boosted) {
+    return;
+  }
+  gameboy.profile_boosted = false;
+  const esp_err_t err = solar_os_power_set_profile(gameboy.saved_profile);
+  if (err != ESP_OK) {
+    SOLAR_OS_LOGW(TAG, "cpu profile restore failed: %s", esp_err_to_name(err));
+  }
+}
+
 static void gameboy_render(void) {
   (void)solar_os_gameboy_presenter_queue(gameboy.bitmap);
 }
@@ -333,6 +401,15 @@ static void gameboy_log_stats(int64_t now_us) {
           ? present.present_us / present.presented_frames
           : 0,
       (unsigned)present.dropped_frames);
+  /*
+   * The pacing numbers go only to the SOLAR_OS_LOGI ring buffer above (read
+   * later with `log show`). We deliberately do NOT mirror them to the UART
+   * console with ESP_LOGI: that write blocks the emulation task on the serial
+   * link, and how long it blocks depends on how fast the host terminal drains
+   * it -- so the diagnostic itself was perturbing the fps it measured (Arduino
+   * monitor vs PowerShell gave different numbers). Ring-buffer only keeps the
+   * measurement clean.
+   */
   gameboy.stats_emulated_frames = 0;
   gameboy.emulation_us = 0;
   gameboy.stats_started_us = now_us;
@@ -379,8 +456,18 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
   gameboy.core = solar_os_memory_calloc(1, sizeof(*gameboy.core),
                                         SOLAR_OS_MEMORY_INTERNAL_PREFERRED,
                                         "gameboy.core");
+  /*
+   * Keep the frame bitmap in PSRAM so the scarce internal SRAM stays free for
+   * the ROM bank caches allocated in gameboy_prepare_rom_caches() below. The
+   * emulator core reads ROM millions of times per second, whereas this bitmap
+   * is written sequentially only on presented frames (every GAMEBOY_PRESENT_
+   * DIVISOR-th frame) and then copied into the presenter's own external
+   * buffer -- so a bank cache in SRAM is worth far more here than the bitmap.
+   * Placing the bitmap internally (the previous behaviour) consumed ~11.5 KiB
+   * of the largest internal block and dropped both ROM caches to 0 KiB.
+   */
   gameboy.bitmap = solar_os_memory_calloc(1, SOLAR_OS_GAMEBOY_BITMAP_BYTES,
-                                          SOLAR_OS_MEMORY_INTERNAL_PREFERRED,
+                                          SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
                                           "gameboy.frame");
   if (gameboy.core == NULL || gameboy.bitmap == NULL) {
     return gameboy_start_error(ctx, gameboy.rom_path,
@@ -435,6 +522,7 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
   gameboy.loaded = true;
   gameboy.core->direct.joypad = 0xFFU;
   gameboy.core->direct.frame_skip = false;
+  gameboy_enter_focus_mode();
   solar_os_context_set_graphics_active(ctx, true);
   const int64_t now_us = esp_timer_get_time();
   gameboy.next_frame_us = now_us;
@@ -455,12 +543,14 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
 }
 
 static void gameboy_stop(solar_os_context_t *ctx) {
+  gameboy_exit_focus_mode();
   gameboy_free_state(true);
   solar_os_context_set_graphics_active(ctx, false);
 }
 
 static void gameboy_suspend(solar_os_context_t *ctx) {
   gameboy.suspended = true;
+  gameboy_exit_focus_mode();
   solar_os_gameboy_presenter_suspend();
   solar_os_gameboy_audio_suspend();
   if (gameboy.core != NULL) {
@@ -475,6 +565,7 @@ static void gameboy_suspend(solar_os_context_t *ctx) {
 
 static void gameboy_resume(solar_os_context_t *ctx) {
   gameboy.suspended = false;
+  gameboy_enter_focus_mode();
   const esp_err_t presenter_err = solar_os_gameboy_presenter_resume();
   if (presenter_err != ESP_OK) {
     SOLAR_OS_LOGW(TAG, "presenter resume failed: %s",
@@ -508,16 +599,16 @@ static uint8_t gameboy_button_for_char(uint8_t ch) {
   if (ch == SOLAR_OS_KEY_DOWN || ch == SOLAR_OS_KEY_CTRL_DOWN) {
     return JOYPAD_DOWN;
   }
-  if (ch == 'z' || ch == 'Z') {
+  if (ch == 'a' || ch == 'A') {
     return JOYPAD_A;
   }
-  if (ch == 'x' || ch == 'X') {
+  if (ch == 'b' || ch == 'B') {
     return JOYPAD_B;
   }
   if (ch == '\n' || ch == '\r') {
     return JOYPAD_START;
   }
-  if (ch == '\b' || ch == SOLAR_OS_KEY_DELETE) {
+  if (ch == '\t') {
     return JOYPAD_SELECT;
   }
   return 0;
@@ -528,14 +619,18 @@ static uint8_t gameboy_button_for_input_key(
   if (key == NULL) {
     return 0;
   }
-  /* Keep game controls at fixed physical positions across keyboard layouts. */
-  if (key->usage == 0x1dU) {
+  /* Keep game controls at fixed physical positions across keyboard layouts:
+   * USB HID usage 0x04 = 'a' (A button), 0x05 = 'b' (B button). */
+  if (key->usage == 0x04U) {
     return JOYPAD_A;
   }
-  if (key->usage == 0x1bU) {
+  if (key->usage == 0x05U) {
     return JOYPAD_B;
   }
-  if (key->usage >= 0x04U && key->usage <= 0x1dU) {
+  /* Other letter keys (0x06..0x1d) carry no game action; ignore them so a
+   * layout's letters never leak through as button presses. Tab/Enter/arrows
+   * fall through to the char mapping below (Select/Start/D-pad). */
+  if (key->usage >= 0x06U && key->usage <= 0x1dU) {
     return 0;
   }
   return gameboy_button_for_char(key->key);
@@ -733,7 +828,7 @@ static void gameboy_title(solar_os_context_t *ctx, char *buffer,
 const solar_os_app_t solar_os_gameboy_app = {
     .name = "gameboy",
     .summary = "original Game Boy emulator",
-    .flags = SOLAR_OS_APP_FLAG_KEY_EVENTS,
+    .flags = SOLAR_OS_APP_FLAG_KEY_EVENTS | SOLAR_OS_APP_FLAG_NO_CURSOR,
     .start = gameboy_start,
     .suspend = gameboy_suspend,
     .resume = gameboy_resume,

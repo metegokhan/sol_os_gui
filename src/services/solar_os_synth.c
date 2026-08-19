@@ -14,6 +14,15 @@
 
 #define SYNTH_TASK_STACK 5120U
 #define SYNTH_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
+/*
+ * Pin audio rendering to PRO_CPU (core 0), the "system" core that also runs the
+ * Wi-Fi/BT stacks, while app_main -- and with it every foreground app's main
+ * loop, including the Game Boy emulator -- runs on APP_CPU (core 1). Keeping the
+ * synth worker off core 1 stops it preempting emulation mid-frame; the two share
+ * only the brief APU-register mutex. This "system on core 0, apps on core 1"
+ * split gives foreground apps steadier frame pacing (less jitter).
+ */
+#define SYNTH_TASK_CORE 0
 #define SYNTH_START_WAIT_MS 2000U
 
 typedef struct {
@@ -267,7 +276,7 @@ esp_err_t solar_os_synth_start(const solar_os_synth_config_t *config)
 
     const BaseType_t created = solar_os_task_create_pinned_internal(
         synth_worker, "synth", SYNTH_TASK_STACK, NULL, SYNTH_TASK_PRIORITY,
-        &synth.task, tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_SYSTEM);
+        &synth.task, SYNTH_TASK_CORE, SOLAR_OS_TASK_ROLE_SYSTEM);
     if (created != pdPASS) {
         synth.task = NULL;
         synth.starting = false;

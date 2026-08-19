@@ -27,6 +27,14 @@
 #include "solar_os_task.h"
 
 #define TAG "ble_hid"
+
+/* Per-report MOUSE_RAW/MOUSE_RATE console diagnostics. Off by default: at
+ * 115200 baud these blocking UART writes fire on every mouse report and
+ * visibly starve foreground apps (e.g. the Game Boy emulator) while the mouse
+ * moves. Set to 1 only when re-checking the report shape. */
+#ifndef SOLAR_OS_BLE_HID_MOUSE_DIAG
+#define SOLAR_OS_BLE_HID_MOUSE_DIAG 0
+#endif
 #define BLE_HID_NVS_NAMESPACE "ble_kb"
 #define BLE_HID_NVS_PEERS_KEY "peers"
 #define BLE_HID_PEER_MAGIC 0x424CU
@@ -325,6 +333,7 @@ static void decode_ble_mouse_report(const uint8_t *data, uint16_t length, uint8_
      * if you don't see MOUSE_RAW lines in the console, the build you
      * flashed predates this re-add; do a full rebuild. Remove once the
      * report shape is fully confirmed against MOUSE_REPORT_MAP. */
+#if SOLAR_OS_BLE_HID_MOUSE_DIAG
     static uint32_t s_mouse_diag_counter = 0;
     if ((s_mouse_diag_counter++ & 0x1FU) == 0U) {
         ESP_LOGI("MOUSE_RAW", "id=%u len=%u b=[%02X %02X %02X %02X %02X %02X %02X]",
@@ -334,6 +343,7 @@ static void decode_ble_mouse_report(const uint8_t *data, uint16_t length, uint8_
                  length > 4 ? data[4] : 0, length > 5 ? data[5] : 0,
                  length > 6 ? data[6] : 0);
     }
+#endif
 
     /* TEMPORARY diagnostic: unthrottled report-rate counter split by
      * button state, printed every ~2s. Purpose: distinguish "the mouse
@@ -341,6 +351,7 @@ static void decode_ble_mouse_report(const uint8_t *data, uint16_t length, uint8_
      * power-saving behavior tied to connection interval) from "reports
      * arrive fine but decode/accumulation nets to ~0". Remove once the
      * idle-vs-held movement difference is root-caused. */
+#if SOLAR_OS_BLE_HID_MOUSE_DIAG
     {
         static uint32_t s_reports_btn = 0, s_reports_idle = 0;
         static int64_t s_window_start_us = 0;
@@ -359,6 +370,7 @@ static void decode_ble_mouse_report(const uint8_t *data, uint16_t length, uint8_
             s_window_start_us = now_us;
         }
     }
+#endif
 
     const uint8_t *m_data = data;
     const uint16_t m_len = length;
@@ -505,16 +517,24 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                                                  param->input.data,
                                                  param->input.length);
         } else if (param->input.usage == ESP_HID_USAGE_MOUSE) {
-            log_mouse_report_map_once(param->input.dev);
-            decode_ble_mouse_report(param->input.data, param->input.length, param->input.report_id);
+            /* Drop mouse reports at the source while suppressed (e.g. the Game
+             * Boy emulator is foreground). This runs on the esp_hidh event
+             * task, which is not pinned to a core, so skipping the decode keeps
+             * it from stealing time on whatever core the emulator is using. */
+            if (!solar_os_mouse_is_suppressed()) {
+                log_mouse_report_map_once(param->input.dev);
+                decode_ble_mouse_report(param->input.data, param->input.length, param->input.report_id);
+            }
         } else if (param->input.usage == ESP_HID_USAGE_JOYSTICK || param->input.usage == ESP_HID_USAGE_GAMEPAD) {
             solar_os_gamepad_process_report(param->input.data, param->input.length);
         } else {
             /* Heuristic fallback */
             const char *dev_name = esp_hidh_dev_name_get(param->input.dev);
             if (dev_name != NULL && solar_os_ble_is_mouse_like(0, dev_name)) {
-                log_mouse_report_map_once(param->input.dev);
-                decode_ble_mouse_report(param->input.data, param->input.length, param->input.report_id);
+                if (!solar_os_mouse_is_suppressed()) {
+                    log_mouse_report_map_once(param->input.dev);
+                    decode_ble_mouse_report(param->input.data, param->input.length, param->input.report_id);
+                }
             } else if (dev_name != NULL && solar_os_ble_is_gamepad_like(0, dev_name)) {
                 solar_os_gamepad_process_report(param->input.data, param->input.length);
             } else {

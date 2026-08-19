@@ -76,6 +76,18 @@ void solar_os_mouse_set_connected(bool connected)
     portEXIT_CRITICAL(&mouse_lock);
 }
 
+static volatile bool mouse_suppressed = false;
+
+void solar_os_mouse_set_suppressed(bool suppressed)
+{
+    mouse_suppressed = suppressed;
+}
+
+bool solar_os_mouse_is_suppressed(void)
+{
+    return mouse_suppressed;
+}
+
 bool solar_os_mouse_is_connected(void)
 {
     bool connected;
@@ -103,8 +115,25 @@ static int16_t scroll_pending_delta = 0;
 static int16_t scroll_pending_x = 0;
 static int16_t scroll_pending_y = 0;
 
+/* Pending drag step: accumulated cursor delta while the left button is
+ * held, plus the press/release edge flags. Popped once by main.c's
+ * dispatch loop -- see solar_os_mouse_take_pending_drag(). `started`
+ * stays true across accumulation until popped, so a caller that hasn't
+ * polled since the press still sees it on the first pop. */
+static bool drag_pending = false;
+static int16_t drag_pending_x = 0;
+static int16_t drag_pending_y = 0;
+static int16_t drag_pending_dx = 0;
+static int16_t drag_pending_dy = 0;
+static uint8_t drag_pending_buttons = 0;
+static bool drag_pending_started = false;
+static bool drag_pending_ended = false;
+
 void solar_os_mouse_process_report(uint8_t buttons, int16_t dx, int16_t dy, int8_t wheel)
 {
+    if (mouse_suppressed) {
+        return;
+    }
     const uint32_t now = mouse_millis();
     int16_t final_x, final_y;
 
@@ -158,6 +187,43 @@ void solar_os_mouse_process_report(uint8_t buttons, int16_t dx, int16_t dy, int8
         click_pending_x = final_x;
         click_pending_y = final_y;
         click_pending_buttons = SOLAR_OS_MOUSE_BTN_LEFT;
+        portEXIT_CRITICAL(&mouse_lock);
+    }
+
+    /* Drag: press edge, held+move steps, and release edge all feed one
+     * accumulating pending record so apps with a drag-to-adjust control
+     * (e.g. a synth knob) see every step even if dispatch polls slower
+     * than incoming HID reports. */
+    if (left_pressed && !left_prev) {
+        portENTER_CRITICAL(&mouse_lock);
+        drag_pending = true;
+        drag_pending_x = final_x;
+        drag_pending_y = final_y;
+        drag_pending_dx = 0;
+        drag_pending_dy = 0;
+        drag_pending_buttons = buttons;
+        drag_pending_started = true;
+        drag_pending_ended = false;
+        portEXIT_CRITICAL(&mouse_lock);
+    } else if (left_pressed && left_prev && (dx != 0 || dy != 0)) {
+        portENTER_CRITICAL(&mouse_lock);
+        drag_pending = true;
+        drag_pending_x = final_x;
+        drag_pending_y = final_y;
+        drag_pending_dx = (int16_t)(drag_pending_dx + dx);
+        drag_pending_dy = (int16_t)(drag_pending_dy + dy);
+        drag_pending_buttons = buttons;
+        drag_pending_ended = false;
+        portEXIT_CRITICAL(&mouse_lock);
+    } else if (!left_pressed && left_prev) {
+        portENTER_CRITICAL(&mouse_lock);
+        drag_pending = true;
+        drag_pending_x = final_x;
+        drag_pending_y = final_y;
+        drag_pending_dx = 0;
+        drag_pending_dy = 0;
+        drag_pending_buttons = buttons;
+        drag_pending_ended = true;
         portEXIT_CRITICAL(&mouse_lock);
     }
 
@@ -263,6 +329,30 @@ bool solar_os_mouse_take_pending_scroll(int16_t *delta, int16_t *x, int16_t *y)
     }
     portEXIT_CRITICAL(&mouse_lock);
     return had_scroll;
+}
+
+bool solar_os_mouse_take_pending_drag(int16_t *x, int16_t *y, int16_t *dx, int16_t *dy,
+                                      uint8_t *buttons, bool *started, bool *ended)
+{
+    bool had_drag;
+    portENTER_CRITICAL(&mouse_lock);
+    had_drag = drag_pending;
+    if (had_drag) {
+        if (x != NULL) *x = drag_pending_x;
+        if (y != NULL) *y = drag_pending_y;
+        if (dx != NULL) *dx = drag_pending_dx;
+        if (dy != NULL) *dy = drag_pending_dy;
+        if (buttons != NULL) *buttons = drag_pending_buttons;
+        if (started != NULL) *started = drag_pending_started;
+        if (ended != NULL) *ended = drag_pending_ended;
+        drag_pending = false;
+        drag_pending_dx = 0;
+        drag_pending_dy = 0;
+        drag_pending_started = false;
+        drag_pending_ended = false;
+    }
+    portEXIT_CRITICAL(&mouse_lock);
+    return had_drag;
 }
 
 void solar_os_mouse_tick(uint32_t now_ms)
