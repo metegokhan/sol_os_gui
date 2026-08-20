@@ -186,6 +186,32 @@ static void pomo_suspend(solar_os_context_t *ctx)
 static void pomo_resume(solar_os_context_t *ctx)
 {
     solar_os_context_set_graphics_active(ctx, true);
+    if (pomo.running && pomo.last_tick_ms > 0) {
+        const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000U);
+        const uint32_t elapsed_sec = (now > pomo.last_tick_ms) ? (now - pomo.last_tick_ms) / 1000U : 0;
+        if (elapsed_sec > 0) {
+            pomo.last_tick_ms += elapsed_sec * 1000U;
+            if (elapsed_sec >= pomo.remaining_seconds) {
+                pomo.remaining_seconds = 0;
+                pomo.running = false;
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+                (void)solar_os_audio_play_tone(1000, 300, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
+#endif
+                if (pomo.mode == POMO_MODE_WORK) {
+                    pomo.completed_cycles++;
+                    if (pomo.completed_cycles % 4 == 0) {
+                        pomo_set_mode(POMO_MODE_LONG_BREAK);
+                    } else {
+                        pomo_set_mode(POMO_MODE_SHORT_BREAK);
+                    }
+                } else {
+                    pomo_set_mode(POMO_MODE_WORK);
+                }
+            } else {
+                pomo.remaining_seconds -= elapsed_sec;
+            }
+        }
+    }
     pomo_render(ctx);
 }
 

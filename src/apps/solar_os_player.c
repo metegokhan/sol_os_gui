@@ -272,41 +272,73 @@ static void player_device_callback(const solar_os_audio_device_info_t *device,
 static void player_worker(void *arg)
 {
     (void)arg;
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-    strlcpy(path, player.active_path, sizeof(path));
-    solar_os_audio_wav_info_t info = {0};
-    const char *dot = strrchr(path, '.');
-    esp_err_t err = dot != NULL && strcasecmp(dot, ".mp3") == 0 ?
-        solar_os_audio_get_mp3_info(path, &info) :
-        solar_os_audio_get_wav_info(path, &info);
-    if (err == ESP_OK) {
+    while (!player.stop_requested) {
+        char path[SOLAR_OS_STORAGE_PATH_MAX];
         portENTER_CRITICAL(&player_lock);
-        player.sample_rate = info.sample_rate;
-        player.total_ms = info.duration_ms;
-        player.playback_state = PLAYER_STARTING;
+        strlcpy(path, player.active_path, sizeof(path));
+        player.played_frames = 0;
+        player.elapsed_ms = 0;
+        player.vu_l = 0;
+        player.vu_r = 0;
         portEXIT_CRITICAL(&player_lock);
-        const solar_os_audio_wav_options_t options = {
-            .owner = "player",
-            .should_cancel = player_cancel_callback,
-            .progress = player_progress_callback,
-            .should_pause = player_pause_callback,
-            .samples = player_samples_callback,
-            .device = player_device_callback,
-            .user = NULL,
-            .progress_interval_ms = 250U,
-        };
-        err = dot != NULL && strcasecmp(dot, ".mp3") == 0 ?
-            solar_os_audio_play_mp3(path, player.volume, &options, &info) :
-            solar_os_audio_play_wav(path, player.volume, &options, &info);
+
+        if (path[0] == '\0') break;
+
+        solar_os_audio_wav_info_t info = {0};
+        const char *dot = strrchr(path, '.');
+        esp_err_t err = dot != NULL && strcasecmp(dot, ".mp3") == 0 ?
+            solar_os_audio_get_mp3_info(path, &info) :
+            solar_os_audio_get_wav_info(path, &info);
+        if (err == ESP_OK) {
+            portENTER_CRITICAL(&player_lock);
+            player.sample_rate = info.sample_rate;
+            player.total_ms = info.duration_ms;
+            player.playback_state = PLAYER_STARTING;
+            portEXIT_CRITICAL(&player_lock);
+            const solar_os_audio_wav_options_t options = {
+                .owner = "player",
+                .should_cancel = player_cancel_callback,
+                .progress = player_progress_callback,
+                .should_pause = player_pause_callback,
+                .samples = player_samples_callback,
+                .device = player_device_callback,
+                .user = NULL,
+                .progress_interval_ms = 250U,
+            };
+            err = dot != NULL && strcasecmp(dot, ".mp3") == 0 ?
+                solar_os_audio_play_mp3(path, player.volume, &options, &info) :
+                solar_os_audio_play_wav(path, player.volume, &options, &info);
+        }
+
+        portENTER_CRITICAL(&player_lock);
+        player.playback_error = err;
+        player.natural_completion = err == ESP_OK && !player.stop_requested;
+        portEXIT_CRITICAL(&player_lock);
+
+        if (player.natural_completion && player.track_count > 1U) {
+            solar_os_player_track_t next_track;
+            const size_t next_idx = (player.active_index + 1U) % player.track_count;
+            if (solar_os_player_playlist_get(next_idx, &next_track)) {
+                portENTER_CRITICAL(&player_lock);
+                player.active_index = next_idx;
+                player.cursor = next_idx;
+                strlcpy(player.active_path, next_track.path,
+                        sizeof(player.active_path));
+                player.redraw = true;
+                portEXIT_CRITICAL(&player_lock);
+                continue;
+            }
+        }
+
+        break;
     }
+
     portENTER_CRITICAL(&player_lock);
-    player.playback_error = err;
-    player.natural_completion = err == ESP_OK && !player.stop_requested;
-    player.playback_state = err == ESP_OK || player.stop_requested ?
+    player.playback_state = player.playback_error == ESP_OK || player.stop_requested ?
         PLAYER_STOPPED : PLAYER_ERROR;
-    if (err != ESP_OK && !player.stop_requested) {
+    if (player.playback_error != ESP_OK && !player.stop_requested) {
         snprintf(player.message, sizeof(player.message), "Playback failed: %s",
-                 esp_err_to_name(err));
+                 esp_err_to_name(player.playback_error));
     }
     player.task_done = true;
     player.redraw = true;
