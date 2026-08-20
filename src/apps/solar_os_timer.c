@@ -358,6 +358,25 @@ static void timer_suspend(solar_os_context_t *ctx)
 static void timer_resume(solar_os_context_t *ctx)
 {
     solar_os_context_set_graphics_active(ctx, true);
+    if (tstate.running && !tstate.finished && tstate.last_sec_tick > 0) {
+        const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000U);
+        const uint32_t elapsed_sec = (now > tstate.last_sec_tick) ? (now - tstate.last_sec_tick) / 1000U : 0;
+        if (elapsed_sec > 0) {
+            tstate.last_sec_tick += elapsed_sec * 1000U;
+            if (elapsed_sec >= tstate.remaining_seconds) {
+                tstate.remaining_seconds = 0;
+                tstate.finished = true;
+                tstate.running = false;
+                tstate.alarm_active = true;
+                tstate.alarm_start_ms = now;
+                tstate.last_beep_ms = now;
+                tstate.blink = true;
+                timer_beep();
+            } else {
+                tstate.remaining_seconds -= elapsed_sec;
+            }
+        }
+    }
     timer_render(ctx);
 }
 
