@@ -819,7 +819,7 @@ static esp_err_t recorder_start_worker(recorder_work_t work,
             (work == RECORDER_WORK_MONITOR ? "recorder_monitor" :
                                              "recorder_play"),
         RECORDER_TASK_STACK, NULL, RECORDER_TASK_PRIORITY, &recorder.task,
-        tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_FOREGROUND);
+        tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_SYSTEM);
     if (created != pdPASS) {
         recorder.task = NULL;
         recorder.task_done = true;
@@ -1451,7 +1451,7 @@ static void recorder_render_record_graphics(solar_os_gfx_t *gfx,
     solar_os_gfx_text(gfx, volume_x - 29, volume_y + 9, "VOL");
     solar_os_gfx_text(gfx, volume_x + volume_width + 8, volume_y + 9,
         recorder.monitor_enabled ?
-            "MON M ON" : "MON M OFF");
+            "Mon [M]: ON" : "Mon [M]: OFF");
     solar_os_gfx_rect(gfx, volume_x, volume_y, volume_width, 10);
     if (recorder.volume > 0U) {
         solar_os_gfx_fill_rect(gfx, volume_x + 2, volume_y + 2,
