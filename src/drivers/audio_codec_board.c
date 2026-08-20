@@ -65,7 +65,7 @@ static esp_err_t audio_codec_handle_init_error(esp_err_t ret)
 static i2s_tdm_config_t audio_codec_i2s_tdm_config(void)
 {
     i2s_tdm_config_t tdm_cfg = {
-        .slot_cfg = I2S_TDM_PHILIPS_SLOT_DEFAULT_CONFIG(32,
+        .slot_cfg = I2S_TDM_PHILIPS_SLOT_DEFAULT_CONFIG(AUDIO_CODEC_BOARD_DEFAULT_BITS,
                                                         I2S_SLOT_MODE_STEREO,
                                                         AUDIO_CODEC_TDM_SLOT_MASK),
         .clk_cfg = I2S_TDM_CLK_DEFAULT_CONFIG(AUDIO_CODEC_BOARD_DEFAULT_SAMPLE_RATE),
@@ -288,6 +288,10 @@ static esp_err_t audio_codec_ensure_input(void)
         return ret;
     }
 
+    ret = audio_codec_i2s_ensure_tx();
+    if (ret != ESP_OK) {
+        return ret;
+    }
     ret = audio_codec_i2s_ensure_rx();
     if (ret != ESP_OK) {
         return ret;
@@ -319,7 +323,10 @@ static esp_err_t audio_codec_ensure_input(void)
     if (audio_codec.in_codec_if == NULL) {
         es7210_codec_cfg_t es7210_cfg = {
             .ctrl_if = audio_codec.in_ctrl_if,
+            .master_mode = false,
             .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2 | ES7210_SEL_MIC3 | ES7210_SEL_MIC4,
+            .mclk_src = ES7210_MCLK_FROM_PAD,
+            .mclk_div = 384,
         };
         audio_codec.in_codec_if = es7210_codec_new(&es7210_cfg);
         if (audio_codec.in_codec_if == NULL) {
