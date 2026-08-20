@@ -615,6 +615,15 @@ static esp_err_t audio_mp3_probe_from_file(FILE *file, solar_os_audio_wav_info_t
             info->channels = format.channels;
             info->bits_per_sample = format.bits_per_sample;
             info->block_align = (uint16_t)(format.channels * sizeof(int16_t));
+            const long cur_pos = ftell(file);
+            if (fseek(file, 0, SEEK_END) == 0) {
+                const long fsize = ftell(file);
+                (void)fseek(file, cur_pos, SEEK_SET);
+                if (fsize > 0) {
+                    info->data_bytes = (uint32_t)fsize;
+                    info->duration_ms = (uint32_t)(((uint64_t)fsize * 1000ULL) / 16000ULL);
+                }
+            }
             return ESP_OK;
         }
         scanned += got;
