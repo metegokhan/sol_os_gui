@@ -11,6 +11,7 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "solar_os.h"
+#include "solar_os_appbar.h"
 #include "solar_os_audio.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
@@ -655,20 +656,15 @@ static void backgammon_draw_board(solar_os_gfx_t *gfx)
     const int screen_w = (int)solar_os_gfx_width(gfx);
     const int screen_h = (int)solar_os_gfx_height(gfx);
 
-    /* 1. Header Bar */
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 15, "SOLAROS TAVLA (BACKGAMMON)");
-
-    char score_txt[48];
-    snprintf(score_txt, sizeof(score_txt), "W: %u  B: %u | %s",
-             (unsigned)bg.wins_white, (unsigned)bg.wins_black,
-             bg.vs_cpu ? "vs CPU" : "2-Player");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    const size_t sw = solar_os_gfx_text_width(gfx, score_txt);
-    solar_os_gfx_text(gfx, screen_w - (int)sw - 8, 15, score_txt);
+    /* 1. Header Bar
+     * No status_line here -- the board below is already vertically tight
+     * against the footer (board_y=25 assumes a plain 22px header only), and
+     * this board's win-count/mode text isn't critical enough to shrink the
+     * board for. It's still visible on demand via the 'M' status message. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "Backgammon";
+    header.show_back = true;
+    solar_os_appbar_draw_header(gfx, &header);
 
     /* 2. Wooden Board Boundaries */
     const int board_x = 8;
@@ -949,11 +945,133 @@ static void backgammon_stop(solar_os_context_t *ctx)
     solar_os_context_set_graphics_active(ctx, false);
 }
 
+/* Mirrors backgammon_draw_board()'s point/bar/tray geometry -- returns the
+ * point index (0=bar, 1..24=triangle points, 25=bear-off tray) under
+ * (px, py), or -1 if the tap missed every point. */
+static int backgammon_hit_test_point(int16_t px, int16_t py)
+{
+    const int board_x = 8;
+    const int board_y = 25;
+    const int board_w = 312;
+    const int board_h = 248;
+    const int mid_bar_x = board_x + (board_w / 2) - 10;
+    const int point_w = 23;
+    const int tri_h = 92;
+
+    if (px >= mid_bar_x && px < mid_bar_x + 20 && py >= board_y && py < board_y + board_h) {
+        return 0; /* bar */
+    }
+
+    const int panel_x = 334;
+    if (px >= panel_x + 4 && px < panel_x + 58 && py >= board_y + 146 && py < board_y + 242) {
+        return 25; /* bear-off tray */
+    }
+
+    if (py >= board_y + 2 && py < board_y + 2 + tri_h) {
+        for (int i = 0; i < 12; i++) {
+            const int pxx = (i < 6) ? (board_x + 4 + i * point_w) : (mid_bar_x + 20 + 4 + (i - 6) * point_w);
+            if (px >= pxx && px < pxx + point_w - 1) {
+                return 13 + i;
+            }
+        }
+        return -1;
+    }
+
+    const int bottom_top = board_y + board_h - tri_h - 2;
+    if (py >= bottom_top && py < bottom_top + tri_h) {
+        for (int i = 0; i < 12; i++) {
+            const int pxx = (i < 6) ? (board_x + 4 + i * point_w) : (mid_bar_x + 20 + 4 + (i - 6) * point_w);
+            if (px >= pxx && px < pxx + point_w - 1) {
+                return 12 - i;
+            }
+        }
+    }
+    return -1;
+}
+
+/* True when (px, py) lands on the dice/roll panel on the right side. */
+static bool backgammon_hit_test_dice(int16_t px, int16_t py)
+{
+    const int board_y = 25;
+    const int panel_x = 334;
+    return px >= panel_x && px < panel_x + 60 && py >= board_y + 30 && py < board_y + 150;
+}
+
+/* Cancels an in-progress selection (same as Esc/Backspace/C while a
+ * checker is selected), or exits the app if nothing is selected -- shared
+ * by the keyboard Esc path and the header's back button so they agree on
+ * what "back" means depending on state. */
+static void backgammon_handle_back(solar_os_context_t *ctx, solar_os_gfx_t *gfx)
+{
+    if (bg.selected_from != -1) {
+        bg.selected_from = -1;
+        memset(bg.legal_targets, 0, sizeof(bg.legal_targets));
+        backgammon_nav_movable_sources(0);
+        snprintf(bg.status_msg, sizeof(bg.status_msg), "Selection canceled. Choose a checker.");
+        bg_sfx_tone(600, 15);
+        backgammon_draw_board(gfx);
+        return;
+    }
+    solar_os_context_request_exit(ctx);
+}
+
+/* Taps a board point: selects a movable checker there, or -- when a
+ * checker is already selected -- moves it there if legal, or cancels the
+ * selection otherwise. Mirrors the Enter-key action in backgammon_event(). */
+static void backgammon_click_point(solar_os_gfx_t *gfx, int point)
+{
+    if (!bg.dice_rolled || bg.game_over) return;
+    if (!bg.white_turn && bg.vs_cpu) return;
+
+    bg.cursor_point = point;
+    if (bg.selected_from == -1) {
+        if (backgammon_point_has_legal_move(point, bg.white_turn)) {
+            backgammon_select_piece(point);
+        }
+    } else if (bg.legal_targets[point]) {
+        backgammon_apply_move(bg.selected_from, point, bg.white_turn);
+    } else {
+        bg.selected_from = -1;
+        memset(bg.legal_targets, 0, sizeof(bg.legal_targets));
+        backgammon_nav_movable_sources(0);
+    }
+    backgammon_draw_board(gfx);
+}
+
 static bool backgammon_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) return false;
 
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        if (gfx == NULL) return true;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                backgammon_handle_back(ctx, gfx);
+            }
+            return true;
+        }
+
+        if (!bg.white_turn && bg.vs_cpu && !bg.game_over) return true;
+
+        if (!bg.dice_rolled && !bg.game_over &&
+            backgammon_hit_test_dice(event->data.click.x, event->data.click.y)) {
+            backgammon_start_dice_roll();
+            backgammon_draw_board(gfx);
+            return true;
+        }
+
+        const int point = backgammon_hit_test_point(event->data.click.x, event->data.click.y);
+        if (point >= 0) {
+            backgammon_click_point(gfx, point);
+        }
+        return true;
+    }
 
     if (event->type == SOLAR_OS_EVENT_TICK) {
         /* Handle Dice Rolling Animation */

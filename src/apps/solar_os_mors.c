@@ -25,6 +25,7 @@
 #include "freertos/task.h"
 
 #include "solar_os_audio.h"
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
@@ -735,34 +736,62 @@ static void morse_set_status(const char *message)
  * Cizim
  * ------------------------------------------------------------------- */
 
-static void morse_draw_header(solar_os_gfx_t *gfx, int width)
+static const char * const MORSE_TAB_NAMES[MORSE_VIEW_COUNT] = { "Send", "Receive", "Log" };
+
+static void morse_build_header(solar_os_appbar_header_t *out, char *status_buf, size_t status_buf_len)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    const char *view_name = morse.view == MORSE_VIEW_SEND ? "Send"
-                            : morse.view == MORSE_VIEW_RECEIVE ? "Receive"
-                                                                : "Log";
-    char header[96];
+    memset(out, 0, sizeof(*out));
+    out->title = "Morse";
+    out->show_back = true;
+    out->tabs.names = MORSE_TAB_NAMES;
+    out->tabs.count = MORSE_VIEW_COUNT;
+    out->tabs.active_index = (size_t)morse.view;
+
     const float est_wpm = morse.rx_dit_ms > 0U ? (1200.0f / (float)morse.rx_dit_ms) : 0.0f;
-    snprintf(header, sizeof(header), "MORSE  -  %s  -  TX %u WPM  -  RX ~%.0f WPM",
-              view_name, (unsigned)morse.wpm, (double)est_wpm);
-    solar_os_gfx_text(gfx, 6, 16, header);
-    solar_os_gfx_line(gfx, 0, MORSE_HEADER_H, width, MORSE_HEADER_H);
+    snprintf(status_buf, status_buf_len, "TX %u WPM  |  RX ~%.0f WPM", (unsigned)morse.wpm, (double)est_wpm);
+    out->status_line = status_buf;
+}
+
+static void morse_draw_header(solar_os_gfx_t *gfx)
+{
+    char status_buf[64];
+    solar_os_appbar_header_t header;
+    morse_build_header(&header, status_buf, sizeof(status_buf));
+    solar_os_appbar_draw_header(gfx, &header);
+}
+
+/* Builds the current footer's shortcut chips into a caller-owned buffer,
+ * returning the count. Same set used by both drawing and click hit-testing
+ * so they can never disagree about what's on screen. */
+static size_t morse_build_footer_shortcuts(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (morse.view == MORSE_VIEW_SEND) {
+        if (n < max_items) { items[n].key = (char)SOLAR_OS_KEY_F4; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Clear"); n++; }
+    } else {
+        if (n < max_items) { items[n].key = ' '; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "%s", morse.listening ? "Pause" : "Listen"); n++; }
+    }
+    if (n < max_items) { items[n].key = 'x'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Speed+"); n++; }
+    if (n < max_items) { items[n].key = 'z'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Speed-"); n++; }
+    return n;
 }
 
 static void morse_draw_footer(solar_os_gfx_t *gfx, int width, int height)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_line(gfx, 0, height - MORSE_FOOTER_H, width, height - MORSE_FOOTER_H);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    char footer[120];
     if (morse.status_until_ms > morse.elapsed_ms && morse.status_message[0] != '\0') {
-        snprintf(footer, sizeof(footer), "%s", morse.status_message);
-    } else {
-        snprintf(footer, sizeof(footer),
-                  "Tab:view  Enter:send  F4:clear  Z/X:speed  Space:listen on/off  Esc:exit");
+        const int footer_h = solar_os_appbar_footer_height(gfx);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_fill_rect(gfx, 0, height - footer_h, width, footer_h);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, 8, height - footer_h / 4, morse.status_message);
+        return;
     }
-    solar_os_gfx_text(gfx, 6, height - 5, footer);
+
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = morse_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 }
 
 /* Su an gonderilen (ya da az once gonderilmis) harfin mors kodunu buyuk
@@ -983,7 +1012,7 @@ static void morse_render(solar_os_context_t *ctx)
     const int height = (int)solar_os_gfx_height(gfx);
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    morse_draw_header(gfx, width);
+    morse_draw_header(gfx);
 
     switch (morse.view) {
     case MORSE_VIEW_RECEIVE:
@@ -1145,6 +1174,60 @@ static bool morse_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         morse.render_pending = true;
         morse_render(ctx);
         break;
+
+    case SOLAR_OS_EVENT_SCROLL:
+        if (morse.view == MORSE_VIEW_LOG) {
+            const bool down = event->data.scroll.delta < 0;
+            if (down) {
+                if (morse.log_selected + 1U < morse.log_entry_count) {
+                    morse.log_selected++;
+                    morse.render_pending = true;
+                }
+            } else if (morse.log_selected > 0U) {
+                morse.log_selected--;
+                morse.render_pending = true;
+            }
+            if (morse.render_pending) morse_render(ctx);
+        }
+        break;
+
+    case SOLAR_OS_EVENT_CLICK: {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) break;
+
+        char status_buf[64];
+        solar_os_appbar_header_t header;
+        morse_build_header(&header, status_buf, sizeof(status_buf));
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                morse_handle_char(ctx, (char)SOLAR_OS_KEY_ESCAPE);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < MORSE_VIEW_COUNT) {
+                morse.view = (morse_view_t)hit.index;
+                morse.log_loaded = false;
+                morse.render_pending = true;
+            }
+            if (morse.render_pending) morse_render(ctx);
+            break;
+        }
+
+        const bool showing_status = morse.status_until_ms > morse.elapsed_ms && morse.status_message[0] != '\0';
+        if (!showing_status) {
+            solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+            const size_t count = morse_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+            const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+
+            solar_os_appbar_hit_t fhit;
+            if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, event->data.click.x, event->data.click.y, &fhit) &&
+                fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+                morse_handle_char(ctx, items[fhit.index].key);
+                if (morse.render_pending) morse_render(ctx);
+            }
+        }
+        break;
+    }
+
     default:
         break;
     }
@@ -1212,7 +1295,7 @@ static void morse_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len
 const solar_os_app_t solar_os_mors_app = {
     .name = "mors",
     .summary = "automatic Morse code receiver/transmitter",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = morse_start,
     .suspend = morse_suspend,
     .resume = morse_resume,

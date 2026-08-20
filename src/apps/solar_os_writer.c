@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "esp_attr.h"
+#include "solar_os_appbar.h"
 #include "solar_os_clipboard.h"
 #include "solar_os_doc.h"
 #include "solar_os_gfx.h"
@@ -20,7 +21,10 @@
 #include "solar_os_writer_buffer.h"
 #include "solar_os_writer_files.h"
 
-#define WRITER_HEADER_H 16
+/* Matches solar_os_appbar_header_height() for this board's resolution --
+ * document layout math below addresses this fixed pixel origin, but the
+ * actual bar is drawn by the shared appbar component. */
+#define WRITER_HEADER_H 22
 #define WRITER_MARGIN_X 4
 #define WRITER_MARGIN_Y 3
 #define WRITER_MAX_ZOOM 4
@@ -1226,26 +1230,33 @@ static void writer_draw_highlight(solar_os_gfx_t *gfx, const solar_os_doc_view_t
     }
 }
 
-static void writer_draw_header(solar_os_gfx_t *gfx)
+/* Keeps the filename/dirty/zoom/message packed into one line, same as
+ * before this switched to the shared appbar component -- adopting the
+ * appbar's separate status_line would reserve extra vertical space on
+ * every frame and shift the whole document body down, which is not
+ * worth it for an editor whose line layout is otherwise unaffected by
+ * this pass. */
+static void writer_build_header(solar_os_appbar_header_t *out, char *title_buf, size_t title_buf_len)
 {
-    const int width = (int)solar_os_gfx_width(gfx);
-    char title[192];
-    snprintf(title,
-             sizeof(title),
-             "writer%s z%d %s%s",
+    memset(out, 0, sizeof(*out));
+    snprintf(title_buf, title_buf_len, "writer%s z%d %s%s",
              writer.dirty ? "*" : "",
              writer.zoom,
              writer.display_name[0] != '\0' ? writer.display_name : "untitled.md",
              writer.message[0] != '\0' ? " - " : "");
     if (writer.message[0] != '\0') {
-        strlcat(title, writer.message, sizeof(title));
+        strlcat(title_buf, writer.message, title_buf_len);
     }
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, WRITER_HEADER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    title[(width / 6) < (int)sizeof(title) ? (size_t)(width / 6) : sizeof(title) - 1U] = '\0';
-    solar_os_gfx_text(gfx, 3, 11, title);
+    out->title = title_buf;
+    out->show_back = true;
+}
+
+static void writer_draw_header(solar_os_gfx_t *gfx)
+{
+    char title_buf[96];
+    solar_os_appbar_header_t header;
+    writer_build_header(&header, title_buf, sizeof(title_buf));
+    solar_os_appbar_draw_header(gfx, &header);
 }
 
 static void writer_draw_dialog_action(solar_os_gfx_t *gfx,
@@ -1529,6 +1540,25 @@ static bool writer_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         return writer_handle_char(ctx, (uint8_t)event->data.ch);
     }
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return false;
+
+        char title_buf[96];
+        solar_os_appbar_header_t header;
+        writer_build_header(&header, title_buf, sizeof(title_buf));
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                writer_request_exit(ctx);
+            }
+            return true;
+        }
+        /* Clicks inside the document body don't place the cursor yet --
+         * that's a separate feature, not part of this appbar rollout. */
+        return true;
+    }
     if (event->type == SOLAR_OS_EVENT_TICK) {
         writer.last_tick_ms = event->data.tick_ms;
         if (writer.dirty && !writer.recovery_written &&
@@ -1577,7 +1607,7 @@ static void writer_title(solar_os_context_t *ctx, char *buffer, size_t buffer_le
 const solar_os_app_t solar_os_writer_app = {
     .name = "writer",
     .summary = "hybrid WYSIWYG Markdown editor",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = writer_start,
     .suspend = writer_suspend,
     .resume = writer_resume,

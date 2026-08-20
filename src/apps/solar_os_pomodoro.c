@@ -13,6 +13,7 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_resource_limits.h"
+#include "solar_os_appbar.h"
 
 #define POMODORO_STACK_SIZE 4096
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(POMODORO_STACK_SIZE);
@@ -47,6 +48,20 @@ static const char *const pomo_mode_names[] = {
     "LONG BREAK"
 };
 
+/* Compact labels for the shared header tab strip. */
+static const char *const pomo_tab_names[] = { "Focus", "Short", "Long" };
+
+/* Footer chips: Start/Pause + Reset. Same set feeds draw and click. */
+static size_t pomo_build_footer(bool running, solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (n < max_items) { items[n].key = ' '; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), running ? "Pause" : "Start"); n++; }
+    if (n < max_items) { items[n].key = 'r'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "Reset"); n++; }
+    return n;
+}
+
 static void pomo_set_mode(pomo_mode_t mode)
 {
     pomo.mode = mode;
@@ -57,6 +72,7 @@ static void pomo_set_mode(pomo_mode_t mode)
 
 static void pomo_render(solar_os_context_t *ctx)
 {
+    if (!solar_os_context_graphics_active(ctx)) return;
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
     if (gfx == NULL) return;
 
@@ -65,37 +81,19 @@ static void pomo_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    /* 1. Header Bar */
+    /* 1. Shared header with the three modes as tabs. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "Pomodoro";
+    header.show_back = true;
+    header.tabs.names = pomo_tab_names;
+    header.tabs.count = 3;
+    header.tabs.active_index = (size_t)pomo.mode;
+    char status_line[48];
+    snprintf(status_line, sizeof(status_line), "%s   Completed: %u",
+             pomo_mode_names[pomo.mode], (unsigned)pomo.completed_cycles);
+    header.status_line = status_line;
+    solar_os_appbar_draw_header(gfx, &header);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 24);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "POMODORO TIMER");
-
-    char cycle_str[32];
-    snprintf(cycle_str, sizeof(cycle_str), "COMPLETED: %u", (unsigned)pomo.completed_cycles);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, screen_w - 110, 16, cycle_str);
-
-    /* 2. Mode Tabs (Y: 28..44) */
-    const int tab_w = (screen_w - 20) / 3;
-    for (int i = 0; i < 3; i++) {
-        const int tx = 10 + i * tab_w;
-        const bool is_active = (i == (int)pomo.mode);
-
-        if (is_active) {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, tx, 28, tab_w - 4, 16);
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        } else {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_rect(gfx, tx, 28, tab_w - 4, 16);
-        }
-
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        const size_t tw = solar_os_gfx_text_width(gfx, pomo_mode_names[i]);
-        solar_os_gfx_text(gfx, tx + (tab_w - (int)tw) / 2, 40, pomo_mode_names[i]);
-    }
 
     /* 3. Center Circular Progress Dial (Center: 200, 150, Radius: 75) */
     const int cx = 200;
@@ -150,15 +148,16 @@ static void pomo_render(solar_os_context_t *ctx)
             strlcat(cycle_bar, "[ ] ", sizeof(cycle_bar));
         }
     }
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
     const size_t cb_w = solar_os_gfx_text_width(gfx, cycle_bar);
     solar_os_gfx_text(gfx, (screen_w - (int)cb_w) / 2, 260, cycle_bar);
 
-    /* 5. Footer Navigation */
-    solar_os_gfx_fill_rect(gfx, 0, 278, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, 293, "[SPACE] Start/Pause | [R] Reset | [TAB] Mode | [ESC] Exit");
+    /* 5. Shared footer chips. */
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = pomo_build_footer(pomo.running, items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 
     solar_os_gfx_present(gfx);
 }
@@ -179,9 +178,25 @@ static void pomo_stop(solar_os_context_t *ctx)
     solar_os_context_set_graphics_active(ctx, false);
 }
 
+static void pomo_suspend(solar_os_context_t *ctx)
+{
+    solar_os_context_set_graphics_active(ctx, false);
+}
+
+static void pomo_resume(solar_os_context_t *ctx)
+{
+    solar_os_context_set_graphics_active(ctx, true);
+    pomo_render(ctx);
+}
+
 static bool pomo_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) return false;
+
+    if (event->type == SOLAR_OS_EVENT_RESUME) {
+        pomo_resume(ctx);
+        return true;
+    }
 
     if (event->type == SOLAR_OS_EVENT_TICK) {
         const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000U);
@@ -206,6 +221,56 @@ static bool pomo_event(solar_os_context_t *ctx, const solar_os_event_t *event)
                     pomo_set_mode(POMO_MODE_WORK);
                 }
             }
+            pomo_render(ctx);
+        }
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        header.tabs.names = pomo_tab_names;
+        header.tabs.count = 3;
+        header.tabs.active_index = (size_t)pomo.mode;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < 3) {
+                pomo_set_mode((pomo_mode_t)hit.index);
+                pomo_render(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = pomo_build_footer(pomo.running, items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM && fhit.index < count) {
+                if (items[fhit.index].key == 'r') {
+                    pomo_set_mode(pomo.mode);
+                } else {
+                    pomo.running = !pomo.running;
+                    pomo.last_tick_ms = (uint32_t)(esp_timer_get_time() / 1000U);
+                }
+                pomo_render(ctx);
+            }
+            return true;
+        }
+
+        /* Tap the dial to start/pause. */
+        const int dx = px - 200;
+        const int dy = py - 150;
+        if (dx * dx + dy * dy <= 75 * 75) {
+            pomo.running = !pomo.running;
+            pomo.last_tick_ms = (uint32_t)(esp_timer_get_time() / 1000U);
             pomo_render(ctx);
         }
         return true;
@@ -242,12 +307,15 @@ static bool pomo_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_pomodoro_app = {
     .name = "pomodoro",
     .summary = "visual circular pomodoro focus timer",
-    .flags = 0,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = pomo_start,
+    .suspend = pomo_suspend,
+    .resume = pomo_resume,
     .stop = pomo_stop,
     .event = pomo_event,
     .state_slot = &pomo_state_ptr,
     .state_size = sizeof(pomo_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
+    .tick_interval_ms = 250U,
     .worker_stack_bytes = POMODORO_STACK_SIZE,
 };

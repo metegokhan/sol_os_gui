@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_storage.h"
@@ -19,8 +20,12 @@
 #define OLCUM_PX_PER_MM_X (400.0f / OLCUM_SCREEN_MM_W)
 #define OLCUM_PX_PER_MM_Y (300.0f / OLCUM_SCREEN_MM_H)
 
-#define OLCUM_HEADER_H 24
-#define OLCUM_FOOTER_H 22
+/* Matches solar_os_appbar_header_height()/footer_height() for this board's
+ * resolution -- kept as plain constants here since the ruler/circle/
+ * protractor math below addresses fixed pixel origins, not the proportional
+ * appbar API, but the shared appbar component draws the actual bars. */
+#define OLCUM_HEADER_H 22
+#define OLCUM_FOOTER_H 18
 
 /* Calibration: lets the user compare the drawn scale against a real
  * ruler and fine-tune px/mm, then persist it to storage. This is a
@@ -31,7 +36,6 @@
  * (A previous edit of this file dropped this view and the persistence
  * code entirely, most likely by accident rather than a deliberate
  * removal -- restored here.) */
-#define OLCUM_CALIBRATION_DIR ".olcum"
 #define OLCUM_CALIBRATION_FILE "calibration.cfg"
 #define OLCUM_CALIBRATION_MAGIC 0x4F4C4331U /* "OLC1" */
 #define OLCUM_CALIBRATION_VERSION 1U
@@ -78,6 +82,15 @@ static const olcum_screw_t OLCUM_SCREWS[] = {
 
 static void olcum_render(solar_os_context_t *ctx);
 
+/* One-shot status line (no periodic tick in this app, so there is no
+ * timed expiry -- the message is shown for exactly the next render and
+ * cleared immediately after). */
+static void olcum_set_status(const char *message)
+{
+    strncpy(olcum.status_message, message, sizeof(olcum.status_message) - 1U);
+    olcum.status_message[sizeof(olcum.status_message) - 1U] = '\0';
+}
+
 /* ---------------------------------------------------------------------
  * Calibration persistence
  * ------------------------------------------------------------------- */
@@ -85,8 +98,7 @@ static void olcum_render(solar_os_context_t *ctx);
 static void olcum_load_calibration(void)
 {
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    if (solar_os_storage_resolve_path(
-            "/" OLCUM_CALIBRATION_DIR "/" OLCUM_CALIBRATION_FILE, path, sizeof(path)) != ESP_OK) {
+    if (solar_os_storage_app_data_path("olcum", OLCUM_CALIBRATION_FILE, path, sizeof(path)) != ESP_OK) {
         return;
     }
     FILE *f = fopen(path, "rb");
@@ -110,14 +122,13 @@ static void olcum_load_calibration(void)
 
 static void olcum_save_calibration(void)
 {
-    char dir[SOLAR_OS_STORAGE_PATH_MAX];
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    if (solar_os_storage_resolve_path("/" OLCUM_CALIBRATION_DIR, dir, sizeof(dir)) != ESP_OK) {
+    const esp_err_t path_err = solar_os_storage_app_data_path("olcum", OLCUM_CALIBRATION_FILE, path, sizeof(path));
+    if (path_err == SOLAR_OS_STORAGE_ERR_NO_SD_CARD) {
+        olcum_set_status("No SD card - calibration not saved");
         return;
     }
-    (void)solar_os_storage_mkdir(dir);
-    if (solar_os_storage_resolve_path(
-            "/" OLCUM_CALIBRATION_DIR "/" OLCUM_CALIBRATION_FILE, path, sizeof(path)) != ESP_OK) {
+    if (path_err != ESP_OK) {
         return;
     }
     const olcum_calibration_t cal = {
@@ -356,38 +367,56 @@ static void olcum_draw_calibration(solar_os_gfx_t *gfx, int width, int height)
  * Header and Footer
  * ------------------------------------------------------------------- */
 
-static void olcum_draw_header(solar_os_gfx_t *gfx, int width)
-{
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, OLCUM_HEADER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+static const char * const OLCUM_TAB_NAMES[OLCUM_VIEW_COUNT] = { "Ruler", "Circles", "Protractor", "Calibrate" };
 
-    const char *view_name = olcum.view == OLCUM_VIEW_RULER ? "METRIC RULER"
-                            : olcum.view == OLCUM_VIEW_CIRCLES ? "CIRCLES & GAUGES"
-                            : olcum.view == OLCUM_VIEW_PROTRACTOR ? "PROTRACTOR & ANGLE"
-                            : "CALIBRATION";
-    char header[64];
-    snprintf(header, sizeof(header), "PRECISION MEASUREMENT - %s", view_name);
-    solar_os_gfx_text(gfx, 8, 16, header);
+static void olcum_build_header(solar_os_appbar_header_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->title = "Measure";
+    out->show_back = true;
+    out->tabs.names = OLCUM_TAB_NAMES;
+    out->tabs.count = OLCUM_VIEW_COUNT;
+    out->tabs.active_index = (size_t)olcum.view;
+}
+
+static void olcum_draw_header(solar_os_gfx_t *gfx)
+{
+    solar_os_appbar_header_t header;
+    olcum_build_header(&header);
+    solar_os_appbar_draw_header(gfx, &header);
+}
+
+/* Builds the current footer's shortcut chips into a caller-owned buffer,
+ * returning the count. Same set used by both drawing and click hit-testing
+ * so they can never disagree about what's on screen. */
+static size_t olcum_build_footer_shortcuts(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (olcum.view == OLCUM_VIEW_CALIBRATION && n < max_items) {
+        items[n].key = '\n'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "Save");
+        n++;
+    }
+    return n;
 }
 
 static void olcum_draw_footer(solar_os_gfx_t *gfx, int width, int height)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, height - OLCUM_FOOTER_H, width, OLCUM_FOOTER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-
-    char footer[110];
-    if (olcum.view == OLCUM_VIEW_PROTRACTOR) {
-        snprintf(footer, sizeof(footer), "[Tab] Mode | [ARROWS] Adjust Angle (1 deg / 5 deg) | [ESC] Exit");
-    } else if (olcum.view == OLCUM_VIEW_CALIBRATION) {
-        snprintf(footer, sizeof(footer), "[Tab] Mode | [ARROWS] Fine-tune | [Enter] Save | [ESC] Exit");
-    } else {
-        snprintf(footer, sizeof(footer), "[Tab] Switch Mode (Ruler / Circles / Protractor / Calibrate) | [ESC] Exit");
+    if (olcum.status_message[0] != '\0') {
+        const int footer_h = solar_os_appbar_footer_height(gfx);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_fill_rect(gfx, 0, height - footer_h, width, footer_h);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, 8, height - footer_h / 4, olcum.status_message);
+        olcum.status_message[0] = '\0'; /* one-shot: shown for exactly this render */
+        return;
     }
-    solar_os_gfx_text(gfx, 8, height - 6, footer);
+
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = olcum_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 }
 
 static void olcum_render(solar_os_context_t *ctx)
@@ -399,7 +428,7 @@ static void olcum_render(solar_os_context_t *ctx)
     const int height = (int)solar_os_gfx_height(gfx);
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    olcum_draw_header(gfx, width);
+    olcum_draw_header(gfx);
 
     switch (olcum.view) {
     case OLCUM_VIEW_CIRCLES:
@@ -515,6 +544,39 @@ static bool olcum_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             solar_os_context_request_exit(ctx);
             return true;
         }
+    }
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return false;
+
+        solar_os_appbar_header_t header;
+        olcum_build_header(&header);
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < OLCUM_VIEW_COUNT) {
+                olcum.view = (olcum_view_t)hit.index;
+                olcum_render(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = olcum_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, event->data.click.x, event->data.click.y, &fhit) &&
+            fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+            if (olcum.view == OLCUM_VIEW_CALIBRATION && items[fhit.index].key == '\n') {
+                olcum_save_calibration();
+                olcum_render(ctx);
+            }
+        }
+        return true;
     }
 
     return false;

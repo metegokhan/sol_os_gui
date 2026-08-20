@@ -1005,7 +1005,7 @@ static bool telnet_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_telnet_app = {
     .name = "telnet",
     .summary = "Telnet client",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = telnet_start,
     .suspend = telnet_suspend,
     .resume = telnet_resume,

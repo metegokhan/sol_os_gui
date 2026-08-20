@@ -1170,7 +1170,7 @@ static bool agent_app_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_agent_app = {
     .name = "agent",
     .summary = "native LLM agent",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = agent_app_start,
     .suspend = agent_app_suspend,
     .resume = agent_app_resume,

@@ -13,6 +13,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_logic.h"
 #include "solar_os_memory.h"
+#include "solar_os_appbar.h"
 
 #define LOGIC_REFRESH_MS 250U
 
@@ -236,6 +237,21 @@ static void logic_draw_channel(solar_os_gfx_t *gfx,
     }
 }
 
+/* Builds the footer chips (only meaningful once a capture exists). Same set
+ * feeds drawing and click hit-testing so they never disagree. */
+static size_t logic_build_footer(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (logic_app.capture.has_capture) {
+        if (n < max_items) { items[n].key = '+'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Zoom+"); n++; }
+        if (n < max_items) { items[n].key = '-'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Zoom-"); n++; }
+        if (n < max_items) { items[n].key = 'a'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Fit"); n++; }
+    }
+    /* Capture is always available so a failed/absent capture can be retried. */
+    if (n < max_items) { items[n].key = 'r'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Capture"); n++; }
+    return n;
+}
+
 static void logic_render(solar_os_context_t *ctx)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -246,39 +262,46 @@ static void logic_render(solar_os_context_t *ctx)
     const int width = (int)solar_os_gfx_width(gfx);
     const int height = (int)solar_os_gfx_height(gfx);
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+
+    /* Shared header bar; capture summary rides in the status line. */
+    solar_os_appbar_header_t header_bar = {0};
+    header_bar.title = "Logic Analyzer";
+    header_bar.show_back = true;
+    char status_line[96];
+    if (logic_app.capture.has_capture) {
+        snprintf(status_line, sizeof(status_line),
+                 "%uch  %luHz  %lu smp",
+                 (unsigned)logic_app.capture.config.channel_count,
+                 (unsigned long)logic_app.capture.effective_rate_hz,
+                 (unsigned long)logic_app.capture.config.sample_count);
+        if (logic_app.capture.config.trigger_enabled) {
+            char trigger[16];
+            snprintf(trigger, sizeof(trigger), "  trigG%u",
+                     (unsigned)logic_app.capture.config.trigger_pin);
+            strlcat(status_line, trigger, sizeof(status_line));
+        }
+        header_bar.status_line = status_line;
+    }
+    solar_os_appbar_draw_header(gfx, &header_bar);
+
+    const int hh = solar_os_appbar_header_height(gfx);
+    const int sh = header_bar.status_line ? solar_os_appbar_status_line_height(gfx) : 0;
+    const int fh = solar_os_appbar_footer_height(gfx);
+
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
 
     if (!logic_app.capture.has_capture) {
-        solar_os_gfx_text(gfx, 4, 12, "logic analyzer");
-        solar_os_gfx_text(gfx,
-                          4,
-                          height / 2,
-                          logic_app.message[0] ? logic_app.message : "no capture");
+        solar_os_gfx_text(gfx, 4, hh + (height - hh) / 2,
+                          logic_app.message[0] ? logic_app.message : "No capture yet");
         solar_os_gfx_present(gfx);
         return;
     }
 
-    char header[96];
-    snprintf(header,
-             sizeof(header),
-             "logic %uch %luHz %lu samples",
-             (unsigned)logic_app.capture.config.channel_count,
-             (unsigned long)logic_app.capture.effective_rate_hz,
-             (unsigned long)logic_app.capture.config.sample_count);
-    if (logic_app.capture.config.trigger_enabled) {
-        char trigger[16];
-        snprintf(trigger,
-                 sizeof(trigger),
-                 " trig G%u",
-                 (unsigned)logic_app.capture.config.trigger_pin);
-        strlcat(header, trigger, sizeof(header));
-    }
-    solar_os_gfx_text(gfx, 2, 10, header);
-
     const int left = width > 120 ? 32 : 22;
-    const int top = 16;
-    const int bottom = 18;
+    const int top = hh + sh + 4;
+    const int win_line = 12;               /* sample-window info above the footer */
+    const int bottom = fh + win_line + 2;
     const int plot_height = height - top - bottom;
     const int row_height = plot_height / logic_app.capture.config.channel_count;
     const int plot_width = width - left - 2;
@@ -308,9 +331,9 @@ static void logic_render(solar_os_context_t *ctx)
         ((uint64_t)logic_app.view_start * 1000000ULL) / logic_app.capture.effective_rate_hz;
     const uint64_t span_us =
         ((uint64_t)logic_app.visible_samples * 1000000ULL) / logic_app.capture.effective_rate_hz;
-    char footer[96];
-    snprintf(footer,
-             sizeof(footer),
+    char winfo[96];
+    snprintf(winfo,
+             sizeof(winfo),
              "%u-%u  +%lluus  span %lluus%s%s",
              (unsigned)(logic_app.view_start + 1U),
              (unsigned)end,
@@ -318,7 +341,16 @@ static void logic_render(solar_os_context_t *ctx)
              (unsigned long long)span_us,
              logic_app.message[0] ? "  " : "",
              logic_app.message);
-    solar_os_gfx_text(gfx, 2, height - 3, footer);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    solar_os_gfx_text(gfx, 2, height - fh - 3, winfo);
+
+    /* Shared footer chips (Zoom/Fit/Capture; pan is drag or arrow keys). */
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = logic_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
+
     solar_os_gfx_present(gfx);
 }
 
@@ -335,6 +367,19 @@ static esp_err_t logic_capture_local(const solar_os_logic_config_t *config)
         return err;
     }
     return logic_load_latest();
+}
+
+/* Runs a capture, reusing the current config or falling back to the default
+ * one when no capture exists yet. Used by the 'r' key and the Capture chip. */
+static void logic_do_capture(void)
+{
+    solar_os_logic_config_t config;
+    if (logic_app.capture.has_capture) {
+        config = logic_app.capture.config;
+    } else if (solar_os_logic_default_config(&config) != ESP_OK) {
+        return;
+    }
+    (void)logic_capture_local(&config);
 }
 
 static esp_err_t logic_start(solar_os_context_t *ctx)
@@ -366,12 +411,14 @@ static esp_err_t logic_start(solar_os_context_t *ctx)
         }
     }
 
-    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
-        logic_free_samples();
-        return err;
-    }
+    /* A failed or absent capture must NOT close the app -- open anyway and
+     * let the user retry with the Capture chip. Keep any message already set
+     * by logic_capture_local; otherwise explain the empty state. */
     if (err == ESP_ERR_NOT_FOUND) {
-        strlcpy(logic_app.message, "waiting for SUMP capture", sizeof(logic_app.message));
+        strlcpy(logic_app.message, "No capture yet -- tap Capture", sizeof(logic_app.message));
+    } else if (err != ESP_OK && logic_app.message[0] == '\0') {
+        snprintf(logic_app.message, sizeof(logic_app.message), "Capture failed: %s",
+                 esp_err_to_name(err));
     }
 
     logic_app.running = true;
@@ -443,11 +490,37 @@ static void logic_pan(bool right)
     }
 }
 
+/* Shifts the view window by a signed number of samples, clamped to bounds. */
+static void logic_pan_samples(int delta)
+{
+    const size_t total = logic_app.capture.config.sample_count;
+    if (total == 0 || logic_app.visible_samples >= total) {
+        return;
+    }
+    const size_t max_start = total - logic_app.visible_samples;
+    if (delta < 0) {
+        const size_t mag = (size_t)(-delta);
+        logic_app.view_start = logic_app.view_start > mag ? logic_app.view_start - mag : 0;
+    } else {
+        logic_app.view_start += (size_t)delta;
+        if (logic_app.view_start > max_start) {
+            logic_app.view_start = max_start;
+        }
+    }
+}
+
 static bool logic_handle_char(solar_os_context_t *ctx, char ch)
 {
     const uint8_t key = (uint8_t)ch;
     if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
         solar_os_context_request_exit(ctx);
+        return true;
+    }
+
+    /* Capture works even with no prior data (starts one from the default). */
+    if (ch == 'r' || ch == 'R') {
+        logic_do_capture();
+        logic_render(ctx);
         return true;
     }
 
@@ -462,8 +535,6 @@ static bool logic_handle_char(solar_os_context_t *ctx, char ch)
         logic_zoom(true);
     } else if (key == SOLAR_OS_KEY_PAGE_DOWN || ch == '-') {
         logic_zoom(false);
-    } else if (ch == 'r' || ch == 'R') {
-        (void)logic_capture_local(&logic_app.capture.config);
     } else if (ch == 'a' || ch == 'A' || key == SOLAR_OS_KEY_HOME) {
         logic_app.view_start = 0;
         logic_app.visible_samples = logic_app.capture.config.sample_count;
@@ -483,6 +554,70 @@ static bool logic_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         return logic_handle_char(ctx, event->data.ch);
     }
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = logic_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM && fhit.index < count) {
+                switch (items[fhit.index].key) {
+                case '+': logic_zoom(true); break;
+                case '-': logic_zoom(false); break;
+                case 'a': logic_app.view_start = 0;                    /* Fit */
+                          logic_app.visible_samples = logic_app.capture.config.sample_count;
+                          break;
+                case 'r': logic_do_capture(); break;
+                default: break;
+                }
+                logic_render(ctx);
+            }
+            return true;
+        }
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_DRAG) {
+        if (!logic_app.capture.has_capture) return true;
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int width = (int)solar_os_gfx_width(gfx);
+        const int left = width > 120 ? 32 : 22;
+        const int plot_width = width - left - 2;
+        if (event->data.drag.dx != 0 && plot_width > 1) {
+            /* Drag content: finger right (dx>0) scrolls the window left. */
+            int delta = -(int)(((long)event->data.drag.dx *
+                                (long)logic_app.visible_samples) / plot_width);
+            if (delta == 0) delta = event->data.drag.dx > 0 ? -1 : 1;
+            logic_pan_samples(delta);
+            logic_render(ctx);
+        }
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_SCROLL) {
+        if (!logic_app.capture.has_capture) return true;
+        logic_zoom(event->data.scroll.delta > 0);
+        logic_render(ctx);
+        return true;
+    }
+
     if (event->type != SOLAR_OS_EVENT_TICK || logic_app.suspended) {
         return false;
     }
@@ -506,7 +641,7 @@ static bool logic_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_logic_app = {
     .name = "logic",
     .summary = "logic analyzer waveform viewer",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = logic_start,
     .suspend = logic_suspend,
     .resume = logic_resume,

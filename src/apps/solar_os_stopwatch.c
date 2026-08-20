@@ -12,6 +12,8 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_resource_limits.h"
+#include "solar_os_appbar.h"
+#include "solar_os_help.h"
 
 #define STOPWATCH_STACK_SIZE 4096
 #define MAX_LAPS 8
@@ -24,10 +26,67 @@ typedef struct {
     uint32_t laps[MAX_LAPS];
     size_t lap_count;
     uint32_t last_tick_ms;
+    bool show_help;
 } stopwatch_state_t;
 
 static void *stopwatch_state_ptr;
 #define swstate (*(stopwatch_state_t *)stopwatch_state_ptr)
+
+static const char *const sw_help_lines[] = {
+    "A precision stopwatch with lap recording.",
+    "",
+    "Controls:",
+    "  Start / Stop : tap the timer, the Start/Stop chip,",
+    "                 or press Space / Enter.",
+    "  Lap          : Lap chip or press L (while running).",
+    "  Reset        : Reset chip or press R.",
+    "  Exit         : Back arrow or Esc / Q.",
+    "",
+    "Laps show as MM:SS.cc, up to 8 recorded.",
+};
+#define SW_HELP_LINE_COUNT (sizeof(sw_help_lines) / sizeof(sw_help_lines[0]))
+
+static void sw_toggle(void)
+{
+    const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000U);
+    if (swstate.running) {
+        swstate.elapsed_ms += (now - swstate.start_time_ms);
+        swstate.running = false;
+    } else {
+        swstate.start_time_ms = now;
+        swstate.running = true;
+    }
+}
+
+static void sw_lap(void)
+{
+    if (swstate.running && swstate.lap_count < MAX_LAPS) {
+        const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000U);
+        swstate.laps[swstate.lap_count++] = swstate.elapsed_ms + (now - swstate.start_time_ms);
+    }
+}
+
+static void sw_reset(void)
+{
+    swstate.running = false;
+    swstate.elapsed_ms = 0;
+    swstate.start_time_ms = 0;
+    swstate.lap_count = 0;
+}
+
+/* Footer chips: Start/Stop, Lap, Reset, Help. Same set feeds draw and click. */
+static size_t sw_build_footer(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (n < max_items) { items[n].key = ' '; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), swstate.running ? "Stop" : "Start"); n++; }
+    if (n < max_items) { items[n].key = 'l'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "Lap"); n++; }
+    if (n < max_items) { items[n].key = 'r'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "Reset"); n++; }
+    if (n < max_items) { solar_os_help_chip(&items[n]); n++; }
+    return n;
+}
 
 static void draw_segment(solar_os_gfx_t *gfx, int seg, int x, int y, int w, int h, int t)
 {
@@ -86,6 +145,7 @@ static void draw_7seg_digit(solar_os_gfx_t *gfx, int digit, int x, int y, int w,
 
 static void stopwatch_render(solar_os_context_t *ctx)
 {
+    if (!solar_os_context_graphics_active(ctx)) return;
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
     if (gfx == NULL) return;
 
@@ -94,15 +154,13 @@ static void stopwatch_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    /* 1. Header */
+    /* 1. Shared header. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "Stopwatch";
+    header.show_back = true;
+    header.status_line = swstate.running ? "Running" : "Stopped";
+    solar_os_appbar_draw_header(gfx, &header);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 24);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "PRECISION STOPWATCH");
-
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, screen_w - 95, 16, swstate.running ? "[ RUNNING ]" : "[ STOPPED ]");
 
     /* 2. Giant Chrono Display Card (X: 16..384, Y: 34..134) */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -160,7 +218,7 @@ static void stopwatch_render(solar_os_context_t *ctx)
 
     if (swstate.lap_count == 0) {
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 28, 195, "No laps recorded yet. Press [L] or [TAB] while running to record lap.");
+        solar_os_gfx_text(gfx, 28, 195, "No laps yet. Tap Lap while running to record one.");
     } else {
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
         for (size_t i = 0; i < swstate.lap_count && i < MAX_LAPS; i++) {
@@ -180,11 +238,16 @@ static void stopwatch_render(solar_os_context_t *ctx)
         }
     }
 
-    /* 4. Footer */
-    solar_os_gfx_fill_rect(gfx, 0, 278, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, 293, "[SPACE/ENTER] Start/Stop | [L] Lap | [R] Reset | [ESC] Exit");
+    /* 4. Shared footer chips. */
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = sw_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
+
+    /* Help overlay on top. */
+    if (swstate.show_help) {
+        solar_os_help_draw(gfx, "Stopwatch - Help", sw_help_lines, SW_HELP_LINE_COUNT);
+    }
 
     solar_os_gfx_present(gfx);
 }
@@ -208,9 +271,25 @@ static void stopwatch_stop(solar_os_context_t *ctx)
     solar_os_context_set_graphics_active(ctx, false);
 }
 
+static void stopwatch_suspend(solar_os_context_t *ctx)
+{
+    solar_os_context_set_graphics_active(ctx, false);
+}
+
+static void stopwatch_resume(solar_os_context_t *ctx)
+{
+    solar_os_context_set_graphics_active(ctx, true);
+    stopwatch_render(ctx);
+}
+
 static bool stopwatch_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) return false;
+
+    if (event->type == SOLAR_OS_EVENT_RESUME) {
+        stopwatch_resume(ctx);
+        return true;
+    }
 
     if (event->type == SOLAR_OS_EVENT_TICK) {
         if (swstate.running) {
@@ -219,36 +298,83 @@ static bool stopwatch_event(solar_os_context_t *ctx, const solar_os_event_t *eve
         return true;
     }
 
-    if (event->type == SOLAR_OS_EVENT_CHAR) {
-        const char ch = event->data.ch;
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
 
-        if (ch == ' ' || ch == '\r' || ch == '\n') {
-            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000U);
-            if (swstate.running) {
-                swstate.elapsed_ms += (now - swstate.start_time_ms);
-                swstate.running = false;
-            } else {
-                swstate.start_time_ms = now;
-                swstate.running = true;
-            }
+        if (swstate.show_help) {
+            swstate.show_help = false;
             stopwatch_render(ctx);
             return true;
         }
 
-        if (ch == 'l' || ch == 'L' || ch == '\t') {
-            if (swstate.running && swstate.lap_count < MAX_LAPS) {
-                uint32_t now = (uint32_t)(esp_timer_get_time() / 1000U);
-                swstate.laps[swstate.lap_count++] = swstate.elapsed_ms + (now - swstate.start_time_ms);
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = sw_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM && fhit.index < count) {
+                switch (items[fhit.index].key) {
+                case ' ': sw_toggle(); break;
+                case 'l': sw_lap(); break;
+                case 'r': sw_reset(); break;
+                case 'H': swstate.show_help = true; break;
+                default: break;
+                }
                 stopwatch_render(ctx);
             }
             return true;
         }
 
+        /* Tap the chrono card to start/stop. */
+        const int screen_w = (int)solar_os_gfx_width(gfx);
+        if (px >= 16 && px < screen_w - 16 && py >= 34 && py < 138) {
+            sw_toggle();
+            stopwatch_render(ctx);
+        }
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_CHAR) {
+        const char ch = event->data.ch;
+
+        if (swstate.show_help) {
+            swstate.show_help = false;
+            stopwatch_render(ctx);
+            return true;
+        }
+        if (solar_os_help_char_opens(ch)) {
+            swstate.show_help = true;
+            stopwatch_render(ctx);
+            return true;
+        }
+
+        if (ch == ' ' || ch == '\r' || ch == '\n') {
+            sw_toggle();
+            stopwatch_render(ctx);
+            return true;
+        }
+
+        if (ch == 'l' || ch == 'L' || ch == '\t') {
+            sw_lap();
+            stopwatch_render(ctx);
+            return true;
+        }
+
         if (ch == 'r' || ch == 'R') {
-            swstate.running = false;
-            swstate.elapsed_ms = 0;
-            swstate.start_time_ms = 0;
-            swstate.lap_count = 0;
+            sw_reset();
             stopwatch_render(ctx);
             return true;
         }
@@ -270,8 +396,10 @@ static uint32_t stopwatch_tick_ms(void)
 const solar_os_app_t solar_os_stopwatch_app = {
     .name = "stopwatch",
     .summary = "precision stopwatch with lap recorder",
-    .flags = 0,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = stopwatch_start,
+    .suspend = stopwatch_suspend,
+    .resume = stopwatch_resume,
     .stop = stopwatch_stop,
     .event = stopwatch_event,
     .state_slot = &stopwatch_state_ptr,

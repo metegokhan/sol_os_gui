@@ -368,8 +368,20 @@ esp_err_t solar_os_stream_open_ex(const char *id,
     }
     if (entry->driver.info.sharing == SOLAR_OS_STREAM_SHARING_EXCLUSIVE &&
         entry->active_handles != 0U) {
-        stream_unlock();
-        return ESP_ERR_INVALID_STATE;
+        if ((strcmp(entry->owner, "player") == 0 || strcmp(entry->owner, "webradio") == 0) &&
+            strcmp(owner, entry->owner) != 0) {
+            solar_os_stream_close_fn old_close = entry->driver.close;
+            void *old_user = entry->driver.user;
+            if (old_close != NULL) {
+                old_close(old_user, NULL);
+            }
+            entry->generation++;
+            entry->active_handles = 0;
+            entry->owner[0] = '\0';
+        } else {
+            stream_unlock();
+            return ESP_ERR_INVALID_STATE;
+        }
     }
 
     strlcpy(handle->id, entry->driver.info.id, sizeof(handle->id));

@@ -35,6 +35,7 @@
 #endif
 #include "solar_os_cdc.h"
 #include "solar_os_display.h"
+#include "solar_os_dialog.h"
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 #include "solar_os_docs.h"
 #endif
@@ -350,7 +351,9 @@ static void IRAM_ATTR key_button_isr(void *arg)
 static void draw_terminal_if_needed(void)
 {
     static uint32_t last_mouse_present_ms = 0;
-    if (!solar_os_context_graphics_active(&os_ctx) && terminal != NULL) {
+    if (!solar_os_dialog_is_active() &&
+        solar_os_sessions_foreground_is_shell() &&
+        terminal != NULL) {
         const bool terminal_dirty = solar_os_terminal_needs_draw(terminal);
         const bool mouse_dirty = solar_os_mouse_is_dirty();
         const uint32_t now_ms = millis_u32();
@@ -1263,7 +1266,8 @@ static void dispatch_app_tick(void)
 static void dispatch_mouse_compositor(void)
 {
     static uint32_t last_track_ms = 0;
-    if (display_u8g2 == NULL || !solar_os_context_graphics_active(&os_ctx) ||
+    if (display_u8g2 == NULL ||
+        solar_os_sessions_foreground_is_shell() ||
         !solar_os_mouse_is_dirty()) {
         return;
     }

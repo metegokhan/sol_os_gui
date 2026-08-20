@@ -23,6 +23,8 @@
 #include "solar_os_storage.h"
 #include "solar_os_time.h"
 #include "solar_os_wifi.h"
+#include "solar_os_appbar.h"
+#include "solar_os_help.h"
 
 #define FILE_SERVER_STACK_SIZE 8192
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(FILE_SERVER_STACK_SIZE);
@@ -35,7 +37,31 @@ typedef struct {
     uint32_t downloads_count;
     char last_file[64];
     uint32_t last_tick_ms;
+    bool show_help;
 } file_server_state_t;
+
+static const char *const fserver_help_lines[] = {
+    "Shares the SD card over Wi-Fi as a web page.",
+    "",
+    "  - Open the shown http://<ip>/ address in any",
+    "    phone or PC browser on the same network.",
+    "  - From the browser you can upload, download,",
+    "    rename, move and delete files and folders,",
+    "    and edit device settings.",
+    "",
+    "Refresh re-reads the IP. Exiting the app keeps the",
+    "server running in the background.",
+};
+#define FSERVER_HELP_LINE_COUNT (sizeof(fserver_help_lines) / sizeof(fserver_help_lines[0]))
+
+static size_t fserver_build_footer(solar_os_appbar_shortcut_t *items, size_t max)
+{
+    size_t n = 0;
+    if (n < max) { items[n].key = 'r'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "Refresh"); n++; }
+    if (n < max) { solar_os_help_chip(&items[n]); n++; }
+    return n;
+}
 
 static void *file_server_state_ptr;
 #define fserver (*(file_server_state_t *)file_server_state_ptr)
@@ -1024,15 +1050,13 @@ static void file_server_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    /* 1. Header */
+    /* 1. Shared header. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "File Server";
+    header.show_back = true;
+    header.status_line = "HTTP port 80  -  runs in background";
+    solar_os_appbar_draw_header(gfx, &header);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 24);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "WI-FI SD CARD WEB SERVER");
-
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, screen_w - 95, 16, "HTTP PORT 80");
 
     /* 2. Main Hero Box */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -1073,11 +1097,15 @@ static void file_server_render(solar_os_context_t *ctx)
              solar_os_storage_sd_is_mounted() ? "READY" : "NOT DETECTED");
     solar_os_gfx_text(gfx, 28, 250, sd_stat);
 
-    /* 4. Footer */
-    solar_os_gfx_fill_rect(gfx, 0, 278, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, 293, "[R] Refresh | [ESC/Q] Exit App (Server keeps running in background)");
+    /* 4. Shared footer chips. */
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = fserver_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
+
+    if (fserver.show_help) {
+        solar_os_help_draw(gfx, "File Server - Help", fserver_help_lines, FSERVER_HELP_LINE_COUNT);
+    }
 
     solar_os_gfx_present(gfx);
 }
@@ -1131,8 +1159,61 @@ static bool file_server_event(solar_os_context_t *ctx, const solar_os_event_t *e
         return true;
     }
 
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        if (fserver.show_help) {
+            fserver.show_help = false;
+            file_server_render(ctx);
+            return true;
+        }
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = fserver_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM && fhit.index < count) {
+                if (items[fhit.index].key == 'r') {
+                    solar_os_wifi_status_t wst;
+                    solar_os_wifi_get_status(&wst);
+                    if (wst.connected) strlcpy(fserver.ip_str, wst.ip, sizeof(fserver.ip_str));
+                } else {
+                    fserver.show_help = true;
+                }
+                file_server_render(ctx);
+            }
+            return true;
+        }
+        return true;
+    }
+
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         const char ch = event->data.ch;
+
+        if (fserver.show_help) {
+            fserver.show_help = false;
+            file_server_render(ctx);
+            return true;
+        }
+        if (solar_os_help_char_opens(ch)) {
+            fserver.show_help = true;
+            file_server_render(ctx);
+            return true;
+        }
         if (ch == 'r' || ch == 'R') {
             file_server_render(ctx);
             return true;
@@ -1157,5 +1238,5 @@ const solar_os_app_t solar_os_file_server_app = {
     .state_size = sizeof(file_server_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .tick_interval_ms = 500U,
-    .worker_stack_bytes = FILE_SERVER_STACK_SIZE,
+    .worker_stack_bytes = 0,
 };

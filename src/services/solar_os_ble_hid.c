@@ -651,16 +651,17 @@ static solar_os_ble_scan_item_t s_reconn_scan_results[4];
 static void hid_reconnect_task(void *arg)
 {
     (void)arg;
-    /* Allow boot, launcher, and wifi to stabilize */
-    vTaskDelay(pdMS_TO_TICKS(8000));
+    /* Quick delay for BLE stack initialization */
+    vTaskDelay(pdMS_TO_TICKS(1200));
 
     while (!s_reconnect_stop_requested) {
         if (s_reconnect_stop_requested) break;
 
+        bool has_disconnected_peer = false;
+
         /* Do not interfere if user is scanning or pairing in foreground */
         if (!solar_os_ble_is_scanning() && s_pairing_task_handle == NULL) {
             /* Check if any remembered peer is disconnected */
-            bool has_disconnected_peer = false;
             for (size_t i = 0; i < SOLAR_OS_BLE_HID_MAX_CONNECTED; i++) {
                 if (s_remembered_peers[i].magic == BLE_HID_PEER_MAGIC &&
                     !solar_os_ble_hid_is_connected(s_remembered_peers[i].bda)) {
@@ -671,7 +672,7 @@ static void hid_reconnect_task(void *arg)
 
             if (has_disconnected_peer) {
                 size_t found = 0;
-                esp_err_t scan_err = solar_os_ble_scan_start(2, s_reconn_scan_results, 4, &found);
+                esp_err_t scan_err = solar_os_ble_scan_start(1, s_reconn_scan_results, 4, &found);
                 if (scan_err == ESP_OK && found > 0 && !s_reconnect_stop_requested) {
                     for (size_t i = 0; i < found; i++) {
                         for (size_t p = 0; p < SOLAR_OS_BLE_HID_MAX_CONNECTED; p++) {
@@ -691,7 +692,7 @@ static void hid_reconnect_task(void *arg)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(15000));
+        vTaskDelay(pdMS_TO_TICKS(has_disconnected_peer ? 3000 : 8000));
     }
     s_reconnect_task_handle = NULL;
     vTaskDelete(NULL);

@@ -205,9 +205,7 @@ static void player_progress_callback(
         if (progress->info.sample_rate != 0U) {
             player.sample_rate = progress->info.sample_rate;
         }
-        if (player.played_frames == 0U) {
-            player.elapsed_ms = progress->info.duration_ms;
-        }
+        player.elapsed_ms = progress->info.duration_ms;
     }
     player.redraw = true;
 }
@@ -960,11 +958,14 @@ static esp_err_t player_start(solar_os_context_t *ctx)
             player_refresh_playlist();
             player.cursor = index;
             err = player_play_index(index);
+            player.tab = PLAYER_TAB_PLAY;
         }
         if (err != ESP_OK) {
             player_set_message("Cannot open track");
             err = ESP_OK;
         }
+    } else if (player.task != NULL || player.active_path[0] != '\0') {
+        player.tab = PLAYER_TAB_PLAY;
     }
     player_render(ctx);
     return err;
@@ -1048,8 +1049,8 @@ static bool player_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
             if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
                 solar_os_context_request_exit(ctx);
-            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_PREV || hit.kind == SOLAR_OS_APPBAR_HIT_TAB_NEXT) {
-                player.tab = (player_tab_t)((player.tab + 1U) % PLAYER_TAB_COUNT);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < PLAYER_TAB_COUNT) {
+                player.tab = (player_tab_t)hit.index;
             }
             player.redraw = true;
             player_render(ctx);

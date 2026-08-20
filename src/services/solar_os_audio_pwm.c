@@ -77,7 +77,9 @@ static void audio_pwm_stream_close(void *user, solar_os_stream_handle_t *handle)
 {
     (void)user;
     audio_pwm_close();
-    handle->context = NULL;
+    if (handle != NULL) {
+        handle->context = NULL;
+    }
 }
 
 static esp_err_t audio_pwm_stream_write(void *user,

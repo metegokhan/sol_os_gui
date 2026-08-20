@@ -1559,7 +1559,7 @@ static bool notes_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_notes_app = {
     .name = "notes",
     .summary = "Markdown checklist notes",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = notes_start,
     .resume = notes_resume,
     .stop = notes_stop,

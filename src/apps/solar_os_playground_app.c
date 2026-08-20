@@ -1310,7 +1310,7 @@ static bool playground_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_playground_app = {
     .name = "playground",
     .summary = "browse and run community Python and Lua apps",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = playground_start,
     .resume = playground_resume,
     .stop = playground_stop,

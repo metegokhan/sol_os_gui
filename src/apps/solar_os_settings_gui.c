@@ -28,6 +28,8 @@
 #include "solar_os_terminal.h"
 #include "solar_os_sessions.h"
 #include "solar_os_wifi.h"
+#include "solar_os_appbar.h"
+#include "solar_os_help.h"
 
 #define SETTINGS_STACK_SIZE 8192
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SETTINGS_STACK_SIZE);
@@ -49,6 +51,7 @@ typedef struct {
     size_t selected_row;
     char notice_msg[64];
     uint32_t notice_timer_ms;
+    bool show_help;
 
     /* Time & Location */
     int city_idx;
@@ -235,6 +238,72 @@ static void settings_trigger_ntp_sync(void)
     }
 }
 
+static int settings_row_count(settings_category_t c)
+{
+    switch (c) {
+    case CAT_TIME_CITY:    return 6;
+    case CAT_DISPLAY:      return 4;
+    case CAT_KEYBOARD:     return 3;
+    case CAT_AUDIO:        return 2;
+    case CAT_WIRELESS:     return 3;
+    case CAT_APP_SETTINGS: return 4;
+    case CAT_SYSTEM:       return 4;
+    default:               return 0;
+    }
+}
+
+/* Rows that trigger an action on ENTER rather than adjusting a value. */
+static bool settings_row_is_action(settings_category_t c, size_t r)
+{
+    if (c == CAT_TIME_CITY) return r == 1 || r == 4;
+    if (c == CAT_WIRELESS)  return r == 1 || r == 2;
+    if (c == CAT_SYSTEM)    return r == 1 || r == 2 || r == 3;
+    return false;
+}
+
+/* Rows whose value can be changed with the < / > controls. */
+static bool settings_row_is_adjustable(settings_category_t c, size_t r)
+{
+    if (settings_row_is_action(c, r)) return false;
+    if (c == CAT_WIRELESS && r == 0) return false; /* Wi-Fi status (read-only) */
+    if (c == CAT_SYSTEM && r == 0) return false;   /* storage status (read-only) */
+    return true;
+}
+
+/* Draws a row's value centered, with tappable < and > controls pinned to the
+ * ends when the row is adjustable. Caller sets the text color first. */
+static void settings_draw_value_line(solar_os_gfx_t *gfx, int content_x, int row_w,
+                                     int ty, const char *value, bool adjustable)
+{
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    const int vw = (int)solar_os_gfx_text_width(gfx, value);
+    int vx = content_x + (row_w - vw) / 2;
+    if (vx < content_x + 22) vx = content_x + 22;
+    solar_os_gfx_text(gfx, vx, ty, value);
+    if (adjustable) {
+        solar_os_gfx_text(gfx, content_x + 6, ty, "<");
+        const int gw = (int)solar_os_gfx_text_width(gfx, ">");
+        solar_os_gfx_text(gfx, content_x + row_w - gw - 8, ty, ">");
+    }
+}
+
+static const char *const settings_help_lines[] = {
+    "Left panel: setting categories. Right panel: that",
+    "category's settings.",
+    "",
+    "Touch:",
+    "  - Tap a category on the left to open it.",
+    "  - Tap a value row's left half to decrease, right",
+    "    half to increase.",
+    "  - Tap an action row (Sync, Save, Open...) to run it.",
+    "",
+    "Keyboard:",
+    "  Tab: next category    Up/Down: move row",
+    "  Left/Right: change value    Enter: run action",
+    "  Esc / Q: exit (changes are applied on exit)",
+};
+#define SETTINGS_HELP_LINE_COUNT (sizeof(settings_help_lines) / sizeof(settings_help_lines[0]))
+
 static void settings_render(solar_os_context_t *ctx)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -245,15 +314,12 @@ static void settings_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    /* 1. Header Bar */
+    /* 1. Shared header. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "Settings";
+    header.show_back = true;
+    solar_os_appbar_draw_header(gfx, &header);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 24);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "SYSTEM & APP SETTINGS");
-
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, screen_w - 90, 16, "CONTROL PANEL");
 
     /* 2. Left Sidebar: Categories (X: 0..115, Y: 24..276) */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -326,10 +392,8 @@ static void settings_render(solar_os_context_t *ctx)
 
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
             solar_os_gfx_text(gfx, content_x + 6, ry + 12, labels[r]);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-            char v_str[64];
-            snprintf(v_str, sizeof(v_str), "< %s >", vals[r]);
-            solar_os_gfx_text(gfx, content_x + 6, ry + 24, v_str);
+            settings_draw_value_line(gfx, content_x, screen_w - content_x - 10, ry + 24,
+                                     vals[r], settings_row_is_adjustable(sstate.current_cat, r));
         }
     } else if (sstate.current_cat == CAT_DISPLAY) {
         const char *labels[] = {"Brightness:", "Color Theme:", "Screensaver Timeout:", "Screensaver Mode:"};
@@ -355,10 +419,8 @@ static void settings_render(solar_os_context_t *ctx)
 
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
             solar_os_gfx_text(gfx, content_x + 6, ry + 12, labels[r]);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-            char v_str[64];
-            snprintf(v_str, sizeof(v_str), "< %s >", vals[r]);
-            solar_os_gfx_text(gfx, content_x + 6, ry + 24, v_str);
+            settings_draw_value_line(gfx, content_x, screen_w - content_x - 10, ry + 24,
+                                     vals[r], settings_row_is_adjustable(sstate.current_cat, r));
         }
     } else if (sstate.current_cat == CAT_KEYBOARD) {
         const char *labels[] = {"Keyboard Layout:", "Repeat Delay:", "Repeat Rate:"};
@@ -381,10 +443,8 @@ static void settings_render(solar_os_context_t *ctx)
 
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
             solar_os_gfx_text(gfx, content_x + 6, ry + 12, labels[r]);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-            char v_str[64];
-            snprintf(v_str, sizeof(v_str), "< %s >", vals[r]);
-            solar_os_gfx_text(gfx, content_x + 6, ry + 24, v_str);
+            settings_draw_value_line(gfx, content_x, screen_w - content_x - 10, ry + 24,
+                                     vals[r], settings_row_is_adjustable(sstate.current_cat, r));
         }
     } else if (sstate.current_cat == CAT_AUDIO) {
         const char *labels[] = {"Master Volume:", "Notification Beeps:"};
@@ -408,10 +468,8 @@ static void settings_render(solar_os_context_t *ctx)
 
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
             solar_os_gfx_text(gfx, content_x + 6, ry + 12, labels[r]);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-            char v_str[64];
-            snprintf(v_str, sizeof(v_str), "< %s >", vals[r]);
-            solar_os_gfx_text(gfx, content_x + 6, ry + 24, v_str);
+            settings_draw_value_line(gfx, content_x, screen_w - content_x - 10, ry + 24,
+                                     vals[r], settings_row_is_adjustable(sstate.current_cat, r));
         }
     } else if (sstate.current_cat == CAT_WIRELESS) {
         solar_os_wifi_status_t wst;
@@ -471,10 +529,8 @@ static void settings_render(solar_os_context_t *ctx)
 
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
             solar_os_gfx_text(gfx, content_x + 6, ry + 12, labels[r]);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-            char v_str[64];
-            snprintf(v_str, sizeof(v_str), "< %s >", vals[r]);
-            solar_os_gfx_text(gfx, content_x + 6, ry + 24, v_str);
+            settings_draw_value_line(gfx, content_x, screen_w - content_x - 10, ry + 24,
+                                     vals[r], settings_row_is_adjustable(sstate.current_cat, r));
         }
     } else if (sstate.current_cat == CAT_SYSTEM) {
         char sd_info[64];
@@ -519,14 +575,20 @@ static void settings_render(solar_os_context_t *ctx)
     if (sstate.notice_msg[0] != '\0') {
         solar_os_gfx_text(gfx, 12, 268, sstate.notice_msg);
     } else {
-        solar_os_gfx_text(gfx, 12, 268, "Use [TAB] to switch categories | [LEFT/RIGHT] Change value");
+        solar_os_gfx_text(gfx, 12, 268, "Tap a category, then a row to adjust it.");
     }
 
-    /* 5. Footer Navigation Bar */
-    solar_os_gfx_fill_rect(gfx, 0, 278, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, 293, "[TAB] Category | [UP/DOWN] Row | [LEFT/RIGHT] Adjust | [ESC] Exit");
+    /* 5. Footer: shared Help chip. */
+    solar_os_appbar_shortcut_t fitems[1];
+    solar_os_help_chip(&fitems[0]);
+    const solar_os_appbar_shortcuts_t fbar = { .items = fitems, .count = 1 };
+    solar_os_appbar_draw_footer(gfx, &fbar);
+
+    /* Help overlay on top of everything. */
+    if (sstate.show_help) {
+        solar_os_help_draw(gfx, "Settings - Help",
+                           settings_help_lines, SETTINGS_HELP_LINE_COUNT);
+    }
 
     solar_os_gfx_present(gfx);
 }
@@ -620,12 +682,109 @@ static void settings_stop(solar_os_context_t *ctx)
     solar_os_context_set_graphics_active(ctx, false);
 }
 
+static bool settings_event(solar_os_context_t *ctx, const solar_os_event_t *event);
+
+/* Replays a keyboard char through this same handler so a touch can reuse the
+ * existing Left/Right/Enter logic without duplicating it. */
+static void settings_feed_char(solar_os_context_t *ctx, char ch)
+{
+    solar_os_event_t fake = {0};
+    fake.type = SOLAR_OS_EVENT_CHAR;
+    fake.data.ch = ch;
+    (void)settings_event(ctx, &fake);
+}
+
 static bool settings_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) return false;
 
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int screen_w = (int)solar_os_gfx_width(gfx);
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        /* Any tap dismisses the help overlay. */
+        if (sstate.show_help) {
+            sstate.show_help = false;
+            settings_render(ctx);
+            return true;
+        }
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t fitems[1];
+        solar_os_help_chip(&fitems[0]);
+        const solar_os_appbar_shortcuts_t fbar = { .items = fitems, .count = 1 };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &fbar, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+                sstate.show_help = true;
+                settings_render(ctx);
+            }
+            return true;
+        }
+
+        /* Left sidebar: pick a category. */
+        if (px >= 4 && px < 116) {
+            const int cat_y_start = 26;
+            const int cat_h = 35;
+            if (py >= cat_y_start) {
+                const int i = (py - cat_y_start) / cat_h;
+                if (i >= 0 && i < (int)CAT_COUNT) {
+                    sstate.current_cat = (settings_category_t)i;
+                    sstate.selected_row = 0;
+                    sstate.notice_msg[0] = '\0';
+                    settings_render(ctx);
+                }
+            }
+            return true;
+        }
+
+        /* Content rows: select and act. */
+        const int content_x = 126;
+        const int row_y_start = 30;
+        const int row_h = 32;
+        if (px >= content_x && py >= row_y_start) {
+            const int r = (py - row_y_start) / row_h;
+            const int rc = settings_row_count(sstate.current_cat);
+            if (r >= 0 && r < rc) {
+                sstate.selected_row = (size_t)r;
+                if (settings_row_is_action(sstate.current_cat, (size_t)r)) {
+                    settings_feed_char(ctx, '\r');
+                } else if (settings_row_is_adjustable(sstate.current_cat, (size_t)r)) {
+                    const int mid = content_x + (screen_w - content_x - 10) / 2;
+                    settings_feed_char(ctx, (char)(px < mid ? SOLAR_OS_KEY_LEFT : SOLAR_OS_KEY_RIGHT));
+                }
+                settings_render(ctx);
+            }
+        }
+        return true;
+    }
+
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         const char ch = event->data.ch;
+
+        /* Help overlay: any key closes it; Ctrl+H / '?' opens it. */
+        if (sstate.show_help) {
+            sstate.show_help = false;
+            settings_render(ctx);
+            return true;
+        }
+        if (solar_os_help_char_opens(ch)) {
+            sstate.show_help = true;
+            settings_render(ctx);
+            return true;
+        }
 
         if (ch == '\t') {
             sstate.current_cat = (sstate.current_cat + 1) % CAT_COUNT;

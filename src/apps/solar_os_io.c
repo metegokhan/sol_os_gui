@@ -2473,7 +2473,7 @@ static void io_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
 const solar_os_app_t solar_os_io_app = {
     .name = "io",
     .summary = "expansion pin and bus manager",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = io_start,
     .suspend = io_suspend,
     .resume = io_resume,

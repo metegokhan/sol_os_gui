@@ -962,6 +962,43 @@ static bool calc_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         calc_resume(ctx);
         return true;
     }
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        if (calc->mode != CALC_MODE_GRAPHICS) return true;
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int width = (int)solar_os_gfx_width(gfx);
+        const int height = (int)solar_os_gfx_height(gfx);
+        const int panel = width >= 380 ? 142 : (width >= 240 ? 110 : width / 2);
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        if (height >= 120 && px < 30 && py < 16) {
+            /* Tap the "calc" title corner to exit, mirroring Esc/app-exit. */
+            solar_os_context_request_exit(ctx);
+            return true;
+        }
+
+        if (px < panel) {
+            const int row_height = height >= 120 ? 25 : 15;
+            const int base_y = height >= 120 ? 27 : 12;
+            if (py >= base_y - 13) {
+                const size_t row = (size_t)((py - (base_y - 13)) / row_height);
+                if (row < calc->row_count) {
+                    calc->active_row = row;
+                    calc->focus = CALC_FOCUS_ROWS;
+                    calc->cursor = strlen(calc->rows[row].source);
+                    calc_graphics_render(ctx);
+                }
+            }
+            return true;
+        }
+
+        if (calc->focus != CALC_FOCUS_GRAPH) {
+            calc->focus = CALC_FOCUS_GRAPH;
+            calc_graphics_render(ctx);
+        }
+        return true;
+    }
     if (event->type != SOLAR_OS_EVENT_CHAR)
         return false;
     const uint8_t ch = (uint8_t)event->data.ch;
@@ -1044,7 +1081,7 @@ static void calc_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
 const solar_os_app_t solar_os_calc_app = {
     .name = "calc",
     .summary = "scientific calculator and function plotter",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = calc_start,
     .suspend = calc_suspend,
     .resume = calc_resume,

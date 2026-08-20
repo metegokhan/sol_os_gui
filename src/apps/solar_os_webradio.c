@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/task.h"
+#include "solar_os_appbar.h"
 #include "solar_os_audio.h"
 #include "solar_os_audio_codec.h"
 #include "solar_os_audio_pcm.h"
@@ -50,7 +51,10 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WEBRADIO_TASK_STACK);
 #define WEBRADIO_JITTER_TARGET_MS 2000U
 #define WEBRADIO_WORKER_POLL_MS 20U
 #define WEBRADIO_INVALID_STREAM_BYTES (64U * 1024U)
-#define WEBRADIO_GUI_HEADER_HEIGHT 28
+/* Matches solar_os_appbar_header_height() for this board's resolution --
+ * layout math below addresses this fixed pixel origin, but the actual bar
+ * is drawn by the shared appbar component. */
+#define WEBRADIO_GUI_HEADER_HEIGHT 22
 #define WEBRADIO_GUI_ROW_HEIGHT 24
 #define WEBRADIO_GUI_FOOTER_HEIGHT 20
 #define WEBRADIO_SCOPE_SAMPLES 256U
@@ -583,18 +587,24 @@ static void webradio_draw_centered(solar_os_gfx_t *gfx,
     solar_os_gfx_text(gfx, (width - text_width) / 2, baseline, text);
 }
 
+static const char * const WEBRADIO_TAB_NAMES[WEBRADIO_TAB_COUNT] = { "Player", "Channels" };
+
+static void webradio_build_header(solar_os_appbar_header_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->title = "WebRadio";
+    out->show_back = true;
+    out->tabs.names = WEBRADIO_TAB_NAMES;
+    out->tabs.count = WEBRADIO_TAB_COUNT;
+    out->tabs.active_index = (size_t)webradio.tab;
+}
+
 static void webradio_draw_graphics_header(solar_os_gfx_t *gfx, int width)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, WEBRADIO_GUI_HEADER_HEIGHT);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-    solar_os_gfx_text(gfx, 7, 19, "WebRadio");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    const char *tabs = webradio.tab == WEBRADIO_TAB_PLAYER ?
-        "[PLAYER]  CHANNELS" : "PLAYER  [CHANNELS]";
-    const int tabs_width = (int)solar_os_gfx_text_width(gfx, tabs);
-    solar_os_gfx_text(gfx, width - tabs_width - 7, 18, tabs);
+    (void)width;
+    solar_os_appbar_header_t header;
+    webradio_build_header(&header);
+    solar_os_appbar_draw_header(gfx, &header);
 }
 
 static void draw_single_vu_dial(solar_os_gfx_t *gfx, int pivot_x, int pivot_y, int radius, float level, const char *label)
@@ -698,6 +708,33 @@ static void webradio_draw_vu_meter(solar_os_gfx_t *gfx, int x, int y, int width,
     draw_single_vu_dial(gfx, right_pivot_x, pivot_y, dial_radius, webradio.vu_r, "R");
 }
 
+/* Shared geometry for the Player tab's visualizer-toggle box and transport
+ * buttons: computed once, used by both drawing and click hit-testing so
+ * they can never disagree about layout. */
+typedef struct {
+    int vis_x, vis_y, vis_w, vis_h;
+    int button_y, button_h, button_w;
+    int prev_x, play_x, next_x;
+} webradio_player_controls_layout_t;
+
+static void webradio_layout_player_controls(int width, int height,
+                                            webradio_player_controls_layout_t *out)
+{
+    const int visualizer_y = WEBRADIO_GUI_HEADER_HEIGHT + 4;
+    out->vis_x = 9;
+    out->vis_y = visualizer_y + 4;
+    out->vis_w = 90;
+    out->vis_h = 15;
+
+    const int gap = 5;
+    out->button_w = (width - 4 * gap) / 3;
+    out->button_y = height - 25;
+    out->button_h = 21;
+    out->prev_x = gap;
+    out->play_x = gap * 2 + out->button_w;
+    out->next_x = gap * 3 + out->button_w * 2;
+}
+
 static void webradio_render_player(solar_os_gfx_t *gfx,
                                    int width,
                                    int height)
@@ -716,6 +753,9 @@ static void webradio_render_player(solar_os_gfx_t *gfx,
                              &channels,
                              NULL);
 
+    webradio_player_controls_layout_t controls;
+    webradio_layout_player_controls(width, height, &controls);
+
     const int player_top = (height * 2) / 3;
     const int visualizer_y = WEBRADIO_GUI_HEADER_HEIGHT + 4;
     const int visualizer_height = player_top - visualizer_y - 4;
@@ -730,7 +770,7 @@ static void webradio_render_player(solar_os_gfx_t *gfx,
     }
     static const char *labels[] = {"SCOPE  V", "SPECTRUM  V", "VU METER  V"};
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 9, visualizer_y + 4, 90, 15);
+    solar_os_gfx_fill_rect(gfx, controls.vis_x, controls.vis_y, controls.vis_w, controls.vis_h);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_text(gfx,
@@ -797,21 +837,18 @@ static void webradio_render_player(solar_os_gfx_t *gfx,
                       volume_y + 9,
                       volume_percent);
 
-    const int button_y = height - 25;
-    const int gap = 5;
-    const int button_width = (width - 4 * gap) / 3;
     const bool stopped = state == WEBRADIO_PLAYBACK_IDLE ||
                          state == WEBRADIO_PLAYBACK_ERROR;
     solar_os_media_transport_button_draw(
-        gfx, gap, button_y, button_width, 21,
+        gfx, controls.prev_x, controls.button_y, controls.button_w, controls.button_h,
         SOLAR_OS_MEDIA_TRANSPORT_PREVIOUS, false);
     solar_os_media_transport_button_draw(
-        gfx, gap * 2 + button_width, button_y, button_width, 21,
+        gfx, controls.play_x, controls.button_y, controls.button_w, controls.button_h,
         stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
                   SOLAR_OS_MEDIA_TRANSPORT_STOP,
         false);
     solar_os_media_transport_button_draw(
-        gfx, gap * 3 + button_width * 2, button_y, button_width, 21,
+        gfx, controls.next_x, controls.button_y, controls.button_w, controls.button_h,
         SOLAR_OS_MEDIA_TRANSPORT_NEXT, false);
 }
 
@@ -860,22 +897,58 @@ static void webradio_draw_dialog(solar_os_gfx_t *gfx, int width, int height)
     solar_os_gfx_text(gfx, x + 9, y + 64, "Enter next/save   Esc cancel");
 }
 
+/* Shared geometry for the channel list body: computed once, used by both
+ * drawing and click hit-testing so they can never disagree about layout. */
+typedef struct {
+    int list_y;
+    size_t visible_rows;
+} webradio_channel_layout_t;
+
+static void webradio_layout_channels(int height, webradio_channel_layout_t *out)
+{
+    out->list_y = WEBRADIO_GUI_HEADER_HEIGHT + 5;
+    const int list_bottom = height - WEBRADIO_GUI_FOOTER_HEIGHT - 16;
+    out->visible_rows = list_bottom > out->list_y ?
+        (size_t)((list_bottom - out->list_y) / WEBRADIO_GUI_ROW_HEIGHT) : 0U;
+    if (webradio.cursor < webradio.top) {
+        webradio.top = webradio.cursor;
+    }
+    if (out->visible_rows > 0U && webradio.cursor >= webradio.top + out->visible_rows) {
+        webradio.top = webradio.cursor - out->visible_rows + 1U;
+    }
+}
+
+/* Returns the station index under (x, y) in the channel list body, or
+ * false if the tap missed every row. */
+static bool webradio_hit_test_channels(int width, int height, int16_t x, int16_t y, size_t *out_index)
+{
+    (void)width;
+    if (webradio.station_count == 0U) return false;
+
+    webradio_channel_layout_t layout;
+    webradio_layout_channels(height, &layout);
+    if (y < layout.list_y) return false;
+
+    const size_t row = (size_t)((y - layout.list_y) / WEBRADIO_GUI_ROW_HEIGHT);
+    if (row >= layout.visible_rows) return false;
+
+    const size_t idx = webradio.top + row;
+    if (idx >= webradio.station_count) return false;
+
+    *out_index = idx;
+    return true;
+}
+
 static void webradio_render_channels(solar_os_gfx_t *gfx,
                                      int width,
                                      int height,
                                      webradio_playback_state_t state,
                                      const char *active_name)
 {
-    const int list_y = WEBRADIO_GUI_HEADER_HEIGHT + 5;
-    const int list_bottom = height - WEBRADIO_GUI_FOOTER_HEIGHT - 16;
-    const size_t visible_rows = list_bottom > list_y ?
-        (size_t)((list_bottom - list_y) / WEBRADIO_GUI_ROW_HEIGHT) : 0U;
-    if (webradio.cursor < webradio.top) {
-        webradio.top = webradio.cursor;
-    }
-    if (visible_rows > 0U && webradio.cursor >= webradio.top + visible_rows) {
-        webradio.top = webradio.cursor - visible_rows + 1U;
-    }
+    webradio_channel_layout_t layout;
+    webradio_layout_channels(height, &layout);
+    const int list_y = layout.list_y;
+    const size_t visible_rows = layout.visible_rows;
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_14);
     for (size_t row = 0U; row < visible_rows; row++) {
@@ -2071,6 +2144,85 @@ static bool webradio_event(solar_os_context_t *ctx,
         }
         return true;
     }
+    if (event->type == SOLAR_OS_EVENT_SCROLL && webradio.mode == WEBRADIO_MODE_GRAPHICS &&
+        webradio.tab == WEBRADIO_TAB_CHANNELS) {
+        const bool down = event->data.scroll.delta < 0;
+        if (down) {
+            if (webradio.cursor + 1U < webradio.station_count) {
+                webradio.cursor++;
+                webradio.redraw = true;
+            }
+        } else if (webradio.cursor > 0U) {
+            webradio.cursor--;
+            webradio.redraw = true;
+        }
+        if (webradio.redraw) webradio_render(ctx);
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_CLICK && webradio.mode == WEBRADIO_MODE_GRAPHICS) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return false;
+
+        solar_os_appbar_header_t header;
+        webradio_build_header(&header);
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < WEBRADIO_TAB_COUNT) {
+                webradio.tab = (webradio_tab_t)hit.index;
+                webradio.redraw = true;
+                webradio_render(ctx);
+            }
+            return true;
+        }
+
+        const int width = (int)solar_os_gfx_width(gfx);
+        const int height = (int)solar_os_gfx_height(gfx);
+
+        if (webradio.tab == WEBRADIO_TAB_CHANNELS) {
+            size_t idx;
+            if (webradio_hit_test_channels(width, height, event->data.click.x, event->data.click.y, &idx)) {
+                webradio.cursor = idx;
+                webradio_play_selected();
+                webradio.tab = WEBRADIO_TAB_PLAYER;
+                webradio.redraw = true;
+                webradio_render(ctx);
+            }
+        } else if (webradio.tab == WEBRADIO_TAB_PLAYER) {
+            webradio_player_controls_layout_t controls;
+            webradio_layout_player_controls(width, height, &controls);
+            const int16_t cx = event->data.click.x;
+            const int16_t cy = event->data.click.y;
+
+            const bool in_vis = cx >= controls.vis_x && cx < controls.vis_x + controls.vis_w &&
+                                cy >= controls.vis_y && cy < controls.vis_y + controls.vis_h;
+            const bool in_prev = cx >= controls.prev_x && cx < controls.prev_x + controls.button_w &&
+                                 cy >= controls.button_y && cy < controls.button_y + controls.button_h;
+            const bool in_play = cx >= controls.play_x && cx < controls.play_x + controls.button_w &&
+                                 cy >= controls.button_y && cy < controls.button_y + controls.button_h;
+            const bool in_next = cx >= controls.next_x && cx < controls.next_x + controls.button_w &&
+                                 cy >= controls.button_y && cy < controls.button_y + controls.button_h;
+
+            if (in_vis) {
+                webradio.visualizer = (webradio_visualizer_t)((webradio.visualizer + 1U) % WEBRADIO_VISUALIZER_COUNT);
+            } else if (in_prev) {
+                webradio_play_catalog_offset(-1);
+            } else if (in_play) {
+                webradio_toggle_playback();
+            } else if (in_next) {
+                webradio_play_catalog_offset(1);
+            }
+            if (in_vis || in_prev || in_play || in_next) {
+                webradio.redraw = true;
+                webradio_render(ctx);
+            }
+        }
+        return true;
+    }
+
     if (event->type != SOLAR_OS_EVENT_CHAR) {
         return false;
     }

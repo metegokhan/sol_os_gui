@@ -1111,7 +1111,7 @@ static bool ssh_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_ssh_app = {
     .name = "ssh",
     .summary = "SSH client",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_SHELL_INLINE,
+    .flags = SOLAR_OS_APP_FLAG_SHELL_INLINE,
     .start = ssh_start,
     .suspend = ssh_suspend,
     .resume = ssh_resume,

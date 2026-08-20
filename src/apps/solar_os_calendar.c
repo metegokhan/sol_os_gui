@@ -10,6 +10,7 @@
 #include "esp_err.h"
 #include "esp_timer.h"
 #include "solar_os.h"
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_resource_limits.h"
@@ -92,11 +93,10 @@ static void cal_render(solar_os_context_t *ctx)
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
     /* 1. Header Bar */
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 24);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "CALENDAR & LIVE CLOCK");
+    solar_os_appbar_header_t header = {0};
+    header.title = "Calendar";
+    header.show_back = true;
+    solar_os_appbar_draw_header(gfx, &header);
 
     /* 2. Left Side: Monthly Calendar Grid (X: 12..210, Y: 32..265) */
     char cal_title[32];
@@ -217,10 +217,13 @@ static void cal_render(solar_os_context_t *ctx)
     solar_os_gfx_text(gfx, acx - (int)df_w / 2, 210, date_full);
 
     /* 4. Footer Bar */
-    solar_os_gfx_fill_rect(gfx, 0, 278, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, 293, "[LEFT/RIGHT] Prev/Next Month | [T] Today | [ESC] Exit");
+    (void)screen_w;
+    solar_os_appbar_shortcut_t footer_items[3];
+    footer_items[0] = (solar_os_appbar_shortcut_t){ .key = (char)SOLAR_OS_KEY_LEFT, .ctrl = false, .label = "Prev" };
+    footer_items[1] = (solar_os_appbar_shortcut_t){ .key = (char)SOLAR_OS_KEY_RIGHT, .ctrl = false, .label = "Next" };
+    footer_items[2] = (solar_os_appbar_shortcut_t){ .key = 't', .ctrl = false, .label = "Today" };
+    const solar_os_appbar_shortcuts_t footer_shortcuts = { .items = footer_items, .count = 3 };
+    solar_os_appbar_draw_footer(gfx, &footer_shortcuts);
 
     solar_os_gfx_present(gfx);
 }
@@ -242,9 +245,39 @@ static void cal_stop(solar_os_context_t *ctx)
     solar_os_context_set_graphics_active(ctx, false);
 }
 
+static bool cal_handle_char(solar_os_context_t *ctx, char ch);
+
 static bool cal_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) return false;
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t footer_items[3];
+        footer_items[0] = (solar_os_appbar_shortcut_t){ .key = (char)SOLAR_OS_KEY_LEFT, .ctrl = false, .label = "Prev" };
+        footer_items[1] = (solar_os_appbar_shortcut_t){ .key = (char)SOLAR_OS_KEY_RIGHT, .ctrl = false, .label = "Next" };
+        footer_items[2] = (solar_os_appbar_shortcut_t){ .key = 't', .ctrl = false, .label = "Today" };
+        const solar_os_appbar_shortcuts_t footer_shortcuts = { .items = footer_items, .count = 3 };
+
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &footer_shortcuts, event->data.click.x, event->data.click.y, &fhit) &&
+            fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+            cal_handle_char(ctx, footer_items[fhit.index].key);
+        }
+        return true;
+    }
 
     if (event->type == SOLAR_OS_EVENT_TICK) {
         const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000U);
@@ -257,40 +290,45 @@ static bool cal_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     if (event->type == SOLAR_OS_EVENT_CHAR) {
-        const char ch = event->data.ch;
-        if (ch == SOLAR_OS_KEY_LEFT || ch == 'a' || ch == 'A' || ch == 'h' || ch == 'H') {
-            if (cal.view_month > 1) {
-                cal.view_month--;
-            } else {
-                cal.view_month = 12;
-                cal.view_year--;
-            }
-            cal_render(ctx);
-            return true;
-        }
-        if (ch == SOLAR_OS_KEY_RIGHT || ch == 'd' || ch == 'D' || ch == 'l' || ch == 'L') {
-            if (cal.view_month < 12) {
-                cal.view_month++;
-            } else {
-                cal.view_month = 1;
-                cal.view_year++;
-            }
-            cal_render(ctx);
-            return true;
-        }
-        if (ch == 't' || ch == 'T') {
-            cal_update_current_time();
-            cal.view_year = cal.current_year;
-            cal.view_month = cal.current_month;
-            cal_render(ctx);
-            return true;
-        }
-        if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
-            solar_os_context_request_exit(ctx);
-            return true;
-        }
+        return cal_handle_char(ctx, event->data.ch);
     }
 
+    return false;
+}
+
+static bool cal_handle_char(solar_os_context_t *ctx, char ch)
+{
+    if (ch == SOLAR_OS_KEY_LEFT || ch == 'a' || ch == 'A' || ch == 'h' || ch == 'H') {
+        if (cal.view_month > 1) {
+            cal.view_month--;
+        } else {
+            cal.view_month = 12;
+            cal.view_year--;
+        }
+        cal_render(ctx);
+        return true;
+    }
+    if (ch == SOLAR_OS_KEY_RIGHT || ch == 'd' || ch == 'D' || ch == 'l' || ch == 'L') {
+        if (cal.view_month < 12) {
+            cal.view_month++;
+        } else {
+            cal.view_month = 1;
+            cal.view_year++;
+        }
+        cal_render(ctx);
+        return true;
+    }
+    if (ch == 't' || ch == 'T') {
+        cal_update_current_time();
+        cal.view_year = cal.current_year;
+        cal.view_month = cal.current_month;
+        cal_render(ctx);
+        return true;
+    }
+    if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
+        solar_os_context_request_exit(ctx);
+        return true;
+    }
     return false;
 }
 

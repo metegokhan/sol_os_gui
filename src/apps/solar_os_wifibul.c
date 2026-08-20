@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 
 #include "solar_os_audio.h"
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
@@ -23,8 +24,11 @@
 #define WIFIBUL_TICK_MS 100U
 #define WIFIBUL_RESCAN_MS 3000U
 
-#define WIFIBUL_HEADER_H 24
-#define WIFIBUL_FOOTER_H 22
+/* Matches solar_os_appbar_header_height()/footer_height() for this board's
+ * resolution -- body draw functions below address fixed pixel origins, but
+ * the actual bars are drawn by the shared appbar component. */
+#define WIFIBUL_HEADER_H 22
+#define WIFIBUL_FOOTER_H 18
 
 typedef enum {
     WIFIBUL_VIEW_LIST = 0,
@@ -237,40 +241,56 @@ static void wifibul_set_status(const char *message)
  * UI Rendering
  * ------------------------------------------------------------------- */
 
-static void wifibul_draw_header(solar_os_gfx_t *gfx, int width)
+static void wifibul_build_header(solar_os_appbar_header_t *out, char *status_buf, size_t status_buf_len)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, WIFIBUL_HEADER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    memset(out, 0, sizeof(*out));
+    const char *view_name = wifibul.view == WIFIBUL_VIEW_LIST ? "Network List"
+                            : wifibul.view == WIFIBUL_VIEW_DETAIL ? "AP Details"
+                            : "Radar Tracker";
+    out->title = view_name;
+    out->show_back = true;
+    snprintf(status_buf, status_buf_len, "%s", wifibul.scanning ? "Scanning..." : "");
+    out->status_line = status_buf;
+}
 
-    const char *view_name = wifibul.view == WIFIBUL_VIEW_LIST ? "NETWORK LIST"
-                            : wifibul.view == WIFIBUL_VIEW_DETAIL ? "AP DETAILS"
-                            : "RADAR TRACKER";
-    char header[64];
-    snprintf(header, sizeof(header), "WI-FI FINDER - %s%s", view_name,
-             wifibul.scanning ? "  (Scanning...)" : "");
-    solar_os_gfx_text(gfx, 8, 16, header);
+static void wifibul_draw_header(solar_os_gfx_t *gfx)
+{
+    char status_buf[32];
+    solar_os_appbar_header_t header;
+    wifibul_build_header(&header, status_buf, sizeof(status_buf));
+    solar_os_appbar_draw_header(gfx, &header);
+}
+
+/* Builds the current footer's shortcut chips into a caller-owned buffer,
+ * returning the count. Same set used by both drawing and click hit-testing
+ * so they can never disagree about what's on screen. */
+static size_t wifibul_build_footer_shortcuts(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (wifibul.view != WIFIBUL_VIEW_DETAIL && n < max_items) {
+        items[n].key = 'r'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "Rescan");
+        n++;
+    }
+    return n;
 }
 
 static void wifibul_draw_footer(solar_os_gfx_t *gfx, int width, int height)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, height - WIFIBUL_FOOTER_H, width, WIFIBUL_FOOTER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-
-    char footer[128];
     if (wifibul.status_until_ms > wifibul.elapsed_ms && wifibul.status_message[0] != '\0') {
-        snprintf(footer, sizeof(footer), "%s", wifibul.status_message);
-    } else if (wifibul.view == WIFIBUL_VIEW_LIST) {
-        snprintf(footer, sizeof(footer), "[Up/Down] Select | [Enter] Details | [R] Rescan | [ESC] Exit");
-    } else if (wifibul.view == WIFIBUL_VIEW_DETAIL) {
-        snprintf(footer, sizeof(footer), "[Enter] Track via Radar | [Backspace/Left] Back | [ESC] Exit");
-    } else {
-        snprintf(footer, sizeof(footer), "[Backspace/Left] Back to Details | [R] Rescan | [ESC] Exit");
+        const int footer_h = solar_os_appbar_footer_height(gfx);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_fill_rect(gfx, 0, height - footer_h, width, footer_h);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, 8, height - footer_h / 4, wifibul.status_message);
+        return;
     }
-    solar_os_gfx_text(gfx, 8, height - 6, footer);
+
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = wifibul_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 }
 
 static void wifibul_draw_signal_bars(solar_os_gfx_t *gfx, int x, int y, int quality, bool inverted)
@@ -298,6 +318,47 @@ static void wifibul_draw_signal_bars(solar_os_gfx_t *gfx, int x, int y, int qual
     }
 }
 
+/* Shared geometry for the network list body: computed once, used by both
+ * drawing and click hit-testing so they can never disagree about layout. */
+typedef struct {
+    int top;
+    int row_h;
+    int max_rows;
+    size_t start;
+} wifibul_list_layout_t;
+
+static void wifibul_layout_list(int height, wifibul_list_layout_t *out)
+{
+    out->row_h = 24;
+    out->top = WIFIBUL_HEADER_H + 4;
+    out->max_rows = (height - WIFIBUL_FOOTER_H - out->top) / out->row_h;
+    out->start = 0U;
+    if (wifibul.result_count > (size_t)out->max_rows && wifibul.selected >= (size_t)out->max_rows) {
+        out->start = wifibul.selected - (size_t)out->max_rows + 1U;
+    }
+}
+
+/* Returns the result index under (x, y) in the network list body, or false
+ * if the tap missed every row. */
+static bool wifibul_hit_test_list(int width, int height, int16_t x, int16_t y, size_t *out_index)
+{
+    if (wifibul.result_count == 0U) return false;
+    if (x < 4 || x >= width - 4) return false;
+
+    wifibul_list_layout_t layout;
+    wifibul_layout_list(height, &layout);
+    if (y < layout.top) return false;
+
+    const int row_in = (y - layout.top) / layout.row_h;
+    if (row_in < 0 || row_in >= layout.max_rows) return false;
+
+    const size_t idx = layout.start + (size_t)row_in;
+    if (idx >= wifibul.result_count) return false;
+
+    *out_index = idx;
+    return true;
+}
+
 static void wifibul_draw_list(solar_os_gfx_t *gfx, int width, int height)
 {
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
@@ -312,18 +373,16 @@ static void wifibul_draw_list(solar_os_gfx_t *gfx, int width, int height)
         return;
     }
 
-    const int row_h = 24;
-    const int top = WIFIBUL_HEADER_H + 4;
-    const int max_rows = (height - WIFIBUL_FOOTER_H - top) / row_h;
-    size_t start = 0U;
-    if (wifibul.result_count > (size_t)max_rows && wifibul.selected >= (size_t)max_rows) {
-        start = wifibul.selected - (size_t)max_rows + 1U;
-    }
+    wifibul_list_layout_t layout;
+    wifibul_layout_list(height, &layout);
+    const int row_h = layout.row_h;
+    const int max_rows = layout.max_rows;
+    const size_t start = layout.start;
 
     for (int row = 0; row < max_rows; row++) {
         const size_t idx = start + (size_t)row;
         if (idx >= wifibul.result_count) break;
-        const int y = top + row * row_h;
+        const int y = layout.top + row * row_h;
         const solar_os_wifi_ap_t *ap = &wifibul.results[idx];
         const bool is_sel = (idx == wifibul.selected);
 
@@ -461,7 +520,7 @@ static void wifibul_render(solar_os_context_t *ctx)
     const int height = (int)solar_os_gfx_height(gfx);
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    wifibul_draw_header(gfx, width);
+    wifibul_draw_header(gfx);
 
     switch (wifibul.view) {
     case WIFIBUL_VIEW_DETAIL:
@@ -484,6 +543,22 @@ static void wifibul_render(solar_os_context_t *ctx)
 /* ---------------------------------------------------------------------
  * Events and Lifecycle
  * ------------------------------------------------------------------- */
+
+/* Drill-down back navigation: RADAR -> DETAIL -> LIST -> exit app.
+ * Shared by the keyboard Backspace/Left path and the header back button so
+ * they can never disagree about what "back" means in each view. */
+static void wifibul_go_back(solar_os_context_t *ctx)
+{
+    if (wifibul.view == WIFIBUL_VIEW_RADAR) {
+        wifibul.view = WIFIBUL_VIEW_DETAIL;
+        wifibul.render_pending = true;
+    } else if (wifibul.view == WIFIBUL_VIEW_DETAIL) {
+        wifibul.view = WIFIBUL_VIEW_LIST;
+        wifibul.render_pending = true;
+    } else {
+        solar_os_context_request_exit(ctx);
+    }
+}
 
 static void wifibul_handle_char(solar_os_context_t *ctx, char ch)
 {
@@ -527,8 +602,7 @@ static void wifibul_handle_char(solar_os_context_t *ctx, char ch)
 
     if (wifibul.view == WIFIBUL_VIEW_DETAIL) {
         if (uch == 0x08U || uch == 0x7fU || uch == SOLAR_OS_KEY_LEFT) {
-            wifibul.view = WIFIBUL_VIEW_LIST;
-            wifibul.render_pending = true;
+            wifibul_go_back(ctx);
             return;
         }
         if (ch == '\n' || ch == '\r') {
@@ -551,8 +625,7 @@ static void wifibul_handle_char(solar_os_context_t *ctx, char ch)
 
     if (wifibul.view == WIFIBUL_VIEW_RADAR) {
         if (uch == 0x08U || uch == 0x7fU || uch == SOLAR_OS_KEY_LEFT) {
-            wifibul.view = WIFIBUL_VIEW_DETAIL;
-            wifibul.render_pending = true;
+            wifibul_go_back(ctx);
             return;
         }
     }
@@ -586,6 +659,69 @@ static bool wifibul_event(solar_os_context_t *ctx, const solar_os_event_t *event
         wifibul.render_pending = true;
         wifibul_render(ctx);
         break;
+
+    case SOLAR_OS_EVENT_SCROLL:
+        if (wifibul.view == WIFIBUL_VIEW_LIST) {
+            const bool down = event->data.scroll.delta < 0;
+            if (down) {
+                if (wifibul.selected + 1U < wifibul.result_count) {
+                    wifibul.selected++;
+                    wifibul.render_pending = true;
+                }
+            } else if (wifibul.selected > 0U) {
+                wifibul.selected--;
+                wifibul.render_pending = true;
+            }
+            if (wifibul.render_pending) wifibul_render(ctx);
+        }
+        break;
+
+    case SOLAR_OS_EVENT_CLICK: {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) break;
+
+        char status_buf[32];
+        solar_os_appbar_header_t header;
+        wifibul_build_header(&header, status_buf, sizeof(status_buf));
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                wifibul_go_back(ctx);
+            }
+            if (wifibul.render_pending) wifibul_render(ctx);
+            break;
+        }
+
+        if (wifibul.view == WIFIBUL_VIEW_LIST) {
+            const int width = (int)solar_os_gfx_width(gfx);
+            const int height = (int)solar_os_gfx_height(gfx);
+            size_t idx;
+            if (wifibul_hit_test_list(width, height, event->data.click.x, event->data.click.y, &idx)) {
+                wifibul.selected = idx;
+                wifibul.view = WIFIBUL_VIEW_DETAIL;
+                wifibul.render_pending = true;
+                wifibul_render(ctx);
+                break;
+            }
+        }
+
+        const bool showing_status = wifibul.status_until_ms > wifibul.elapsed_ms && wifibul.status_message[0] != '\0';
+        if (!showing_status) {
+            solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+            const size_t count = wifibul_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+            const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+
+            solar_os_appbar_hit_t fhit;
+            if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, event->data.click.x, event->data.click.y, &fhit) &&
+                fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+                wifibul_handle_char(ctx, items[fhit.index].key);
+                if (wifibul.render_pending) wifibul_render(ctx);
+            }
+        }
+        break;
+    }
+
     default:
         break;
     }

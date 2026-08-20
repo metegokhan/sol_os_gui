@@ -1695,7 +1695,7 @@ static bool reader_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_reader_app = {
     .name = "reader",
     .summary = "graphics Markdown/text reader",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = reader_start,
     .suspend = reader_suspend,
     .resume = reader_resume,

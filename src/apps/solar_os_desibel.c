@@ -807,11 +807,8 @@ static bool desibel_event(solar_os_context_t *ctx, const solar_os_event_t *event
         if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
             if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
                 desibel_handle_char(ctx, (char)SOLAR_OS_KEY_ESCAPE);
-            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_PREV) {
-                desibel.view = (desibel_view_t)((desibel.view + DESIBEL_VIEW_COUNT - 1U) % DESIBEL_VIEW_COUNT);
-                desibel.render_pending = true;
-            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_NEXT) {
-                desibel.view = (desibel_view_t)((desibel.view + 1U) % DESIBEL_VIEW_COUNT);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < DESIBEL_VIEW_COUNT) {
+                desibel.view = (desibel_view_t)hit.index;
                 desibel.render_pending = true;
             }
             break;
@@ -917,7 +914,7 @@ static void desibel_title(solar_os_context_t *ctx, char *buffer, size_t buffer_l
 const solar_os_app_t solar_os_desibel_app = {
     .name = "desibel",
     .summary = "canli desibel / spektrum / spektrogram olcer",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = desibel_start,
     .suspend = desibel_suspend,
     .resume = desibel_resume,

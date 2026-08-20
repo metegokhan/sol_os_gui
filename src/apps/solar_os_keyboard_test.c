@@ -9,6 +9,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_storage.h"
+#include "solar_os_appbar.h"
 
 #define KEYTEST_HISTORY_CAPACITY 8U
 
@@ -201,6 +202,16 @@ static void keytest_get_layout_preview(uint16_t usage, uint8_t modifiers,
     }
 }
 
+/* Short code shown on the footer Layout chip. */
+static const char *keytest_layout_code(solar_os_input_keyboard_layout_t layout)
+{
+    switch (layout) {
+    case SOLAR_OS_INPUT_KEYBOARD_LAYOUT_TR: return "TR";
+    case SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE: return "DE";
+    default:                                return "EN";
+    }
+}
+
 static void keytest_render(solar_os_context_t *ctx)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -208,25 +219,21 @@ static void keytest_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    /* 1. Header Banner */
+    /* 1. Shared header bar. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "Keyboard Tester";
+    header.show_back = true;
+    solar_os_appbar_draw_header(gfx, &header);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, 400, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "KEYBOARD TESTER & INPUT INSPECTOR");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 248, 15, "Esc:Exit | Tab/L:Layout | C:Clr");
 
     /* 2. Device & Connection Status Strip */
     char status_str[80] = "BLE: Disconnected";
     solar_os_ble_keyboard_get_status(status_str, sizeof(status_str));
-    const char *layout_name = solar_os_input_keyboard_layout_name(s_keytest.active_layout);
 
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     char conn_line[128];
-    snprintf(conn_line, sizeof(conn_line), "Status: %s | Layout: [%s]",
-             status_str, layout_name ? layout_name : "US");
+    snprintf(conn_line, sizeof(conn_line), "Status: %s", status_str);
     solar_os_gfx_text(gfx, 8, 36, conn_line);
 
     /* Modifier Badges */
@@ -317,12 +324,12 @@ static void keytest_render(solar_os_context_t *ctx)
         solar_os_gfx_text(gfx, 144, 106, "(Media keys, Fn, Modifiers supported)");
     }
 
-    /* 5. In-Memory Live History Panel (Bottom: 6, 154, 388, 140) */
-    solar_os_gfx_rect(gfx, 6, 154, 388, 140);
+    /* 5. In-Memory Live History Panel (bottom, leaves room for the footer). */
+    solar_os_gfx_rect(gfx, 6, 154, 388, 120);
     solar_os_gfx_fill_rect(gfx, 6, 154, 388, 18);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 12, 167, "LIVE KEY LOG (In-Memory Stream - Press C to Clear)");
+    solar_os_gfx_text(gfx, 12, 167, "LIVE KEY LOG (recent events)");
 
     char total_buf[32];
     snprintf(total_buf, sizeof(total_buf), "Total: %lu", (unsigned long)s_keytest.total_events);
@@ -340,7 +347,7 @@ static void keytest_render(solar_os_context_t *ctx)
     solar_os_gfx_line(gfx, 6, 189, 394, 189);
 
     int row_y = 202;
-    for (size_t i = 0; i < s_keytest.history_count && i < 6; i++) {
+    for (size_t i = 0; i < s_keytest.history_count && i < 5; i++) {
         const keytest_history_item_t *item = &s_keytest.history[i];
         char seq_str[12], u_str[12], p_str[12], k_str[12], m_str[16];
         snprintf(seq_str, sizeof(seq_str), "%02lu", (unsigned long)(item->seq % 100));
@@ -367,6 +374,18 @@ static void keytest_render(solar_os_context_t *ctx)
 
         row_y += 15;
     }
+
+    /* Footer chips (Esc/Tab are universal, so only the non-obvious ones).
+     * The Layout chip carries the active layout code so no separate top line
+     * is needed. */
+    solar_os_appbar_shortcut_t footer_items[2] = {
+        { .key = 'l', .ctrl = false },
+        { .key = 'c', .ctrl = false, .label = "Clear" },
+    };
+    snprintf(footer_items[0].label, sizeof(footer_items[0].label), "Layout:%s",
+             keytest_layout_code(s_keytest.active_layout));
+    const solar_os_appbar_shortcuts_t footer = { .items = footer_items, .count = 2 };
+    solar_os_appbar_draw_footer(gfx, &footer);
 
     solar_os_gfx_present(gfx);
 }
@@ -436,6 +455,47 @@ static bool keytest_event(solar_os_context_t *ctx, const solar_os_event_t *event
         return true;
     }
 
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t footer_items[2] = {
+            { .key = 'l', .ctrl = false },
+            { .key = 'c', .ctrl = false, .label = "Clear" },
+        };
+        snprintf(footer_items[0].label, sizeof(footer_items[0].label), "Layout:%s",
+                 keytest_layout_code(s_keytest.active_layout));
+        const solar_os_appbar_shortcuts_t footer = { .items = footer_items, .count = 2 };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &footer, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+                if (fhit.index == 0) {
+                    s_keytest.active_layout = (s_keytest.active_layout + 1) % 3;
+                    (void)solar_os_input_set_keyboard_layout(s_keytest.active_layout);
+                } else {
+                    s_keytest.history_count = 0;
+                    s_keytest.total_events = 0;
+                    s_keytest.has_event = false;
+                }
+                keytest_render(ctx);
+            }
+            return true;
+        }
+        return true;
+    }
+
     if (event->type == SOLAR_OS_EVENT_KEY) {
         const solar_os_input_key_event_t *ev = &event->data.key;
 
@@ -497,7 +557,7 @@ static bool keytest_event(solar_os_context_t *ctx, const solar_os_event_t *event
 const solar_os_app_t solar_os_keyboard_test_app = {
     .name = "keytest",
     .summary = "live keyboard tester and input inspector",
-    .flags = SOLAR_OS_APP_FLAG_KEY_EVENTS | SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = SOLAR_OS_APP_FLAG_KEY_EVENTS,
     .start = keytest_start,
     .suspend = keytest_suspend,
     .resume = keytest_resume,
