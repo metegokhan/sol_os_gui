@@ -408,7 +408,7 @@ esp_err_t solar_os_audio_player_create(
         AUDIO_PLAYER_TASK_PRIORITY,
         &player->task,
         tskNO_AFFINITY,
-        SOLAR_OS_TASK_ROLE_FOREGROUND);
+        SOLAR_OS_TASK_ROLE_SYSTEM);
 #endif
     if (created != pdPASS) {
         player->task_external = false;
@@ -420,7 +420,7 @@ esp_err_t solar_os_audio_player_create(
             AUDIO_PLAYER_TASK_PRIORITY,
             &player->task,
             tskNO_AFFINITY,
-            SOLAR_OS_TASK_ROLE_FOREGROUND);
+            SOLAR_OS_TASK_ROLE_SYSTEM);
     }
     if (created != pdPASS) {
         solar_os_audio_player_destroy(player);
