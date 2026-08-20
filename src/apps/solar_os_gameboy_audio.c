@@ -41,7 +41,7 @@ static gameboy_audio_state_t *gameboy_audio_state;
 static esp_err_t gameboy_audio_ensure_mutex(void) {
   if (gameboy_audio_state == NULL) {
     gameboy_audio_state = solar_os_memory_calloc(
-        1U, sizeof(*gameboy_audio_state), SOLAR_OS_MEMORY_INTERNAL_CRITICAL,
+        1U, sizeof(*gameboy_audio_state), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
         "gameboy.audio");
     if (gameboy_audio_state == NULL) {
       return ESP_ERR_NO_MEM;

@@ -25,6 +25,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_resource_limits.h"
+#include "solar_os_sessions.h"
 #include "solar_os_storage.h"
 #include "solar_os_time.h"
 #include "solar_os_wifi.h"
@@ -1472,6 +1473,29 @@ static void launcher_draw(solar_os_context_t *ctx)
 static esp_err_t launcher_launch_item(solar_os_context_t *ctx, const launcher_item_t *item)
 {
     if (item == NULL) return ESP_OK;
+
+    const char *target_app_name = item->name;
+    if (item->kind == ITEM_KIND_GAMEBOY_LAUNCHER) target_app_name = "gameboy";
+    else if (item->kind == ITEM_KIND_PYTHON) target_app_name = "python";
+    else if (item->kind == ITEM_KIND_LUA) target_app_name = "lua";
+
+    if (target_app_name != NULL && target_app_name[0] != '\0' &&
+        item->kind != ITEM_KIND_ACTION_BLE_PAIR &&
+        item->kind != ITEM_KIND_ACTION_KEYBOARD_LAYOUT &&
+        item->kind != ITEM_KIND_ACTION_SHELL &&
+        item->kind != ITEM_KIND_ACTION_REBOOT) {
+        solar_os_session_info_t sessions[16];
+        const size_t sess_count = solar_os_sessions_get_all_info(sessions, 16);
+        for (size_t s = 0; s < sess_count; s++) {
+            if (sessions[s].app_name[0] != '\0' &&
+                (strcasecmp(sessions[s].app_name, target_app_name) == 0 ||
+                 strstr(sessions[s].title, target_app_name) != NULL)) {
+                if (solar_os_sessions_switch_to_session_id(sessions[s].id)) {
+                    return ESP_OK;
+                }
+            }
+        }
+    }
 
     if (item->kind == ITEM_KIND_GAMEBOY_LAUNCHER ||
         (item->kind == ITEM_KIND_BUILTIN && is_file_picker_app(item->name))) {
