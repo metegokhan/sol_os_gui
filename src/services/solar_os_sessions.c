@@ -966,6 +966,10 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
                                              esp_err_to_name(app_err));
                     solar_os_shell_io_flush(launch_io);
                 }
+                char err_msg[128];
+                snprintf(err_msg, sizeof(err_msg), "%s could not start:\n%s",
+                         app_display_name(session->app), esp_err_to_name(app_err));
+                solar_os_dialog_show_message("Launch Error", err_msg);
                 session_dispose_unstarted(session);
                 return false;
             }
@@ -1023,6 +1027,10 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
                                              esp_err_to_name(app_err));
                     solar_os_shell_io_flush(launch_io);
                 }
+                char err_msg[128];
+                snprintf(err_msg, sizeof(err_msg), "%s could not start:\n%s",
+                         app_display_name(session->app), esp_err_to_name(app_err));
+                solar_os_dialog_show_message("Launch Error", err_msg);
                 session_dispose_unstarted(session);
                 session_context_restore(&previous);
                 return false;
@@ -2303,7 +2311,6 @@ void solar_os_sessions_dispatch_tick(uint32_t now_ms)
     for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
         solar_os_session_entry_t *session = &session_state.sessions[i];
         if (!session->used || session->app == NULL ||
-            session->suspended ||
             session == session_state.foreground_session) {
             continue;
         }
@@ -2346,7 +2353,7 @@ uint32_t solar_os_sessions_requested_tick_interval_ms(void)
 
     for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
         const solar_os_session_entry_t *session = &session_state.sessions[i];
-        if (!session->used || session->suspended ||
+        if (!session->used ||
             session->app == NULL || session->app->event == NULL) {
             continue;
         }

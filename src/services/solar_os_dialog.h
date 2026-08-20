@@ -18,6 +18,7 @@ typedef enum {
 } solar_os_dialog_action_t;
 
 void solar_os_dialog_show_exit(const char *app_name, bool resumable);
+void solar_os_dialog_show_message(const char *title, const char *message);
 bool solar_os_dialog_is_active(void);
 void solar_os_dialog_close(void);
 void solar_os_dialog_draw(solar_os_gfx_t *gfx);

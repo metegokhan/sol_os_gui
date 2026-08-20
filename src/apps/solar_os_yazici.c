@@ -1059,5 +1059,5 @@ const solar_os_app_t solar_os_yazici_app = {
     .state_size = sizeof(yazici_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .tick_interval_ms = YAZICI_TICK_MS,
-    .worker_stack_bytes = 8192,
+    .worker_stack_bytes = 0,
 };
