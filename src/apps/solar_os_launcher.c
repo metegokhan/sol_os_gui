@@ -1507,28 +1507,28 @@ static esp_err_t launcher_launch_item(solar_os_context_t *ctx, const launcher_it
         if (entry != NULL && entry->app != NULL) {
             char *argv[] = {"gameboy", (char *)item->path};
             solar_os_context_set_graphics_active(ctx, false);
-            return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_REPLACE);
+            return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_CHILD_RETURN);
         }
     } else if (item->kind == ITEM_KIND_BUILTIN) {
         const solar_os_app_registry_entry_t *entry = solar_os_app_registry_find(item->name);
         if (entry != NULL && entry->app != NULL) {
             char *argv[] = {(char *)item->name};
             solar_os_context_set_graphics_active(ctx, false);
-            return solar_os_context_request_launch_ex(ctx, entry->app, 1, argv, SOLAR_OS_LAUNCH_REPLACE);
+            return solar_os_context_request_launch_ex(ctx, entry->app, 1, argv, SOLAR_OS_LAUNCH_CHILD_RETURN);
         }
     } else if (item->kind == ITEM_KIND_PYTHON) {
         const solar_os_app_registry_entry_t *entry = solar_os_app_registry_find("python");
         if (entry != NULL && entry->app != NULL) {
             char *argv[] = {"python", (char *)item->path};
             solar_os_context_set_graphics_active(ctx, false);
-            return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_REPLACE);
+            return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_CHILD_RETURN);
         }
     } else if (item->kind == ITEM_KIND_LUA) {
         const solar_os_app_registry_entry_t *entry = solar_os_app_registry_find("lua");
         if (entry != NULL && entry->app != NULL) {
             char *argv[] = {"lua", (char *)item->path};
             solar_os_context_set_graphics_active(ctx, false);
-            return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_REPLACE);
+            return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_CHILD_RETURN);
         }
     } else if (item->kind == ITEM_KIND_ACTION_BLE_PAIR) {
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -1818,7 +1818,7 @@ static bool launcher_event(solar_os_context_t *ctx, const solar_os_event_t *even
                         strlcpy(file_arg, p->path, sizeof(file_arg));
                     }
                     char *argv[] = {launcher.picker_app_name, file_arg};
-                    return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_REPLACE);
+                    return solar_os_context_request_launch_ex(ctx, entry->app, 2, argv, SOLAR_OS_LAUNCH_CHILD_RETURN);
                 }
             }
             return true;
