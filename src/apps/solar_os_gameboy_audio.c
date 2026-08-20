@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/portmacro.h"
+#include "solar_os_audio.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_synth.h"
@@ -71,7 +72,7 @@ static void gameboy_audio_render(int16_t *samples, size_t frames,
                                  uint32_t sample_rate, void *user) {
   (void)user;
   (void)sample_rate;
-  if (gameboy_audio_state == NULL || samples == NULL || frames != AUDIO_SAMPLES ||
+  if (gameboy_audio_state == NULL || samples == NULL ||
       !gameboy_apu_initialized) {
     return;
   }

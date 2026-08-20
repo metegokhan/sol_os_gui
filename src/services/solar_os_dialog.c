@@ -244,9 +244,27 @@ solar_os_dialog_action_t solar_os_dialog_handle_event(const solar_os_event_t *ev
         return SOLAR_OS_DIALOG_ACTION_NONE;
     }
 
+    char ch = 0;
     if (event->type == SOLAR_OS_EVENT_CHAR) {
-        const char ch = event->data.ch;
+        ch = event->data.ch;
+    } else if (event->type == SOLAR_OS_EVENT_KEY) {
+        const solar_os_input_key_event_t *k = &event->data.key;
+        if (k->action != SOLAR_OS_INPUT_KEY_PRESS) {
+            return SOLAR_OS_DIALOG_ACTION_NONE;
+        }
+        ch = (char)k->key;
+        if (ch == 0) {
+            if (k->usage == 0x1c) ch = 'y';
+            else if (k->usage == 0x11) ch = 'n';
+            else if (k->usage == 0x28) ch = '\n';
+            else if (k->usage == 0x2c) ch = ' ';
+            else if (k->usage == 0x29) ch = SOLAR_OS_KEY_ESCAPE;
+            else if (k->usage == 0x50) ch = SOLAR_OS_KEY_LEFT;
+            else if (k->usage == 0x4f) ch = SOLAR_OS_KEY_RIGHT;
+        }
+    }
 
+    if (ch != 0) {
         if (ch == 'e' || ch == 'E' || ch == 'y' || ch == 'Y') {
             return SOLAR_OS_DIALOG_ACTION_QUIT;
         }
