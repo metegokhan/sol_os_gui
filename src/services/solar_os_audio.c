@@ -1375,8 +1375,10 @@ static void audio_playback_stream_close(void *user,
                                         solar_os_stream_handle_t *handle)
 {
     (void)user;
-    solar_os_audio_stream_close(handle->context);
-    handle->context = NULL;
+    if (handle != NULL) {
+        solar_os_audio_stream_close(handle->context);
+        handle->context = NULL;
+    }
 }
 
 static esp_err_t audio_playback_stream_write(void *user,

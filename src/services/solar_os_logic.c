@@ -160,7 +160,11 @@ esp_err_t solar_os_logic_default_config(solar_os_logic_config_t *config)
          i < pin_count && config->channel_count < SOLAR_OS_LOGIC_MAX_CHANNELS;
          i++) {
         solar_os_gpio_pin_info_t info;
-        if (solar_os_gpio_get_pin_info(i, &info) && info.runtime_allowed) {
+        /* Only pick pins that are actually free: a pin already claimed by
+         * another subsystem makes solar_os_gpio_configure() return
+         * INVALID_STATE and aborts the whole capture. */
+        if (solar_os_gpio_get_pin_info(i, &info) && info.runtime_allowed &&
+            info.available && !info.claimed) {
             config->pins[config->channel_count++] = (uint8_t)info.pin;
         }
     }

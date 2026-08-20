@@ -10,6 +10,7 @@
 #include "esp_err.h"
 #include "esp_timer.h"
 #include "solar_os.h"
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_resource_limits.h"
@@ -104,21 +105,17 @@ static void go_render(solar_os_context_t *ctx)
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
     /* 1. Header */
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 24);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "SOLAR GO (9x9)");
-
     char turn_hdr[32];
-    snprintf(turn_hdr, sizeof(turn_hdr), "TURN: %s", gostate.black_turn ? "BLACK" : "WHITE");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    const size_t th_w = solar_os_gfx_text_width(gfx, turn_hdr);
-    solar_os_gfx_text(gfx, screen_w - (int)th_w - 8, 16, turn_hdr);
+    snprintf(turn_hdr, sizeof(turn_hdr), "Turn: %s", gostate.black_turn ? "Black" : "White");
+    solar_os_appbar_header_t header = {0};
+    header.title = "Go (9x9)";
+    header.show_back = true;
+    header.status_line = turn_hdr;
+    solar_os_appbar_draw_header(gfx, &header);
 
-    /* 2. 9x9 Grid (X: 24..240, Y: 36..252, spacing: 26px) */
+    /* 2. 9x9 Grid (X: 24..240, spacing: 26px) */
     const int gx = 28;
-    const int gy = 40;
+    const int gy = solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx) + 4;
     const int sp = 26;
 
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -165,35 +162,32 @@ static void go_render(solar_os_context_t *ctx)
         }
     }
 
-    /* 3. Right Sidebar */
+    /* 3. Right Sidebar: Status (the CONTROLS list that used to live here
+     * duplicated the footer's shortcuts verbatim, and isn't needed now
+     * that the board itself is tappable). */
+    const int sidebar_h = screen_h - solar_os_appbar_footer_height(gfx) - gy - 4;
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, 260, 36, screen_w - 268, 226);
+    solar_os_gfx_rect(gfx, 260, gy, screen_w - 268, sidebar_h);
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 270, 58, "GO MATCH STATS");
-    solar_os_gfx_line(gfx, 264, 64, screen_w - 12, 64);
+    solar_os_gfx_text(gfx, 270, gy + 22, "GO MATCH STATS");
+    solar_os_gfx_line(gfx, 264, gy + 28, screen_w - 12, gy + 28);
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 270, 85, gostate.status_msg);
+    solar_os_gfx_text(gfx, 270, gy + 49, gostate.status_msg);
 
     char cap_str1[32], cap_str2[32];
     snprintf(cap_str1, sizeof(cap_str1), "Black Captures: %u", (unsigned)gostate.captured_white);
     snprintf(cap_str2, sizeof(cap_str2), "White Captures: %u", (unsigned)gostate.captured_black);
-    solar_os_gfx_text(gfx, 270, 115, cap_str1);
-    solar_os_gfx_text(gfx, 270, 135, cap_str2);
-
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 270, 170, "CONTROLS:");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 270, 190, "[ARROWS] Move Cursor");
-    solar_os_gfx_text(gfx, 270, 210, "[ENTER] Place Stone");
-    solar_os_gfx_text(gfx, 270, 230, "[P] Pass Turn | [R] Reset");
+    solar_os_gfx_text(gfx, 270, gy + 79, cap_str1);
+    solar_os_gfx_text(gfx, 270, gy + 99, cap_str2);
 
     /* 4. Footer */
-    solar_os_gfx_fill_rect(gfx, 0, 278, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, 293, "[ARROWS] Cursor | [ENTER] Place | [P] Pass | [R] Reset | [ESC] Exit");
+    solar_os_appbar_shortcut_t footer_items[2];
+    footer_items[0] = (solar_os_appbar_shortcut_t){ .key = 'p', .ctrl = false, .label = "Pass" };
+    footer_items[1] = (solar_os_appbar_shortcut_t){ .key = 'r', .ctrl = false, .label = "Reset" };
+    const solar_os_appbar_shortcuts_t footer_shortcuts = { .items = footer_items, .count = 2 };
+    solar_os_appbar_draw_footer(gfx, &footer_shortcuts);
 
     solar_os_gfx_present(gfx);
 }
@@ -211,9 +205,82 @@ static void go_stop(solar_os_context_t *ctx)
     solar_os_context_set_graphics_active(ctx, false);
 }
 
+/* Places a stone at (r, c) if it's empty, checks captures, and passes the
+ * turn -- shared by the Enter-key handler and the click handler's board
+ * tap path. */
+static void go_place_stone(solar_os_context_t *ctx, int r, int c)
+{
+    if (gostate.board[r][c] != 0) return;
+
+    const uint8_t color = gostate.black_turn ? 1 : 2;
+    const uint8_t opp = gostate.black_turn ? 2 : 1;
+
+    gostate.board[r][c] = color;
+
+    uint32_t caps = 0;
+    caps += check_and_capture(r - 1, c, opp);
+    caps += check_and_capture(r + 1, c, opp);
+    caps += check_and_capture(r, c - 1, opp);
+    caps += check_and_capture(r, c + 1, opp);
+
+    if (gostate.black_turn) gostate.captured_white += caps;
+    else gostate.captured_black += caps;
+
+    gostate.black_turn = !gostate.black_turn;
+    snprintf(gostate.status_msg, sizeof(gostate.status_msg), "%s's turn to play", gostate.black_turn ? "Black" : "White");
+    go_render(ctx);
+}
+
 static bool go_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) return false;
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t footer_items[2];
+        footer_items[0] = (solar_os_appbar_shortcut_t){ .key = 'p', .ctrl = false, .label = "Pass" };
+        footer_items[1] = (solar_os_appbar_shortcut_t){ .key = 'r', .ctrl = false, .label = "Reset" };
+        const solar_os_appbar_shortcuts_t footer_shortcuts = { .items = footer_items, .count = 2 };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &footer_shortcuts, px, py, &fhit) &&
+            fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+            if (fhit.index == 0) {
+                gostate.black_turn = !gostate.black_turn;
+                snprintf(gostate.status_msg, sizeof(gostate.status_msg), "%s passed", gostate.black_turn ? "White" : "Black");
+            } else {
+                go_init_board();
+            }
+            go_render(ctx);
+            return true;
+        }
+
+        /* Mirrors go_render()'s 9x9 grid geometry. */
+        const int gx = 28;
+        const int gy = solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx) + 4;
+        const int sp = 26;
+        const int c = (int)((px - gx + sp / 2) / sp);
+        const int r = (int)((py - gy + sp / 2) / sp);
+        if (r >= 0 && r < GO_BOARD_SIZE && c >= 0 && c < GO_BOARD_SIZE) {
+            gostate.cursor_r = r;
+            gostate.cursor_c = c;
+            go_place_stone(ctx, r, c);
+        }
+        return true;
+    }
 
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         const char ch = event->data.ch;
@@ -240,29 +307,7 @@ static bool go_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         }
 
         if (ch == '\r' || ch == '\n' || ch == ' ') {
-            const int r = gostate.cursor_r;
-            const int c = gostate.cursor_c;
-
-            if (gostate.board[r][c] == 0) {
-                const uint8_t color = gostate.black_turn ? 1 : 2;
-                const uint8_t opp = gostate.black_turn ? 2 : 1;
-
-                gostate.board[r][c] = color;
-
-                /* Check captures */
-                uint32_t caps = 0;
-                caps += check_and_capture(r - 1, c, opp);
-                caps += check_and_capture(r + 1, c, opp);
-                caps += check_and_capture(r, c - 1, opp);
-                caps += check_and_capture(r, c + 1, opp);
-
-                if (gostate.black_turn) gostate.captured_white += caps;
-                else gostate.captured_black += caps;
-
-                gostate.black_turn = !gostate.black_turn;
-                snprintf(gostate.status_msg, sizeof(gostate.status_msg), "%s's turn to play", gostate.black_turn ? "Black" : "White");
-                go_render(ctx);
-            }
+            go_place_stone(ctx, gostate.cursor_r, gostate.cursor_c);
             return true;
         }
 

@@ -579,7 +579,7 @@ static bool docs_app_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_docs_app = {
     .name = "help",
     .summary = "browse the SolarOS manual",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = docs_app_start,
     .resume = docs_app_resume,
     .stop = docs_app_stop,

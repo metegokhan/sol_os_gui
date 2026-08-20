@@ -2040,6 +2040,7 @@ static esp_err_t files_start(solar_os_context_t *ctx)
 {
     memset(&files, 0, sizeof(files));
     const int argc = solar_os_context_argc(ctx);
+    SOLAR_OS_LOGE(TAG, "files_start: entry argc=%d gfx=%p", argc, (void *)solar_os_context_gfx(ctx));
     const char *arg = ".";
     if (argc >= 2 && strcmp(solar_os_context_argv(ctx, 1), "--launcher") == 0) {
         files.launcher_mode = true;
@@ -2054,6 +2055,7 @@ static esp_err_t files_start(solar_os_context_t *ctx)
     files.show_hidden = !files.launcher_mode;
     esp_err_t err = solar_os_tui_begin(&files.tui, ctx);
     if (err != ESP_OK) {
+        SOLAR_OS_LOGE(TAG, "files_start: tui_begin failed: %s", esp_err_to_name(err));
         return err;
     }
     (void)solar_os_tui_enable_diff(&files.tui, true);
@@ -2061,8 +2063,9 @@ static esp_err_t files_start(solar_os_context_t *ctx)
     char start[SOLAR_OS_STORAGE_PATH_MAX];
     err = solar_os_shell_resolve_path(ctx, arg, start, sizeof(start));
     if (err != ESP_OK) {
-        solar_os_tui_end(&files.tui);
-        return err;
+        /* Unresolvable cwd (e.g. launched from the graphical launcher with no
+         * shell dir): fall back to the virtual root that lists the mounts. */
+        strlcpy(start, "/", sizeof(start));
     }
 
     struct stat st;
@@ -2075,12 +2078,19 @@ static esp_err_t files_start(solar_os_context_t *ctx)
 
     err = files_pane_load(&files.panes[0], start);
     if (err != ESP_OK) {
-        solar_os_tui_end(&files.tui);
-        return err;
+        /* Directory unreadable -> open the virtual root instead of closing. */
+        strlcpy(start, "/", sizeof(start));
+        err = files_pane_load(&files.panes[0], start);
+        if (err != ESP_OK) {
+            SOLAR_OS_LOGE(TAG, "files_start: pane0 load '/' failed: %s", esp_err_to_name(err));
+            solar_os_tui_end(&files.tui);
+            return err;
+        }
     }
     if (!files.launcher_mode) {
         err = files_pane_load(&files.panes[1], start);
         if (err != ESP_OK) {
+            SOLAR_OS_LOGE(TAG, "files_start: pane1 load '%s' failed: %s", start, esp_err_to_name(err));
             files_pane_clear(&files.panes[0]);
             solar_os_tui_end(&files.tui);
             return err;
@@ -2308,7 +2318,7 @@ static void files_state_release_cleanup(void)
 const solar_os_app_t solar_os_files_app = {
     .name = "files",
     .summary = "file manager and launcher",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = files_start,
     .resume = files_resume,
     .stop = files_stop,

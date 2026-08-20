@@ -9,8 +9,8 @@
 #include "solar_os_log.h"
 #include "solar_os_task.h"
 
-#define HTTP_SERVER_ROUTE_MAX 10
-#define HTTP_SERVER_STACK_SIZE 16384
+#define HTTP_SERVER_ROUTE_MAX 32
+#define HTTP_SERVER_STACK_SIZE 8192
 #define HTTP_SERVER_STOP_WAIT_MS 3000U
 
 static const char *TAG = "http_server";
@@ -289,8 +289,11 @@ esp_err_t solar_os_http_server_register_route(const solar_os_http_route_t *route
         if (slot->active &&
             slot->method == route->method &&
             strcmp(slot->uri, route->uri) == 0) {
+            slot->auth = route->auth;
+            slot->handler = route->handler;
+            slot->user = route->user;
             portEXIT_CRITICAL(&http_server_lock);
-            return ESP_ERR_INVALID_STATE;
+            return start_server();
         }
         if (!slot->active && slot->refs == 0 && free_index < 0) {
             free_index = (int)i;

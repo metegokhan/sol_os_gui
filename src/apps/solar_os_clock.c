@@ -732,7 +732,7 @@ static bool clock_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_clock_app = {
     .name = "clock",
     .summary = "clock, countdown alarm, stopwatch",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = clock_start,
     .suspend = clock_suspend,
     .resume = clock_resume,

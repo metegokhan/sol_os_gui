@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
@@ -26,8 +27,11 @@
 #define AGTARA_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 #define AGTARA_TICK_MS 100U
 
-#define AGTARA_HEADER_H 24
-#define AGTARA_FOOTER_H 22
+/* Matches solar_os_appbar_header_height()/footer_height() for this board's
+ * resolution -- body draw functions below address fixed pixel origins, but
+ * the actual bars are drawn by the shared appbar component. */
+#define AGTARA_HEADER_H 22
+#define AGTARA_FOOTER_H 18
 
 typedef enum {
     AGTARA_VIEW_LIST = 0,
@@ -274,35 +278,93 @@ static void agtara_set_status(const char *message)
  * UI Rendering
  * ------------------------------------------------------------------- */
 
-static void agtara_draw_header(solar_os_gfx_t *gfx, int width)
+static void agtara_build_header(solar_os_appbar_header_t *out)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, AGTARA_HEADER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    memset(out, 0, sizeof(*out));
+    out->title = agtara.view == AGTARA_VIEW_LIST ? "Active Hosts" : "Port Details";
+    out->show_back = true;
+}
 
-    char header[80];
-    snprintf(header, sizeof(header), "NETWORK SCANNER - %s",
-             agtara.view == AGTARA_VIEW_LIST ? "ACTIVE HOSTS" : "PORT DETAILS");
-    solar_os_gfx_text(gfx, 8, 16, header);
+static void agtara_draw_header(solar_os_gfx_t *gfx)
+{
+    solar_os_appbar_header_t header;
+    agtara_build_header(&header);
+    solar_os_appbar_draw_header(gfx, &header);
+}
+
+/* Builds the current footer's shortcut chips into a caller-owned buffer,
+ * returning the count. Same set used by both drawing and click hit-testing
+ * so they can never disagree about what's on screen. */
+static size_t agtara_build_footer_shortcuts(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (agtara.view == AGTARA_VIEW_LIST) {
+        if (agtara.scanning) {
+            if (n < max_items) { items[n].key = ' '; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Stop"); n++; }
+        } else {
+            if (n < max_items) { items[n].key = 's'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Scan"); n++; }
+        }
+    }
+    return n;
 }
 
 static void agtara_draw_footer(solar_os_gfx_t *gfx, int width, int height)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, height - AGTARA_FOOTER_H, width, AGTARA_FOOTER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-
-    char footer[120];
     if (agtara.status_until_ms > agtara.elapsed_ms && agtara.status_message[0] != '\0') {
-        snprintf(footer, sizeof(footer), "%s", agtara.status_message);
-    } else if (agtara.view == AGTARA_VIEW_LIST) {
-        snprintf(footer, sizeof(footer), "[S] Start Scan | [Space] Stop | [Up/Down] Select | [Enter] Ports | [ESC] Exit");
-    } else {
-        snprintf(footer, sizeof(footer), "[Backspace/Left] Back to Host List | [ESC] Exit");
+        const int footer_h = solar_os_appbar_footer_height(gfx);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_fill_rect(gfx, 0, height - footer_h, width, footer_h);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_gfx_text(gfx, 8, height - footer_h / 4, agtara.status_message);
+        return;
     }
-    solar_os_gfx_text(gfx, 8, height - 6, footer);
+
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = agtara_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
+}
+
+/* Shared geometry for the host list body: computed once, used by both
+ * drawing and click hit-testing so they can never disagree about layout. */
+typedef struct {
+    int top;
+    int row_h;
+    int max_rows;
+    size_t start;
+} agtara_list_layout_t;
+
+static void agtara_layout_list(int height, agtara_list_layout_t *out)
+{
+    out->row_h = 22;
+    out->top = AGTARA_HEADER_H + (agtara.scanning ? 54 : 30);
+    out->max_rows = (height - AGTARA_FOOTER_H - out->top) / out->row_h;
+    out->start = 0U;
+    if (out->max_rows > 0 && agtara.host_count > (size_t)out->max_rows && agtara.selected >= (size_t)out->max_rows) {
+        out->start = agtara.selected - (size_t)out->max_rows + 1U;
+    }
+}
+
+/* Returns the host index under (x, y) in the host list body, or false if
+ * the tap missed every row. */
+static bool agtara_hit_test_list(int width, int height, int16_t x, int16_t y, size_t *out_index)
+{
+    if (agtara.host_count == 0U) return false;
+    if (x < 4 || x >= width - 4) return false;
+
+    agtara_list_layout_t layout;
+    agtara_layout_list(height, &layout);
+    if (layout.max_rows <= 0 || y < layout.top) return false;
+
+    const int row_in = (y - layout.top) / layout.row_h;
+    if (row_in < 0 || row_in >= layout.max_rows) return false;
+
+    const size_t idx = layout.start + (size_t)row_in;
+    if (idx >= agtara.host_count) return false;
+
+    *out_index = idx;
+    return true;
 }
 
 static void agtara_draw_list(solar_os_gfx_t *gfx, int width, int height)
@@ -334,27 +396,21 @@ static void agtara_draw_list(solar_os_gfx_t *gfx, int width, int height)
         }
     }
 
-    const int row_h = 22;
-    const int top = AGTARA_HEADER_H + (agtara.scanning ? 54 : 30);
-    const int max_rows = (height - AGTARA_FOOTER_H - top) / row_h;
-    if (max_rows <= 0) return;
+    agtara_list_layout_t layout;
+    agtara_layout_list(height, &layout);
+    if (layout.max_rows <= 0) return;
 
-    size_t start = 0U;
-    if (agtara.host_count > (size_t)max_rows && agtara.selected >= (size_t)max_rows) {
-        start = agtara.selected - (size_t)max_rows + 1U;
-    }
-
-    for (int row = 0; row < max_rows; row++) {
-        const size_t idx = start + (size_t)row;
+    for (int row = 0; row < layout.max_rows; row++) {
+        const size_t idx = layout.start + (size_t)row;
         if (idx >= agtara.host_count) break;
 
-        const int y = top + row * row_h;
+        const int y = layout.top + row * layout.row_h;
         const bool is_sel = (idx == agtara.selected);
         const agtara_host_t *host = &agtara.hosts[idx];
 
         if (is_sel) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, row_h - 1);
+            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, layout.row_h - 1);
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
         } else {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -367,7 +423,7 @@ static void agtara_draw_list(solar_os_gfx_t *gfx, int width, int height)
         } else {
             snprintf(line, sizeof(line), "● %s  (Ping OK, no common ports)", host->ip);
         }
-        solar_os_gfx_text(gfx, 10, y + row_h - 6, line);
+        solar_os_gfx_text(gfx, 10, y + layout.row_h - 6, line);
     }
 }
 
@@ -415,7 +471,7 @@ static void agtara_render(solar_os_context_t *ctx)
     const int height = (int)solar_os_gfx_height(gfx);
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    agtara_draw_header(gfx, width);
+    agtara_draw_header(gfx);
 
     if (agtara.view == AGTARA_VIEW_DETAIL) {
         agtara_draw_detail(gfx, width, height);
@@ -499,6 +555,74 @@ static bool agtara_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         agtara.render_pending = true;
         agtara_render(ctx);
         break;
+
+    case SOLAR_OS_EVENT_SCROLL:
+        if (agtara.view == AGTARA_VIEW_LIST) {
+            const bool down = event->data.scroll.delta < 0;
+            if (down) {
+                if (agtara.selected + 1U < agtara.host_count) {
+                    agtara.selected++;
+                    agtara.render_pending = true;
+                }
+            } else if (agtara.selected > 0U) {
+                agtara.selected--;
+                agtara.render_pending = true;
+            }
+            if (agtara.render_pending) agtara_render(ctx);
+        }
+        break;
+
+    case SOLAR_OS_EVENT_CLICK: {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) break;
+
+        solar_os_appbar_header_t header;
+        agtara_build_header(&header);
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                if (agtara.view == AGTARA_VIEW_DETAIL) {
+                    agtara.view = AGTARA_VIEW_LIST;
+                    agtara.render_pending = true;
+                } else {
+                    solar_os_context_request_exit(ctx);
+                }
+            }
+            if (agtara.render_pending) agtara_render(ctx);
+            break;
+        }
+
+        const int width = (int)solar_os_gfx_width(gfx);
+        const int height = (int)solar_os_gfx_height(gfx);
+
+        if (agtara.view == AGTARA_VIEW_LIST) {
+            size_t idx;
+            if (agtara_hit_test_list(width, height, event->data.click.x, event->data.click.y, &idx)) {
+                agtara.selected = idx;
+                agtara.view = AGTARA_VIEW_DETAIL;
+                agtara.render_pending = true;
+                agtara_render(ctx);
+                break;
+            }
+        }
+
+        const bool showing_status = agtara.status_until_ms > agtara.elapsed_ms && agtara.status_message[0] != '\0';
+        if (!showing_status) {
+            solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+            const size_t count = agtara_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+            const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+
+            solar_os_appbar_hit_t fhit;
+            if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, event->data.click.x, event->data.click.y, &fhit) &&
+                fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+                agtara_handle_char(ctx, items[fhit.index].key);
+                if (agtara.render_pending) agtara_render(ctx);
+            }
+        }
+        break;
+    }
+
     default:
         break;
     }
@@ -548,7 +672,7 @@ static void agtara_title(solar_os_context_t *ctx, char *buffer, size_t buffer_le
 const solar_os_app_t solar_os_ag_tarayici_app = {
     .name = "ag_tarayici",
     .summary = "LAN host and open port scanner",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = agtara_start,
     .suspend = agtara_suspend,
     .resume = agtara_resume,

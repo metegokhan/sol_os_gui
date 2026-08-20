@@ -14,10 +14,16 @@
 #include "solar_os_keys.h"
 #include "solar_os_resource_limits.h"
 #include "solar_os_wifi.h"
+#include "solar_os_appbar.h"
+#include "solar_os_help.h"
 
 #define WIFI_SETUP_MAX_APS 16
 #define WIFI_SETUP_STACK_SIZE 8192
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WIFI_SETUP_STACK_SIZE);
+
+#define WIFI_LIST_TOP 52
+#define WIFI_LIST_ROW_H 24
+#define WIFI_LIST_MAX_VISIBLE 8
 
 typedef enum {
     WIFI_VIEW_SCAN_LIST = 0,
@@ -37,10 +43,33 @@ typedef struct {
     char status_msg[64];
     uint32_t status_timer_ms;
     uint32_t connect_start_ms;
+    bool show_help;
 } wifi_setup_state_t;
 
 static void *wifi_setup_state_ptr;
 #define wsetup (*(wifi_setup_state_t *)wifi_setup_state_ptr)
+
+static const char *const wifi_help_lines[] = {
+    "Scan for and join a 2.4 GHz Wi-Fi network.",
+    "",
+    "  - Tap a network (or Up/Down + Enter) to pick it.",
+    "  - Type the password on the keyboard, then Enter",
+    "    to connect. Tab shows/hides the password.",
+    "  - Rescan looks for networks again.",
+    "  - [SEC] = secured, [OPEN] = no password.",
+    "",
+    "Exit: Back arrow or Esc / Q.",
+};
+#define WIFI_HELP_LINE_COUNT (sizeof(wifi_help_lines) / sizeof(wifi_help_lines[0]))
+
+static size_t wifi_build_footer(solar_os_appbar_shortcut_t *items, size_t max)
+{
+    size_t n = 0;
+    if (n < max) { items[n].key = 'r'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "Rescan"); n++; }
+    if (n < max) { solar_os_help_chip(&items[n]); n++; }
+    return n;
+}
 
 static void wifi_do_scan(void)
 {
@@ -68,22 +97,19 @@ static void wifi_setup_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    /* 1. Header Bar */
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 24);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "WI-FI MANAGER & SETUP");
-
+    /* 1. Shared header; connection state in the status line. */
     solar_os_wifi_status_t wst;
     solar_os_wifi_get_status(&wst);
-    char ip_hdr[32] = "OFFLINE";
+    char status_line[48] = "Offline";
     if (wst.connected && wst.has_ip) {
-        snprintf(ip_hdr, sizeof(ip_hdr), "IP: %s", wst.ip);
+        snprintf(status_line, sizeof(status_line), "IP: %s", wst.ip);
     }
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    const size_t ih_w = solar_os_gfx_text_width(gfx, ip_hdr);
-    solar_os_gfx_text(gfx, screen_w - (int)ih_w - 8, 16, ip_hdr);
+    solar_os_appbar_header_t header = {0};
+    header.title = "Wi-Fi Setup";
+    header.show_back = true;
+    header.status_line = status_line;
+    solar_os_appbar_draw_header(gfx, &header);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
 
     /* 2. Main Area: Network List */
     if (wsetup.view == WIFI_VIEW_SCAN_LIST) {
@@ -92,9 +118,9 @@ static void wifi_setup_render(solar_os_context_t *ctx)
         solar_os_gfx_text(gfx, 12, 42, "AVAILABLE WI-FI NETWORKS");
         solar_os_gfx_line(gfx, 10, 46, screen_w - 10, 46);
 
-        const int list_top_y = 52;
-        const int row_h = 24;
-        const size_t max_visible = 8;
+        const int list_top_y = WIFI_LIST_TOP;
+        const int row_h = WIFI_LIST_ROW_H;
+        const size_t max_visible = WIFI_LIST_MAX_VISIBLE;
 
         if (wsetup.ap_count == 0) {
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
@@ -190,11 +216,15 @@ static void wifi_setup_render(solar_os_context_t *ctx)
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
     solar_os_gfx_text(gfx, 12, 268, wsetup.status_msg);
 
-    /* 6. Footer Navigation Bar */
-    solar_os_gfx_fill_rect(gfx, 0, 278, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, 293, "[UP/DOWN] Select | [ENTER] Connect | [R] Rescan | [ESC] Exit");
+    /* 6. Shared footer chips. */
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = wifi_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
+
+    if (wsetup.show_help) {
+        solar_os_help_draw(gfx, "Wi-Fi Setup - Help", wifi_help_lines, WIFI_HELP_LINE_COUNT);
+    }
 
     solar_os_gfx_present(gfx);
 }
@@ -244,8 +274,82 @@ static bool wifi_setup_event(solar_os_context_t *ctx, const solar_os_event_t *ev
         return true;
     }
 
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        if (wsetup.show_help) {
+            wsetup.show_help = false;
+            wifi_setup_render(ctx);
+            return true;
+        }
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                if (wsetup.view == WIFI_VIEW_PASSWORD_INPUT) {
+                    wsetup.view = WIFI_VIEW_SCAN_LIST;
+                    wifi_setup_render(ctx);
+                } else {
+                    solar_os_context_request_exit(ctx);
+                }
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = wifi_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM && fhit.index < count) {
+                if (items[fhit.index].key == 'r') {
+                    wsetup.view = WIFI_VIEW_SCAN_LIST;
+                    wifi_do_scan();
+                } else {
+                    wsetup.show_help = true;
+                }
+                wifi_setup_render(ctx);
+            }
+            return true;
+        }
+
+        /* Tap a network row to select it and enter the password screen. */
+        if (wsetup.view == WIFI_VIEW_SCAN_LIST && wsetup.ap_count > 0) {
+            if (py >= WIFI_LIST_TOP && py < WIFI_LIST_TOP + WIFI_LIST_MAX_VISIBLE * WIFI_LIST_ROW_H) {
+                const size_t i = (size_t)((py - WIFI_LIST_TOP) / WIFI_LIST_ROW_H);
+                if (i < wsetup.ap_count && i < WIFI_LIST_MAX_VISIBLE) {
+                    wsetup.selected_ap = i;
+                    strlcpy(wsetup.target_ssid, wsetup.aps[i].ssid, sizeof(wsetup.target_ssid));
+                    wsetup.password[0] = '\0';
+                    wsetup.password_len = 0;
+                    wsetup.view = WIFI_VIEW_PASSWORD_INPUT;
+                    wifi_setup_render(ctx);
+                }
+            }
+        }
+        return true;
+    }
+
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         const char ch = event->data.ch;
+
+        /* Help overlay: any key closes it. Only OPEN it from the list view,
+         * since '?' and Ctrl+H are valid password characters. */
+        if (wsetup.show_help) {
+            wsetup.show_help = false;
+            wifi_setup_render(ctx);
+            return true;
+        }
+        if (wsetup.view == WIFI_VIEW_SCAN_LIST && solar_os_help_char_opens(ch)) {
+            wsetup.show_help = true;
+            wifi_setup_render(ctx);
+            return true;
+        }
 
         if (wsetup.view == WIFI_VIEW_SCAN_LIST) {
             if (ch == SOLAR_OS_KEY_UP || ch == 'k' || ch == 'K' || ch == 'w' || ch == 'W') {

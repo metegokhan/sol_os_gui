@@ -11,6 +11,7 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "solar_os.h"
+#include "solar_os_appbar.h"
 #include "solar_os_audio.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
@@ -213,6 +214,53 @@ static void bj_finish_round(void)
     }
 }
 
+/* Betting/turn actions, shared by the keyboard handler and the click
+ * handler's tap zones so they can never drift apart. */
+static void bj_action_bet_down(void)
+{
+    if (bj.current_bet > 10) {
+        bj.current_bet -= (bj.current_bet > 50 ? 25 : 15);
+        bj_sfx_chip();
+    }
+}
+
+static void bj_action_bet_up(void)
+{
+    if (bj.current_bet < 200) {
+        bj.current_bet += (bj.current_bet >= 50 ? 25 : 15);
+        bj_sfx_chip();
+    }
+}
+
+static void bj_action_stand(void)
+{
+    bj.state = BJ_STATE_DEALER_TURN;
+    bj.hide_dealer_hole = false;
+    bj.dealer_step_us = esp_timer_get_time() + 400000;
+}
+
+static void bj_action_hit(void)
+{
+    bj_sfx_deal();
+    bj.player_cards[bj.player_count++] = bj_draw_card();
+    const int pval = bj_calculate_hand_value(bj.player_cards, bj.player_count, false);
+    if (pval > 21) {
+        bj_finish_round();
+    } else if (pval == 21) {
+        bj_action_stand();
+    }
+}
+
+static void bj_action_double(void)
+{
+    if (bj.chips < bj.current_bet) return;
+    bj.chips -= bj.current_bet;
+    bj.current_bet *= 2;
+    bj_sfx_deal();
+    bj.player_cards[bj.player_count++] = bj_draw_card();
+    bj_action_stand();
+}
+
 static void bj_draw_card_visual(solar_os_gfx_t *gfx, int x, int y, int w, int h, const bj_card_t *c, bool hidden)
 {
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -253,22 +301,18 @@ static void bj_render(solar_os_context_t *ctx)
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
     /* 1. Top Header */
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 15, "SOLAR CASINO BLACKJACK 21");
-
     char stats_s[48];
     snprintf(stats_s, sizeof(stats_s), "Bank: $%d | Bet: $%d", bj.chips, bj.current_bet);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    const size_t sw = solar_os_gfx_text_width(gfx, stats_s);
-    solar_os_gfx_text(gfx, screen_w - (int)sw - 8, 15, stats_s);
+    solar_os_appbar_header_t header = {0};
+    header.title = "Blackjack";
+    header.show_back = true;
+    header.status_line = stats_s;
+    solar_os_appbar_draw_header(gfx, &header);
 
     /* 2. Dealer Section */
     const int card_w = 46;
     const int card_h = 62;
-    const int dealer_y = 32;
+    const int dealer_y = solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx) + 4;
 
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
@@ -304,16 +348,19 @@ static void bj_render(solar_os_context_t *ctx)
     solar_os_gfx_rect(gfx, 10, ctrl_y, screen_w - 20, 52);
 
     if (bj.state == BJ_STATE_BETTING || bj.state == BJ_STATE_ROUND_OVER) {
+        char bet_s[16];
+        snprintf(bet_s, sizeof(bet_s), "$%d", bj.current_bet);
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 20, ctrl_y + 20, "Place Bet: [UP/DOWN] Change ($10, $25, $50, $100) | [SPACE/ENTER] Deal Hand");
-        char w_l[32]; snprintf(w_l, sizeof(w_l), "Wins: %d | Losses: %d", bj.hands_won, bj.hands_lost);
+        solar_os_gfx_text(gfx, 30, ctrl_y + 32, "- Bet");
+        solar_os_gfx_text(gfx, (screen_w / 2) - (int)solar_os_gfx_text_width(gfx, "DEAL") / 2, ctrl_y + 32, "DEAL");
+        solar_os_gfx_text(gfx, screen_w - 70, ctrl_y + 32, "Bet +");
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 20, ctrl_y + 40, w_l);
+        solar_os_gfx_text(gfx, (screen_w / 2) - (int)solar_os_gfx_text_width(gfx, bet_s) / 2, ctrl_y + 14, bet_s);
     } else if (bj.state == BJ_STATE_PLAYER_TURN) {
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-        solar_os_gfx_text(gfx, 20, ctrl_y + 22, "[H] Hit  |  [S] Stand  |  [D] Double Down");
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 20, ctrl_y + 42, "Dealer stands on 17+");
+        solar_os_gfx_text(gfx, 24, ctrl_y + 32, "Hit");
+        solar_os_gfx_text(gfx, (screen_w / 2) - (int)solar_os_gfx_text_width(gfx, "Stand") / 2, ctrl_y + 32, "Stand");
+        solar_os_gfx_text(gfx, screen_w - 90, ctrl_y + 32, "Double");
     } else if (bj.state == BJ_STATE_DEALER_TURN) {
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
         solar_os_gfx_text(gfx, 20, ctrl_y + 32, "Dealer is drawing cards...");
@@ -379,18 +426,12 @@ static bool bj_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
         if (bj.state == BJ_STATE_BETTING || bj.state == BJ_STATE_ROUND_OVER) {
             if (ch == SOLAR_OS_KEY_UP || ch == 'w' || ch == 'W') {
-                if (bj.current_bet < 200) {
-                    bj.current_bet += (bj.current_bet >= 50 ? 25 : 15);
-                    bj_sfx_chip();
-                }
+                bj_action_bet_up();
                 bj_render(ctx);
                 return true;
             }
             if (ch == SOLAR_OS_KEY_DOWN || ch == 's' || ch == 'S') {
-                if (bj.current_bet > 10) {
-                    bj.current_bet -= (bj.current_bet > 50 ? 25 : 15);
-                    bj_sfx_chip();
-                }
+                bj_action_bet_down();
                 bj_render(ctx);
                 return true;
             }
@@ -401,43 +442,62 @@ static bool bj_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             }
         } else if (bj.state == BJ_STATE_PLAYER_TURN) {
             if (ch == 'h' || ch == 'H') {
-                /* Hit */
-                bj_sfx_deal();
-                bj.player_cards[bj.player_count++] = bj_draw_card();
-                int pval = bj_calculate_hand_value(bj.player_cards, bj.player_count, false);
-                if (pval > 21) {
-                    bj_finish_round();
-                } else if (pval == 21) {
-                    bj.state = BJ_STATE_DEALER_TURN;
-                    bj.hide_dealer_hole = false;
-                    bj.dealer_step_us = esp_timer_get_time() + 400000;
-                }
+                bj_action_hit();
                 bj_render(ctx);
                 return true;
             }
             if (ch == 's' || ch == 'S' || ch == ' ' || ch == '\r' || ch == '\n') {
-                /* Stand */
-                bj.state = BJ_STATE_DEALER_TURN;
-                bj.hide_dealer_hole = false;
-                bj.dealer_step_us = esp_timer_get_time() + 400000;
+                bj_action_stand();
                 bj_render(ctx);
                 return true;
             }
             if (ch == 'd' || ch == 'D') {
-                /* Double down */
-                if (bj.chips >= bj.current_bet) {
-                    bj.chips -= bj.current_bet;
-                    bj.current_bet *= 2;
-                    bj_sfx_deal();
-                    bj.player_cards[bj.player_count++] = bj_draw_card();
-                    bj.state = BJ_STATE_DEALER_TURN;
-                    bj.hide_dealer_hole = false;
-                    bj.dealer_step_us = esp_timer_get_time() + 400000;
-                    bj_render(ctx);
-                    return true;
-                }
+                bj_action_double();
+                bj_render(ctx);
+                return true;
             }
         }
+    }
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int screen_w = (int)solar_os_gfx_width(gfx);
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        /* Same control box the render draws (ctrl_y=216, height 52), split
+         * into three equal tap zones matching the three actions listed
+         * for whichever state is active. */
+        const int ctrl_y = 216;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+        if (px >= 10 && px < screen_w - 10 && py >= ctrl_y && py < ctrl_y + 52) {
+            const int zone_w = (screen_w - 20) / 3;
+            int zone = (px - 10) / zone_w;
+            if (zone > 2) zone = 2;
+
+            if (bj.state == BJ_STATE_BETTING || bj.state == BJ_STATE_ROUND_OVER) {
+                if (zone == 0) bj_action_bet_down();
+                else if (zone == 1) bj_deal_hand();
+                else bj_action_bet_up();
+                bj_render(ctx);
+            } else if (bj.state == BJ_STATE_PLAYER_TURN) {
+                if (zone == 0) bj_action_hit();
+                else if (zone == 1) bj_action_stand();
+                else bj_action_double();
+                bj_render(ctx);
+            }
+        }
+        return true;
     }
 
     return false;

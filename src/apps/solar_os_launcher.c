@@ -709,6 +709,7 @@ static bool is_file_picker_app(const char *app_name)
             strcmp(app_name, "view") == 0 ||
             strcmp(app_name, "video_player") == 0 ||
             strcmp(app_name, "yazici") == 0 ||
+            strcmp(app_name, "midiplayer") == 0 ||
             strcmp(app_name, "gameboy") == 0);
 }
 
@@ -914,6 +915,27 @@ static void launcher_open_file_picker_for_app(const char *app_name)
             snprintf(path, sizeof(path), "%s/notes", flash); scan_dir_for_extensions(path, exts, 3, ICON_TYPE_WRITER);
             scan_dir_for_extensions(flash, exts, 3, ICON_TYPE_WRITER);
         }
+    } else if (strcmp(app_name, "midiplayer") == 0) {
+        strlcpy(launcher.picker_title, "MIDI PLAYER - SELECT FILE", sizeof(launcher.picker_title));
+        launcher.picker_icon = ICON_TYPE_SYNTH;
+        launcher_picker_entry_t *p = &launcher.picker_items[launcher.picker_count++];
+        strlcpy(p->name, "[Built-in] Classical Demo", sizeof(p->name));
+        strlcpy(p->path, "builtin://demo", sizeof(p->path));
+        p->icon_type = ICON_TYPE_SYNTH;
+        p->is_new_file = false;
+
+        const char *exts[] = {".mid", ".midi", ".kar"};
+        if (sd) {
+            char path[64];
+            snprintf(path, sizeof(path), "%s/music", sd); scan_dir_for_extensions(path, exts, 3, ICON_TYPE_SYNTH);
+            snprintf(path, sizeof(path), "%s/midi", sd); scan_dir_for_extensions(path, exts, 3, ICON_TYPE_SYNTH);
+            scan_dir_for_extensions(sd, exts, 3, ICON_TYPE_SYNTH);
+        }
+        if (flash) {
+            char path[64];
+            snprintf(path, sizeof(path), "%s/midi", flash); scan_dir_for_extensions(path, exts, 3, ICON_TYPE_SYNTH);
+            scan_dir_for_extensions(flash, exts, 3, ICON_TYPE_SYNTH);
+        }
     }
 
     launcher.view_mode = VIEW_ROM_PICKER;
@@ -972,6 +994,7 @@ static void launcher_refresh_items(void)
     add_folder_item(0, ITEM_KIND_BUILTIN, "olcum", "Measure", "Precision ruler, caliper and protractor", ICON_TYPE_LOGIC);
     add_folder_item(0, ITEM_KIND_BUILTIN, "desibel", "Decibel Meter", "Real-time audio dB meter and spectrogram", ICON_TYPE_RECORDER);
     add_folder_item(0, ITEM_KIND_BUILTIN, "tabela", "LED Marquee", "Customizable scrolling billboard", ICON_TYPE_VIEW);
+    add_folder_item(0, ITEM_KIND_BUILTIN, "esprocess", "Task Manager", "Background tasks & CPU/RAM monitor", ICON_TYPE_LOGIC);
 
     /* Folder 1: Text & Reading */
     strlcpy(launcher.folders[1].title, "Text & Reading", sizeof(launcher.folders[1].title));
@@ -1005,6 +1028,7 @@ static void launcher_refresh_items(void)
     add_folder_item(2, ITEM_KIND_BUILTIN, "invaders", "Space Invaders", "Classic arcade space shooter", ICON_TYPE_INVADERS);
     add_folder_item(2, ITEM_KIND_BUILTIN, "video_player", "Video Player", "Cinema video and animated GIF player", ICON_TYPE_PLAYER);
     add_folder_item(2, ITEM_KIND_BUILTIN, "player", "Audio Player", "WAV & MP3 stereo audio player", ICON_TYPE_PLAYER);
+    add_folder_item(2, ITEM_KIND_BUILTIN, "midiplayer", "MIDI Player", "Standard MIDI sequence synthesizer", ICON_TYPE_SYNTH);
     add_folder_item(2, ITEM_KIND_BUILTIN, "photos", "Photo Frame", "SD card photo slideshow viewer", ICON_TYPE_PHOTOS);
     add_folder_item(2, ITEM_KIND_BUILTIN, "view", "Gallery", "Image and graphics viewer", ICON_TYPE_VIEW);
     add_folder_item(2, ITEM_KIND_BUILTIN, "webradio", "Web Radio", "Live streaming internet radio", ICON_TYPE_WEBRADIO);

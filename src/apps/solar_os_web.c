@@ -17,6 +17,7 @@
 #include "freertos/task.h"
 #include "nvs.h"
 #include "sdkconfig.h"
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_http_client.h"
 #include "solar_os_keys.h"
@@ -55,7 +56,10 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WEB_TASK_STACK);
 #define WEB_TIMEOUT_MS 12000
 #define WEB_REDIRECT_MAX 5
 #define WEB_MARGIN_X 5
-#define WEB_HEADER_HEIGHT 18
+/* Matches solar_os_appbar_header_height() for this board's resolution --
+ * line layout math below addresses this fixed pixel origin, but the actual
+ * bar is drawn by the shared appbar component. */
+#define WEB_HEADER_HEIGHT 22
 #define WEB_FOOTER_HEIGHT 12
 #define WEB_LINE_HEIGHT 11
 #define WEB_CONTROL_HEIGHT 22
@@ -2600,21 +2604,20 @@ static void web_render(solar_os_context_t *ctx)
     web_clamp_scroll(gfx);
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, WEB_HEADER_HEIGHT);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    char header[WEB_LINE_MAX];
+    char header_title[WEB_LINE_MAX];
     if (web.loaded && web.item_count > 0) {
-        snprintf(header,
-                 sizeof(header),
+        snprintf(header_title,
+                 sizeof(header_title),
                  "web %d/%u",
                  web.selected_item >= 0 ? web.selected_item + 1 : 0,
                  (unsigned)web.item_count);
     } else {
-        strlcpy(header, web.loading ? "web loading" : "web", sizeof(header));
+        strlcpy(header_title, web.loading ? "web loading" : "web", sizeof(header_title));
     }
-    web_draw_text_clipped(gfx, WEB_MARGIN_X, 13, header, max_chars);
+    solar_os_appbar_header_t header = {0};
+    header.title = header_title;
+    header.show_back = true;
+    solar_os_appbar_draw_header(gfx, &header);
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -3313,6 +3316,20 @@ static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         web_resume(ctx);
         return true;
     }
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit) &&
+            hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+            solar_os_context_request_exit(ctx);
+        }
+        return true;
+    }
     if (event->type != SOLAR_OS_EVENT_CHAR) {
         return true;
     }
@@ -3397,7 +3414,7 @@ static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_web_app = {
     .name = "web",
     .summary = "simple web browser",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = web_start,
     .suspend = web_suspend,
     .resume = web_resume,

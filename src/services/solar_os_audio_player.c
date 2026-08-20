@@ -12,7 +12,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_task.h"
 
-#define AUDIO_PLAYER_TASK_STACK 8192U
+#define AUDIO_PLAYER_TASK_STACK 4096U
 #define AUDIO_PLAYER_TASK_PRIORITY (tskIDLE_PRIORITY + 3U)
 #define AUDIO_PLAYER_BLOCK_BYTES 4096U
 #define AUDIO_PLAYER_POLL_MS 20U
@@ -33,6 +33,7 @@ struct solar_os_audio_player {
     bool buffer_mutex_external;
     int16_t *sink;
     TaskHandle_t task;
+    bool task_external;
     volatile bool ready;
     volatile bool done;
     volatile bool stop_requested;
@@ -274,6 +275,19 @@ static void audio_player_task(void *arg)
                                         AUDIO_PLAYER_SINK_TIMEOUT_MS,
                                         &written);
             if (err != ESP_OK || written != AUDIO_PLAYER_BLOCK_BYTES) {
+                if (!player->stop_requested) {
+                    audio_player_close(player, false);
+                    primed = false;
+                    while (!player->stop_requested) {
+                        vTaskDelay(pdMS_TO_TICKS(100));
+                        if (audio_player_open(player) == ESP_OK) {
+                            break;
+                        }
+                    }
+                    if (player->stream_opened) {
+                        continue;
+                    }
+                }
                 player->error = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
                 break;
             }
@@ -289,7 +303,11 @@ static void audio_player_task(void *arg)
     }
     audio_player_close(player, true);
     player->done = true;
-    solar_os_task_delete_internal(NULL);
+    if (player->task_external) {
+        solar_os_task_delete_external(NULL);
+    } else {
+        solar_os_task_delete_internal(NULL);
+    }
 }
 
 static bool audio_player_create_buffer(solar_os_audio_player_t *player)
@@ -378,10 +396,11 @@ esp_err_t solar_os_audio_player_create(
         return ESP_OK;
     }
 
-    /* The sink is timing-sensitive and remains active for suspended media
-     * apps. Keep its stack internal. Playback is explicitly user-started
-     * foreground work for admission purposes. */
-    const BaseType_t created = solar_os_task_create_pinned_internal(
+    /* Try creating worker task in external PSRAM first, falling back to internal RAM */
+    BaseType_t created = pdFAIL;
+#if SOLAR_OS_FREERTOS_EXTERNAL_MEMORY
+    player->task_external = true;
+    created = solar_os_task_create_pinned_external(
         audio_player_task,
         "audio_player",
         AUDIO_PLAYER_TASK_STACK,
@@ -390,6 +409,19 @@ esp_err_t solar_os_audio_player_create(
         &player->task,
         tskNO_AFFINITY,
         SOLAR_OS_TASK_ROLE_FOREGROUND);
+#endif
+    if (created != pdPASS) {
+        player->task_external = false;
+        created = solar_os_task_create_pinned_internal(
+            audio_player_task,
+            "audio_player",
+            AUDIO_PLAYER_TASK_STACK,
+            player,
+            AUDIO_PLAYER_TASK_PRIORITY,
+            &player->task,
+            tskNO_AFFINITY,
+            SOLAR_OS_TASK_ROLE_FOREGROUND);
+    }
     if (created != pdPASS) {
         solar_os_audio_player_destroy(player);
         return ESP_ERR_NO_MEM;

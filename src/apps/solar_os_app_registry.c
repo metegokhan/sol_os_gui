@@ -148,6 +148,8 @@
 #include "solar_os_wifibul.h"
 #include "solar_os_yazici.h"
 #include "solar_os_ble_scanner.h"
+#include "solar_os_esprocess.h"
+#include "solar_os_midiplayer.h"
 
 #define APP_ENTRY(app_name, app_summary, app_ptr, app_caps, app_usage, app_min, app_max) \
     {.name = app_name, .summary = app_summary, .app = app_ptr, .capabilities = app_caps, \
@@ -303,6 +305,8 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_FILE_ENTRY("yazici", "vintage mechanical typewriter simulator", &solar_os_yazici_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "yazici [file.txt]", 1, 2, ".txt .md"),
     APP_ENTRY("ble", "Bluetooth Low Energy scanner and GATT service explorer", &solar_os_ble_scanner_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "ble", 1, 1),
     APP_ENTRY("ble_explorer", "Bluetooth Low Energy scanner and GATT service explorer", &solar_os_ble_scanner_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "ble_explorer", 1, 1),
+    APP_ENTRY("esprocess", "task, process, CPU and memory manager and monitor", &solar_os_esprocess_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "esprocess", 1, 1),
+    APP_FILE_ENTRY("midiplayer", "Standard MIDI File player and synthesizer", &solar_os_midiplayer_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "midiplayer [file.mid]", 1, 2, ".mid .midi .kar"),
     {0},
 };
 

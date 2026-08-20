@@ -2050,7 +2050,7 @@ static bool chat_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_chat_app = {
     .name = "chat",
     .summary = "provider-neutral conversation client",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = chat_start,
     .suspend = chat_suspend,
     .resume = chat_resume,

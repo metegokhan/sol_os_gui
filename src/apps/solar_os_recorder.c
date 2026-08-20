@@ -18,6 +18,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/task.h"
+#include "solar_os_appbar.h"
 #include "solar_os_audio.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_display.h"
@@ -44,7 +45,10 @@
 #define RECORDER_DISPLAY_HPM_HZ_TENTHS 255U
 #define RECORDER_SCOPE_SAMPLES 256U
 #define RECORDER_SPECTRUM_FFT_SIZE 256U
-#define RECORDER_HEADER_HEIGHT 28
+/* Matches solar_os_appbar_header_height() for this board's resolution --
+ * layout math below addresses this fixed pixel origin, but the actual bar
+ * is drawn by the shared appbar component. */
+#define RECORDER_HEADER_HEIGHT 22
 #define RECORDER_ROW_HEIGHT 24
 #define RECORDER_FOOTER_HEIGHT 20
 #define RECORDER_VOLUME_STEP 5
@@ -1278,18 +1282,24 @@ static void recorder_draw_centered(solar_os_gfx_t *gfx, int width,
         baseline, text);
 }
 
+static const char * const RECORDER_TAB_NAMES[RECORDER_TAB_COUNT] = { "Record", "Setup" };
+
+static void recorder_build_header(solar_os_appbar_header_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->title = "Recorder";
+    out->show_back = true;
+    out->tabs.names = RECORDER_TAB_NAMES;
+    out->tabs.count = RECORDER_TAB_COUNT;
+    out->tabs.active_index = (size_t)recorder.tab;
+}
+
 static void recorder_draw_header(solar_os_gfx_t *gfx, int width)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, RECORDER_HEADER_HEIGHT);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-    solar_os_gfx_text(gfx, 7, 19, "Recorder");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    static const char *tabs[] = {"[REC] SET", "REC [SET]"};
-    const char *text = tabs[recorder.tab];
-    solar_os_gfx_text(gfx,
-        width - (int)solar_os_gfx_text_width(gfx, text) - 7, 18, text);
+    (void)width;
+    solar_os_appbar_header_t header;
+    recorder_build_header(&header);
+    solar_os_appbar_draw_header(gfx, &header);
 }
 
 static void draw_single_vu_dial(solar_os_gfx_t *gfx, int pivot_x, int pivot_y, int radius, float level, const char *label)
@@ -1918,6 +1928,27 @@ static bool recorder_event(solar_os_context_t *ctx,
         }
         return true;
     }
+    if (event->type == SOLAR_OS_EVENT_CLICK && recorder.mode == RECORDER_MODE_GRAPHICS) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+
+        solar_os_appbar_header_t header;
+        recorder_build_header(&header);
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                recorder_handle_key(ctx, SOLAR_OS_KEY_ESCAPE);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < RECORDER_TAB_COUNT &&
+                       !recorder.editing_filename && recorder.browser_mode == RECORDER_BROWSER_NONE) {
+                recorder.tab = (recorder_tab_t)hit.index;
+                recorder.redraw = true;
+                recorder_render(ctx);
+            }
+        }
+        return true;
+    }
+
     return event->type == SOLAR_OS_EVENT_CHAR ?
         recorder_handle_key(ctx, (uint8_t)event->data.ch) : false;
 }
@@ -1941,7 +1972,7 @@ static void recorder_title(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_recorder_app = {
     .name = "recorder",
     .summary = "interactive WAV recorder",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = recorder_start,
     .suspend = recorder_suspend,
     .resume = recorder_resume,

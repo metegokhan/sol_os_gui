@@ -575,7 +575,7 @@ static void email_app_title(solar_os_context_t *ctx, char *buffer, size_t buffer
 const solar_os_app_t solar_os_email_app = {
     .name = "email",
     .summary = "IMAP email client",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = email_app_start,
     .resume = email_app_resume,
     .stop = email_app_stop,

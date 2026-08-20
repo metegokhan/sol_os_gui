@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 
@@ -240,22 +241,38 @@ static void tabela_draw_compose(solar_os_gfx_t *gfx, int width, int height)
                       "Supported chars: A-Z, 0-9, space, . , ! ? : ; ' - + / ( )");
 }
 
-static void tabela_draw_header(solar_os_gfx_t *gfx, int width)
+static void tabela_build_header(solar_os_appbar_header_t *out)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, TABELA_HEADER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 16, "LED MARQUEE BILLBOARD - Text Compose");
+    memset(out, 0, sizeof(*out));
+    out->title = "Marquee";
+    out->show_back = true;
+}
+
+static void tabela_draw_header(solar_os_gfx_t *gfx)
+{
+    solar_os_appbar_header_t header;
+    tabela_build_header(&header);
+    solar_os_appbar_draw_header(gfx, &header);
+}
+
+/* Builds the current footer's shortcut chips into a caller-owned buffer,
+ * returning the count. Same set used by both drawing and click hit-testing
+ * so they can never disagree about what's on screen. */
+static size_t tabela_build_footer_shortcuts(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (n < max_items) { items[n].key = '\n'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Start"); n++; }
+    return n;
 }
 
 static void tabela_draw_footer(solar_os_gfx_t *gfx, int width, int height)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, height - TABELA_FOOTER_H, width, TABELA_FOOTER_H);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, height - 6, "[Enter] Start Scrolling Marquee | [ESC] Exit");
+    (void)width;
+    (void)height;
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = tabela_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 }
 
 static void tabela_draw_scroll(solar_os_gfx_t *gfx, int width)
@@ -293,7 +310,7 @@ static void tabela_render(solar_os_context_t *ctx)
 
     if (tabela.composing) {
         solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        tabela_draw_header(gfx, width);
+        tabela_draw_header(gfx);
         tabela_draw_compose(gfx, width, height);
         tabela_draw_footer(gfx, width, height);
     } else {
@@ -402,6 +419,36 @@ static bool tabela_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         tabela.render_pending = true;
         tabela_render(ctx);
         break;
+
+    case SOLAR_OS_EVENT_CLICK: {
+        if (!tabela.composing) break; /* fullscreen marquee has no chrome to hit-test */
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) break;
+
+        solar_os_appbar_header_t header;
+        tabela_build_header(&header);
+
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            break;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = tabela_build_footer_shortcuts(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, event->data.click.x, event->data.click.y, &fhit) &&
+            fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM) {
+            tabela_handle_char(ctx, items[fhit.index].key);
+            if (tabela.render_pending) tabela_render(ctx);
+        }
+        break;
+    }
+
     default:
         break;
     }
@@ -460,7 +507,7 @@ static void tabela_title(solar_os_context_t *ctx, char *buffer, size_t buffer_le
 const solar_os_app_t solar_os_tabela_app = {
     .name = "tabela",
     .summary = "ekrani dolduran kayan yazi (LED tabela)",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = tabela_start,
     .suspend = tabela_suspend,
     .resume = tabela_resume,

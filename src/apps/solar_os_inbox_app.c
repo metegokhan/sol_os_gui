@@ -802,7 +802,7 @@ static bool inbox_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
 const solar_os_app_t solar_os_inbox_app = {
     .name = "inbox",
     .summary = "universal incoming-message browser",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = inbox_app_start,
     .resume = inbox_app_resume,
     .stop = inbox_app_stop,

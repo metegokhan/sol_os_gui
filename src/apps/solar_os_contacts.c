@@ -621,7 +621,7 @@ static bool contacts_app_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_contacts_app = {
     .name = "contacts",
     .summary = "provider-neutral contact browser",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = contacts_app_start,
     .resume = contacts_app_resume,
     .stop = contacts_app_stop,

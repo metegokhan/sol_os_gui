@@ -15,6 +15,7 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_resource_limits.h"
+#include "solar_os_appbar.h"
 
 #define PISTI_STACK_SIZE 10240
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PISTI_STACK_SIZE);
@@ -165,7 +166,7 @@ static void pisti_start_new_game(void)
     pst.player_turn = true;
 
     pisti_deal_hands();
-    snprintf(pst.status_msg, sizeof(pst.status_msg), "New Pişti Match! Round 1/6. Your turn.");
+    snprintf(pst.status_msg, sizeof(pst.status_msg), "New Pishti match! Round 1/6. Your turn.");
 }
 
 static int pisti_calculate_card_points(const card_t *cards, int count)
@@ -400,65 +401,87 @@ static void pisti_draw_card_box(solar_os_gfx_t *gfx, int x, int y, int w, int h,
     }
 }
 
+/* Player-hand card geometry, shared by draw and click hit-testing. */
+static const int PST_CARD_W = 46;
+static const int PST_CARD_H = 62;
+static int pisti_player_y(solar_os_gfx_t *gfx)
+{
+    const int top = solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx);
+    return top + 4 + PST_CARD_H + 6 + 90; /* cpu row + table block */
+}
+static int pisti_hand_card_x(int i) { return 80 + i * 56; }
+
+/* Footer chips: New always; Mode toggles CPU/2-player. */
+static size_t pisti_build_footer(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (n < max_items) { items[n].key = 'r'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "New"); n++; }
+    if (n < max_items) { items[n].key = 'm'; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "Mode:%s",
+                 pst.vs_cpu ? "CPU" : "2P"); n++; }
+    return n;
+}
+
 static void pisti_draw(solar_os_gfx_t *gfx)
 {
+    if (gfx == NULL) return;
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    const int screen_w = (int)solar_os_gfx_width(gfx);
     const int screen_h = (int)solar_os_gfx_height(gfx);
 
-    /* 1. Header */
+    /* 1. Shared header; round/mode ride in the status line. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "Pishti";
+    header.show_back = true;
+    char status_line[48];
+    snprintf(status_line, sizeof(status_line), "Round %d/6   %s",
+             pst.deal_round, pst.vs_cpu ? "vs CPU" : "2 Player");
+    header.status_line = status_line;
+    solar_os_appbar_draw_header(gfx, &header);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 15, "SOLAROS PISTI CARD GAME");
 
-    char hdr_info[48];
-    snprintf(hdr_info, sizeof(hdr_info), "Round: %d/6 | %s",
-             pst.deal_round, pst.vs_cpu ? "vs CPU" : "2-Player");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    const size_t hw = solar_os_gfx_text_width(gfx, hdr_info);
-    solar_os_gfx_text(gfx, screen_w - (int)hw - 8, 15, hdr_info);
+    const int hh = solar_os_appbar_header_height(gfx);
+    const int sh = solar_os_appbar_status_line_height(gfx);
+    const int fh = solar_os_appbar_footer_height(gfx);
+    const int top = hh + sh;
 
-    /* 2. CPU Hand (Top) */
-    const int cpu_y = 30;
-    const int card_w = 46;
-    const int card_h = 62;
+    const int card_w = PST_CARD_W;
+    const int card_h = PST_CARD_H;
 
+    /* 2. CPU Hand (top, face-down) */
+    const int cpu_y = top + 4;
     for (int i = 0; i < pst.cpu_hand_count; i++) {
-        int cx = 110 + (i * 50);
-        pisti_draw_card_box(gfx, cx, cpu_y, card_w, card_h, NULL, false, true);
+        pisti_draw_card_box(gfx, 110 + (i * 50), cpu_y, card_w, card_h, NULL, false, true);
     }
 
-    /* CPU Stats Box (Top Right) */
+    /* CPU Stats Box */
+    const int cpu_box_y = cpu_y;
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, 310, 28, 82, 66);
+    solar_os_gfx_rect(gfx, 310, cpu_box_y, 82, card_h);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 316, 44, "CPU STATS");
+    solar_os_gfx_text(gfx, 316, cpu_box_y + 14, "CPU");
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     char cpu_s[32];
     snprintf(cpu_s, sizeof(cpu_s), "Cards: %d", pst.cpu_captured_count);
-    solar_os_gfx_text(gfx, 316, 60, cpu_s);
+    solar_os_gfx_text(gfx, 316, cpu_box_y + 30, cpu_s);
     snprintf(cpu_s, sizeof(cpu_s), "Pisti: %d", pst.cpu_pisti_count + pst.cpu_double_pisti * 2);
-    solar_os_gfx_text(gfx, 316, 76, cpu_s);
+    solar_os_gfx_text(gfx, 316, cpu_box_y + 44, cpu_s);
     snprintf(cpu_s, sizeof(cpu_s), "Score: %d", pst.total_cpu_score);
-    solar_os_gfx_text(gfx, 316, 90, cpu_s);
+    solar_os_gfx_text(gfx, 316, cpu_box_y + 58, cpu_s);
 
     /* 3. Center Table Pile */
-    const int table_y = 106;
+    const int table_y = cpu_y + card_h + 6;
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_rect(gfx, 10, table_y, 290, 80);
 
     if (pst.pile_count == 0) {
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, 100, table_y + 45, "[ TABLE IS EMPTY ]");
+        solar_os_gfx_text(gfx, 100, table_y + 45, "[ Table is empty ]");
     } else {
-        /* Layered pile visualization */
         for (int i = 0; i < pst.pile_count - 1 && i < 4; i++) {
             pisti_draw_card_box(gfx, 120 + (i * 6), table_y + 8, card_w, card_h, NULL, false, true);
         }
-        /* Top Card */
         int top_x = 120 + ((pst.pile_count > 4 ? 4 : pst.pile_count - 1) * 6);
         pisti_draw_card_box(gfx, top_x, table_y + 8, card_w, card_h, &pst.pile[pst.pile_count - 1], false, false);
 
@@ -468,34 +491,38 @@ static void pisti_draw(solar_os_gfx_t *gfx)
         solar_os_gfx_text(gfx, 20, table_y + 45, pile_s);
     }
 
-    /* Player Stats Box (Center Right) */
+    /* Player Stats Box */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, 310, 106, 82, 80);
+    solar_os_gfx_rect(gfx, 310, table_y, 82, 80);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 316, 122, "YOU");
+    solar_os_gfx_text(gfx, 316, table_y + 16, "YOU");
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     char ply_s[32];
     snprintf(ply_s, sizeof(ply_s), "Cards: %d", pst.player_captured_count);
-    solar_os_gfx_text(gfx, 316, 140, ply_s);
+    solar_os_gfx_text(gfx, 316, table_y + 34, ply_s);
     snprintf(ply_s, sizeof(ply_s), "Pisti: %d", pst.player_pisti_count + pst.player_double_pisti * 2);
-    solar_os_gfx_text(gfx, 316, 158, ply_s);
+    solar_os_gfx_text(gfx, 316, table_y + 52, ply_s);
     snprintf(ply_s, sizeof(ply_s), "Score: %d", pst.total_player_score);
-    solar_os_gfx_text(gfx, 316, 176, ply_s);
+    solar_os_gfx_text(gfx, 316, table_y + 70, ply_s);
 
-    /* 4. Player Hand (Bottom) */
-    const int player_y = 196;
+    /* 4. Player Hand (bottom) */
+    const int player_y = table_y + 90;
     for (int i = 0; i < pst.player_hand_count; i++) {
-        int px = 80 + (i * 56);
+        int px = pisti_hand_card_x(i);
         bool is_sel = (i == pst.selected_card && pst.player_turn && !pst.game_over);
         pisti_draw_card_box(gfx, px, is_sel ? player_y - 6 : player_y, card_w, card_h, &pst.player_hand[i], is_sel, false);
     }
 
-    /* 5. Footer Status Bar */
+    /* 5. Status line above the footer bar. */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 274, screen_w, 26);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 8, 291, pst.status_msg);
+    solar_os_gfx_text(gfx, 8, screen_h - fh - 4, pst.status_msg);
+
+    /* 6. Shared footer chips. */
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = pisti_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 
     solar_os_gfx_present(gfx);
 }
@@ -528,6 +555,62 @@ static bool pisti_event(solar_os_context_t *ctx, const solar_os_event_t *event)
                 pst.cpu_play_at_us = 0;
                 pisti_cpu_play();
                 pisti_draw(gfx);
+            }
+        }
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = pisti_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM && fhit.index < count) {
+                if (items[fhit.index].key == 'r') {
+                    pisti_start_new_game();
+                } else {
+                    pst.vs_cpu = !pst.vs_cpu;
+                    snprintf(pst.status_msg, sizeof(pst.status_msg), "Mode: %s",
+                             pst.vs_cpu ? "vs CPU" : "2-Player Pass & Play");
+                }
+                pisti_draw(gfx);
+            }
+            return true;
+        }
+
+        if (pst.game_over) {
+            pisti_start_new_game();
+            pisti_draw(gfx);
+            return true;
+        }
+
+        /* Tap one of your hand cards to select and play it. */
+        if (pst.player_turn) {
+            const int player_y = pisti_player_y(gfx);
+            for (int i = 0; i < pst.player_hand_count; i++) {
+                const int cx = pisti_hand_card_x(i);
+                if (px >= cx && px < cx + PST_CARD_W &&
+                    py >= player_y - 6 && py < player_y + PST_CARD_H) {
+                    pst.selected_card = i;
+                    pisti_play_card(i, true);
+                    pisti_draw(gfx);
+                    return true;
+                }
             }
         }
         return true;
@@ -596,7 +679,7 @@ static bool pisti_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
 const solar_os_app_t solar_os_pisti_app = {
     .name = "pisti",
-    .summary = "classic Turkish card game Pişti with AI",
+    .summary = "Pishti - classic Turkish card game with AI",
     .flags = 0,
     .start = pisti_start,
     .stop = pisti_stop,

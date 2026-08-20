@@ -798,14 +798,65 @@ static void ble_draw_signal_bars(solar_os_gfx_t *gfx, int x, int y, int8_t rssi)
  * View 0: BLE Device Scanner List (2-Line Row Layout)
  * ------------------------------------------------------------------- */
 
+/* Shared geometry for the scanner list body: computed once, used by both
+ * drawing and click hit-testing so they can never disagree about layout. */
+typedef struct {
+    int top;
+    int row_h;
+    int visible_rows;
+    size_t total_visible;
+    size_t scroll_offset;
+} ble_scanner_list_layout_t;
+
+static void ble_scanner_layout_list(solar_os_gfx_t *gfx, int height, ble_scanner_list_layout_t *out)
+{
+    out->top = solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx) + 4;
+    out->row_h = 32;
+    const int bottom = height - solar_os_appbar_footer_height(gfx) - 4;
+    out->visible_rows = (bottom - out->top) / out->row_h;
+    out->total_visible = ble_filtered_device_count();
+
+    if (out->total_visible > 0 && ble_state.selected_device >= out->total_visible) {
+        ble_state.selected_device = out->total_visible - 1U;
+    }
+
+    out->scroll_offset = 0;
+    if (out->total_visible > 0 && ble_state.selected_device >= (size_t)out->visible_rows) {
+        out->scroll_offset = ble_state.selected_device - (size_t)out->visible_rows + 1U;
+    }
+}
+
+/* Returns the filtered-device index under (x, y) in the scanner list body,
+ * or false if the tap missed every row (empty space, header, footer). */
+static bool ble_scanner_hit_test_list(solar_os_gfx_t *gfx, int width, int height,
+                                      int16_t x, int16_t y, size_t *out_index)
+{
+    ble_scanner_list_layout_t layout;
+    ble_scanner_layout_list(gfx, height, &layout);
+    if (layout.total_visible == 0) return false;
+    if (x < 4 || x >= width - 4) return false;
+    if (y < layout.top) return false;
+
+    const int row_in = (y - layout.top) / layout.row_h;
+    if (row_in < 0 || row_in >= layout.visible_rows) return false;
+
+    const size_t dev_idx = layout.scroll_offset + (size_t)row_in;
+    if (dev_idx >= layout.total_visible) return false;
+
+    *out_index = dev_idx;
+    return true;
+}
+
 static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int top = solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx) + 4;
-    const int bottom = height - solar_os_appbar_footer_height(gfx) - 4;
-    const int row_h = 32;
-    const int visible_rows = (bottom - top) / row_h;
+    ble_scanner_list_layout_t layout;
+    ble_scanner_layout_list(gfx, height, &layout);
+    const int top = layout.top;
+    const int row_h = layout.row_h;
+    const int visible_rows = layout.visible_rows;
+    const size_t total_visible = layout.total_visible;
+    const size_t scroll_offset = layout.scroll_offset;
 
-    const size_t total_visible = ble_filtered_device_count();
     if (total_visible == 0) {
         solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
@@ -815,15 +866,6 @@ static void ble_draw_scanner_list(solar_os_gfx_t *gfx, int width, int height)
             solar_os_gfx_text(gfx, 20, top + 40, "No BLE devices found. Press [Space] or [R] to scan.");
         }
         return;
-    }
-
-    if (ble_state.selected_device >= total_visible) {
-        ble_state.selected_device = total_visible - 1U;
-    }
-
-    size_t scroll_offset = 0;
-    if (ble_state.selected_device >= (size_t)visible_rows) {
-        scroll_offset = ble_state.selected_device - (size_t)visible_rows + 1U;
     }
 
     for (int r = 0; r < visible_rows; r++) {
@@ -1161,7 +1203,7 @@ static void ble_draw_tab_settings(solar_os_gfx_t *gfx, int width, int height)
     solar_os_gfx_text(gfx, 12, top + 172, lua_disp);
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 12, top + 198, "[E] Ozel Lua Kodunu Duzenle   |   [H] Ornek Kodlar & Rehber");
+    solar_os_gfx_text(gfx, 12, top + 198, "[E] Ozel Lua Kodunu Duzenle");
 
     /* Alias Editing Modal */
     if (ble_state.editing_alias) {
@@ -2146,6 +2188,23 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
         ble_scanner_handle_char(ctx, event->data.ch);
         break;
 
+    case SOLAR_OS_EVENT_SCROLL:
+        if (ble_state.view == BLE_VIEW_SCANNER && !ble_state.showing_paired && !ble_state.showing_help) {
+            const size_t count = ble_filtered_device_count();
+            const bool down = event->data.scroll.delta < 0;
+            if (down) {
+                if (count > 0 && ble_state.selected_device + 1 < count) {
+                    ble_state.selected_device++;
+                    ble_state.render_pending = true;
+                }
+            } else if (ble_state.selected_device > 0) {
+                ble_state.selected_device--;
+                ble_state.render_pending = true;
+            }
+            if (ble_state.render_pending) ble_scanner_render(ctx);
+        }
+        break;
+
     case SOLAR_OS_EVENT_TICK:
         ble_state.elapsed_ms += BLE_SCANNER_TICK_MS;
 
@@ -2300,9 +2359,8 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
         if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
             if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
                 ble_scanner_handle_char(ctx, (char)SOLAR_OS_KEY_ESCAPE);
-            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_PREV || hit.kind == SOLAR_OS_APPBAR_HIT_TAB_NEXT) {
-                const int dir = (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_NEXT) ? 1 : -1;
-                ble_state.active_tab = (dev_tab_t)((ble_state.active_tab + DEV_TAB_COUNT + dir) % DEV_TAB_COUNT);
+            } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < DEV_TAB_COUNT) {
+                ble_state.active_tab = (dev_tab_t)hit.index;
                 if (ble_state.active_tab == DEV_TAB_RADAR) {
                     ble_state.next_auto_rescan_ms = 0;
                     ble_scanner_start_scan();
@@ -2311,6 +2369,21 @@ static bool ble_scanner_event(solar_os_context_t *ctx, const solar_os_event_t *e
             }
             if (ble_state.render_pending) ble_scanner_render(ctx);
             break;
+        }
+
+        if (ble_state.view == BLE_VIEW_SCANNER && !ble_state.showing_paired) {
+            const int width = (int)solar_os_gfx_width(gfx);
+            const int height = (int)solar_os_gfx_height(gfx);
+            size_t dev_idx;
+            if (ble_scanner_hit_test_list(gfx, width, height, event->data.click.x, event->data.click.y, &dev_idx)) {
+                ble_state.selected_device = dev_idx;
+                const ble_device_item_t *dev = ble_get_filtered_device(dev_idx);
+                if (dev != NULL) {
+                    ble_open_device_page(dev);
+                }
+                ble_scanner_render(ctx);
+                break;
+            }
         }
 
         const bool showing_status = ble_state.status_until_ms > ble_state.elapsed_ms &&

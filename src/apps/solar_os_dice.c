@@ -11,6 +11,7 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "solar_os.h"
+#include "solar_os_appbar.h"
 #include "solar_os_audio.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
@@ -264,17 +265,14 @@ static void yatzy_render(solar_os_context_t *ctx)
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
 
-    /* 1. Header */
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, screen_w, 22);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
-    solar_os_gfx_text(gfx, 8, 15, "SOLAROS YATZY 5-DICE STRATEGY");
-
-    char sc_txt[32]; snprintf(sc_txt, sizeof(sc_txt), "Score: %d", ytz.total_score);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    const size_t sw = solar_os_gfx_text_width(gfx, sc_txt);
-    solar_os_gfx_text(gfx, screen_w - (int)sw - 8, 15, sc_txt);
+    /* 1. Header (no status_line -- the scorecard below is already packed
+     * tight against the footer, so the score goes in the title instead). */
+    char title_txt[40];
+    snprintf(title_txt, sizeof(title_txt), "Yatzy - Score: %d", ytz.total_score);
+    solar_os_appbar_header_t header = {0};
+    header.title = title_txt;
+    header.show_back = true;
+    solar_os_appbar_draw_header(gfx, &header);
 
     /* 2. Left Side: Scorecard Table */
     const int table_x = 8;
@@ -376,6 +374,67 @@ static void yatzy_stop(solar_os_context_t *ctx)
 static bool yatzy_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) return false;
+
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        /* Mirrors yatzy_render()'s scorecard/dice-box geometry. */
+        const int table_x = 8, table_y = 26, table_w = 175;
+        const int dice_box_x = 190, dice_box_y = 26;
+        const int screen_w = (int)solar_os_gfx_width(gfx);
+        const int dice_box_w = screen_w - dice_box_x - 8;
+
+        if (px >= table_x && px < table_x + table_w && py >= table_y + 4) {
+            const int row = (py - (table_y + 4)) / 18;
+            if (row >= 0 && row < YATZY_CATEGORIES) {
+                ytz.cursor_focus = 1;
+                ytz.selected_cat = row;
+                if (!ytz.scored[row]) {
+                    yatzy_apply_score(row);
+                }
+                yatzy_render(ctx);
+            }
+            return true;
+        }
+
+        if (px >= dice_box_x && px < dice_box_x + dice_box_w &&
+            py >= dice_box_y + 36 && py < dice_box_y + 36 + 2 * 62) {
+            const int col = (px - (dice_box_x + 16)) / 58;
+            const int drow = (py - (dice_box_y + 36)) / 62;
+            const int d = drow * 3 + col;
+            if (col >= 0 && col < 3 && drow >= 0 && drow < 2 && d < 5) {
+                ytz.cursor_focus = 0;
+                ytz.dice_cursor = d;
+                ytz.held[d] = !ytz.held[d];
+                ytz_sfx_hold();
+                yatzy_render(ctx);
+            }
+            return true;
+        }
+
+        if (px >= dice_box_x && px < dice_box_x + dice_box_w &&
+            py >= dice_box_y && py < dice_box_y + 24) {
+            if (ytz.rolls_left > 0) {
+                yatzy_start_roll();
+                yatzy_render(ctx);
+            }
+            return true;
+        }
+        return true;
+    }
 
     if (event->type == SOLAR_OS_EVENT_TICK) {
         if (ytz.roll_anim_frames > 0) {

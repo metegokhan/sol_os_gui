@@ -20,6 +20,8 @@
 #include "solar_os_signal_widgets.h"
 #include "solar_os_synth.h"
 #include "solar_os_tui.h"
+#include "solar_os_appbar.h"
+#include "solar_os_help.h"
 
 #define FUNCGEN_OWNER "app:funcgen"
 #define FUNCGEN_PARAMETER_OWNER "funcgen"
@@ -107,6 +109,8 @@ typedef struct {
     volatile bool redraw;
     esp_err_t last_error;
     char display_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    bool show_help;
+    int drag_accum;
 } funcgen_app_state_t;
 
 /* Only the time-critical oscillator state stays in internal SRAM. */
@@ -639,6 +643,61 @@ static void funcgen_draw_knob(solar_os_gfx_t *gfx, int center_x, int center_y,
                       center_y + radius + 28, value);
 }
 
+static const char *const funcgen_help_lines[] = {
+    "An audio function/signal generator with a live scope.",
+    "",
+    "  - Tap a knob to select it; drag up/down on it (or",
+    "    scroll) to change its value.",
+    "  - Output chip (or Space) starts/stops the sound.",
+    "  - Knobs: waveform, frequency, amplitude, pulse",
+    "    width, sweep on/off, sweep end, sweep time,",
+    "    output device.",
+    "",
+    "Keys: Left/Right select, Up/Down (or +/-) tune.",
+    "Exit: Back arrow or Esc / Q.",
+};
+#define FUNCGEN_HELP_LINE_COUNT (sizeof(funcgen_help_lines) / sizeof(funcgen_help_lines[0]))
+
+static size_t funcgen_build_footer(solar_os_appbar_shortcut_t *items, size_t max)
+{
+    size_t n = 0;
+    if (n < max) { items[n].key = ' '; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label),
+                 funcgen.enabled ? "Output:On" : "Output:Off"); n++; }
+    if (n < max) { solar_os_help_chip(&items[n]); n++; }
+    return n;
+}
+
+/* Shared knob layout so drawing and touch hit-testing agree. */
+static void funcgen_layout(solar_os_gfx_t *gfx, int *scope_y, int *scope_h,
+                           int *controls_top, int *row_h, int *cell_w, int *radius)
+{
+    const int width = (int)solar_os_gfx_width(gfx);
+    const int height = (int)solar_os_gfx_height(gfx);
+    const int top = solar_os_appbar_header_height(gfx) + solar_os_appbar_status_line_height(gfx) + 2;
+    const int fh = solar_os_appbar_footer_height(gfx);
+    *scope_y = top;
+    *scope_h = height >= 280 ? 70 : 54;
+    *controls_top = *scope_y + *scope_h + 4;
+    const int footer_y = height - fh - 2;
+    const int available = footer_y - *controls_top - 4;
+    *row_h = available / 2;
+    *cell_w = (width - 12) / 4;
+    int r = *row_h / 2 - 20;
+    if (r > 18) r = 18;
+    if (r < 10) r = 10;
+    *radius = r;
+}
+
+static void funcgen_knob_center(int i, int controls_top, int row_h, int cell_w,
+                                int radius, int *cx, int *cy)
+{
+    const int row = i / 4;
+    const int col = i % 4;
+    *cx = 6 + col * cell_w + cell_w / 2;
+    *cy = controls_top + row * row_h + radius + 2;
+}
+
 static void funcgen_render_graphics(solar_os_context_t *ctx)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -646,50 +705,49 @@ static void funcgen_render_graphics(solar_os_context_t *ctx)
         return;
     }
     const int width = (int)solar_os_gfx_width(gfx);
-    const int height = (int)solar_os_gfx_height(gfx);
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_14);
-    solar_os_gfx_text(gfx, 6, 18, "FUNCTION GENERATOR");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    char status[64];
+
+    /* Shared header; output state / errors ride in the status line. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "Function Generator";
+    header.show_back = true;
+    char status_line[64];
     if (funcgen.last_error != ESP_OK) {
-        snprintf(status, sizeof(status), "ERROR %s",
+        snprintf(status_line, sizeof(status_line), "Error: %s",
                  esp_err_to_name(funcgen.last_error));
     } else {
-        snprintf(status, sizeof(status), "%s  %s",
-                 funcgen.enabled ? "OUTPUT ON" : "OUTPUT OFF",
+        snprintf(status_line, sizeof(status_line), "%s   out: %s",
+                 funcgen.enabled ? "Output ON" : "Output OFF",
                  funcgen_output_label());
     }
-    const int status_x = width - 6 - (int)solar_os_gfx_text_width(gfx, status);
-    solar_os_gfx_text(gfx, status_x > 175 ? status_x : 175, 18, status);
+    header.status_line = status_line;
+    solar_os_appbar_draw_header(gfx, &header);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
 
-    const int scope_y = 28;
-    const int scope_height = height >= 280 ? 78 : 58;
+    int scope_y, scope_h, controls_top, row_height, cell_width, radius;
+    funcgen_layout(gfx, &scope_y, &scope_h, &controls_top, &row_height, &cell_width, &radius);
+
     solar_os_oscilloscope_widget_draw(funcgen.scope, gfx, 6, scope_y,
-                                      width - 12, scope_height);
+                                      width - 12, scope_h);
 
-    const int controls_top = scope_y + scope_height + 4;
-    const int footer_y = height - 6;
-    const int available = footer_y - controls_top - 4;
-    const int row_height = available / 2;
-    const int cell_width = (width - 12) / 4;
-    int radius = row_height / 2 - 22;
-    if (radius > 18)
-        radius = 18;
-    if (radius < 10)
-        radius = 10;
     for (size_t i = 0U; i < FUNCGEN_CONTROL_COUNT; i++) {
-        const int row = (int)(i / 4U);
-        const int column = (int)(i % 4U);
-        const int center_x = 6 + column * cell_width + cell_width / 2;
-        const int center_y = controls_top + row * row_height + radius + 2;
-        funcgen_draw_knob(gfx, center_x, center_y, radius,
-                          (funcgen_control_t)i);
+        int center_x, center_y;
+        funcgen_knob_center((int)i, controls_top, row_height, cell_width, radius,
+                            &center_x, &center_y);
+        funcgen_draw_knob(gfx, center_x, center_y, radius, (funcgen_control_t)i);
     }
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    solar_os_gfx_text(gfx, 6, footer_y,
-                      "Left/Right select  Up/Down tune  Space output");
+
+    /* Shared footer chips. */
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = funcgen_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
+
+    if (funcgen.show_help) {
+        solar_os_help_draw(gfx, "Function Generator - Help",
+                           funcgen_help_lines, FUNCGEN_HELP_LINE_COUNT);
+    }
+
     solar_os_gfx_present(gfx);
     funcgen.redraw = false;
 }
@@ -960,6 +1018,20 @@ static void funcgen_resume(solar_os_context_t *ctx)
     funcgen_render(ctx);
 }
 
+/* Returns the knob index under (x,y), or -1. */
+static int funcgen_knob_at(solar_os_gfx_t *gfx, int x, int y)
+{
+    int scope_y, scope_h, controls_top, row_h, cell_w, radius;
+    funcgen_layout(gfx, &scope_y, &scope_h, &controls_top, &row_h, &cell_w, &radius);
+    for (int i = 0; i < (int)FUNCGEN_CONTROL_COUNT; i++) {
+        int cx, cy;
+        funcgen_knob_center(i, controls_top, row_h, cell_w, radius, &cx, &cy);
+        const int hit = radius + 8;
+        if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= hit * hit) return i;
+    }
+    return -1;
+}
+
 static bool funcgen_event(solar_os_context_t *ctx,
                           const solar_os_event_t *event)
 {
@@ -977,15 +1049,94 @@ static bool funcgen_event(solar_os_context_t *ctx,
         }
         return true;
     }
-    return event->type == SOLAR_OS_EVENT_CHAR
-               ? funcgen_handle_key(ctx, (uint8_t)event->data.ch)
-               : false;
+
+    if (funcgen.mode == FUNCGEN_MODE_GRAPHICS) {
+        if (event->type == SOLAR_OS_EVENT_CLICK) {
+            solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+            if (gfx == NULL) return true;
+            const int16_t px = event->data.click.x;
+            const int16_t py = event->data.click.y;
+
+            if (funcgen.show_help) {
+                funcgen.show_help = false;
+                funcgen_render(ctx);
+                return true;
+            }
+            solar_os_appbar_header_t header = {0};
+            header.show_back = true;
+            solar_os_appbar_hit_t hit;
+            if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+                if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) solar_os_context_request_exit(ctx);
+                return true;
+            }
+            solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+            const size_t count = funcgen_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+            const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+            solar_os_appbar_hit_t fhit;
+            if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, px, py, &fhit)) {
+                if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM && fhit.index < count) {
+                    if (items[fhit.index].key == ' ') (void)funcgen_set_enabled(!funcgen.enabled);
+                    else funcgen.show_help = true;
+                    funcgen_render(ctx);
+                }
+                return true;
+            }
+            const int k = funcgen_knob_at(gfx, px, py);
+            if (k >= 0) {
+                funcgen.selected = (funcgen_control_t)k;
+                funcgen.redraw = true;
+                funcgen_render(ctx);
+            }
+            return true;
+        }
+
+        if (event->type == SOLAR_OS_EVENT_DRAG) {
+            if (funcgen.show_help) return true;
+            solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+            if (gfx == NULL) return true;
+            if (event->data.drag.started) {
+                funcgen.drag_accum = 0;
+                const int k = funcgen_knob_at(gfx, event->data.drag.x, event->data.drag.y);
+                if (k >= 0) funcgen.selected = (funcgen_control_t)k;
+            }
+            /* Drag up increases the selected knob; ~4px per step. */
+            funcgen.drag_accum += -(int)event->data.drag.dy;
+            while (funcgen.drag_accum >= 4) { funcgen_adjust_selected(1); funcgen.drag_accum -= 4; }
+            while (funcgen.drag_accum <= -4) { funcgen_adjust_selected(-1); funcgen.drag_accum += 4; }
+            funcgen_render(ctx);
+            return true;
+        }
+
+        if (event->type == SOLAR_OS_EVENT_SCROLL) {
+            if (!funcgen.show_help) {
+                funcgen_adjust_selected(event->data.scroll.delta > 0 ? 1 : -1);
+                funcgen_render(ctx);
+            }
+            return true;
+        }
+    }
+
+    if (event->type == SOLAR_OS_EVENT_CHAR) {
+        const char ch = event->data.ch;
+        if (funcgen.show_help) {
+            funcgen.show_help = false;
+            funcgen_render(ctx);
+            return true;
+        }
+        if (solar_os_help_char_opens(ch)) {
+            funcgen.show_help = true;
+            funcgen_render(ctx);
+            return true;
+        }
+        return funcgen_handle_key(ctx, (uint8_t)ch);
+    }
+    return false;
 }
 
 const solar_os_app_t solar_os_funcgen_app = {
     .name = "funcgen",
     .summary = "audio function generator",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = funcgen_start,
     .suspend = funcgen_suspend,
     .resume = funcgen_resume,

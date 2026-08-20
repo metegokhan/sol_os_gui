@@ -1802,7 +1802,7 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_edit_app = {
     .name = "edit",
     .summary = "text editor",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = edit_start,
     .resume = edit_resume,
     .stop = edit_stop,
@@ -1816,7 +1816,7 @@ const solar_os_app_t solar_os_edit_app = {
 const solar_os_app_t solar_os_hexedit_app = {
     .name = "hexedit",
     .summary = "two-pane hex editor",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = edit_start,
     .resume = edit_resume,
     .stop = edit_stop,

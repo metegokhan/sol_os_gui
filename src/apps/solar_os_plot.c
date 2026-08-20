@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "esp_err.h"
+#include "solar_os_appbar.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
@@ -953,6 +954,60 @@ static void plot_format_window(char *buffer, size_t buffer_len, uint32_t window_
     }
 }
 
+/* Shifts the CSV view window by a signed number of samples (drag pan). */
+static void plot_pan_samples(int delta)
+{
+    if (plot.count == 0 || plot.visible_count >= plot.count) {
+        return;
+    }
+    plot.follow = false;
+    const size_t max_start = plot.count - plot.visible_count;
+    if (delta < 0) {
+        const size_t mag = (size_t)(-delta);
+        plot.view_start = plot.view_start > mag ? plot.view_start - mag : 0;
+    } else {
+        plot.view_start += (size_t)delta;
+        if (plot.view_start > max_start) {
+            plot.view_start = max_start;
+        }
+    }
+}
+
+static void plot_cycle_series(void)
+{
+    if (plot.series_count > 1) {
+        plot.active_series = (plot.active_series + 1U) % plot.series_count;
+    }
+}
+
+static void plot_zoom(bool in)
+{
+    if (plot.mode == PLOT_MODE_LIVE) {
+        plot_adjust_live_window(in);
+    } else {
+        plot_update_view_after_zoom(in ? plot.visible_count / 2U : plot.visible_count * 2U);
+        if (in) plot.follow = false;
+    }
+}
+
+/* Footer chips shared by draw and click. Same set feeds both. */
+static size_t plot_build_footer(solar_os_appbar_shortcut_t *items, size_t max_items)
+{
+    size_t n = 0;
+    if (n < max_items) { items[n].key = '+'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Zoom+"); n++; }
+    if (n < max_items) { items[n].key = '-'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Zoom-"); n++; }
+    if (n < max_items) { items[n].key = 'r'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Reset"); n++; }
+    if (plot.series_count > 1 && n < max_items) {
+        items[n].key = 's'; items[n].ctrl = false; snprintf(items[n].label, sizeof(items[n].label), "Series"); n++;
+    }
+    if (plot.mode == PLOT_MODE_LIVE && n < max_items) {
+        items[n].key = ' '; items[n].ctrl = false;
+        snprintf(items[n].label, sizeof(items[n].label), "%s", plot.paused ? "Play" : "Pause");
+        n++;
+    }
+    return n;
+}
+
 static void plot_render(solar_os_context_t *ctx)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -962,86 +1017,85 @@ static void plot_render(solar_os_context_t *ctx)
 
     const int screen_w = (int)solar_os_gfx_width(gfx);
     const int screen_h = (int)solar_os_gfx_height(gfx);
-    const int left = 42;
-    const int top = 22;
-    const int right_pad = 4;
-    const int bottom_pad = 22;
-    const int plot_w = screen_w - left - right_pad;
-    const int plot_h = screen_h - top - bottom_pad;
 
     plot_apply_live_window();
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+
+    /* Shared header; mode / window / sample-count ride in the status line. */
+    solar_os_appbar_header_t header = {0};
+    header.title = "Plot";
+    header.show_back = true;
+    char status_line[80];
+    if (plot.mode == PLOT_MODE_LIVE) {
+        char window[16] = "";
+        plot_format_window(window, sizeof(window), plot.live_window_ms);
+        snprintf(status_line, sizeof(status_line), "Live  %s  %s%u smp",
+                 window, plot.paused ? "paused  " : "", (unsigned)plot.count);
+    } else {
+        snprintf(status_line, sizeof(status_line), "%s  %u smp",
+                 plot.title, (unsigned)plot.count);
+    }
+    header.status_line = status_line;
+    solar_os_appbar_draw_header(gfx, &header);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
 
-    char window[16] = "";
-    if (plot.mode == PLOT_MODE_LIVE) {
-        plot_format_window(window, sizeof(window), plot.live_window_ms);
-    }
-    char title[96];
-    if (plot.mode == PLOT_MODE_LIVE) {
-        snprintf(title,
-                 sizeof(title),
-                 "live %s %s%u",
-                 window,
-                 plot.paused ? "paused " : "",
-                 (unsigned)plot.count);
-    } else {
-        snprintf(title,
-                 sizeof(title),
-                 "%s %s%u",
-                 plot.title,
-                 plot.paused ? "paused " : "",
-                 (unsigned)plot.count);
-    }
-    solar_os_gfx_text(gfx, 2, 10, title);
+    const int hh = solar_os_appbar_header_height(gfx);
+    const int sh = solar_os_appbar_status_line_height(gfx);
+    const int fh = solar_os_appbar_footer_height(gfx);
+    const int left = 42;
+    const int top = hh + sh + 2;
+    const int info_line = 14;                 /* series/range line above footer */
+    const int plot_w = screen_w - left - 4;
+    const int plot_h = screen_h - top - fh - info_line;
 
     if (plot.count == 0 || plot.series_count == 0 || plot_w <= 8 || plot_h <= 8) {
-        solar_os_gfx_text(gfx, 2, screen_h / 2, plot.message[0] ? plot.message : "no data");
-        solar_os_gfx_present(gfx);
-        return;
+        solar_os_gfx_text(gfx, left, top + plot_h / 2, plot.message[0] ? plot.message : "No data");
+        goto draw_footer;
     }
 
-    float min_v = 0.0f;
-    float max_v = 1.0f;
-    plot_visible_range(&min_v, &max_v);
-    uint64_t min_x = 0;
-    uint64_t max_x = 1;
-    plot_visible_x_range(&min_x, &max_x);
+    {
+        float min_v = 0.0f;
+        float max_v = 1.0f;
+        plot_visible_range(&min_v, &max_v);
+        uint64_t min_x = 0;
+        uint64_t max_x = 1;
+        plot_visible_x_range(&min_x, &max_x);
 
-    char label[24];
-    plot_format_float(label, sizeof(label), max_v);
-    solar_os_gfx_text(gfx, 2, top + 8, label);
-    plot_format_float(label, sizeof(label), min_v);
-    solar_os_gfx_text(gfx, 2, top + plot_h - 2, label);
+        char label[24];
+        plot_format_float(label, sizeof(label), max_v);
+        solar_os_gfx_text(gfx, 2, top + 8, label);
+        plot_format_float(label, sizeof(label), min_v);
+        solar_os_gfx_text(gfx, 2, top + plot_h - 2, label);
 
-    plot_draw_grid(gfx, left, top, plot_w, plot_h);
+        plot_draw_grid(gfx, left, top, plot_w, plot_h);
 
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_line(gfx, left, top, left, top + plot_h - 1);
-    solar_os_gfx_line(gfx, left, top + plot_h - 1, left + plot_w - 1, top + plot_h - 1);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_line(gfx, left, top, left, top + plot_h - 1);
+        solar_os_gfx_line(gfx, left, top + plot_h - 1, left + plot_w - 1, top + plot_h - 1);
 
-    for (size_t s = 0; s < plot.series_count; s++) {
-        plot_draw_series(gfx, s, left, top, plot_w, plot_h, min_v, max_v, min_x, max_x);
+        for (size_t s = 0; s < plot.series_count; s++) {
+            plot_draw_series(gfx, s, left, top, plot_w, plot_h, min_v, max_v, min_x, max_x);
+        }
+
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        const char *active = plot.active_series < plot.series_count ?
+            plot.series[plot.active_series].name : "";
+        char info[96];
+        snprintf(info, sizeof(info), "%s  %u-%u/%u",
+                 active,
+                 (unsigned)(plot.view_start + 1U),
+                 (unsigned)(plot.view_start + plot.visible_count),
+                 (unsigned)plot.count);
+        solar_os_gfx_text(gfx, 2, screen_h - fh - 3, info);
     }
 
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    const char *active = plot.active_series < plot.series_count ?
-        plot.series[plot.active_series].name :
-        "";
-    char footer[96];
-    snprintf(footer,
-             sizeof(footer),
-             "%s  %u-%u/%u",
-             active,
-             (unsigned)(plot.view_start + 1U),
-             (unsigned)(plot.view_start + plot.visible_count),
-             (unsigned)plot.count);
-    solar_os_gfx_text(gfx, 2, screen_h - 3, footer);
-    if (plot.message[0]) {
-        solar_os_gfx_text(gfx, screen_w / 2, 10, plot.message);
-    }
+draw_footer:;
+    solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+    const size_t count = plot_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+    const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+    solar_os_appbar_draw_footer(gfx, &shortcuts);
 
     solar_os_gfx_present(gfx);
 }
@@ -1106,15 +1160,21 @@ static esp_err_t plot_start(solar_os_context_t *ctx)
     const char *live_streams[SOLAR_OS_APP_ARG_MAX] = {0};
     int live_count = 0;
     uint32_t rate_ms = PLOT_DEFAULT_RATE_MS;
-    if (!plot_parse_args(ctx,
-                         csv_path,
-                         sizeof(csv_path),
-                         &csv_mode,
-                         &csv_filter_count,
-                         csv_filters,
-                         &live_count,
-                         live_streams,
-                         &rate_ms)) {
+
+    /* Launched from the graphical launcher with no args: don't fail. Auto-plot
+     * whatever scalar streams the system exposes (empty view if there are
+     * none) so the app opens instead of closing with a usage error. */
+    const bool want_auto = (solar_os_context_argc(ctx) <= 1);
+
+    if (!want_auto && !plot_parse_args(ctx,
+                                       csv_path,
+                                       sizeof(csv_path),
+                                       &csv_mode,
+                                       &csv_filter_count,
+                                       csv_filters,
+                                       &live_count,
+                                       live_streams,
+                                       &rate_ms)) {
         plot_print_usage(ctx, "invalid arguments");
         plot_free_buffers();
         plot_free_state();
@@ -1122,7 +1182,26 @@ static esp_err_t plot_start(solar_os_context_t *ctx)
     }
 
     esp_err_t err = ESP_OK;
-    if (!csv_mode) {
+    if (want_auto) {
+        char auto_ids[PLOT_MAX_SERIES][SOLAR_OS_STREAM_ID_MAX];
+        const char *auto_streams[PLOT_MAX_SERIES];
+        int auto_count = 0;
+        const size_t total = solar_os_stream_count();
+        for (size_t i = 0; i < total && auto_count < (int)PLOT_MAX_SERIES; i++) {
+            solar_os_stream_info_t info;
+            if (solar_os_stream_get(i, &info) &&
+                info.type == SOLAR_OS_STREAM_TYPE_SCALAR) {
+                strlcpy(auto_ids[auto_count], info.id, sizeof(auto_ids[auto_count]));
+                auto_streams[auto_count] = auto_ids[auto_count];
+                auto_count++;
+            }
+        }
+        (void)plot_start_live(auto_count, auto_streams, PLOT_DEFAULT_RATE_MS);
+        if (plot.series_count == 0) {
+            plot_set_message("No scalar streams -- run: plot <stream> or plot -f file.csv");
+        }
+        err = ESP_OK; /* always open in auto mode */
+    } else if (!csv_mode) {
         err = plot_start_live(live_count, live_streams, rate_ms);
     } else {
         plot.mode = PLOT_MODE_CSV;
@@ -1293,6 +1372,69 @@ static bool plot_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         return plot_handle_char(ctx, event->data.ch);
     }
 
+    if (event->type == SOLAR_OS_EVENT_CLICK) {
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int16_t px = event->data.click.x;
+        const int16_t py = event->data.click.y;
+
+        solar_os_appbar_header_t header = {0};
+        header.show_back = true;
+        solar_os_appbar_hit_t hit;
+        if (solar_os_appbar_hit_test_header(gfx, &header, px, py, &hit)) {
+            if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+                solar_os_context_request_exit(ctx);
+            }
+            return true;
+        }
+
+        solar_os_appbar_shortcut_t items[SOLAR_OS_APPBAR_SHORTCUT_MAX];
+        const size_t count = plot_build_footer(items, SOLAR_OS_APPBAR_SHORTCUT_MAX);
+        const solar_os_appbar_shortcuts_t shortcuts = { .items = items, .count = count };
+        solar_os_appbar_hit_t fhit;
+        if (solar_os_appbar_hit_test_footer(gfx, &shortcuts, px, py, &fhit)) {
+            if (fhit.kind == SOLAR_OS_APPBAR_HIT_FOOTER_ITEM && fhit.index < count) {
+                switch (items[fhit.index].key) {
+                case '+': plot_zoom(true); break;
+                case '-': plot_zoom(false); break;
+                case 'r': plot_reset_view(); break;
+                case 's': plot_cycle_series(); break;
+                case ' ':
+                    if (plot.mode == PLOT_MODE_LIVE) {
+                        plot.paused = !plot.paused;
+                        plot.follow = !plot.paused;
+                    }
+                    break;
+                default: break;
+                }
+                plot_render(ctx);
+            }
+            return true;
+        }
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_DRAG) {
+        if (plot.count == 0) return true;
+        solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+        if (gfx == NULL) return true;
+        const int plot_w = (int)solar_os_gfx_width(gfx) - 42 - 4;
+        if (event->data.drag.dx != 0 && plot_w > 1) {
+            int delta = -(int)(((long)event->data.drag.dx *
+                                (long)plot.visible_count) / plot_w);
+            if (delta == 0) delta = event->data.drag.dx > 0 ? -1 : 1;
+            plot_pan_samples(delta);
+            plot_render(ctx);
+        }
+        return true;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_SCROLL) {
+        plot_zoom(event->data.scroll.delta > 0);
+        plot_render(ctx);
+        return true;
+    }
+
     if (event->type == SOLAR_OS_EVENT_TICK &&
         plot.mode == PLOT_MODE_LIVE &&
         !plot.paused) {
@@ -1321,7 +1463,7 @@ static bool plot_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_plot_app = {
     .name = "plot",
     .summary = "plot DAQ CSV files or scalar streams",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = 0,
     .start = plot_start,
     .suspend = plot_suspend,
     .resume = plot_resume,

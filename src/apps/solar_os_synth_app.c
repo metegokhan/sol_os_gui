@@ -9,6 +9,7 @@
 
 #include "esp_attr.h"
 #include "esp_timer.h"
+#include "solar_os_appbar.h"
 #include "solar_os_audio.h"
 #include "solar_os_gfx.h"
 #include "solar_os_input.h"
@@ -193,6 +194,8 @@ typedef struct {
   uint32_t last_performance_ms;
   synth_parameter_t compact_parameter;
   bool compact_parameter_valid;
+  bool drag_active;   /* dragging a knob/button on whichever tab is active */
+  int drag_accum_dy;  /* pixels accumulated since the last adjust step */
 } synth_app_state_t;
 
 static void *synth_app_state;
@@ -1623,6 +1626,50 @@ static void synth_draw_piano(solar_os_gfx_t *gfx, int x, int y, int width,
   }
 }
 
+/* Returns the semitone under (x, y) if it lands on the on-screen piano,
+ * checking black keys first since they're drawn on top and overlap the
+ * edges of the white keys beneath them -- same geometry as
+ * synth_draw_piano() above, kept in sync by hand since the shapes involved
+ * (raised black keys) don't fit the shared draw+hit-test-via-one-struct
+ * pattern used elsewhere in this codebase. */
+static bool synth_hit_test_piano(int width, int height, int16_t px, int16_t py,
+                                 int *out_semitone) {
+  if (!synth_app.keyboard_visible) return false;
+
+  static const uint8_t white_semitones[] = {0, 2, 4, 5, 7, 9, 11, 12};
+  static const int8_t black_after_white[] = {0, 1, -1, 2, 3, 4, -1};
+  static const uint8_t black_semitones[] = {1, 3, 6, 8, 10};
+
+  const int x = 6;
+  const int y = height - SYNTH_APP_PIANO_BOTTOM_OFFSET;
+  const int pw = width - 12;
+  const int ph = SYNTH_APP_PIANO_HEIGHT;
+  if (px < x || px >= x + pw || py < y || py >= y + ph) return false;
+
+  const int white_width = pw / 8;
+
+  for (size_t i = 0; i < sizeof(black_after_white); i++) {
+    if (black_after_white[i] < 0) continue;
+    const int key_x = x + ((int)i + 1) * white_width - white_width / 4;
+    const int key_width = white_width / 2;
+    const int key_height = (ph * 3) / 5;
+    if (px >= key_x && px < key_x + key_width && py >= y && py < y + key_height) {
+      *out_semitone = black_semitones[black_after_white[i]];
+      return true;
+    }
+  }
+
+  for (size_t i = 0; i < 8; i++) {
+    const int key_x = x + (int)i * white_width;
+    const int key_width = i == 7 ? x + pw - key_x : white_width;
+    if (px >= key_x && px < key_x + key_width) {
+      *out_semitone = white_semitones[i];
+      return true;
+    }
+  }
+  return false;
+}
+
 static int synth_editor_bottom(int height) {
   return height - (synth_app.keyboard_visible
                        ? SYNTH_APP_PIANO_BOTTOM_OFFSET
@@ -1642,48 +1689,38 @@ static void synth_draw_keyboard(solar_os_gfx_t *gfx, int width, int height) {
   }
 }
 
-static void synth_draw_header(solar_os_gfx_t *gfx,
-                              const solar_os_synth_voice_status_t *status) {
-  const int width = (int)solar_os_gfx_width(gfx);
-  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-  solar_os_gfx_text(gfx, 6, 18, "SYNTH");
+static const char * const SYNTH_TAB_NAMES[SYNTH_TAB_COUNT] = {
+    "Play", "Filter", "Wave", "Osc2", "Glide", "Preset",
+};
 
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-  const bool compact = width < 380;
-  const char *tabs = "1P 2F 3W 4O 5G 6R";
-  if (synth_app.tab == SYNTH_TAB_PLAY) {
-    tabs = "[1P] 2F 3W 4O 5G 6R";
-  } else if (synth_app.tab == SYNTH_TAB_FILTER) {
-    tabs = "1P [2F] 3W 4O 5G 6R";
-  } else if (synth_app.tab == SYNTH_TAB_WAVE) {
-    tabs = "1P 2F [3W] 4O 5G 6R";
-  } else if (synth_app.tab == SYNTH_TAB_OSCILLATOR2) {
-    tabs = "1P 2F 3W [4O] 5G 6R";
-  } else if (synth_app.tab == SYNTH_TAB_MODE) {
-    tabs = "1P 2F 3W 4O [5G] 6R";
-  } else if (synth_app.tab == SYNTH_TAB_PRESET) {
-    tabs = "1P 2F 3W 4O 5G [6R]";
-  }
-  solar_os_gfx_text(gfx, 62, 17, tabs);
-
-  char header[64];
+static void synth_build_header(solar_os_appbar_header_t *out, char *title_buf, size_t title_buf_len,
+                               const solar_os_synth_voice_status_t *status) {
   const esp_err_t display_error = synth_app.last_error != ESP_OK
                                       ? synth_app.last_error
                                       : status->last_error;
   if (display_error != ESP_OK) {
-    snprintf(header, sizeof(header), "audio: %s",
-             esp_err_to_name(display_error));
-  } else if (compact) {
-    snprintf(header, sizeof(header), "o%d v%u %uv", synth_app.octave,
-             (unsigned)synth_app.velocity, (unsigned)status->active_voices);
+    snprintf(title_buf, title_buf_len, "Synth - audio: %s", esp_err_to_name(display_error));
   } else {
-    snprintf(header, sizeof(header), "o%d v%u %uv %uHz m%u", synth_app.octave,
+    snprintf(title_buf, title_buf_len, "Synth  o%d v%u %uv %uHz m%u", synth_app.octave,
              (unsigned)synth_app.velocity, (unsigned)status->active_voices,
              (unsigned)status->sample_rate,
              (unsigned)status->render_deadline_misses);
   }
-  solar_os_gfx_text(gfx, compact ? 194 : 202, 17, header);
+
+  memset(out, 0, sizeof(*out));
+  out->title = title_buf;
+  out->show_back = true;
+  out->tabs.names = SYNTH_TAB_NAMES;
+  out->tabs.count = SYNTH_TAB_COUNT;
+  out->tabs.active_index = (size_t)synth_app.tab;
+}
+
+static void synth_draw_header(solar_os_gfx_t *gfx,
+                              const solar_os_synth_voice_status_t *status) {
+  char title_buf[64];
+  solar_os_appbar_header_t header;
+  synth_build_header(&header, title_buf, sizeof(title_buf), status);
+  solar_os_appbar_draw_header(gfx, &header);
 }
 
 static void synth_draw_wave_editor(solar_os_gfx_t *gfx, int width, int height) {
@@ -2422,6 +2459,255 @@ static void synth_remember_rendered_status(
   synth_app.last_status_poll_ms = synth_now_ms();
 }
 
+/* Shared geometry for the Play tab's wave box, volume button, and 4 ADSR
+ * knobs: computed once, used by both drawing (synth_render's Play-tab body
+ * below) and click/drag hit-testing so they can never disagree. */
+typedef struct {
+  int wave_x, wave_y, wave_w, wave_h;
+  int volume_x, volume_y, volume_w, volume_h;
+  int knob_cx[4], knob_cy, knob_radius;
+} synth_play_controls_layout_t;
+
+static void synth_layout_play_controls(int width, int height,
+                                       synth_play_controls_layout_t *out) {
+  const int graphs_top = 35;
+  const int graphs_height = 70 + synth_visualizer_extra_height();
+  const int editor_bottom = synth_editor_bottom(height);
+  const int wave_width = width / 4;
+  const int wave_x = 6;
+  const int wave_panel_width = wave_width - 10;
+  out->wave_x = wave_x;
+  out->wave_y = graphs_top;
+  out->wave_w = wave_panel_width;
+  out->wave_h = graphs_height;
+
+  const int knob_area_x = wave_width;
+  const int controls_top = graphs_top + graphs_height + 8;
+  const int volume_y = controls_top + 7;
+  const int volume_height =
+      synth_app.keyboard_visible ? 48 : editor_bottom - volume_y - 7;
+  out->volume_x = wave_x;
+  out->volume_y = volume_y;
+  out->volume_w = wave_panel_width;
+  out->volume_h = volume_height;
+
+  const int knob_cell = (width - knob_area_x) / 4;
+  int knob_radius = knob_cell / 3;
+  const int maximum_radius = synth_app.keyboard_visible ? 22 : 30;
+  if (knob_radius > maximum_radius) {
+    knob_radius = maximum_radius;
+  } else if (knob_radius < 13) {
+    knob_radius = 13;
+  }
+  const int knob_y = synth_app.keyboard_visible
+                          ? controls_top + knob_radius + 1
+                          : controls_top + (editor_bottom - controls_top - 29) / 2;
+  out->knob_cy = knob_y;
+  out->knob_radius = knob_radius;
+  for (int i = 0; i < 4; i++) {
+    out->knob_cx[i] = knob_area_x + i * knob_cell + knob_cell / 2;
+  }
+}
+
+/* Returns the SYNTH_CONTROL_* selected when tapping (x, y) on the Play
+ * tab, or false if the tap missed every control. */
+static bool synth_hit_test_play_controls(int width, int height, int16_t px, int16_t py,
+                                         synth_control_t *out_control) {
+  synth_play_controls_layout_t layout;
+  synth_layout_play_controls(width, height, &layout);
+
+  if (px >= layout.wave_x && px < layout.wave_x + layout.wave_w &&
+      py >= layout.wave_y && py < layout.wave_y + layout.wave_h) {
+    *out_control = SYNTH_CONTROL_WAVE;
+    return true;
+  }
+  if (px >= layout.volume_x && px < layout.volume_x + layout.volume_w &&
+      py >= layout.volume_y && py < layout.volume_y + layout.volume_h) {
+    *out_control = SYNTH_CONTROL_VOLUME;
+    return true;
+  }
+  for (int i = 0; i < 4; i++) {
+    const int dx = px - layout.knob_cx[i];
+    const int dy = py - layout.knob_cy;
+    if (dx * dx + dy * dy <= layout.knob_radius * layout.knob_radius) {
+      *out_control = (synth_control_t)(SYNTH_CONTROL_ATTACK + i);
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Shared hit-test for an evenly-spaced row of `count` knobs spanning
+ * [x_start, x_start+total_width), matching the cx = x_start + i*knob_cell
+ * + knob_cell/2 placement every draw_*_editor's knob row above uses. */
+static bool synth_hit_test_knob_row(int count, int x_start, int total_width, int knob_y,
+                                    int knob_radius, int16_t px, int16_t py, int *out_index) {
+  if (count <= 0) return false;
+  const int knob_cell = total_width / count;
+  for (int i = 0; i < count; i++) {
+    const int cx = x_start + i * knob_cell + knob_cell / 2;
+    const int dx = px - cx;
+    const int dy = py - knob_y;
+    if (dx * dx + dy * dy <= knob_radius * knob_radius) {
+      *out_index = i;
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Mirrors synth_draw_filter_editor()'s knob-row geometry. */
+static void synth_layout_filter_knobs(int width, int height, int *out_knob_y, int *out_radius) {
+  const int graphs_top = 35;
+  const bool compact = height < 280;
+  const int graphs_height = (compact ? 56 : 72) + synth_visualizer_extra_height();
+  const int gap = 6;
+  const int editor_bottom = synth_editor_bottom(height);
+  const int controls_top = graphs_top + graphs_height + gap;
+  const int knob_cell = (width - 12) / SYNTH_FILTER_CONTROL_COUNT;
+  int knob_radius = knob_cell / 3;
+  const int maximum_radius = synth_app.keyboard_visible ? (compact ? 10 : 16) : knob_cell / 3;
+  if (knob_radius > maximum_radius) {
+    knob_radius = maximum_radius;
+  } else if (knob_radius < 10) {
+    knob_radius = 10;
+  }
+  *out_knob_y = synth_app.keyboard_visible
+                    ? controls_top + knob_radius
+                    : controls_top + (editor_bottom - controls_top - 29) / 2;
+  *out_radius = knob_radius;
+}
+
+static bool synth_hit_test_filter(int width, int height, int16_t px, int16_t py, int *out_index) {
+  int knob_y, knob_radius;
+  synth_layout_filter_knobs(width, height, &knob_y, &knob_radius);
+  return synth_hit_test_knob_row(SYNTH_FILTER_CONTROL_COUNT, 6, width - 12, knob_y, knob_radius,
+                                 px, py, out_index);
+}
+
+/* Mirrors synth_draw_oscillator2_editor()'s OSC2 panel + knob-row geometry. */
+typedef struct {
+  int osc2_panel_x, osc2_panel_y, osc2_panel_w, osc2_panel_h;
+  int knob_y, knob_radius;
+} synth_osc2_layout_t;
+
+static void synth_layout_osc2(int width, int height, synth_osc2_layout_t *out) {
+  const bool compact = height < 280;
+  const int graphs_top = 35;
+  const int graphs_height = (compact ? 56 : 70) + synth_visualizer_extra_height();
+  const int graph_width = (width - 18) / 2;
+  out->osc2_panel_x = 12 + graph_width;
+  out->osc2_panel_y = graphs_top;
+  out->osc2_panel_w = width - graph_width - 18;
+  out->osc2_panel_h = graphs_height;
+
+  const int graph_gap = 6;
+  const int editor_bottom = synth_editor_bottom(height);
+  const int controls_top = graphs_top + graphs_height + graph_gap;
+  const int knob_cell = (width - 12) / SYNTH_OSCILLATOR2_CONTROL_COUNT;
+  int knob_radius = knob_cell / 4;
+  const int maximum_radius = synth_app.keyboard_visible ? (compact ? 10 : 20) : knob_cell / 3;
+  const int minimum_radius = compact ? 10 : 11;
+  if (knob_radius > maximum_radius) {
+    knob_radius = maximum_radius;
+  } else if (knob_radius < minimum_radius) {
+    knob_radius = minimum_radius;
+  }
+  out->knob_y = synth_app.keyboard_visible
+                    ? controls_top + knob_radius
+                    : controls_top + (editor_bottom - controls_top - 29) / 2;
+  out->knob_radius = knob_radius;
+}
+
+static bool synth_hit_test_oscillator2(int width, int height, int16_t px, int16_t py,
+                                       synth_oscillator2_control_t *out_control) {
+  synth_osc2_layout_t layout;
+  synth_layout_osc2(width, height, &layout);
+
+  if (px >= layout.osc2_panel_x && px < layout.osc2_panel_x + layout.osc2_panel_w &&
+      py >= layout.osc2_panel_y && py < layout.osc2_panel_y + layout.osc2_panel_h) {
+    *out_control = SYNTH_OSCILLATOR2_CONTROL_WAVE;
+    return true;
+  }
+  int idx;
+  if (synth_hit_test_knob_row(SYNTH_OSCILLATOR2_CONTROL_COUNT, 6, width - 12, layout.knob_y,
+                              layout.knob_radius, px, py, &idx)) {
+    *out_control = (synth_oscillator2_control_t)idx;
+    return true;
+  }
+  return false;
+}
+
+/* Mirrors synth_draw_mode_editor()'s VOICES/GLIDE box geometry. */
+static bool synth_hit_test_mode(int width, int height, int16_t px, int16_t py,
+                                synth_mode_control_t *out_control) {
+  const int editor_bottom = synth_editor_bottom(height);
+  const int panel_x = 6;
+  const int panel_y = 42;
+  const int panel_width = width - 12;
+  const int panel_height = editor_bottom - panel_y - 14;
+  const int center_y = panel_y + panel_height / 2;
+  const int left_width = panel_width / 3;
+
+  const int voices_x = panel_x + 10;
+  const int voices_y = center_y - 25;
+  const int voices_w = left_width - 20;
+  const int voices_h = 48;
+  if (px >= voices_x && px < voices_x + voices_w && py >= voices_y && py < voices_y + voices_h) {
+    *out_control = SYNTH_MODE_CONTROL_VOICES;
+    return true;
+  }
+
+  const int graph_x = panel_x + left_width + 10;
+  const int graph_width = panel_width - left_width - 22;
+  const int graph_top = panel_y + 32;
+  const int graph_bottom = panel_y + panel_height - 20;
+  const int glide_x = graph_x - 5;
+  const int glide_y = graph_top - 9;
+  const int glide_w = graph_width + 10;
+  const int glide_h = graph_bottom - graph_top + 24;
+  if (px >= glide_x && px < glide_x + glide_w && py >= glide_y && py < glide_y + glide_h) {
+    *out_control = SYNTH_MODE_CONTROL_GLIDE;
+    return true;
+  }
+  return false;
+}
+
+/* Mirrors synth_draw_preset_editor()'s two-column list geometry. Returns a
+ * combined index: 0..FACTORY_COUNT-1 for the factory column, then
+ * FACTORY_COUNT..FACTORY_COUNT+USER_COUNT-1 for the user column, matching
+ * synth_app.preset_selected's own indexing. */
+static bool synth_hit_test_preset(int width, int height, int16_t px, int16_t py,
+                                  size_t *out_index) {
+  const bool compact = height < 280;
+  const int editor_bottom = synth_editor_bottom(height);
+  const int gap = 6;
+  const int cell_width = (width - 18) / 2;
+  const int factory_x = 6;
+  const int user_x = factory_x + cell_width + gap;
+  const int rows_top = compact ? 50 : 54;
+  int row_height = compact ? 12 : 17;
+  if (!synth_app.keyboard_visible) {
+    const int expanded_row_height = (editor_bottom - rows_top - 22) / SYNTH_APP_FACTORY_PRESET_COUNT;
+    if (expanded_row_height > row_height) {
+      row_height = expanded_row_height;
+    }
+  }
+  if (py < rows_top) return false;
+  const int row = (py - rows_top) / row_height;
+  if (row < 0 || (size_t)row >= SYNTH_APP_FACTORY_PRESET_COUNT) return false;
+
+  if (px >= factory_x && px < factory_x + cell_width) {
+    *out_index = (size_t)row;
+    return true;
+  }
+  if (px >= user_x && px < user_x + cell_width) {
+    *out_index = SYNTH_APP_FACTORY_PRESET_COUNT + (size_t)row;
+    return true;
+  }
+  return false;
+}
+
 static void synth_render(solar_os_context_t *ctx) {
   solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
   if (synth_app.headless || gfx == NULL || synth_app.suspended) {
@@ -2687,6 +2973,16 @@ static bool synth_release_held(synth_held_note_t *held) {
 static bool synth_note_off(const solar_os_input_key_event_t *key,
                            int semitone) {
   return synth_release_held(synth_find_held(key, semitone));
+}
+
+/* Triggers a piano key exactly like a char-typed note (see the
+ * SOLAR_OS_EVENT_CHAR path in synth_event): physical_key stays
+ * SOLAR_OS_INPUT_PHYSICAL_NONE, so synth_note_on() auto-releases it after
+ * SYNTH_APP_PULSE_MS on its own -- a tap doesn't need press/release
+ * tracking. */
+static void synth_click_piano_key(int semitone) {
+  const solar_os_input_key_event_t key = {0};
+  (void)synth_note_on(&key, semitone);
 }
 
 static synth_held_note_t *synth_find_midi_held(uint8_t channel, uint8_t note) {
@@ -3060,6 +3356,60 @@ static void synth_adjust_mode_selected(int direction) {
   }
   synth_app.performance.glide_ms = synth_glide_values[index];
   synth_apply_performance(false);
+}
+
+/* Dispatches to the current tab's own arrow-key adjust function -- used by
+ * the drag handler so dragging a knob does exactly what Up/Down already
+ * does for that tab, just driven by pixels instead of keystrokes. Wave and
+ * Preset aren't included: Wave is a drawn canvas (no single "selected"
+ * value to nudge) and Preset taps select a slot rather than tune it. */
+static void synth_adjust_current_tab_selected(int direction) {
+  switch (synth_app.tab) {
+  case SYNTH_TAB_PLAY:
+    synth_adjust_selected(direction);
+    break;
+  case SYNTH_TAB_FILTER:
+    synth_adjust_filter_selected(direction);
+    break;
+  case SYNTH_TAB_OSCILLATOR2:
+    synth_adjust_oscillator2_selected(direction);
+    break;
+  case SYNTH_TAB_MODE:
+    synth_adjust_mode_selected(direction);
+    break;
+  default:
+    break;
+  }
+}
+
+/* True for a control whose values are a short, named sequence (a waveform
+ * shape, a Mono/Poly mode) rather than a continuous range -- these advance
+ * one step per tap instead of needing a drag, the same way a physical
+ * selector button works instead of a knob. */
+static bool synth_control_is_tap_to_cycle(synth_tab_t tab, int control_index) {
+  switch (tab) {
+  case SYNTH_TAB_PLAY:
+    return control_index == SYNTH_CONTROL_WAVE;
+  case SYNTH_TAB_OSCILLATOR2:
+    return control_index == SYNTH_OSCILLATOR2_CONTROL_WAVE;
+  case SYNTH_TAB_MODE:
+    return control_index == SYNTH_MODE_CONTROL_VOICES;
+  default:
+    return false;
+  }
+}
+
+/* Advances a tap-to-cycle control by one step. Mono/Poly is a toggle, not
+ * a direction-following range, so it gets its own branch instead of
+ * reusing synth_adjust_mode_selected(1) (which always forces Mono). */
+static void synth_cycle_current_tab_selected(void) {
+  if (synth_app.tab == SYNTH_TAB_MODE &&
+      synth_app.mode_selected == SYNTH_MODE_CONTROL_VOICES) {
+    synth_app.performance.mono = !synth_app.performance.mono;
+    synth_apply_performance(true);
+    return;
+  }
+  synth_adjust_current_tab_selected(1);
 }
 
 static void synth_move_wave_cursor(int direction, size_t step) {
@@ -3677,13 +4027,201 @@ static bool synth_event(solar_os_context_t *ctx,
     synth_resume(ctx);
     return true;
   }
+
+  if (event->type == SOLAR_OS_EVENT_CLICK) {
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    if (gfx == NULL) return false;
+    const int width = (int)solar_os_gfx_width(gfx);
+    const int height = (int)solar_os_gfx_height(gfx);
+    if (synth_use_compact_layout(width, height)) {
+      /* Compact/micro HUD layouts (small attached displays) don't use the
+       * shared appbar header -- no click chrome to hit-test there. */
+      return true;
+    }
+
+    solar_os_synth_voice_status_t status;
+    solar_os_synth_voice_get_status(&status);
+    char title_buf[64];
+    solar_os_appbar_header_t header;
+    synth_build_header(&header, title_buf, sizeof(title_buf), &status);
+
+    solar_os_appbar_hit_t hit;
+    if (solar_os_appbar_hit_test_header(gfx, &header, event->data.click.x, event->data.click.y, &hit)) {
+      if (hit.kind == SOLAR_OS_APPBAR_HIT_BACK) {
+        solar_os_context_request_exit(ctx);
+      } else if (hit.kind == SOLAR_OS_APPBAR_HIT_TAB_ITEM && hit.index < SYNTH_TAB_COUNT) {
+        synth_app.compact_parameter_valid = false;
+        synth_select_tab((synth_tab_t)hit.index);
+        synth_render_changed(ctx, true, false, synth_now_ms());
+      }
+      return true;
+    }
+
+    int semitone;
+    if (synth_hit_test_piano(width, height, event->data.click.x, event->data.click.y, &semitone)) {
+      synth_click_piano_key(semitone);
+      synth_render_changed(ctx, true, true, synth_now_ms());
+      return true;
+    }
+
+    bool hit_something = false;
+    switch (synth_app.tab) {
+    case SYNTH_TAB_PLAY: {
+      synth_control_t control;
+      if (synth_hit_test_play_controls(width, height, event->data.click.x, event->data.click.y, &control)) {
+        synth_app.selected = control;
+        hit_something = true;
+        if (synth_control_is_tap_to_cycle(SYNTH_TAB_PLAY, control)) {
+          synth_cycle_current_tab_selected();
+        }
+      }
+      break;
+    }
+    case SYNTH_TAB_FILTER: {
+      int idx;
+      if (synth_hit_test_filter(width, height, event->data.click.x, event->data.click.y, &idx)) {
+        synth_app.filter_selected = (synth_filter_control_t)idx;
+        hit_something = true;
+      }
+      break;
+    }
+    case SYNTH_TAB_OSCILLATOR2: {
+      synth_oscillator2_control_t control;
+      if (synth_hit_test_oscillator2(width, height, event->data.click.x, event->data.click.y, &control)) {
+        synth_app.oscillator2_selected = control;
+        hit_something = true;
+        if (synth_control_is_tap_to_cycle(SYNTH_TAB_OSCILLATOR2, control)) {
+          synth_cycle_current_tab_selected();
+        }
+      }
+      break;
+    }
+    case SYNTH_TAB_MODE: {
+      synth_mode_control_t control;
+      if (synth_hit_test_mode(width, height, event->data.click.x, event->data.click.y, &control)) {
+        synth_app.mode_selected = control;
+        hit_something = true;
+        if (synth_control_is_tap_to_cycle(SYNTH_TAB_MODE, control)) {
+          synth_cycle_current_tab_selected();
+        }
+      }
+      break;
+    }
+    case SYNTH_TAB_PRESET: {
+      size_t idx;
+      if (synth_hit_test_preset(width, height, event->data.click.x, event->data.click.y, &idx)) {
+        synth_app.preset_selected = idx;
+        hit_something = true;
+      }
+      break;
+    }
+    default:
+      break;
+    }
+    if (hit_something) {
+      synth_render_changed(ctx, true, false, synth_now_ms());
+    }
+    return true;
+  }
+
+  if (event->type == SOLAR_OS_EVENT_DRAG) {
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    if (gfx == NULL) return false;
+    const int width = (int)solar_os_gfx_width(gfx);
+    const int height = (int)solar_os_gfx_height(gfx);
+    if (synth_use_compact_layout(width, height)) {
+      return true;
+    }
+
+    if (event->data.drag.started) {
+      bool hit_something = false;
+      bool draggable = false;
+      switch (synth_app.tab) {
+      case SYNTH_TAB_PLAY: {
+        synth_control_t control;
+        if (synth_hit_test_play_controls(width, height, event->data.drag.x, event->data.drag.y, &control)) {
+          synth_app.selected = control;
+          hit_something = true;
+          draggable = !synth_control_is_tap_to_cycle(SYNTH_TAB_PLAY, control);
+        }
+        break;
+      }
+      case SYNTH_TAB_FILTER: {
+        int idx;
+        if (synth_hit_test_filter(width, height, event->data.drag.x, event->data.drag.y, &idx)) {
+          synth_app.filter_selected = (synth_filter_control_t)idx;
+          hit_something = true;
+          draggable = true;
+        }
+        break;
+      }
+      case SYNTH_TAB_OSCILLATOR2: {
+        synth_oscillator2_control_t control;
+        if (synth_hit_test_oscillator2(width, height, event->data.drag.x, event->data.drag.y, &control)) {
+          synth_app.oscillator2_selected = control;
+          hit_something = true;
+          draggable = !synth_control_is_tap_to_cycle(SYNTH_TAB_OSCILLATOR2, control);
+        }
+        break;
+      }
+      case SYNTH_TAB_MODE: {
+        synth_mode_control_t control;
+        if (synth_hit_test_mode(width, height, event->data.drag.x, event->data.drag.y, &control)) {
+          synth_app.mode_selected = control;
+          hit_something = true;
+          draggable = !synth_control_is_tap_to_cycle(SYNTH_TAB_MODE, control);
+        }
+        break;
+      }
+      default:
+        break;
+      }
+      if (hit_something) {
+        synth_app.drag_active = draggable;
+        synth_app.drag_accum_dy = 0;
+        synth_render_changed(ctx, true, false, synth_now_ms());
+      }
+      return true;
+    }
+
+    if (event->data.drag.ended) {
+      synth_app.drag_active = false;
+      synth_app.drag_accum_dy = 0;
+      return true;
+    }
+
+    if (synth_app.drag_active) {
+      /* Moving the cursor up increases the value, down decreases it --
+       * matches a physical fader/knob dragged upward to raise its level.
+       * Fixed-size pixel steps keep a full-height drag from blowing
+       * through a knob's whole range in one gesture. */
+      synth_app.drag_accum_dy += event->data.drag.dy;
+      const int step_px = 4;
+      bool changed = false;
+      while (synth_app.drag_accum_dy <= -step_px) {
+        synth_adjust_current_tab_selected(1);
+        synth_app.drag_accum_dy += step_px;
+        changed = true;
+      }
+      while (synth_app.drag_accum_dy >= step_px) {
+        synth_adjust_current_tab_selected(-1);
+        synth_app.drag_accum_dy -= step_px;
+        changed = true;
+      }
+      if (changed) {
+        synth_render_changed(ctx, true, false, synth_now_ms());
+      }
+    }
+    return true;
+  }
+
   return false;
 }
 
 const solar_os_app_t solar_os_synth_app = {
     .name = "synth",
     .summary = "synthesizer and sound designer",
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_KEY_EVENTS,
+    .flags = SOLAR_OS_APP_FLAG_KEY_EVENTS,
     .start = synth_start,
     .suspend = synth_suspend,
     .resume = synth_resume,

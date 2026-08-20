@@ -85,3 +85,22 @@ size_t solar_os_sessions_active_count(void);
 size_t solar_os_sessions_shell_count(void);
 bool solar_os_sessions_get_active_id(size_t index, uint8_t *session_id);
 void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user);
+
+typedef struct {
+    uint8_t id;
+    bool is_foreground;
+    bool is_suspended;
+    bool is_resumable;
+    bool is_closable;
+    char title[48];
+    char app_name[24];
+    char display_target[32];
+    uint32_t interval_ms;
+    uint32_t last_duration_us;
+    uint32_t max_duration_us;
+    uint32_t dispatch_count;
+} solar_os_session_info_t;
+
+size_t solar_os_sessions_get_all_info(solar_os_session_info_t *out_info, size_t max_count);
+bool solar_os_sessions_switch_to_session_id(uint8_t session_id);
+esp_err_t solar_os_sessions_terminate_session_id(uint8_t session_id);

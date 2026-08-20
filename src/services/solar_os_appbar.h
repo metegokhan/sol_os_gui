@@ -28,6 +28,7 @@ extern "C" {
 
 #define SOLAR_OS_APPBAR_SHORTCUT_MAX 6U
 #define SOLAR_OS_APPBAR_LABEL_MAX 20U
+#define SOLAR_OS_APPBAR_TAB_MAX 8U
 
 typedef struct {
     char key;                                  /* triggering char, e.g. 'S' */
@@ -42,7 +43,7 @@ typedef struct {
 
 typedef struct {
     const char * const *names;    /* e.g. {"Info","Settings","GATT","Radar"} */
-    size_t count;                  /* 0 or 1 => no breadcrumb drawn */
+    size_t count;                  /* 0 or 1 => no tab strip drawn; <= SOLAR_OS_APPBAR_TAB_MAX */
     size_t active_index;
 } solar_os_appbar_tabs_t;
 
@@ -56,14 +57,13 @@ typedef struct {
 typedef enum {
     SOLAR_OS_APPBAR_HIT_NONE,
     SOLAR_OS_APPBAR_HIT_BACK,
-    SOLAR_OS_APPBAR_HIT_TAB_PREV,
-    SOLAR_OS_APPBAR_HIT_TAB_NEXT,
+    SOLAR_OS_APPBAR_HIT_TAB_ITEM,       /* see .index -- the tab that was tapped */
     SOLAR_OS_APPBAR_HIT_FOOTER_ITEM,   /* see .index */
 } solar_os_appbar_hit_kind_t;
 
 typedef struct {
     solar_os_appbar_hit_kind_t kind;
-    size_t index;                       /* valid when kind == FOOTER_ITEM */
+    size_t index;                       /* valid when kind == TAB_ITEM or FOOTER_ITEM */
 } solar_os_appbar_hit_t;
 
 /* Proportional layout queries -- use these instead of a fixed pixel
