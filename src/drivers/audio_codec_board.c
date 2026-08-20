@@ -249,6 +249,8 @@ static esp_err_t audio_codec_ensure_output(void)
         .sample_rate = AUDIO_CODEC_BOARD_DEFAULT_SAMPLE_RATE,
         .channel = AUDIO_CODEC_BOARD_DEFAULT_CHANNELS,
         .bits_per_sample = AUDIO_CODEC_BOARD_DEFAULT_BITS,
+        .channel_mask = AUDIO_CODEC_TDM_SLOT_MASK,
+        .mclk_multiple = AUDIO_CODEC_I2S_MCLK_MULTIPLE,
     };
     if (esp_codec_dev_open(audio_codec.playback, &sample_info) != ESP_CODEC_DEV_OK) {
         ret = ESP_FAIL;
@@ -343,6 +345,8 @@ static esp_err_t audio_codec_ensure_input(void)
         .sample_rate = AUDIO_CODEC_BOARD_DEFAULT_SAMPLE_RATE,
         .channel = AUDIO_CODEC_BOARD_DEFAULT_CHANNELS,
         .bits_per_sample = AUDIO_CODEC_BOARD_DEFAULT_BITS,
+        .channel_mask = AUDIO_CODEC_TDM_SLOT_MASK,
+        .mclk_multiple = AUDIO_CODEC_I2S_MCLK_MULTIPLE,
     };
     if (esp_codec_dev_open(audio_codec.record, &sample_info) != ESP_CODEC_DEV_OK) {
         ret = ESP_FAIL;
