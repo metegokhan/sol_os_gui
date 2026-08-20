@@ -93,14 +93,16 @@ esp_err_t solar_os_gameboy_audio_resume(void) {
   if (gameboy_audio_state == NULL || !gameboy_apu_initialized) {
     return ESP_ERR_INVALID_STATE;
   }
-  if (gameboy_apu_running) {
-    solar_os_synth_status_t status;
-    solar_os_synth_get_status(&status);
-    if (status.running && strcmp(status.owner, GAMEBOY_AUDIO_OWNER) == 0) {
+  solar_os_synth_status_t status;
+  solar_os_synth_get_status(&status);
+  if (status.running) {
+    if (strcmp(status.owner, GAMEBOY_AUDIO_OWNER) == 0) {
+      gameboy_apu_running = true;
       return ESP_OK;
     }
-    gameboy_apu_running = false;
+    (void)solar_os_synth_stop(NULL);
   }
+  gameboy_apu_running = false;
   const solar_os_synth_config_t config = {
       .owner = GAMEBOY_AUDIO_OWNER,
       .render = gameboy_audio_render,
@@ -129,6 +131,7 @@ esp_err_t solar_os_gameboy_audio_init(void) {
   minigb_apu_audio_init(&gameboy_apu);
   gameboy_apu_initialized = true;
   gameboy_audio_unlock();
+  (void)solar_os_audio_set_volume(85);
   err = solar_os_gameboy_audio_resume();
   if (err != ESP_OK) {
     SOLAR_OS_LOGW(TAG, "output unavailable: %s", esp_err_to_name(err));
