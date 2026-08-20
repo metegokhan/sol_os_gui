@@ -39,7 +39,7 @@
 #define TAG "desibel"
 
 #define DESIBEL_SAMPLE_RATE 16000U
-#define DESIBEL_CHANNELS 1U
+#define DESIBEL_CHANNELS 2U
 #define DESIBEL_FFT_SIZE 256U
 #define DESIBEL_BANDS 32U
 #define DESIBEL_HISTORY_COLUMNS 96U
@@ -236,7 +236,7 @@ static esp_err_t desibel_start_worker(void)
     const BaseType_t created = solar_os_task_create_pinned_internal(
         desibel_worker, "desibel_monitor", DESIBEL_TASK_STACK, NULL,
         DESIBEL_TASK_PRIORITY, &desibel.task, tskNO_AFFINITY,
-        SOLAR_OS_TASK_ROLE_FOREGROUND);
+        SOLAR_OS_TASK_ROLE_SYSTEM);
     if (created != pdPASS) {
         desibel.task = NULL;
         desibel.task_done = true;

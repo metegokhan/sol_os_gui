@@ -435,7 +435,7 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
             AUDIO_APP_TASK_PRIORITY,
             &audio_app.task,
             tskNO_AFFINITY,
-            SOLAR_OS_TASK_ROLE_FOREGROUND) :
+            SOLAR_OS_TASK_ROLE_SYSTEM) :
         solar_os_task_create_pinned_internal(
             audio_app_task,
             audio_app_name(mode),
@@ -444,7 +444,7 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
             AUDIO_APP_TASK_PRIORITY,
             &audio_app.task,
             tskNO_AFFINITY,
-            SOLAR_OS_TASK_ROLE_FOREGROUND);
+            SOLAR_OS_TASK_ROLE_SYSTEM);
     if (created != pdPASS) {
         audio_app_cleanup_resources();
         audio_app.running = false;
