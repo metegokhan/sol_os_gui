@@ -1621,13 +1621,17 @@ static bool switch_detached_display_session(solar_os_session_entry_t *current,
 static void dispatch_session_event(solar_os_session_entry_t *session,
                                    const solar_os_event_t *event)
 {
-    if (session == NULL || !session->used || session->suspended ||
+    if (session == NULL || !session->used ||
         session->app == NULL ||
         session->app->event == NULL || event == NULL) {
         return;
     }
 
     const bool tick = event->type == SOLAR_OS_EVENT_TICK;
+    if (session->suspended && !tick) {
+        return;
+    }
+
     if (tick &&
         !solar_os_tick_due(&session->tick_stats,
                            solar_os_app_tick_interval_ms(

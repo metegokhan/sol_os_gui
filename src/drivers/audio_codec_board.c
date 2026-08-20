@@ -151,7 +151,11 @@ static esp_err_t audio_codec_i2s_ensure_rx(void)
 
 static esp_err_t audio_codec_ensure_common_interfaces(void)
 {
-    esp_err_t ret = audio_codec_i2s_ensure_channels();
+    esp_err_t ret = audio_codec_i2s_ensure_tx();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = audio_codec_i2s_ensure_rx();
     if (ret != ESP_OK) {
         return ret;
     }
@@ -372,7 +376,7 @@ out:
 
 esp_err_t audio_codec_board_init(void)
 {
-    if (audio_codec.output_initialized && audio_codec.input_initialized) {
+    if (audio_codec.output_initialized) {
         return ESP_OK;
     }
 
@@ -380,15 +384,15 @@ esp_err_t audio_codec_board_init(void)
     if (ret != ESP_OK) {
         return audio_codec_handle_init_error(ret);
     }
-    ret = audio_codec_ensure_input();
-    if (ret != ESP_OK) {
-        return audio_codec_handle_init_error(ret);
+    esp_err_t in_ret = audio_codec_ensure_input();
+    if (in_ret != ESP_OK) {
+        ESP_LOGW(TAG, "Input codec init failed: %s", esp_err_to_name(in_ret));
     }
 
     ESP_LOGI(TAG,
              "audio ready: %s/%s I2S%d mclk=%d bclk=%d ws=%d din=%d dout=%d pa=%d",
              SOLAR_OS_BOARD_AUDIO_CODEC_OUT,
-             SOLAR_OS_BOARD_AUDIO_CODEC_IN,
+             audio_codec.input_initialized ? SOLAR_OS_BOARD_AUDIO_CODEC_IN : "none",
              (int)SOLAR_OS_BOARD_I2S_PORT,
              (int)SOLAR_OS_BOARD_PIN_I2S_MCLK,
              (int)SOLAR_OS_BOARD_PIN_I2S_BCLK,
