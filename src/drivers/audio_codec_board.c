@@ -58,7 +58,6 @@ static esp_err_t audio_codec_handle_init_error(esp_err_t ret)
 {
     if (ret != ESP_OK) {
         audio_codec_log_init_failure(ret);
-        audio_codec_board_deinit();
     }
     return ret;
 }
@@ -151,11 +150,7 @@ static esp_err_t audio_codec_i2s_ensure_rx(void)
 
 static esp_err_t audio_codec_ensure_common_interfaces(void)
 {
-    esp_err_t ret = audio_codec_i2s_ensure_tx();
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    ret = audio_codec_i2s_ensure_rx();
+    esp_err_t ret = audio_codec_i2s_ensure_channels();
     if (ret != ESP_OK) {
         return ret;
     }
@@ -376,7 +371,7 @@ out:
 
 esp_err_t audio_codec_board_init(void)
 {
-    if (audio_codec.output_initialized) {
+    if (audio_codec.output_initialized && audio_codec.input_initialized) {
         return ESP_OK;
     }
 
