@@ -13,8 +13,10 @@
 #define AUDIO_CODEC_I2S_MCLK_MULTIPLE I2S_MCLK_MULTIPLE_384
 #define AUDIO_CODEC_DMA_DESC_NUM 4
 #define AUDIO_CODEC_DMA_FRAME_NUM 128
+/* The board has 2 physical microphones -> 2 TDM slots. Using 4 slots doubled
+ * the I2S DMA buffers and caused ESP_ERR_NO_MEM on low DMA RAM. */
 #define AUDIO_CODEC_TDM_SLOT_MASK \
-    (I2S_TDM_SLOT0 | I2S_TDM_SLOT1 | I2S_TDM_SLOT2 | I2S_TDM_SLOT3)
+    (I2S_TDM_SLOT0 | I2S_TDM_SLOT1)
 
 typedef struct {
     bool output_initialized;
@@ -77,7 +79,7 @@ static i2s_tdm_config_t audio_codec_i2s_tdm_config(void)
             .din = SOLAR_OS_BOARD_PIN_I2S_DIN,
         },
     };
-    tdm_cfg.slot_cfg.total_slot = 4;
+    tdm_cfg.slot_cfg.total_slot = 2;
     tdm_cfg.clk_cfg.mclk_multiple = AUDIO_CODEC_I2S_MCLK_MULTIPLE;
     return tdm_cfg;
 }
@@ -324,7 +326,7 @@ static esp_err_t audio_codec_ensure_input(void)
         es7210_codec_cfg_t es7210_cfg = {
             .ctrl_if = audio_codec.in_ctrl_if,
             .master_mode = false,
-            .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2 | ES7210_SEL_MIC3 | ES7210_SEL_MIC4,
+            .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2,
             .mclk_src = ES7210_MCLK_FROM_PAD,
             .mclk_div = 384,
         };
