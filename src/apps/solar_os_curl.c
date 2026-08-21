@@ -677,4 +677,5 @@ const solar_os_app_t solar_os_curl_app = {
     .state_release_ready = curl_state_release_ready,
     .state_release_cleanup = curl_cleanup_resources,
     .worker_stack_bytes = CURL_TASK_STACK,
+    .worker_stack_external = true, /* 12KB stack in PSRAM; internal RAM is tight */
 };

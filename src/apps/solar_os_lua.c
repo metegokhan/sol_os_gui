@@ -6452,5 +6452,6 @@ const solar_os_app_t solar_os_lua_app = {
     .state_size = sizeof(solua_cold_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = SOLUA_TASK_STACK,
+    .worker_stack_external = true, /* 12KB stack in PSRAM; internal RAM is tight */
     .requested_tick_interval_ms = solua_requested_tick_interval_ms,
 };
