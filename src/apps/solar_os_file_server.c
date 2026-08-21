@@ -25,6 +25,7 @@
 #include "solar_os_wifi.h"
 #include "solar_os_appbar.h"
 #include "solar_os_help.h"
+#include "solar_os_log.h"
 
 #define FILE_SERVER_STACK_SIZE 8192
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(FILE_SERVER_STACK_SIZE);
@@ -141,51 +142,59 @@ static void url_decode_inplace(char *str)
     *q = '\0';
 }
 
-static void render_directory_tree_node(httpd_req_t *req, const char *base_mount, const char *rel_dir)
+typedef struct {
+    char buf[512];
+    char full_dir[192];
+    char dir_esc[96];
+    char dir_enc[192];
+    char item_rel[192];
+    char item_full[256];
+    char name_esc[96];
+    char url_enc[192];
+    char opt[256];
+    char sbuf[384];
+} web_scratch_t;
+
+static void render_directory_tree_node(httpd_req_t *req, const char *base_mount, const char *rel_dir, web_scratch_t *sc)
 {
-    if (base_mount == NULL) return;
-    char full_dir[128];
+    if (base_mount == NULL || sc == NULL) return;
     if (rel_dir == NULL || rel_dir[0] == '\0') {
-        snprintf(full_dir, sizeof(full_dir), "%s", base_mount);
+        snprintf(sc->full_dir, sizeof(sc->full_dir), "%s", base_mount);
     } else {
-        snprintf(full_dir, sizeof(full_dir), "%s/%s", base_mount, rel_dir);
+        snprintf(sc->full_dir, sizeof(sc->full_dir), "%s/%s", base_mount, rel_dir);
     }
 
-    DIR *d = opendir(full_dir);
+    DIR *d = opendir(sc->full_dir);
     if (d == NULL) return;
 
-    char buf[512];
-    char dir_esc[64];
-    escape_html_str(rel_dir && rel_dir[0] ? rel_dir : "Root (/)", dir_esc, sizeof(dir_esc));
+    escape_html_str(rel_dir && rel_dir[0] ? rel_dir : "Root (/)", sc->dir_esc, sizeof(sc->dir_esc));
+    url_encode_str(rel_dir && rel_dir[0] ? rel_dir : "", sc->dir_enc, sizeof(sc->dir_enc));
 
-    char dir_enc[128];
-    url_encode_str(rel_dir && rel_dir[0] ? rel_dir : "", dir_enc, sizeof(dir_enc));
-
-    snprintf(buf, sizeof(buf),
+    snprintf(sc->buf, sizeof(sc->buf),
              "<div class='folder-card'>"
              "<div class='folder-header'>"
              "<div><strong>📁 %s</strong></div>"
              "<div style='display:flex;gap:6px;align-items:center;'>"
-             "<button class='btn-sub' onclick=\"newFolderIn('%s')\">+ Subfolder</button>",
-             dir_esc, dir_enc);
-    httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+             "<button class='act-btn' title='New Subfolder' onclick=\"newFolderIn('%s')\">➕</button>",
+             sc->dir_esc, sc->dir_enc);
+    httpd_resp_send_chunk(req, sc->buf, HTTPD_RESP_USE_STRLEN);
 
     if (rel_dir != NULL && rel_dir[0] != '\0') {
-        snprintf(buf, sizeof(buf),
-                 "<button class='btn-sub' onclick=\"movePath('%s',true)\">Move</button>"
-                 "<button class='btn-sub' onclick=\"renamePath('%s',true)\">Rename</button>"
-                 "<button class='btn-sub-del' onclick=\"delFile('%s',true)\">Delete</button>",
-                 dir_enc, dir_enc, dir_enc);
-        httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+        snprintf(sc->buf, sizeof(sc->buf),
+                 "<button class='act-btn' title='Move' onclick=\"movePath('%s',true)\">📦</button>"
+                 "<button class='act-btn' title='Rename' onclick=\"renamePath('%s',true)\">✏️</button>"
+                 "<button class='act-btn act-del' title='Delete' onclick=\"delFile('%s',true)\">🗑️</button>",
+                 sc->dir_enc, sc->dir_enc, sc->dir_enc);
+        httpd_resp_send_chunk(req, sc->buf, HTTPD_RESP_USE_STRLEN);
     }
 
-    snprintf(buf, sizeof(buf),
+    snprintf(sc->buf, sizeof(sc->buf),
              "</div></div>"
              "<table class='file-table'><thead><tr>"
              "<th style='width:32px;text-align:center;'><input type='checkbox' class='folder-chk-all' onchange='toggleFolderChecks(this)'></th>"
-             "<th>Name</th><th style='width:85px'>Size</th><th style='width:240px'>Actions</th>"
+             "<th>Name</th><th style='width:85px'>Size</th><th style='width:140px'>Actions</th>"
              "</tr></thead><tbody>");
-    httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, sc->buf, HTTPD_RESP_USE_STRLEN);
 
     struct dirent *ent;
     size_t items_in_folder = 0;
@@ -193,92 +202,82 @@ static void render_directory_tree_node(httpd_req_t *req, const char *base_mount,
     while ((ent = readdir(d)) != NULL) {
         if (ent->d_name[0] == '.') continue;
 
-        char item_rel[128];
         if (rel_dir == NULL || rel_dir[0] == '\0') {
-            snprintf(item_rel, sizeof(item_rel), "%s", ent->d_name);
+            snprintf(sc->item_rel, sizeof(sc->item_rel), "%s", ent->d_name);
         } else {
-            snprintf(item_rel, sizeof(item_rel), "%s/%s", rel_dir, ent->d_name);
+            snprintf(sc->item_rel, sizeof(sc->item_rel), "%s/%s", rel_dir, ent->d_name);
         }
 
-        char item_full[160];
-        snprintf(item_full, sizeof(item_full), "%s/%s", base_mount, item_rel);
+        snprintf(sc->item_full, sizeof(sc->item_full), "%s/%s", base_mount, sc->item_rel);
 
         struct stat st;
         bool is_dir = false;
         size_t size = 0;
-        if (stat(item_full, &st) == 0) {
+        if (stat(sc->item_full, &st) == 0) {
             is_dir = S_ISDIR(st.st_mode);
             size = st.st_size;
         }
 
-        if (is_dir) continue; /* Sub-folders handled recursively */
+        if (is_dir) continue; /* Sub-folders handled separately */
 
         items_in_folder++;
-        char name_esc[64];
-        escape_html_str(ent->d_name, name_esc, sizeof(name_esc));
+        escape_html_str(ent->d_name, sc->name_esc, sizeof(sc->name_esc));
+        url_encode_str(sc->item_rel, sc->url_enc, sizeof(sc->url_enc));
 
-        char url_enc[128];
-        url_encode_str(item_rel, url_enc, sizeof(url_enc));
-
-        snprintf(buf, sizeof(buf),
+        snprintf(sc->buf, sizeof(sc->buf),
                  "<tr><td style='text-align:center;'><input type='checkbox' class='file-chk' data-path='%s' data-name='%s' onchange='updateSelection()'></td>"
-                 "<td>📄 %s</td><td>%u KB</td><td>",
-                 url_enc, name_esc, name_esc, (unsigned)(size / 1024));
-        httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+                 "<td>📄 %s</td><td>%u KB</td><td class='act-cell'>",
+                 sc->url_enc, sc->name_esc, sc->name_esc, (unsigned)(size / 1024));
+        httpd_resp_send_chunk(req, sc->buf, HTTPD_RESP_USE_STRLEN);
 
-        snprintf(buf, sizeof(buf), "<a class='btn-dl' href='/download?file=%s'>Download</a> ", url_enc);
-        httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+        snprintf(sc->buf, sizeof(sc->buf), "<a class='act-btn' title='Download' href='/download?file=%s'>⬇️</a>", sc->url_enc);
+        httpd_resp_send_chunk(req, sc->buf, HTTPD_RESP_USE_STRLEN);
 
-        snprintf(buf, sizeof(buf), "<a class='btn-mov' href='#' onclick=\"movePath('%s',false)\">Move</a> ", url_enc);
-        httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+        snprintf(sc->buf, sizeof(sc->buf), "<a class='act-btn' title='Move' href='javascript:void(0)' onclick=\"movePath('%s',false)\">📦</a>", sc->url_enc);
+        httpd_resp_send_chunk(req, sc->buf, HTTPD_RESP_USE_STRLEN);
 
-        snprintf(buf, sizeof(buf), "<a class='btn-ren' href='#' onclick=\"renamePath('%s',false)\">Rename</a> ", url_enc);
-        httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+        snprintf(sc->buf, sizeof(sc->buf), "<a class='act-btn' title='Rename' href='javascript:void(0)' onclick=\"renamePath('%s',false)\">✏️</a>", sc->url_enc);
+        httpd_resp_send_chunk(req, sc->buf, HTTPD_RESP_USE_STRLEN);
 
-        snprintf(buf, sizeof(buf), "<a class='btn-del' href='#' onclick=\"delFile('%s',false)\">Delete</a></td></tr>", url_enc);
-        httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+        snprintf(sc->buf, sizeof(sc->buf), "<a class='act-btn act-del' title='Delete' href='javascript:void(0)' onclick=\"delFile('%s',false)\">🗑️</a></td></tr>", sc->url_enc);
+        httpd_resp_send_chunk(req, sc->buf, HTTPD_RESP_USE_STRLEN);
     }
     closedir(d);
 
     if (items_in_folder == 0) {
-        httpd_resp_send_chunk(req, "<tr><td colspan='4'><em>(No files in this folder)</em></td></tr>", HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send_chunk(req, "<tr><td colspan='4' style='color:#a0aec0;font-style:italic;'>(Empty folder)</td></tr>", HTTPD_RESP_USE_STRLEN);
     }
 
     httpd_resp_send_chunk(req, "</tbody></table></div>", HTTPD_RESP_USE_STRLEN);
 }
 
-static void render_folder_option_tags(httpd_req_t *req, const char *base_mount, const char *rel_dir)
+static void render_folder_option_tags(httpd_req_t *req, const char *base_mount, const char *rel_dir, web_scratch_t *sc)
 {
-    if (base_mount == NULL) return;
-    char full_dir[128];
+    if (base_mount == NULL || sc == NULL) return;
     if (rel_dir == NULL || rel_dir[0] == '\0') {
-        snprintf(full_dir, sizeof(full_dir), "%s", base_mount);
+        snprintf(sc->full_dir, sizeof(sc->full_dir), "%s", base_mount);
     } else {
-        snprintf(full_dir, sizeof(full_dir), "%s/%s", base_mount, rel_dir);
+        snprintf(sc->full_dir, sizeof(sc->full_dir), "%s/%s", base_mount, rel_dir);
     }
 
-    DIR *d = opendir(full_dir);
+    DIR *d = opendir(sc->full_dir);
     if (d == NULL) return;
 
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
         if (ent->d_name[0] == '.') continue;
-        char sub_full[160];
-        snprintf(sub_full, sizeof(sub_full), "%s/%s", full_dir, ent->d_name);
+        char sub_full[256];
+        snprintf(sub_full, sizeof(sub_full), "%s/%s", sc->full_dir, ent->d_name);
         struct stat st;
         if (stat(sub_full, &st) == 0 && S_ISDIR(st.st_mode)) {
-            char sub_rel[128];
+            char sub_rel[192];
             if (rel_dir == NULL || rel_dir[0] == '\0') {
                 snprintf(sub_rel, sizeof(sub_rel), "%s", ent->d_name);
             } else {
                 snprintf(sub_rel, sizeof(sub_rel), "%s/%s", rel_dir, ent->d_name);
             }
-            char opt[256];
-            snprintf(opt, sizeof(opt), "<option value='%s'>/%s</option>", sub_rel, sub_rel);
-            httpd_resp_send_chunk(req, opt, HTTPD_RESP_USE_STRLEN);
-
-            /* Recurse 1 level deep */
-            render_folder_option_tags(req, base_mount, sub_rel);
+            snprintf(sc->opt, sizeof(sc->opt), "<option value='%s'>/%s</option>", sub_rel, sub_rel);
+            httpd_resp_send_chunk(req, sc->opt, HTTPD_RESP_USE_STRLEN);
         }
     }
     closedir(d);
@@ -288,6 +287,11 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
 {
     (void)user;
     httpd_resp_set_type(req, "text/html; charset=utf-8");
+
+    web_scratch_t *sc = (web_scratch_t *)malloc(sizeof(web_scratch_t));
+    if (sc == NULL) {
+        return httpd_resp_send_500(req);
+    }
 
     solar_os_agent_status_t agent_st = {0};
     (void)solar_os_agent_get_status(&agent_st);
@@ -343,12 +347,12 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
         ".file-table{width:100%;border-collapse:collapse}"
         ".file-table th,.file-table td{padding:9px 12px;text-align:left;border-bottom:1px solid #edf2f7;font-size:13px}"
         ".file-table th{background:#f7fafc;color:#718096;font-weight:600;font-size:12px;text-transform:uppercase}"
-        ".btn-dl{background:#edf2f7;color:#2b6cb0;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:600;font-size:12px}"
-        ".btn-dl:hover{background:#e2e8f0}"
-        ".btn-mov{background:#edf2f7;color:#805ad5;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:600;font-size:12px;margin-left:4px}"
-        ".btn-ren{background:#edf2f7;color:#4a5568;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:600;font-size:12px;margin-left:4px}"
-        ".btn-del{background:#fed7d7;color:#c53030;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:600;font-size:12px;margin-left:4px}"
-        ".btn-del:hover{background:#feb2b2}"
+        ".act-btn{background:transparent;border:none;cursor:pointer;font-size:16px;padding:4px 6px;border-radius:6px;transition:background .2s;text-decoration:none;display:inline-block}"
+        ".act-btn:hover{background:#edf2f7}"
+        ".act-del:hover{background:#fed7d7}"
+        ".act-cell{white-space:nowrap}"
+        ".modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;align-items:center;justify-content:center}"
+        ".modal-box{background:#fff;padding:24px;border-radius:12px;width:320px;max-width:90%;box-shadow:0 10px 25px rgba(0,0,0,0.15)}"
         ".batch-bar{background:#2b6cb0;color:#fff;padding:12px 18px;border-radius:8px;margin-bottom:18px;box-shadow:0 3px 8px rgba(0,0,0,0.15);display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}"
         ".settings-box{background:#f7fafc;border:1px solid #e2e8f0;border-radius:10px;padding:24px;margin-top:16px}"
         "</style></head><body><div class='card'>"
@@ -371,7 +375,7 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
     const char *mount = get_storage_mount();
 
     /* Render dynamic folder options for upload select */
-    render_folder_option_tags(req, mount, "");
+    render_folder_option_tags(req, mount, "", sc);
 
     const char *upload_mid =
         "</select> "
@@ -394,7 +398,7 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
     httpd_resp_send_chunk(req, upload_mid, HTTPD_RESP_USE_STRLEN);
 
     /* Render dynamic folder options for batch move select */
-    render_folder_option_tags(req, mount, "");
+    render_folder_option_tags(req, mount, "", sc);
 
     const char *batch_mid2 =
         "</select>"
@@ -407,7 +411,7 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
     httpd_resp_send_chunk(req, batch_mid2, HTTPD_RESP_USE_STRLEN);
 
     /* 1. Root Directory */
-    render_directory_tree_node(req, mount, "");
+    render_directory_tree_node(req, mount, "", sc);
 
     /* 2. Subdirectories */
     if (mount != NULL) {
@@ -416,11 +420,11 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
             struct dirent *ent;
             while ((ent = readdir(d)) != NULL) {
                 if (ent->d_name[0] == '.') continue;
-                char sub_path[160];
+                char sub_path[256];
                 snprintf(sub_path, sizeof(sub_path), "%s/%s", mount, ent->d_name);
                 struct stat st;
                 if (stat(sub_path, &st) == 0 && S_ISDIR(st.st_mode)) {
-                    render_directory_tree_node(req, mount, ent->d_name);
+                    render_directory_tree_node(req, mount, ent->d_name, sc);
                 }
             }
             closedir(d);
@@ -431,35 +435,34 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
     httpd_resp_send_chunk(req, "<h3 style='margin-top:0;color:#2b6cb0;'>🤖 AI Agent Configuration</h3>", HTTPD_RESP_USE_STRLEN);
     httpd_resp_send_chunk(req, "<p style='font-size:13px;color:#718096;'>Paste your long API keys and custom server addresses directly from your PC/phone.</p>", HTTPD_RESP_USE_STRLEN);
 
-    char sbuf[384];
-    snprintf(sbuf, sizeof(sbuf),
+    snprintf(sc->sbuf, sizeof(sc->sbuf),
              "<div class='form-group'><label>API Key (OpenAI, DeepSeek, Ollama):</label><input type='password' id='agentApiKey' placeholder='%s' style='width:100%%'></div>",
              agent_st.api_key_set ? "API Key is set (leave blank to keep)" : "Enter API Key (sk-...)");
-    httpd_resp_send_chunk(req, sbuf, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, sc->sbuf, HTTPD_RESP_USE_STRLEN);
 
-    snprintf(sbuf, sizeof(sbuf),
+    snprintf(sc->sbuf, sizeof(sc->sbuf),
              "<div class='form-group'><label>API Endpoint URL:</label><input type='text' id='agentEndpoint' value='%s' style='width:100%%'></div>",
              cur_endpoint);
-    httpd_resp_send_chunk(req, sbuf, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, sc->sbuf, HTTPD_RESP_USE_STRLEN);
 
-    snprintf(sbuf, sizeof(sbuf),
+    snprintf(sc->sbuf, sizeof(sc->sbuf),
              "<div class='form-group'><label>Model Name:</label><input type='text' id='agentModel' value='%s' style='width:100%%'></div>",
              cur_model);
-    httpd_resp_send_chunk(req, sbuf, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, sc->sbuf, HTTPD_RESP_USE_STRLEN);
 
     httpd_resp_send_chunk(req, "<hr style='border:none;border-top:1px solid #e2e8f0;margin:24px 0'><h3 style='color:#2b6cb0;'>🌐 Web Browser Configuration</h3>", HTTPD_RESP_USE_STRLEN);
 
-    snprintf(sbuf, sizeof(sbuf),
+    snprintf(sc->sbuf, sizeof(sc->sbuf),
              "<div class='form-group'><label>Default Homepage URL:</label><input type='text' id='webHomepage' value='%s' style='width:100%%'></div>",
              cur_home_esc);
-    httpd_resp_send_chunk(req, sbuf, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, sc->sbuf, HTTPD_RESP_USE_STRLEN);
 
     httpd_resp_send_chunk(req, "<hr style='border:none;border-top:1px solid #e2e8f0;margin:24px 0'><h3 style='color:#2b6cb0;'>📶 Wi-Fi & Network Configuration</h3>", HTTPD_RESP_USE_STRLEN);
 
-    snprintf(sbuf, sizeof(sbuf),
+    snprintf(sc->sbuf, sizeof(sc->sbuf),
              "<div class='form-group'><label>Wi-Fi SSID:</label><input type='text' id='wifiSsid' value='%s' placeholder='Network name' style='width:100%%'></div>",
              cur_ssid_esc);
-    httpd_resp_send_chunk(req, sbuf, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, sc->sbuf, HTTPD_RESP_USE_STRLEN);
 
     httpd_resp_send_chunk(req,
         "<div class='form-group'><label>Wi-Fi Password:</label><input type='password' id='wifiPass' placeholder='Password (leave blank to keep current)' style='width:100%%'></div>"
@@ -467,8 +470,21 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
         "<div id='settingsStatus' style='margin-top:14px;font-weight:600;'></div>"
         "</div></div>", HTTPD_RESP_USE_STRLEN);
 
+    free(sc);
+
     const char *html_footer =
         "</div>"
+        "<div id='moveModal' class='modal-overlay'>"
+        "<div class='modal-box'>"
+        "<h3 style='margin-top:0'>Move Item</h3>"
+        "<p id='moveItemName' style='font-size:14px;word-break:break-all;color:#4a5568'></p>"
+        "<label style='display:block;margin-bottom:8px;font-size:14px;font-weight:600;'>Destination Folder:</label>"
+        "<select id='moveTargetSelect' style='width:100%;margin-bottom:20px;'></select>"
+        "<input type='hidden' id='moveItemPath'>"
+        "<div style='display:flex;justify-content:flex-end;gap:10px;'>"
+        "<button class='btn-sec' onclick='closeMoveModal()'>Cancel</button>"
+        "<button class='btn-primary' onclick='confirmMove()'>Move</button>"
+        "</div></div></div>"
         "<script>"
         "function switchTab(t){"
         "  var isF=(t==='files');"
@@ -518,11 +534,19 @@ static esp_err_t http_handle_root(httpd_req_t *req, void *user)
         "}"
         "function movePath(p, isDir){"
         "  var oldN=decodeURIComponent(p);"
-        "  var opts = Array.from(document.getElementById('folderSelect').options).map(function(o){return o.value;});"
-        "  var target = prompt('Enter destination folder to move '+(isDir?'folder':'file')+' into (e.g. \"videos\", \"music\", \"games\" or leave blank for root):');"
-        "  if(target!==null){"
-        "    location.href='/move?file='+encodeURIComponent(oldN)+'&to='+encodeURIComponent(target.trim());"
-        "  }"
+        "  document.getElementById('moveItemPath').value = oldN;"
+        "  document.getElementById('moveItemName').innerText = oldN;"
+        "  var sel = document.getElementById('moveTargetSelect');"
+        "  sel.innerHTML = document.getElementById('folderSelect').innerHTML;"
+        "  document.getElementById('moveModal').style.display = 'flex';"
+        "}"
+        "function closeMoveModal(){"
+        "  document.getElementById('moveModal').style.display = 'none';"
+        "}"
+        "function confirmMove(){"
+        "  var oldN = document.getElementById('moveItemPath').value;"
+        "  var target = document.getElementById('moveTargetSelect').value;"
+        "  location.href='/move?file='+encodeURIComponent(oldN)+'&to='+encodeURIComponent(target.trim());"
         "}"
         "function delFile(p, isDir){"
         "  if(confirm('Are you sure you want to delete '+(isDir?'folder':'file')+' '+decodeURIComponent(p)+'?')){"
@@ -1117,6 +1141,12 @@ static esp_err_t file_server_start(solar_os_context_t *ctx)
 
     solar_os_wifi_status_t wst;
     solar_os_wifi_get_status(&wst);
+    printf("[FILE-SERVER] file_server_start: wifi connected=%d, ip=%s\n",
+           (int)wst.connected, wst.connected ? wst.ip : "(none)");
+    fflush(stdout);
+
+    SOLAR_OS_LOGI("file_server", "wifi connected=%d  ip=%s",
+                  (int)wst.connected, wst.connected ? wst.ip : "(none)");
     if (wst.connected) {
         strlcpy(fserver.ip_str, wst.ip, sizeof(fserver.ip_str));
     } else {
@@ -1125,10 +1155,34 @@ static esp_err_t file_server_start(solar_os_context_t *ctx)
     fserver.port = 80;
 
     /* Register all HTTP routes */
+    printf("[FILE-SERVER] Registering %u HTTP routes...\n", (unsigned)ROUTE_COUNT);
+    fflush(stdout);
+    SOLAR_OS_LOGI("file_server", "registering %u routes...", (unsigned)ROUTE_COUNT);
+    esp_err_t route_err = ESP_OK;
     for (size_t i = 0; i < ROUTE_COUNT; i++) {
-        (void)solar_os_http_server_register_route(&routes[i]);
+        route_err = solar_os_http_server_register_route(&routes[i]);
+        if (route_err != ESP_OK) {
+            printf("[FILE-SERVER] ERROR: route[%u] (%s %s) failed: %s\n",
+                   (unsigned)i, routes[i].method == HTTP_GET ? "GET" : "POST",
+                   routes[i].uri, esp_err_to_name(route_err));
+            fflush(stdout);
+            SOLAR_OS_LOGE("file_server", "route[%u] register failed: %s",
+                          (unsigned)i, esp_err_to_name(route_err));
+            (void)solar_os_http_server_unregister_owner("file_server");
+            break;
+        }
     }
-    fserver.running = true;
+    fserver.running = (route_err == ESP_OK);
+    if (fserver.running) {
+        printf("[FILE-SERVER] SUCCESS: File server running at http://%s/\n", fserver.ip_str);
+        fflush(stdout);
+        SOLAR_OS_LOGI("file_server", "server started OK — port=80 ip=%s", fserver.ip_str);
+    } else {
+        printf("[FILE-SERVER] FAILED to start file server: %s\n", esp_err_to_name(route_err));
+        fflush(stdout);
+        SOLAR_OS_LOGE("file_server", "server FAILED to start: %s", esp_err_to_name(route_err));
+        strlcpy(fserver.ip_str, "Server failed to start!", sizeof(fserver.ip_str));
+    }
 
     file_server_render(ctx);
     return ESP_OK;

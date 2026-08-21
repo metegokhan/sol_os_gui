@@ -769,6 +769,17 @@ static bool gameboy_event(solar_os_context_t *ctx,
     const solar_os_input_key_event_t *key = &event->data.key;
     if (key->action == SOLAR_OS_INPUT_KEY_PRESS) {
       const uint8_t ch = key->key;
+      if (ch == SOLAR_OS_KEY_F5) {
+        if (gameboy_write_save() == ESP_OK) {
+           solar_os_context_set_status_message(ctx, "Game Quick Saved");
+        }
+        return true;
+      }
+      if (ch == SOLAR_OS_KEY_F7) {
+        gameboy_load_save();
+        solar_os_context_set_status_message(ctx, "Game Quick Loaded");
+        return true;
+      }
       if (key->physical_key == SOLAR_OS_INPUT_PHYSICAL_NONE ||
           ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE ||
           ch == 'q' || ch == 'p' || ch == 'r') {
