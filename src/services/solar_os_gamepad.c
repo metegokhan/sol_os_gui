@@ -193,6 +193,23 @@ void solar_os_gamepad_process_report(const uint8_t *data, uint16_t length)
         }
     }
 
+    /* Merge Left Joystick into D-Pad if beyond deadzone (50) */
+    if (cur.stick_ly < -50) cur.dpad_up = true;
+    if (cur.stick_ly > 50) cur.dpad_down = true;
+    if (cur.stick_lx < -50) cur.dpad_left = true;
+    if (cur.stick_lx > 50) cur.dpad_right = true;
+
+    /* Right Joystick Custom Buttons */
+    bool rstick_up = (cur.stick_ry < -50);
+    bool rstick_down = (cur.stick_ry > 50);
+    bool rstick_left = (cur.stick_rx < -50);
+    bool rstick_right = (cur.stick_rx > 50);
+
+    bool prev_rstick_up = (prev_pad_state.stick_ry < -50);
+    bool prev_rstick_down = (prev_pad_state.stick_ry > 50);
+    bool prev_rstick_left = (prev_pad_state.stick_rx < -50);
+    bool prev_rstick_right = (prev_pad_state.stick_rx > 50);
+
     /* -------------------------------------------------------------
      * Dispatch State Changes to Solar OS Input Subsystem
      * ----------------------------------------------------------- */
@@ -207,6 +224,12 @@ void solar_os_gamepad_process_report(const uint8_t *data, uint16_t length)
     if (cur.dpad_down != prev.dpad_down) send_gamepad_key(2, SOLAR_OS_KEY_DOWN, cur.dpad_down);
     if (cur.dpad_left != prev.dpad_left) send_gamepad_key(3, SOLAR_OS_KEY_LEFT, cur.dpad_left);
     if (cur.dpad_right != prev.dpad_right) send_gamepad_key(4, SOLAR_OS_KEY_RIGHT, cur.dpad_right);
+
+    /* Right Stick -> Volume and Save/Load */
+    if (rstick_up != prev_rstick_up) send_gamepad_key(25, SOLAR_OS_KEY_AUDIO_VOLUME_UP, rstick_up);
+    if (rstick_down != prev_rstick_down) send_gamepad_key(26, SOLAR_OS_KEY_AUDIO_VOLUME_DOWN, rstick_down);
+    if (rstick_left != prev_rstick_left) send_gamepad_key(27, SOLAR_OS_KEY_F5, rstick_left);
+    if (rstick_right != prev_rstick_right) send_gamepad_key(28, SOLAR_OS_KEY_F7, rstick_right);
 
     /* Face Buttons: a:a, b:b, x:x, y:y */
     if (cur.btn_a != prev.btn_a) send_gamepad_key(5, 'a', cur.btn_a);
@@ -228,57 +251,7 @@ void solar_os_gamepad_process_report(const uint8_t *data, uint16_t length)
 /* Handle continuous analog stick navigation with pacing */
 void solar_os_gamepad_tick(uint32_t now_ms)
 {
-    portENTER_CRITICAL(&pad_lock);
-    int8_t lx = pad_state.stick_lx;
-    int8_t ly = pad_state.stick_ly;
-    int8_t rx = pad_state.stick_rx;
-    int8_t ry = pad_state.stick_ry;
-    bool conn = pad_state.connected;
-    portEXIT_CRITICAL(&pad_lock);
-
-    if (!conn) return;
-
-    /* 1. Sol Joystick: Yön Tuşları (Up/Down/Left/Right) */
-    static uint32_t next_left_stick_repeat_ms = 0;
-    if (now_ms >= next_left_stick_repeat_ms) {
-        if (ly < -STICK_DEADZONE) {
-            send_gamepad_key(21, SOLAR_OS_KEY_UP, true);
-            send_gamepad_key(21, SOLAR_OS_KEY_UP, false);
-            next_left_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
-        } else if (ly > STICK_DEADZONE) {
-            send_gamepad_key(22, SOLAR_OS_KEY_DOWN, true);
-            send_gamepad_key(22, SOLAR_OS_KEY_DOWN, false);
-            next_left_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
-        } else if (lx < -STICK_DEADZONE) {
-            send_gamepad_key(23, SOLAR_OS_KEY_LEFT, true);
-            send_gamepad_key(23, SOLAR_OS_KEY_LEFT, false);
-            next_left_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
-        } else if (lx > STICK_DEADZONE) {
-            send_gamepad_key(24, SOLAR_OS_KEY_RIGHT, true);
-            send_gamepad_key(24, SOLAR_OS_KEY_RIGHT, false);
-            next_left_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
-        }
-    }
-
-    /* 2. Sağ Joystick: Yukarı 'p', Aşağı 'n', Sağa VolUp, Sola VolDown */
-    static uint32_t next_right_stick_repeat_ms = 0;
-    if (now_ms >= next_right_stick_repeat_ms) {
-        if (ry < -STICK_DEADZONE) {
-            send_gamepad_key(25, 'p', true);
-            send_gamepad_key(25, 'p', false);
-            next_right_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
-        } else if (ry > STICK_DEADZONE) {
-            send_gamepad_key(26, 'n', true);
-            send_gamepad_key(26, 'n', false);
-            next_right_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
-        } else if (rx > STICK_DEADZONE) {
-            send_gamepad_key(27, SOLAR_OS_KEY_AUDIO_VOLUME_UP, true);
-            send_gamepad_key(27, SOLAR_OS_KEY_AUDIO_VOLUME_UP, false);
-            next_right_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
-        } else if (rx < -STICK_DEADZONE) {
-            send_gamepad_key(28, SOLAR_OS_KEY_AUDIO_VOLUME_DOWN, true);
-            send_gamepad_key(28, SOLAR_OS_KEY_AUDIO_VOLUME_DOWN, false);
-            next_right_stick_repeat_ms = now_ms + STICK_REPEAT_INTERVAL_MS;
-        }
-    }
+    /* Analog sticks are now processed in solar_os_gamepad_process_report 
+       as continuous button holds natively. No need for pulsed ticks. */
+    (void)now_ms;
 }

@@ -150,6 +150,9 @@ static bool task_internal_admitted(uint32_t stack_depth, solar_os_task_role_t ro
 #if SOLAR_OS_FREERTOS_EXTERNAL_MEMORY
 static bool task_external_admitted(uint32_t stack_depth, solar_os_task_role_t role)
 {
+    if (role == SOLAR_OS_TASK_ROLE_SYSTEM) {
+        return true;
+    }
     const uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     const uint32_t external_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     size_t internal_required = SOLAR_OS_TASK_INTERNAL_OVERHEAD_BYTES;

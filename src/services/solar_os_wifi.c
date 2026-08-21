@@ -39,6 +39,7 @@ static const char *TAG = "solar_os_wifi";
 typedef struct {
     char ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
     char password[SOLAR_OS_WIFI_PASSWORD_MAX];
+    bool disabled;
 } wifi_profile_t;
 
 static SemaphoreHandle_t wifi_mutex;
@@ -397,12 +398,17 @@ static esp_err_t wifi_save_profiles(void)
     for (size_t i = 0; ret == ESP_OK && i < SOLAR_OS_WIFI_PROFILE_MAX; i++) {
         char ssid_key[12];
         char password_key[12];
+        char dis_key[12];
         wifi_sta_nvs_key(ssid_key, sizeof(ssid_key), WIFI_STA_NVS_SSID_PREFIX, i);
         wifi_sta_nvs_key(password_key, sizeof(password_key), WIFI_STA_NVS_PASSWORD_PREFIX, i);
+        wifi_sta_nvs_key(dis_key, sizeof(dis_key), "dis", i);
         if (i < count) {
             ret = nvs_set_str(nvs, ssid_key, profiles[i].ssid);
             if (ret == ESP_OK) {
                 ret = nvs_set_str(nvs, password_key, profiles[i].password);
+            }
+            if (ret == ESP_OK) {
+                ret = nvs_set_u8(nvs, dis_key, profiles[i].disabled ? 1U : 0U);
             }
         } else {
             esp_err_t erase_ret = nvs_erase_key(nvs, ssid_key);
@@ -415,6 +421,7 @@ static esp_err_t wifi_save_profiles(void)
                 ret = erase_ret;
                 break;
             }
+            (void)nvs_erase_key(nvs, dis_key);
         }
     }
     if (ret == ESP_OK) {
@@ -454,11 +461,13 @@ static esp_err_t wifi_load_profiles(void)
     for (size_t i = 0; ret == ESP_OK && i < max_count; i++) {
         char ssid_key[12];
         char password_key[12];
+        char dis_key[12];
         char ssid[SOLAR_OS_WIFI_SSID_MAX + 1] = {0};
         char password[SOLAR_OS_WIFI_PASSWORD_MAX] = {0};
         size_t len = sizeof(ssid);
         wifi_sta_nvs_key(ssid_key, sizeof(ssid_key), WIFI_STA_NVS_SSID_PREFIX, i);
         wifi_sta_nvs_key(password_key, sizeof(password_key), WIFI_STA_NVS_PASSWORD_PREFIX, i);
+        wifi_sta_nvs_key(dis_key, sizeof(dis_key), "dis", i);
 
         esp_err_t item_ret = nvs_get_str(nvs, ssid_key, ssid, &len);
         if (item_ret == ESP_ERR_NVS_NOT_FOUND) {
@@ -478,9 +487,16 @@ static esp_err_t wifi_load_profiles(void)
             break;
         }
 
+        uint8_t dis_val = 0;
+        bool is_dis = false;
+        if (nvs_get_u8(nvs, dis_key, &dis_val) == ESP_OK) {
+            is_dis = (dis_val != 0);
+        }
+
         if (wifi_validate_station_settings(ssid, password) == ESP_OK) {
             strlcpy(profiles[count].ssid, ssid, sizeof(profiles[count].ssid));
             strlcpy(profiles[count].password, password, sizeof(profiles[count].password));
+            profiles[count].disabled = is_dis;
             count++;
         }
     }
@@ -642,6 +658,7 @@ esp_err_t solar_os_wifi_sync_sd_file(void)
     if (f != NULL) {
         char line[160];
         size_t loaded = 0;
+        bool cleared = false;
         while (fgets(line, sizeof(line), f) != NULL) {
             char *p = line;
             while (*p == ' ' || *p == '\t') p++;
@@ -671,13 +688,20 @@ esp_err_t solar_os_wifi_sync_sd_file(void)
             }
 
             if (ssid[0] != '\0' && wifi_validate_station_settings(ssid, pass) == ESP_OK) {
+                if (!cleared) {
+                    /* Wipe old NVS profiles on first valid SD line so SD is source of truth */
+                    wifi_lock();
+                    wifi_clear_profiles_locked();
+                    wifi_unlock();
+                    cleared = true;
+                }
                 wifi_upsert_profile(ssid, pass);
                 loaded++;
             }
         }
         fclose(f);
         if (loaded > 0) {
-            SOLAR_OS_LOGI(TAG, "loaded %u Wi-Fi profile(s) from %s", (unsigned)loaded, file_path);
+            SOLAR_OS_LOGI(TAG, "loaded %u Wi-Fi profile(s) from %s (previous profiles cleared)", (unsigned)loaded, file_path);
         }
     } else {
         solar_os_wifi_save_to_sd_file();
@@ -721,8 +745,11 @@ static esp_err_t wifi_select_saved_profile(wifi_profile_t *selected)
     size_t count = 0;
 
     wifi_lock();
-    count = wifi_profile_count;
-    memcpy(profiles, wifi_profiles, sizeof(profiles));
+    for (size_t i = 0; i < wifi_profile_count; i++) {
+        if (!wifi_profiles[i].disabled) {
+            profiles[count++] = wifi_profiles[i];
+        }
+    }
     wifi_unlock();
 
     if (count == 0) {
@@ -760,24 +787,19 @@ static esp_err_t wifi_select_saved_profile(wifi_profile_t *selected)
         return ESP_OK;
     }
 
-    int best_index = -1;
-    int8_t best_rssi = INT8_MIN;
-    for (uint16_t record_index = 0; record_index < record_count; record_index++) {
-        char ssid[SOLAR_OS_WIFI_SSID_MAX + 1] = {0};
-        wifi_copy_ssid(ssid, sizeof(ssid), records[record_index].ssid, sizeof(records[record_index].ssid));
-        if (ssid[0] == '\0') {
-            continue;
-        }
-        for (size_t profile_index = 0; profile_index < count; profile_index++) {
-            if (strcmp(profiles[profile_index].ssid, ssid) == 0 &&
-                (best_index < 0 || records[record_index].rssi > best_rssi)) {
-                best_index = (int)profile_index;
-                best_rssi = records[record_index].rssi;
+    /* Connect in priority order (#0 first, then #1, etc.) */
+    for (size_t profile_index = 0; profile_index < count; profile_index++) {
+        for (uint16_t record_index = 0; record_index < record_count; record_index++) {
+            char ssid[SOLAR_OS_WIFI_SSID_MAX + 1] = {0};
+            wifi_copy_ssid(ssid, sizeof(ssid), records[record_index].ssid, sizeof(records[record_index].ssid));
+            if (ssid[0] != '\0' && strcmp(profiles[profile_index].ssid, ssid) == 0) {
+                *selected = profiles[profile_index];
+                return ESP_OK;
             }
         }
     }
 
-    *selected = profiles[best_index >= 0 ? (size_t)best_index : 0];
+    *selected = profiles[0];
     return ESP_OK;
 }
 
@@ -1305,8 +1327,12 @@ static void wifi_event_handler(void *arg,
             if (event != NULL && event->ssid_len > 0) {
                 wifi_copy_ssid(wifi_ssid, sizeof(wifi_ssid), event->ssid, event->ssid_len);
             }
-            wifi_state = wifi_started ? SOLAR_OS_WIFI_STATE_DISCONNECTED : SOLAR_OS_WIFI_STATE_OFF;
-            const bool should_reconnect = wifi_started && wifi_sta_enabled && !wifi_suspended && wifi_has_saved_config;
+            const bool is_scanning = (wifi_state == SOLAR_OS_WIFI_STATE_SCANNING);
+            if (!is_scanning) {
+                wifi_state = wifi_started ? SOLAR_OS_WIFI_STATE_DISCONNECTED : SOLAR_OS_WIFI_STATE_OFF;
+            }
+            const bool should_reconnect = wifi_started && wifi_sta_enabled && !wifi_suspended &&
+                                          wifi_has_saved_config && !is_scanning;
             wifi_unlock();
 
             if (should_reconnect) {
@@ -2137,9 +2163,20 @@ esp_err_t solar_os_wifi_scan(solar_os_wifi_ap_t *aps, size_t max_aps, size_t *fo
     wifi_lock();
     const solar_os_wifi_state_t previous_state = wifi_state;
     wifi_state = SOLAR_OS_WIFI_STATE_SCANNING;
+    const bool was_connected = wifi_connected && wifi_has_ip;
     wifi_unlock();
 
+    if (!was_connected) {
+        (void)esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
     ret = esp_wifi_scan_start(NULL, true);
+    if (ret == ESP_ERR_WIFI_STATE) {
+        (void)esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(100));
+        ret = esp_wifi_scan_start(NULL, true);
+    }
     if (ret != ESP_OK) {
         wifi_lock();
         wifi_state = previous_state;
@@ -2374,4 +2411,170 @@ void solar_os_wifi_get_status_text(char *buffer, size_t len)
     } else {
         strlcpy(buffer, solar_os_wifi_state_name(status.state), len);
     }
+}
+
+esp_err_t solar_os_wifi_get_saved_entries(solar_os_wifi_saved_entry_t *entries, size_t max_entries, size_t *count)
+{
+    if (entries == NULL || count == NULL || max_entries == 0) return ESP_ERR_INVALID_ARG;
+    *count = 0;
+
+    /* 1. Add NVS profiles */
+    wifi_lock();
+    size_t nvs_cnt = wifi_profile_count;
+    for (size_t i = 0; i < nvs_cnt && *count < max_entries; i++) {
+        strlcpy(entries[*count].ssid, wifi_profiles[i].ssid, sizeof(entries[*count].ssid));
+        strlcpy(entries[*count].password, wifi_profiles[i].password, sizeof(entries[*count].password));
+        entries[*count].enabled = !wifi_profiles[i].disabled;
+        entries[*count].is_sd = false;
+        (*count)++;
+    }
+    wifi_unlock();
+
+    /* 2. Add SD card profiles */
+    const char *mount = solar_os_storage_sd_is_mounted() ? solar_os_storage_sd_mount_point() :
+        (solar_os_storage_flash_is_mounted() ? solar_os_storage_flash_mount_point() : "/sdcard");
+    if (mount != NULL) {
+        char file_path[128];
+        snprintf(file_path, sizeof(file_path), "%s/saved.wifi", mount);
+        FILE *f = fopen(file_path, "r");
+        if (f == NULL) {
+            snprintf(file_path, sizeof(file_path), "%s/wifi.conf", mount);
+            f = fopen(file_path, "r");
+        }
+        if (f != NULL) {
+            char line[160];
+            while (fgets(line, sizeof(line), f) != NULL && *count < max_entries) {
+                char *p = line;
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p == '#' || *p == '\r' || *p == '\n' || *p == '\0') continue;
+                char *end = p + strlen(p) - 1;
+                while (end >= p && (*end == '\r' || *end == '\n' || *end == ' ' || *end == '\t')) {
+                    *end = '\0';
+                    end--;
+                }
+                if (*p == '\0') continue;
+
+                char *sep = strchr(p, ',');
+                if (sep == NULL) sep = strchr(p, ':');
+                if (sep == NULL) sep = strchr(p, '=');
+
+                char ssid[SOLAR_OS_WIFI_SSID_MAX + 1] = {0};
+                char pass[SOLAR_OS_WIFI_PASSWORD_MAX] = {0};
+                if (sep != NULL) {
+                    *sep = '\0';
+                    strlcpy(ssid, p, sizeof(ssid));
+                    strlcpy(pass, sep + 1, sizeof(pass));
+                } else {
+                    strlcpy(ssid, p, sizeof(ssid));
+                }
+
+                if (ssid[0] != '\0') {
+                    bool already = false;
+                    for (size_t k = 0; k < *count; k++) {
+                        if (strcmp(entries[k].ssid, ssid) == 0) {
+                            already = true;
+                            break;
+                        }
+                    }
+                    if (!already) {
+                        strlcpy(entries[*count].ssid, ssid, sizeof(entries[*count].ssid));
+                        strlcpy(entries[*count].password, pass, sizeof(entries[*count].password));
+                        entries[*count].enabled = true;
+                        entries[*count].is_sd = true;
+                        (*count)++;
+                    }
+                }
+            }
+            fclose(f);
+        }
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t solar_os_wifi_move_profile(size_t from_index, size_t to_index)
+{
+    wifi_lock();
+    if (from_index >= wifi_profile_count || to_index >= wifi_profile_count || from_index == to_index) {
+        wifi_unlock();
+        return ESP_ERR_INVALID_ARG;
+    }
+    wifi_profile_t temp = wifi_profiles[from_index];
+    if (from_index < to_index) {
+        memmove(&wifi_profiles[from_index], &wifi_profiles[from_index + 1], (to_index - from_index) * sizeof(wifi_profile_t));
+    } else {
+        memmove(&wifi_profiles[to_index + 1], &wifi_profiles[to_index], (from_index - to_index) * sizeof(wifi_profile_t));
+    }
+    wifi_profiles[to_index] = temp;
+    wifi_refresh_saved_config_locked();
+    wifi_unlock();
+
+    return wifi_save_profiles();
+}
+
+esp_err_t solar_os_wifi_toggle_profile(const char *ssid)
+{
+    if (ssid == NULL || ssid[0] == '\0') return ESP_ERR_INVALID_ARG;
+    wifi_lock();
+    int idx = wifi_find_profile_index_locked(ssid);
+    if (idx < 0) {
+        wifi_unlock();
+        return ESP_ERR_NOT_FOUND;
+    }
+    wifi_profiles[idx].disabled = !wifi_profiles[idx].disabled;
+    wifi_unlock();
+
+    return wifi_save_profiles();
+}
+
+esp_err_t solar_os_wifi_delete_sd_entry(const char *ssid)
+{
+    if (ssid == NULL || ssid[0] == '\0') return ESP_ERR_INVALID_ARG;
+    const char *mount = solar_os_storage_sd_is_mounted() ? solar_os_storage_sd_mount_point() :
+        (solar_os_storage_flash_is_mounted() ? solar_os_storage_flash_mount_point() : "/sdcard");
+    if (mount == NULL) return ESP_ERR_NOT_FOUND;
+
+    char file_path[128];
+    snprintf(file_path, sizeof(file_path), "%s/saved.wifi", mount);
+    FILE *f = fopen(file_path, "r");
+    if (f == NULL) {
+        snprintf(file_path, sizeof(file_path), "%s/wifi.conf", mount);
+        f = fopen(file_path, "r");
+    }
+    if (f == NULL) return ESP_ERR_NOT_FOUND;
+
+    char lines[16][160];
+    size_t line_cnt = 0;
+    char line[160];
+    while (fgets(line, sizeof(line), f) != NULL && line_cnt < 16) {
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == '\r' || *p == '\n' || *p == '\0') continue;
+        char *sep = strchr(p, ',');
+        if (sep == NULL) sep = strchr(p, ':');
+        if (sep == NULL) sep = strchr(p, '=');
+        char s[SOLAR_OS_WIFI_SSID_MAX + 1] = {0};
+        if (sep != NULL) {
+            size_t slen = (size_t)(sep - p);
+            if (slen > SOLAR_OS_WIFI_SSID_MAX) slen = SOLAR_OS_WIFI_SSID_MAX;
+            memcpy(s, p, slen);
+            s[slen] = '\0';
+        } else {
+            strlcpy(s, p, sizeof(s));
+        }
+        if (strcmp(s, ssid) != 0) {
+            strlcpy(lines[line_cnt++], line, sizeof(lines[0]));
+        }
+    }
+    fclose(f);
+
+    FILE *out = fopen(file_path, "w");
+    if (out == NULL) return ESP_FAIL;
+    fputs("# SolarOS Saved Wi-Fi Networks\n", out);
+    for (size_t i = 0; i < line_cnt; i++) {
+        fputs(lines[i], out);
+        fputc('\n', out);
+    }
+    fclose(out);
+    return ESP_OK;
 }

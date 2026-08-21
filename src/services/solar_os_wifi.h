@@ -73,6 +73,15 @@ typedef struct {
     bool preferred;
 } solar_os_wifi_profile_t;
 
+#define SOLAR_OS_WIFI_SAVED_MAX 10
+
+typedef struct {
+    char ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
+    char password[SOLAR_OS_WIFI_PASSWORD_MAX];
+    bool enabled;
+    bool is_sd;
+} solar_os_wifi_saved_entry_t;
+
 esp_err_t solar_os_wifi_init(void);
 bool solar_os_wifi_enabled_for_current_boot(void);
 bool solar_os_wifi_enabled_for_next_boot(void);
@@ -103,5 +112,9 @@ const char *solar_os_wifi_state_name(solar_os_wifi_state_t state);
 esp_err_t solar_os_wifi_sync_sd_file(void);
 esp_err_t solar_os_wifi_save_to_sd_file(void);
 esp_err_t solar_os_wifi_auto_connect(void);
+esp_err_t solar_os_wifi_get_saved_entries(solar_os_wifi_saved_entry_t *entries, size_t max_entries, size_t *count);
+esp_err_t solar_os_wifi_move_profile(size_t from_index, size_t to_index);
+esp_err_t solar_os_wifi_toggle_profile(const char *ssid);
+esp_err_t solar_os_wifi_delete_sd_entry(const char *ssid);
 
 

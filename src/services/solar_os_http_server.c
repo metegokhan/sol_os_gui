@@ -6,6 +6,7 @@
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
 #include "solar_os_log.h"
 #include "solar_os_task.h"
 
@@ -136,6 +137,17 @@ static esp_err_t dispatch_request(httpd_req_t *req)
         return ESP_ERR_INVALID_ARG;
     }
 
+    printf("[HTTP-SERVER] Incoming: %s %s\n",
+           req->method == HTTP_GET  ? "GET"  :
+           req->method == HTTP_POST ? "POST" : "OTHER",
+           req->uri);
+    fflush(stdout);
+
+    SOLAR_OS_LOGI(TAG, ">> %s %s",
+                  req->method == HTTP_GET  ? "GET"  :
+                  req->method == HTTP_POST ? "POST" : "OTHER",
+                  req->uri);
+
     const size_t uri_len = request_path_len(req->uri);
     solar_os_http_route_handler_t handler = NULL;
     void *user = NULL;
@@ -154,11 +166,21 @@ static esp_err_t dispatch_request(httpd_req_t *req)
     portEXIT_CRITICAL(&http_server_lock);
 
     if (handler == NULL) {
+        printf("[HTTP-SERVER] No route found for URI: %s (404)\n", req->uri);
+        fflush(stdout);
+        SOLAR_OS_LOGW(TAG, "no route for %s — 404", req->uri);
         return httpd_resp_send_404(req);
     }
 
+    printf("[HTTP-SERVER] Dispatching to handler for slot[%d] uri=%s owner=%s\n",
+           route_index, route_slots[route_index].uri, route_slots[route_index].owner);
+    fflush(stdout);
+
     esp_err_t ret = ESP_OK;
     if (!request_is_authorized(req, auth)) {
+        printf("[HTTP-SERVER] Unauthorized request for %s (401)\n", req->uri);
+        fflush(stdout);
+        SOLAR_OS_LOGW(TAG, "unauthorized request for %s", req->uri);
         (void)httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer");
         (void)httpd_resp_set_hdr(req, "Cache-Control", "no-store");
         ret = httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "authentication required");
@@ -196,20 +218,32 @@ static esp_err_t start_server(void)
     const bool already_running = http_server != NULL;
     portEXIT_CRITICAL(&http_server_lock);
     if (already_running) {
+        printf("[HTTP-SERVER] start_server: already running on port %u\n", (unsigned)http_server_listen_port);
+        fflush(stdout);
         return ESP_OK;
     }
+
+    solar_os_task_admission_status_t mem;
+    solar_os_task_get_admission_status(&mem);
+    printf("[HTTP-SERVER] start_server: internal free=%u, psram free=%u, stack need=%u\n",
+           (unsigned)mem.internal_free_bytes, (unsigned)mem.external_free_bytes, (unsigned)HTTP_SERVER_STACK_SIZE);
+    fflush(stdout);
 
     solar_os_task_managed_admission_t admission;
     if (!solar_os_task_admit_managed("http-server",
                                      HTTP_SERVER_STACK_SIZE,
-                                     SOLAR_OS_TASK_ROLE_BACKGROUND,
-                                     false,
+                                     SOLAR_OS_TASK_ROLE_SYSTEM,
+                                     false, /* internal SRAM stack required for SPI flash cache safety */
                                      &admission)) {
+        printf("[HTTP-SERVER] ERROR: Task admission denied (not enough memory for stack)\n");
+        fflush(stdout);
+        SOLAR_OS_LOGE(TAG, "admission denied: not enough memory for http-server stack (%u bytes)",
+                      (unsigned)HTTP_SERVER_STACK_SIZE);
         return ESP_ERR_NO_MEM;
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.stack_size = 8192;
+    config.stack_size = HTTP_SERVER_STACK_SIZE;
     config.max_open_sockets = 4;
     config.max_req_hdr_len = 1024;
     config.max_uri_len = 1024;
@@ -220,10 +254,13 @@ static esp_err_t start_server(void)
     esp_err_t ret = httpd_start(&server, &config);
     solar_os_task_note_managed_result("http-server",
                                       HTTP_SERVER_STACK_SIZE,
-                                      SOLAR_OS_TASK_ROLE_BACKGROUND,
+                                      SOLAR_OS_TASK_ROLE_SYSTEM,
                                       &admission,
                                       ret == ESP_OK);
     if (ret != ESP_OK) {
+        printf("[HTTP-SERVER] ERROR: httpd_start failed: %s (0x%x)\n", esp_err_to_name(ret), (unsigned)ret);
+        fflush(stdout);
+        SOLAR_OS_LOGE(TAG, "httpd_start failed: %s (0x%x)", esp_err_to_name(ret), (unsigned)ret);
         return ret;
     }
 
@@ -242,6 +279,8 @@ static esp_err_t start_server(void)
         ret = httpd_register_uri_handler(server, &post);
     }
     if (ret != ESP_OK) {
+        printf("[HTTP-SERVER] ERROR: httpd_register_uri_handler failed: %s\n", esp_err_to_name(ret));
+        fflush(stdout);
         (void)httpd_stop(server);
         return ret;
     }
@@ -255,6 +294,8 @@ static esp_err_t start_server(void)
     portEXIT_CRITICAL(&http_server_lock);
     memset(token, 0, sizeof(token));
 
+    printf("[HTTP-SERVER] SUCCESS: HTTP server listening on port %u\n", (unsigned)config.server_port);
+    fflush(stdout);
     SOLAR_OS_LOGI(TAG, "started on port %u", (unsigned)config.server_port);
     return ESP_OK;
 }
@@ -279,8 +320,17 @@ esp_err_t solar_os_http_server_register_route(const solar_os_http_route_t *route
         route->uri[0] != '/' ||
         strnlen(route->uri, SOLAR_OS_HTTP_ROUTE_URI_MAX) >= SOLAR_OS_HTTP_ROUTE_URI_MAX ||
         route->handler == NULL) {
+        SOLAR_OS_LOGE(TAG, "register_route: invalid args (owner=%s uri=%s)",
+                      route && route->owner ? route->owner : "NULL",
+                      route && route->uri   ? route->uri   : "NULL");
         return ESP_ERR_INVALID_ARG;
     }
+
+    SOLAR_OS_LOGI(TAG, "register_route: owner=%s  %s %s (prefix=%d)",
+                  route->owner,
+                  route->method == HTTP_GET ? "GET" : route->method == HTTP_POST ? "POST" : "?",
+                  route->uri,
+                  (int)route->prefix);
 
     int free_index = -1;
     portENTER_CRITICAL(&http_server_lock);
@@ -289,6 +339,9 @@ esp_err_t solar_os_http_server_register_route(const solar_os_http_route_t *route
         if (slot->active &&
             slot->method == route->method &&
             strcmp(slot->uri, route->uri) == 0) {
+            /* URI already registered by another owner — update handler in-place */
+            SOLAR_OS_LOGW(TAG, "register_route: URI %s already owned by '%s', overwriting handler",
+                          route->uri, slot->owner);
             slot->auth = route->auth;
             slot->handler = route->handler;
             slot->user = route->user;
@@ -301,6 +354,7 @@ esp_err_t solar_os_http_server_register_route(const solar_os_http_route_t *route
     }
     if (free_index < 0) {
         portEXIT_CRITICAL(&http_server_lock);
+        SOLAR_OS_LOGE(TAG, "register_route: route table full (%d slots)", HTTP_SERVER_ROUTE_MAX);
         return ESP_ERR_NO_MEM;
     }
 
@@ -316,8 +370,10 @@ esp_err_t solar_os_http_server_register_route(const solar_os_http_route_t *route
     slot->user = route->user;
     portEXIT_CRITICAL(&http_server_lock);
 
+    SOLAR_OS_LOGI(TAG, "register_route: slot[%d] assigned, starting server...", free_index);
     const esp_err_t ret = start_server();
     if (ret != ESP_OK) {
+        SOLAR_OS_LOGE(TAG, "register_route: start_server failed: %s", esp_err_to_name(ret));
         portENTER_CRITICAL(&http_server_lock);
         memset(slot, 0, sizeof(*slot));
         portEXIT_CRITICAL(&http_server_lock);
