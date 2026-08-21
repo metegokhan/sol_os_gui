@@ -1122,4 +1122,5 @@ const solar_os_app_t solar_os_ssh_app = {
     .state_size = sizeof(ssh_app_cold_state_t),
     .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
     .worker_stack_bytes = SOLAR_OS_SSH_TASK_STACK,
+    .worker_stack_external = true, /* stack in PSRAM; internal RAM is tight */
 };

@@ -538,4 +538,5 @@ const solar_os_app_t solar_os_scp_app = {
     .state_size = sizeof(scp_app_cold_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = SOLAR_OS_SCP_TASK_STACK,
+    .worker_stack_external = true, /* stack in PSRAM; internal RAM is tight */
 };

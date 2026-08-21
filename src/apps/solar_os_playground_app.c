@@ -1322,4 +1322,5 @@ const solar_os_app_t solar_os_playground_app = {
     .state_release_ready = playground_state_release_ready,
     .state_release_cleanup = playground_cleanup_tui,
     .worker_stack_bytes = PLAYGROUND_APP_TASK_STACK,
+    .worker_stack_external = true, /* 16KB stack in PSRAM; internal RAM is tight */
 };

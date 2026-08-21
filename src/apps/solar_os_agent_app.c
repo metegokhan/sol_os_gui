@@ -1182,4 +1182,5 @@ const solar_os_app_t solar_os_agent_app = {
     .state_release_ready = agent_app_state_release_ready,
     .state_release_cleanup = agent_app_state_release_cleanup,
     .worker_stack_bytes = AGENT_APP_TASK_STACK,
+    .worker_stack_external = true, /* 16KB stack in PSRAM; internal RAM is tight */
 };
