@@ -66,6 +66,7 @@
 #include "solar_os_gfx.h"
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_gpio.h"
+#include "solar_os_capture.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
 #include "solar_os_hid.h"
@@ -1750,6 +1751,66 @@ static mp_obj_t solaros_gpio_release(mp_obj_t pin_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_gpio_release_obj, solaros_gpio_release);
+
+/* Raw pulse capture / replay (IR remotes, 433 MHz OOK) via RMT. */
+static mp_obj_t solaros_capture_record(size_t n_args, const mp_obj_t *args)
+{
+    const int pin = python_gpio_pin_from_obj(args[0]);
+    const uint32_t timeout_ms = n_args >= 2 ? (uint32_t)mp_obj_get_int(args[1]) : 3000U;
+    const uint32_t idle_us = n_args >= 3 ? (uint32_t)mp_obj_get_int(args[2]) : 0U;
+
+    /* GC-managed (not static .bss) so it doesn't hold scarce internal RAM. */
+    solar_os_capture_pulse_t *pulses = m_new(solar_os_capture_pulse_t, 512);
+    size_t count = 0;
+    const esp_err_t err = solar_os_capture_record(pin, timeout_ms, idle_us, pulses,
+                                                  512, &count);
+    if (err == ESP_ERR_TIMEOUT || err == ESP_ERR_NOT_FOUND) {
+        return mp_obj_new_list(0, NULL); /* nothing arrived */
+    }
+    python_check_esp(err);
+
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (size_t i = 0; i < count; i++) {
+        mp_obj_t pair[2] = {
+            mp_obj_new_int(pulses[i].level),
+            mp_obj_new_int((mp_int_t)pulses[i].duration_us),
+        };
+        mp_obj_list_append(list, mp_obj_new_tuple(2, pair));
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_capture_record_obj, 1, 3, solaros_capture_record);
+
+static mp_obj_t solaros_capture_send(size_t n_args, const mp_obj_t *args)
+{
+    const int pin = python_gpio_pin_from_obj(args[0]);
+    const uint32_t carrier_hz = n_args >= 3 ? (uint32_t)mp_obj_get_int(args[2]) : 0U;
+
+    size_t len = 0;
+    mp_obj_t *items = NULL;
+    mp_obj_get_array(args[1], &len, &items);
+    if (len == 0U) {
+        return mp_const_none;
+    }
+    if (len > 512U) {
+        len = 512U;
+    }
+    /* GC-managed (not static .bss) so it doesn't hold scarce internal RAM. */
+    solar_os_capture_pulse_t *pulses = m_new(solar_os_capture_pulse_t, len);
+    for (size_t i = 0; i < len; i++) {
+        size_t plen = 0;
+        mp_obj_t *pair = NULL;
+        mp_obj_get_array(items[i], &plen, &pair);
+        if (plen < 2U) {
+            mp_raise_ValueError(MP_ERROR_TEXT("each pulse must be [level, us]"));
+        }
+        pulses[i].level = (uint8_t)(mp_obj_get_int(pair[0]) & 1);
+        pulses[i].duration_us = (uint32_t)mp_obj_get_int(pair[1]);
+    }
+    python_check_esp(solar_os_capture_send(pin, pulses, len, carrier_hz));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_capture_send_obj, 2, 3, solaros_capture_send);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
@@ -5316,6 +5377,11 @@ static void python_register_solaros_module(void)
     python_module_store(gpio, "read", MP_OBJ_FROM_PTR(&solaros_gpio_read_obj));
     python_module_store(gpio, "write", MP_OBJ_FROM_PTR(&solaros_gpio_write_obj));
     python_module_store(gpio, "release", MP_OBJ_FROM_PTR(&solaros_gpio_release_obj));
+
+    mp_obj_t capture = python_new_submodule(module, "capture");
+    python_module_store(capture, "record", MP_OBJ_FROM_PTR(&solaros_capture_record_obj));
+    python_module_store(capture, "send", MP_OBJ_FROM_PTR(&solaros_capture_send_obj));
+    python_module_store(capture, "IR_CARRIER", mp_obj_new_int(38000));
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
@@ -6865,5 +6931,6 @@ const solar_os_app_t solar_os_python_app = {
     .state_size = sizeof(python_cold_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = PYTHON_TASK_STACK,
+    .worker_stack_external = true, /* 16KB stack in PSRAM; internal RAM is tight */
     .requested_tick_interval_ms = python_requested_tick_interval_ms,
 };
