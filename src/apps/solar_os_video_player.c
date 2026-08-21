@@ -1048,4 +1048,5 @@ const solar_os_app_t solar_os_video_player_app = {
     .tick_interval_ms = 15U,
     .requested_tick_interval_ms = video_requested_tick_interval_ms,
     .worker_stack_bytes = VIDEO_STACK_SIZE,
+    .worker_stack_external = true, /* 16KB stack in PSRAM; internal RAM is tight */
 };

@@ -1945,6 +1945,56 @@ static bool recorder_event(solar_os_context_t *ctx,
                 recorder.redraw = true;
                 recorder_render(ctx);
             }
+            return true;
+        }
+
+        /* Transport buttons on the Record tab (mirrors the layout drawn in
+         * recorder_render_record_graphics): Record / Play / Pause / Stop. */
+        if (recorder.tab == RECORDER_TAB_RECORD && !recorder.editing_filename &&
+            recorder.browser_mode == RECORDER_BROWSER_NONE) {
+            const int width = (int)solar_os_gfx_width(gfx);
+            const int height = (int)solar_os_gfx_height(gfx);
+            const int gap = 5;
+            const int bw = (width - 5 * gap) / 4;
+            const int by = height - 25;
+            const int16_t px = event->data.click.x;
+            const int16_t py = event->data.click.y;
+            if (py >= by && py < by + 21) {
+                static const char keys[4] = { 'r', 'p', ' ', 's' };
+                for (int i = 0; i < 4; i++) {
+                    const int bx = gap * (i + 1) + bw * i;
+                    if (px >= bx && px < bx + bw) {
+                        recorder_handle_key(ctx, (uint8_t)keys[i]);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        /* Setup tab: tap a row to select it. Rows 0/1 (filename, folder) act
+         * like Enter; value rows change on a left-half / right-half tap. */
+        if (recorder.tab == RECORDER_TAB_SETUP && !recorder.editing_filename &&
+            recorder.browser_mode == RECORDER_BROWSER_NONE) {
+            const int width = (int)solar_os_gfx_width(gfx);
+            const int height = (int)solar_os_gfx_height(gfx);
+            const int list_y = RECORDER_HEADER_HEIGHT + 6;
+            const int row_height = (height - list_y - RECORDER_FOOTER_HEIGHT) /
+                                   (int)RECORDER_SETUP_ROWS;
+            const int16_t px = event->data.click.x;
+            const int16_t py = event->data.click.y;
+            if (row_height > 0 && py >= list_y) {
+                const int row = (py - list_y) / row_height;
+                if (row >= 0 && row < (int)RECORDER_SETUP_ROWS) {
+                    recorder.setup_cursor = (size_t)row;
+                    if (row == 0 || row == 1) {
+                        recorder_handle_key(ctx, (uint8_t)'\r');
+                    } else {
+                        recorder_handle_key(ctx,
+                            (uint8_t)(px < width / 2 ? SOLAR_OS_KEY_LEFT : SOLAR_OS_KEY_RIGHT));
+                    }
+                    return true;
+                }
+            }
         }
         return true;
     }
