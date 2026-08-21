@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_err.h"
 #include "esp_system.h"
@@ -26,6 +27,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_task.h"
 #include "solar_os_time.h"
+#include "solar_os_storage.h"
 
 #define ESPROCESS_TAB_COUNT 4
 #define ESPROCESS_MAX_SESSIONS 8
@@ -603,6 +605,22 @@ static void draw_help_modal(solar_os_gfx_t *gfx)
     solar_os_gfx_text(gfx, hx + 40, hy + hh - 8, "Press [ESC], [Enter], [?] or click to close");
 }
 
+/* Footer chips for the active tab, shared by drawing and click hit-testing. */
+static size_t esprocess_build_footer(solar_os_appbar_shortcut_t *items, size_t max)
+{
+    size_t n = 0;
+    if (epstate.tab == ESPROCESS_TAB_SESSIONS) {
+        if (n < max) items[n++] = (solar_os_appbar_shortcut_t){ .key = 'G', .label = "Focus" };
+        if (n < max) items[n++] = (solar_os_appbar_shortcut_t){ .key = 'D', .label = "Terminate" };
+    } else if (epstate.tab == ESPROCESS_TAB_JOBS) {
+        if (n < max) items[n++] = (solar_os_appbar_shortcut_t){ .key = 'D', .label = "Start/Stop" };
+    }
+    if (n < max) items[n++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
+    if (n < max) items[n++] = (solar_os_appbar_shortcut_t){ .key = 'S', .label = "Save" };
+    if (n < max) items[n++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
+    return n;
+}
+
 static void esprocess_render(solar_os_context_t *ctx)
 {
     if (ctx == NULL) return;
@@ -654,25 +672,7 @@ static void esprocess_render(solar_os_context_t *ctx)
 
     /* 4. Draw Footer Action Bar */
     solar_os_appbar_shortcut_t shortcuts[SOLAR_OS_APPBAR_SHORTCUT_MAX];
-    size_t sc_count = 0;
-
-    if (epstate.tab == ESPROCESS_TAB_SESSIONS) {
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = 'G', .label = "Focus" };
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = 'D', .label = "Terminate" };
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
-    } else if (epstate.tab == ESPROCESS_TAB_TASKS) {
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
-    } else if (epstate.tab == ESPROCESS_TAB_JOBS) {
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = 'D', .label = "Start/Stop" };
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
-    } else {
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
-        shortcuts[sc_count++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
-    }
-
+    const size_t sc_count = esprocess_build_footer(shortcuts, SOLAR_OS_APPBAR_SHORTCUT_MAX);
     const solar_os_appbar_shortcuts_t footer = {
         .items = shortcuts,
         .count = sc_count,
@@ -693,6 +693,77 @@ static void set_notice(const char *msg)
         strlcpy(epstate.notice_msg, msg, sizeof(epstate.notice_msg));
         epstate.notice_until_ms = (uint32_t)(esp_timer_get_time() / 1000U) + 3000U;
     }
+}
+
+/* Writes the current snapshot (memory, tasks, sessions, services) to
+ * task_man_<date>.log on the default storage. */
+static void esprocess_save_dump(void)
+{
+    esprocess_refresh_data();
+
+    char rel[64];
+    const time_t t = time(NULL);
+    struct tm *lt = localtime(&t);
+    if (lt != NULL && lt->tm_year > 100) {
+        strftime(rel, sizeof(rel), "task_man_%Y%m%d_%H%M%S.log", lt);
+    } else {
+        snprintf(rel, sizeof(rel), "task_man_%llu.log",
+                 (unsigned long long)(esp_timer_get_time() / 1000000ULL));
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    if (solar_os_storage_default_path(rel, path, sizeof(path)) != ESP_OK) {
+        set_notice("Save failed: no storage path");
+        return;
+    }
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        set_notice("Save failed: cannot open file");
+        return;
+    }
+
+    solar_os_memory_status_t mem;
+    solar_os_memory_get_status(&mem);
+
+    fprintf(f, "SolarOS Task Manager snapshot\n");
+    if (lt != NULL && lt->tm_year > 100) {
+        fprintf(f, "Time: %04d-%02d-%02d %02d:%02d:%02d\n",
+                lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
+                lt->tm_hour, lt->tm_min, lt->tm_sec);
+    }
+    fprintf(f, "Internal SRAM: free=%u total=%u min_free=%u largest_free=%u\n",
+            (unsigned)mem.internal.free, (unsigned)mem.internal.total,
+            (unsigned)mem.internal.minimum_free, (unsigned)mem.internal.largest_free);
+    fprintf(f, "PSRAM:         free=%u total=%u min_free=%u largest_free=%u\n",
+            (unsigned)mem.external.free, (unsigned)mem.external.total,
+            (unsigned)mem.external.minimum_free, (unsigned)mem.external.largest_free);
+
+    fprintf(f, "\n== Tasks (%u) ==\n", (unsigned)epstate.task_count);
+    fprintf(f, "%-16s St Pri  CPU%%   StackFree\n", "Name");
+    for (size_t i = 0; i < epstate.task_count; i++) {
+        const esprocess_task_row_t *tk = &epstate.tasks[i];
+        fprintf(f, "%-16s %c  %3u  %3u.%u  %u\n",
+                tk->name, tk->state_char, (unsigned)tk->priority,
+                (unsigned)(tk->cpu_tenths / 10U), (unsigned)(tk->cpu_tenths % 10U),
+                (unsigned)tk->stack_free_bytes);
+    }
+
+    fprintf(f, "\n== Processes/Sessions (%u) ==\n", (unsigned)epstate.session_count);
+    for (size_t i = 0; i < epstate.session_count; i++) {
+        fprintf(f, "#%u  %s\n", (unsigned)epstate.sessions[i].id,
+                epstate.sessions[i].app_name);
+    }
+
+    fprintf(f, "\n== Services/Jobs (%u) ==\n", (unsigned)epstate.job_count);
+    for (size_t i = 0; i < epstate.job_count; i++) {
+        fprintf(f, "%s  state=%d\n", epstate.jobs[i].name, (int)epstate.jobs[i].state);
+    }
+
+    fclose(f);
+
+    char msg[96];
+    snprintf(msg, sizeof(msg), "Saved: %s", path);
+    set_notice(msg);
 }
 
 static void switch_to_selected_session(void)
@@ -872,23 +943,7 @@ static bool esprocess_event(solar_os_context_t *ctx, const solar_os_event_t *eve
 
         /* Check Footer buttons hit-test */
         solar_os_appbar_shortcut_t shortcuts_click[SOLAR_OS_APPBAR_SHORTCUT_MAX];
-        size_t sc_c = 0;
-        if (epstate.tab == ESPROCESS_TAB_SESSIONS) {
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = 'G', .label = "Focus" };
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = 'D', .label = "Terminate" };
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
-        } else if (epstate.tab == ESPROCESS_TAB_TASKS) {
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
-        } else if (epstate.tab == ESPROCESS_TAB_JOBS) {
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = 'D', .label = "Start/Stop" };
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
-        } else {
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = 'R', .label = "Refresh" };
-            shortcuts_click[sc_c++] = (solar_os_appbar_shortcut_t){ .key = '?', .label = "Help" };
-        }
+        const size_t sc_c = esprocess_build_footer(shortcuts_click, SOLAR_OS_APPBAR_SHORTCUT_MAX);
         const solar_os_appbar_shortcuts_t footer_click = {
             .items = shortcuts_click,
             .count = sc_c,
@@ -917,6 +972,9 @@ static bool esprocess_event(solar_os_context_t *ctx, const solar_os_event_t *eve
                 } else if (k == 'R' || k == 'Y') {
                     esprocess_refresh_data();
                     set_notice("Refreshed.");
+                    esprocess_render(ctx);
+                } else if (k == 'S') {
+                    esprocess_save_dump();
                     esprocess_render(ctx);
                 } else if (k == '?' || k == 'H') {
                     epstate.show_help = !epstate.show_help;
@@ -948,6 +1006,12 @@ static bool esprocess_event(solar_os_context_t *ctx, const solar_os_event_t *eve
 
         if (ch == '\t') {
             epstate.tab = (esprocess_tab_t)((epstate.tab + 1) % ESPROCESS_TAB_COUNT);
+            esprocess_render(ctx);
+            return true;
+        }
+
+        if (ch == 's' || ch == 'S') {
+            esprocess_save_dump();
             esprocess_render(ctx);
             return true;
         }
