@@ -90,7 +90,6 @@ The SolarOS ports and local adaptations of minimp3, stb_image, U8g2, and
 libwebp were integrated by nilseuropa.
 
 
-+++ README.md (修改后)
 # SolarOS GUI Fork
 
 This repository is a fork of [nilseuropa's wonderful SolarOS](https://github.com/nilseuropa/solar_os), with several additional features and applications.
