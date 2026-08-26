@@ -1,4 +1,3 @@
---- README.md (原始)
 # SolarOS
 
 SolarOS is a small ESP32 operating environment for pocket terminals,
